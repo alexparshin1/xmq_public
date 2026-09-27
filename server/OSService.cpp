@@ -13,6 +13,7 @@
 */
 
 #include "OSService.h"
+#include <csignal>
 
 using namespace std;
 using namespace sptk;
@@ -20,16 +21,49 @@ using namespace xmq;
 
 IServerController* OSService::m_controlledServer;
 std::atomic_bool   OSService::s_terminationRequested {false};
+std::atomic_int    OSService::s_terminationSignal {0};
 
-void OSService::requestTermination()
+// Stored from a signal handler, which is only safe for an atomic that never takes a lock.
+static_assert(std::atomic_int::is_always_lock_free);
+
+void OSService::requestTermination(const int signal)
 {
-    s_terminationRequested.store(true, std::memory_order_relaxed);
+    // The signal first: the service loop reads it once it has seen the flag.
+    s_terminationSignal.store(signal, std::memory_order_relaxed);
+    s_terminationRequested.store(true, std::memory_order_release);
 }
 
 bool OSService::terminationRequested()
 {
-    return s_terminationRequested.load(std::memory_order_relaxed);
+    return s_terminationRequested.load(std::memory_order_acquire);
 }
+
+int OSService::terminationSignal()
+{
+    return s_terminationSignal.load(std::memory_order_relaxed);
+}
+
+namespace {
+
+/// The signals main() installs a handler for, by name; anything else by number.
+String signalName(const int signal)
+{
+    switch (signal)
+    {
+        case SIGINT:
+            return "SIGINT";
+        case SIGTERM:
+            return "SIGTERM";
+#ifndef _WIN32
+        case SIGHUP:
+            return "SIGHUP";
+#endif
+        default:
+            return "signal " + to_string(signal);
+    }
+}
+
+} // namespace
 
 #ifdef _WIN32
 namespace {
@@ -185,6 +219,13 @@ void OSService::execute()
         while (!terminationRequested() && !m_controlledServer->isStopped(chrono::seconds(1)))
         {
             // Waiting until the server is stopped or termination is requested
+        }
+        // Said before the shutdown, so it is the line above "Server stopped." A clean stop with no
+        // reason beside it reads as the broker deciding to quit: on 2026-09-28 three restarts by
+        // needrestart during an AWS campaign looked exactly like that until systemd's journal was read.
+        if (const auto signal = terminationSignal(); signal != 0)
+        {
+            m_logger.info("Received " + signalName(signal) + " (" + to_string(signal) + "), stopping the server.");
         }
         m_controlledServer->stopService();
     }

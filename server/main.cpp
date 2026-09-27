@@ -38,7 +38,7 @@ void signalHandler(const int theSignal)
     // graceful shutdown ever stalls) and request termination. The actual shutdown — which takes
     // locks and joins threads — runs on the service thread, not here.
     (void) signal(theSignal, SIG_DFL);
-    OSService::requestTermination();
+    OSService::requestTermination(theSignal);
 }
 
 /**

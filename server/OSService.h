@@ -50,16 +50,24 @@ public:
     /**
      * @brief Request termination of the running service.
      *
-     * Async-signal-safe: only sets a lock-free atomic flag. The service loop observes it and
+     * Async-signal-safe: only stores to lock-free atomics. The service loop observes them and
      * performs the actual (lock-taking, thread-joining) shutdown on its own thread. Safe to call
      * from a signal handler.
+     *
+     * @param signal            The signal that asked for it, or 0 when no signal did. Logged by
+     *                          the service loop as the reason the server stopped.
      */
-    static void requestTermination();
+    static void requestTermination(int signal = 0);
 
     /**
      * @brief Whether termination has been requested via requestTermination().
      */
     static bool terminationRequested();
+
+    /**
+     * @brief The signal passed to requestTermination(), or 0 if none was.
+     */
+    static int terminationSignal();
 
     /**
      * @brief Execute service.
@@ -83,6 +91,7 @@ public:
 
 private:
     static std::atomic_bool s_terminationRequested; ///< Set by requestTermination(); polled by the service loop.
+    static std::atomic_int  s_terminationSignal;    ///< The signal that requested termination, 0 if none.
 
     sptk::Logger m_logger;       ///< External logger
     bool         m_runAsService; ///< Run-as-service flag

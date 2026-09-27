@@ -76,6 +76,10 @@ is waiting inside it.
   interface measures the tunnel, not the broker, and the runs it produces look like a slow server
   rather than a misdirected client. It now names the interface it will send from and warns when
   that interface is a tunnel (`tun`, `tap`, `wg`, `nordlynx`, `ppp`, `utun`).
+- **The log says which signal stopped the broker**: `Received SIGTERM (15), stopping the server.`,
+  the line before `Server stopped.` A clean stop with no reason beside it reads as the broker
+  deciding to quit - on an AWS campaign three restarts by `needrestart`, during unattended upgrades,
+  looked exactly like that until the system journal was read.
 
 ### Build
 
