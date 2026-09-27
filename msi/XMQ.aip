@@ -178,7 +178,6 @@
     <ROW File="EventLog.cpp" Component_="CMakeLists.txt" FileName="EventLog.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\event-log\EventLog.cpp" SelfReg="false"/>
     <ROW File="TopicGuard.cpp" Component_="TopicGuard.cpp" FileName="TOPICG~1.CPP|TopicGuard.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\topic-guard\TopicGuard.cpp" SelfReg="false"/>
     <ROW File="init_environment_aws.sh" Component_="init_environment_aws.sh" FileName="INIT_E~1.SH|init_environment_aws.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\init_environment_aws.sh" SelfReg="false"/>
-    <ROW File="init_environment_thinker10.sh" Component_="init_environment_aws.sh" FileName="INIT_E~2.SH|init_environment_thinker10.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\init_environment_thinker10.sh" SelfReg="false"/>
     <ROW File="preflight.sh" Component_="init_environment_aws.sh" FileName="PREFLI~1.SH|preflight.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\preflight.sh" SelfReg="false"/>
     <ROW File="mqtt.conf" Component_="mqtt.conf" FileName="MQTT~1.CON|mqtt.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\limits.d\mqtt.conf" SelfReg="false"/>
     <ROW File="nf_conntrack.conf" Component_="nf_conntrack.conf" FileName="NF_CON~1.CON|nf_conntrack.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\modules-load.d\nf_conntrack.conf" SelfReg="false"/>
