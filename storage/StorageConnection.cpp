@@ -1,0 +1,31 @@
+/*
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       XMQ Message QUEUE                                      ║
+╟──────────────────────────────────────────────────────────────────────────────╢
+║  copyright            © 1999-2026 by Alexey Parshin                          ║
+║  email                alexeyp@gmail.com                                      ║
+║  code review                                                                 ║
+╟──────────────────────────────────────────────────────────────────────────────╢
+║  This Source Code Form is subject to the terms of the Mozilla Public         ║
+║  License, v. 2.0. If a copy of the MPL was not distributed with this         ║
+║  file, You can obtain one at https://mozilla.org/MPL/2.0/.                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include "DummyDbConnection.h"
+#include "RedisConnection.h"
+
+using namespace std;
+using namespace xmq;
+
+shared_ptr<StorageConnection> StorageConnection::create(const sptk::SRedisConnect& redis, const bool reset)
+{
+    if (redis)
+    {
+        auto storageConnection = make_shared<RedisConnection>();
+        storageConnection->initialize(redis, reset);
+        return storageConnection;
+    }
+
+    return make_shared<DummyDbConnection>();
+}

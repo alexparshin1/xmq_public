@@ -1,0 +1,52 @@
+{
+  "name": "Fan-In 30K",
+  "type": "Fan-In",
+  "comments": [
+    "Reduced-rate variant of Fan-In-50K-500-50K-50K.json, for hosts that cannot sustain",
+    "50k msg/s. 30k publishers, 30k publish topics, 500 subscribers on one shared",
+    "subscription, 1 msg/s per publisher, so 30k/s in aggregate.",
+    "",
+    "publish_rate is an integer msg/s per publisher, so a lower aggregate rate is reached by",
+    "reducing the publisher count rather than the per-publisher rate. That also reduces the",
+    "topic count to 30k, since topics are one per publisher.",
+    "",
+    "Shared subscription filter and topic shape follow the Open MQTT Benchmark Suite's",
+    "sharesub case (see the 50K scenario for the reference and the MQTT3 rationale).",
+    "QoS 1, payload 16B, MQTT 3, 30 minutes.",
+    "",
+    "Connections are paced at 5000/s. Without it the client opens all of them as fast as it",
+    "can - 20000 CONNECTs in half a second, some 37000/s, a rate no deployment produces and",
+    "none of these scenarios ever claimed to measure. The connect phase is setup here, not the",
+    "measurement, which starts when publishing does."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 30000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 500,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "$share/benchmark/test/#"
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1884,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 1800,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

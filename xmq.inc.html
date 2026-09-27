@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <title></title>
+    <meta name="generator" content="LibreOffice 24.2.6.2 (Linux)"/>
+    <meta name="created" content="00:00:00"/>
+    <meta name="changed" content="2024-10-10T15:18:52.676102731"/>
+    <meta name="created" content="00:00:00">
+    <style type="text/css">
+        @page {
+            size: 8.5in 11in;
+            margin-left: 0.79in;
+            margin-right: 0.39in;
+            margin-top: 0.39in;
+            margin-bottom: 0.39in
+        }
+
+        p {
+            line-height: 115%;
+            margin-bottom: 0.1in;
+            background: transparent;
+            background: transparent
+        }
+
+        h2 {
+            margin-top: 0.14in;
+            margin-bottom: 0.08in;
+            background: transparent;
+            background: transparent;
+            page-break-after: avoid
+        }
+
+        h2.western {
+            font-family: "Liberation Serif", serif;
+            font-size: 18pt;
+            font-weight: bold
+        }
+
+        h2.cjk {
+            font-family: "Liberation Sans";
+            font-size: 18pt;
+            font-weight: bold
+        }
+
+        h2.ctl {
+            font-family: "Noto Sans Devanagari";
+            font-size: 18pt;
+            font-weight: bold
+        }
+
+        h3 {
+            margin-top: 0.1in;
+            margin-bottom: 0.08in;
+            background: transparent;
+            background: transparent;
+            page-break-after: avoid
+        }
+
+        h3.western {
+            font-family: "Liberation Serif", serif;
+            font-size: 14pt;
+            font-weight: bold
+        }
+
+        h3.cjk {
+            font-family: "Liberation Sans";
+            font-size: 14pt;
+            font-weight: bold
+        }
+
+        h3.ctl {
+            font-family: "Noto Sans Devanagari";
+            font-size: 14pt;
+            font-weight: bold
+        }
+
+        h4 {
+            margin-top: 0.08in;
+            margin-bottom: 0.08in;
+            background: transparent;
+            background: transparent;
+            page-break-after: avoid
+        }
+
+        h4.western {
+            font-family: "Liberation Serif", serif;
+            font-size: 12pt;
+            font-weight: bold
+        }
+
+        h4.cjk {
+            font-family: "Liberation Sans";
+            font-size: 12pt;
+            font-weight: bold
+        }
+
+        h4.ctl {
+            font-family: "Noto Sans Devanagari";
+            font-size: 12pt;
+            font-weight: bold
+        }
+
+        td p {
+            orphans: 0;
+            widows: 0;
+            background: transparent;
+            background: transparent
+        }
+
+        th p {
+            font-weight: bold;
+            text-align: center;
+            orphans: 0;
+            widows: 0;
+            background: transparent;
+            background: transparent
+        }
+
+        a:link {
+            color: #000080;
+            text-decoration: underline
+        }
+
+        a:visited {
+            color: #800000;
+            text-decoration: underline
+        }
+    </style>
+</head>
+<body lang="en-US" link="#000080" vlink="#800000" dir="ltr"><p>XMQ is
+    a project aiming to create a fast and powerful message queue server.
+    It is aproaching version 1.0. That means that server and test
+    utilities are already working, and you can try them on your system.
+    The server currently supports Linux (.deb and .rpm flavours) and MS
+    Windows (installer isn't yet available). The binary files are
+    availably on Download page, along with SPTK downloads.
+</p>
+<p>At the current stage of development, XMQ server uses 300+ unit
+    tests. If you decide to give it a try, please email any bugs or
+    shortcomings that you discover, and I will do my best to resolve
+    them. For every noticable bug, corresponding unit test is added.
+</p>
+<h2 class="western">The project progress</h2>
+<p>Here are the list of XMQ features that are already implemented or
+    scheduled for implementation.</p>
+<table cellpadding="2" cellspacing="1">
+    <tr>
+        <th style="border: none; padding: 0in"><p>feature</p>
+        </th>
+        <th style="border: none; padding: 0in"><p>status</p>
+        </th>
+        <th style="border: none; padding: 0in"><p>release (expected)</p>
+        </th>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Queues</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Topics</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>10,000 clients</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>200,000 clients</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.6</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>MQTT protocol (3/4/5)</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>MQTT protocol (QOS0,
+            QOS1, QOS2)</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Linux packages
+            (.deb,.rpm)</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Windows installer</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Scheduled</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>(0.9.8)</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>SSL encryption</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Message persistence</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Implemented</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>0.9.5</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Remote queues</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Scheduled</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>(0.9.8)</p>
+        </td>
+    </tr>
+    <tr>
+        <td style="border: none; padding: 0in"><p>Performance tests and
+            compare</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>Scheduled</p>
+        </td>
+        <td style="border: none; padding: 0in"><p>(0.9.7)</p>
+        </td>
+    </tr>
+</table>
+<p><br/>
+    <br/>
+
+</p>
+<h2 class="western">Performance Testing</h2>
+<p>The performance testing includes several tests. The results will
+    be added here as soon as they are available.</p>
+<table>
+    <tr>
+        <td>
+            <h3 class="western">Connection Performance Tests</h3>
+            <p>Test conditions:
+            <ul>
+                <li>Server system: Linux Mint, 8-core cpu, 32
+                    GB RAM, 256 GB SSD
+                </li>
+                <li>Client system: Ubuntu Linux (numbat) Virtual Box VM, 4-core cpu,
+                    16 GB RAM, 256 GB SSD, 4 NICs
+                </li>
+            </ul>
+            <p>Test monitors the connections per second for connecting 100
+                thousand clients.</p>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <img src="xmq.inc_html_d3ab24a5.gif" name="Object1" align="left" width="672" height="400"/>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            The EMQX is installed as a Docker image. The Mosquitto is installed from
+            Ubuntu repository. Persistence is turned off.
+        </td>
+    </tr>
+</table>
+<h2 class="western">Installation</h2>
+<p>The current version only supports Linux installation. The Windows
+    version works but needs more testing. The OpenBSD version is being
+    tested.</p>
+<h3 class="western">Linux</h3>
+<p>The XMQ server installation requires installation of SPTK and XMQ
+    server packages. In SPTK packages, the following packages are
+    required by XMQ:</p>
+<ul>
+    <li><p style="margin-bottom: 0in">sptk-core
+    </p></li>
+    <li><p style="margin-bottom: 0in">sptk-db
+    </p></li>
+    <li><p style="margin-bottom: 0in">sptk-db_mysql
+    </p></li>
+    <li><p style="margin-bottom: 0in">sptk-db_postgresql
+    </p></li>
+    <li><p style="margin-bottom: 0in">sptk-db_sqlite3
+    </p></li>
+    <li><p>xmq-server
+    </p></li>
+</ul>
+<p>Download the required packages from <a href="http://www.sptk.net/">http://www.sptk.net</a>
+    (Download page) to an empty directory. Execute the following command
+    (in that directory), depending on the flavor of your Linux:
+</p>
+<table width="703" cellpadding="0" cellspacing="0">
+    <col width="282"/>
+    <col width="421"/>
+    <tr valign="top">
+        <td width="282" style="border: none; padding: 0in"><p>For Ubuntu,
+            Debian, and Linux Mint</p>
+        </td>
+        <td width="421" style="border: none; padding: 0in"><p>apt install
+            ./*.deb</p>
+        </td>
+    </tr>
+    <tr valign="top">
+        <td width="282" style="border: none; padding: 0in"><p>For Fedora
+            and Oracle Linux:</p>
+        </td>
+        <td width="421" style="border: none; padding: 0in"><p>rpm install
+            ./*.rpm</p>
+        </td>
+    </tr>
+</table>
+<h2 class="western">Configuration</h2>
+<h3 class="western">Host Configuration</h3>
+<p>The host configuration is well described in eMQX performance
+    tuning document:
+    <a href="https://docs.emqx.com/en/emqx/latest/performance/tune.html">https://docs.emqx.com/en/emqx/latest/performance/tune.html</a>
+    . With the exception to Erlang (that XMQ server isn’t using), all
+    described Linux host adjustments are applicable.</p>
+<h3 class="western">Configuration File
+</h3>
+<p>XMQ Server uses single configuration file, xmq_server.conf,
+    located in /etc/xmq directory for *nix and in C:\ProgramData\xmq for
+    Windows. These locations are the default, and can be changed using
+    xmq_server command line --configurtaion-file argument.
+</p>
+<p>The default installation installs a template of this file,
+    xmq_server.conf.template. During the startup, XMQ server tries to
+    open the configuration file, and if it isn't found - tries to create
+    a configuration file from a file with extra &quot;.template&quot;
+    suffix. This is done to prevent overwriting the user-defined
+    configuration during (re)installation of XMQ server.
+</p>
+<p>Having several configuration files may be useful, for instance, if
+    you are intending to run several xmq_server instances on the same
+    host. For this case, it is important to allocate different resources,
+    such as port numbers or persistence databases, for different
+    instances.
+</p>
+<p>The configuration file uses JSON format. XMQ server loads it once
+    upon the start. It is possible to make changes in configuration using
+    XMQ control API described in a separate document.
+</p>
+<h3 class="western">Connections</h3>
+<h4 class="western">XMQ Connection Listeners</h4>
+<p>Connection listeners are used for accepting client connections.
+    They have no effect on the connection performance after accepting
+    that connection.</p>
+<p>XMQ Server allows defining one or more connection listeners. There
+    is no direct limitation on them other than total number of threads
+    and ports on the host. Defining more than one listener per protocol
+    could be useful if you want some load distribution between several
+    XMQ server instances related to connection ports. Typically, the
+    number of listeners is between 4 and 8 per port number.</p>
+<p>XMQ listener is defined by a combination of the following
+    parameters:
+</p>
+<ul>
+    <li><p>a port number that must be unique upon listeners. The
+        traditional port number is 1883 for MQTT and 8883 for MQTT over SSL.
+    </p></li>
+    <li><p>a bind ip address that is 0.0.0.0 by default. It can be set
+        to a local ip address of a network interface. Binding may be useful
+        if a server hosts has several interfaces with different IP
+        addresses.</p></li>
+    <li><p>a number of threads accepting the incoming connections. It
+        can be one or more. Setting that number above eight doesn't increase
+        the listener performance in most practical cases, however your
+        results may vary.</p></li>
+    <li><p>a protocol that can be ether &quot;tcp&quot; or &quot;ssl&quot;.
+        If the requested protocol is &quot;ssl&quot;, it's necessary to
+        define valid SSL keys in the &quot;ssl_keys&quot; section of the
+        configuration file.
+    </p></li>
+    <li><p>a boolean <i>enable</i> parameter enables or disables a
+        listener.
+    </p>
+        <ul>
+            <ul>
+                <ul>
+                    <li><h4 class="western"
+                            style="background: transparent; page-break-before: auto; page-break-after: avoid">
+                        SSL keys</h4></li>
+                </ul>
+            </ul>
+        </ul>
+</ul>
+<p>SSL keys are shared by all SSL listeners in the configuration
+    file. They are using PEM format, and consist of CA certificate,
+    server-specific key and certificate, and verify depth. The default
+    SSL keys that come with XMQ server installation are only there for
+    making things work initially. The actual keys that are specific to
+    your server should have different names than installed by XMQ server,
+    and configuration file should be modified accordingly.
+</p>
+<h4 class="western">Queue Limits</h4>
+<p>Queue limits define maximum values per queue or topic:
+</p>
+<ul>
+    <li><p>max_size is the maximum number of messages stored in the
+        queue or topic befor it's considered full. Any messages arriving to
+        full queue or topic are discarded.
+    </p></li>
+    <li><p>max_inflight_messages define maximum number of not yet
+        acknowledge messages with QOS1 or QOS2 that server sends to a
+        client. After reaching this number of messages in the flight, the
+        server will wait until some messages are acknowledged, and then will
+        continue.
+    </p></li>
+</ul>
+<h4 class="western">Server Limits</h4>
+<p>Server limits affect the whole server:
+</p>
+<ul>
+    <li><p>receive_threads is the number of threads used to receive incoming messages.
+    </p></li>
+    <li><p>send_threads is the number of threads used to send outgoing messages.
+    </p></li>
+    <li><p>max_topic_alias set the limit of topic aliases per client
+        session.
+    </p></li>
+</ul>
+<h4 class="western">Authentication</h4>
+<p>Currently, XMQ only supports password-based authentication.
+    Optionally, the authentication can be switched to anonymous mode.
+    Combining SSL listeners with anonymous mode gives you
+    certificate-based authentication.</p>
+<p>XMQ server template configuration comes with two users defined.
+    It's recommended to change these users passwords, and define own
+    users - using xmq_ctl utility. Keeping the user &quot;admin&quot; is
+    necessary for configuration as xmq_ctl uses it.
+</p>
+<h4 class="western">Persistence</h4>
+<p>XMQ server supports optional persistent mode. In persistent mode,
+    the incoming QOS1 and QOS2 messages are stored into the database by
+    the topic and client ID, and removed when they are delivered to
+    client. The QOS0 messages are not persistent.
+</p>
+<p>The message persistence means that server may survive the crash or
+    failure with minimum message loss after restart – as far as the
+    persistent storage isn’t affected. The maximum message loss is
+    estimated to a number of messages passed within last 100ms before the
+    crash. The actual result depends on the persistence database
+    performance.
+</p>
+<p>The persistence requires Redis server. If the redis_uri parameter is an empty string, then
+    there is no message persistence. The choice of the database depends
+    on the requirements to the server's performance and reliability.
+</p>
+<ul>
+    <li><p>PostgreSQL provides high reliability and medium performance.
+        The persistence database can be located on the same host, or on the
+        different host. This persitent storage is good for most of the use
+        cases.</p></li>
+    <li><p>SQLite provides medium reliability and high performance. The
+        reliabilty is limited since SQLite database is running on the same
+        host. Placing it on a network share was not tested.
+    </p></li>
+    <li><p>MySQL provides high reliability and low performance. The
+        performance is limited because this version of XMQ server can only
+        use MySQL in a single writer thread.</p></li>
+    <li><p>Support for MS SQL and Oracle, as well as for a generic ODBC
+        databases, is possible in the future.
+    </p></li>
+</ul>
+<h4 class="western">Logging:</h4>
+<p>Logging is writing internal server events to the log file. Logging
+    defines where is log file stored, logging level, and what details
+    should be logged. The configuration file contains items
+    log_levels_available and log_subjects_available that suggest possible
+    values that can be used in corresponding settings. The log_level
+    expects a single value, while log_subjects expects comma-separated
+    set of values.</p>
+<ul>
+    <li><p>log_to defines the log file location. Currently, there is no
+        support for log rotation yet.
+    </p></li>
+    <li><p>log_level is the minimum log message priority allowed. For
+        instance, with log_level &quot;INFO&quot;, logging of &quot;DEBUG&quot;
+        information is not written to the log file.
+    </p></li>
+    <li><p>log_level_available lists values that can be used in
+        log_level setting.
+    </p></li>
+    <li><p>log_subjects lists log message subjects that are captured to
+        the log file. Messages with different log subjects are not written
+        to the log file.
+    </p></li>
+    <li><p>log_subjects_available lists values that can be used in
+        log_subjects setting.
+    </p></li>
+</ul>
+<h4 class="western">Web Service</h4>
+<p>Web service is the XMQ server control API. It can be used as XML
+    Web Service or as REST. The only setting available is the listener
+    port number.
+</p>
+<h2 class="western">Utility Programs</h2>
+<p>XMQ server comes with a set of command-line utilities that can be
+    used to test and tune XMQ server. The command line options are
+    available if a utility is called with –help option. The utility
+    programs can work with a generic MQTT server.</p>
+<table width="100%" cellpadding="0" cellspacing="0">
+    <col width="40*"/>
+    <col width="216*"/>
+    <tr valign="top">
+        <td width="16%" style="border: none; padding: 0in"><p>xmq_conn</p>
+        </td>
+        <td width="84%" style="border: none; padding: 0in"><p>Test
+            connecting of one or more clients to the server.</p>
+        </td>
+    </tr>
+    <tr valign="top">
+        <td width="16%" style="border: none; padding: 0in"><p>xmq_pub</p>
+        </td>
+        <td width="84%" style="border: none; padding: 0in"><p>Send messages
+            to the server using one or more clients.</p>
+        </td>
+    </tr>
+    <tr valign="top">
+        <td width="16%" style="border: none; padding: 0in"><p>xmq_sub</p>
+        </td>
+        <td width="84%" style="border: none; padding: 0in"><p>Subscribe one
+            or more clients to the topic(s).</p>
+        </td>
+    </tr>
+    <tr valign="top">
+        <td width="16%" style="border: none; padding: 0in"><p>xmq_ctl</p>
+        </td>
+        <td width="84%" style="border: none; padding: 0in"><p>Administration
+            of XMQ server such as modifying users.</p>
+        </td>
+    </tr>
+</table>
+<p><br/>
+    <br/>
+
+</p>
+</body>
+</html>

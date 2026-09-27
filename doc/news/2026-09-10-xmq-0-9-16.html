@@ -1,0 +1,79 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 0.9.16: accounts with groups, extensions, and a million connections
+  Date:  2026-09-10
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and covers every release, while this is written for a reader who is
+  not upgrading anything and exists only for releases worth announcing.
+-->
+
+<p>
+    XMQ 0.9.16 is out. It is about two things: who is allowed to connect, and what the broker does
+    when a great many of them arrive at once. You can download it <a href="/downloads">here</a>.
+</p>
+
+<h3>Accounts and groups, in a database</h3>
+
+<p>
+    Accounts no longer live in a file. They are rows in a SQL database — SQLite by default,
+    PostgreSQL or MySQL if you point the broker at one — with groups and membership, edited on the
+    Users screen of the configuration interface. Passwords are stored as one-way verifiers, so the
+    broker can check a password and nobody, the broker included, can read one back. An existing
+    <code>xmq_users.conf</code> is imported on the first start after the upgrade.
+</p>
+
+<h3>Authentication is an extension, and so is anything else</h3>
+
+<p>
+    The broker now loads extensions through a documented C interface, and its own authentication
+    goes through it like any other: the <code>user-database</code> extension that ships with XMQ is
+    an ordinary extension, built against the same header a third party would use. An extension can
+    authenticate a client, authorise a subscription or a publication, or watch what the broker does,
+    and it declares which of those it means to do. The Extensions screen lists what is loaded, what
+    it is doing and what it refused, and a broker whose required authenticator will not start
+    serves its configuration interface and no MQTT — it does not quietly let everybody in.
+</p>
+
+<h3>TLS no longer stalls under load</h3>
+
+<p>
+    Two faults, both of which only appeared when a connection was busy. A read that returned one TLS
+    record while more sat in the buffer was taken for a drained socket, so a session that was sent
+    several messages at once could stop delivering entirely; and a connection closed abruptly left
+    an error behind that was reported against the next session the same thread served. If you use
+    the TLS listener, this is the release to be on.
+</p>
+
+<h3>A million connections</h3>
+
+<p>
+    On a 16-vCPU AWS instance, a million MQTT sessions now connect at a median of 346&micro;s,
+    against 612&micro;s in the same build a day earlier, and every measured interval falls between
+    323 and 362&micro;s — the periodic stalls are gone. Half a million connect at 305&micro;s
+    against 378&micro;s. They were the broker's per-connection tables growing: three of them, each
+    rebuilding itself as it filled, on the client side as well as the server's. They are now sized
+    once, from the file-descriptor limit the machine actually has. A million sessions occupy 4.8 Gb.
+</p>
+
+<p>
+    A burst of connections also stopped being refused: the queue that holds sessions waiting to be
+    authenticated is sized from the thread count instead of a constant, which had turned away 6562
+    of a 20000-session burst.
+</p>
+
+<h3>Upgrading keeps what you configured</h3>
+
+<p>
+    A package no longer carries the live configuration files, only the templates it creates them
+    from, so installing a new version cannot write over settings you have answered — including
+    whether an extension is switched on. This was found by marking both configuration files on a
+    test machine and installing over them, which is now how the packages are tested.
+</p>
+
+<p>
+    Packages for Linux, FreeBSD and Windows, and the Docker image, are on the
+    <a href="/downloads">downloads page</a>.
+</p>

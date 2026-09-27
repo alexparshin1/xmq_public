@@ -1,0 +1,50 @@
+.helpButton {
+    background-color: cornflowerblue;
+    color: white;
+    width: 18px;
+    height: 18px;
+    margin-left: 4px;
+    margin-right: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.helpButton:hover {
+    background-color: royalblue;
+}
+
+.helpContainer {
+    width: 460px;
+    height: auto;
+    max-height: 80%;
+    padding-bottom: 4px;
+}
+
+.helpBody {
+    flex: 1;
+    overflow-y: auto;
+    text-align: left;
+    padding: 0 12px;
+}
+
+.helpBody p {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.helpFact {
+    padding-top: 4px;
+}
+
+.helpFactLabel {
+    display: inline-block;
+    width: 90px;
+    font-weight: bold;
+}

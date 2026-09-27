@@ -1,0 +1,37 @@
+{
+  "name": "Fan-Out-1-1k-1-1K",
+  "type": "Fan-Out",
+  "comments": [
+    "1 publisher, 1 topic, 1000 subscribers",
+    "1 publisher pubs 1 message per second",
+    "QoS 1, payload 16B"
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 1,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/1"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/1"
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1880,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "message_count": 1,
+    "payload_size": 16,
+    "expected_message_latency": 2,
+    "keep_alive_sec": 300
+  }
+}

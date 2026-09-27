@@ -1,0 +1,16 @@
+{
+  "extensions": [
+    {
+      "_comment": "Authenticates MQTT clients against the broker's SQL user database - the same accounts the Users screen edits. A broker with no authenticator admits nobody, which is why this one is installed enabled and required. Where that database is comes from the broker, not from here: the interface writes to the broker's address, and a second copy of it in this block could be pointed elsewhere - every account added in the interface would then be saved, listed, and admit nobody, with no error on either side. Set it with 'database_uri' in the broker's own authentication section. 'username' and 'password' are this extension's account in that database, not its address; leave them empty for SQLite.",
+      "name": "user-database",
+      "library": "@XMQ_USER_DATABASE_LIBRARY@",
+      "enabled": true,
+      "required": true,
+      "settings": {
+        "username": "",
+        "password": "",
+        "unknown_user": "deny"
+      }
+    }
+  ]
+}

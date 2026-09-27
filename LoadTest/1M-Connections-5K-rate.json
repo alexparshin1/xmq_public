@@ -1,0 +1,30 @@
+{
+  "name": "1M Connection Test",
+  "type": "Connections",
+  "comments": [
+    "1M connections at 5000/s - 200s connect ramp.",
+    "Requires on BOTH hosts: nf_conntrack NOTRACK for the MQTT port (see",
+    "/etc/nftables.d/xmq-notrack.nft), ulimit -n above 1000000, and",
+    "net.ipv4.tcp_mem raised to 4Gb/6Gb/8Gb (see sysctl.d/mqtt.conf).",
+    "Measured cost at 500K: 4.51Kb/connection server-side, 3.05Kb client-side."
+  ],
+  "publishers": {
+    "id_prefix": "client-",
+    "protocol_version": 3,
+    "client_count": 1000000,
+    "qos": 1,
+    "clean_session": true
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1883,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "duration_sec": 1800,
+    "payload_size": 16,
+    "connection_rate": 5000,
+    "keep_alive_sec": 300
+  }
+}

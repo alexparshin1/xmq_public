@@ -1,0 +1,48 @@
+{
+  "name": "Point-To-Point 20K (persistent sessions)",
+  "type": "Point-To-Point",
+  "comments": [
+    "20k publishers, 20k subscribers, 20k topics = 20,000 msg/s offered.",
+    "clean_session false on both groups, so the broker keeps 40k persistent sessions.",
+    "Deliberately below the ~25.2k msg/s ceiling measured with persistence enabled.",
+    "Used to confirm that the ceiling - not per-message latency - is what makes the 50k",
+    "persistent run look slow: under the ceiling, latency should stay flat instead of",
+    "growing linearly with elapsed time.",
+    "Each publisher pubs 1 message per second. QoS 1, payload 16B.",
+    "",
+    "Connections are paced at 5000/s. Without it the client opens all of them as fast as it",
+    "can - 20000 CONNECTs in half a second, some 37000/s, a rate no deployment produces and",
+    "none of these scenarios ever claimed to measure. The connect phase is setup here, not the",
+    "measurement, which starts when publishing does."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 20000,
+    "qos": 1,
+    "clean_session": false,
+    "topics": "test/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 20000,
+    "qos": 1,
+    "clean_session": false,
+    "topics": "test/topic$clientindex"
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1883,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 1800,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

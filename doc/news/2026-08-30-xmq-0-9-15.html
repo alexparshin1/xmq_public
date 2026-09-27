@@ -1,0 +1,70 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 0.9.15: FreeBSD, and an installation that is safe before you touch it
+  Date:  2026-08-30
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and covers every release, while this is written for a reader who is
+  not upgrading anything and exists only for releases worth announcing.
+-->
+
+<p>
+    XMQ 0.9.15 is out. Nothing in it changes how the broker moves messages: it is about where XMQ
+    runs, who it runs as, and what it looks like on a machine nobody has configured yet. You can
+    download it <a href="/downloads">here</a>.
+</p>
+
+<h3>FreeBSD</h3>
+
+<p>
+    XMQ now builds and passes its test suite on FreeBSD, and ships as a native
+    <code>pkg(8)</code> package with an <code>rc.d</code> service. The package carries everything it
+    needs — six files, 8 MB, no ports tree and no compiler on the target machine.
+</p>
+
+<h3>A Windows installer that needs nothing else</h3>
+
+<p>
+    The installer is now a bootstrapper that carries the Visual C++ runtime with it, so installing
+    XMQ no longer requires a network connection or a separate runtime download.
+</p>
+
+<h3>Nothing ships with a password</h3>
+
+<p>
+    The broker no longer carries credentials anyone could look up. It asks for an administrator
+    password at first start and keeps its web interface on the loopback address until one is set, so
+    an unconfigured broker cannot be adopted over the network. The cluster account's password is
+    generated during installation instead of being a constant printed in the documentation.
+</p>
+
+<h3>The service runs as its own account</h3>
+
+<p>
+    On Linux and FreeBSD the package creates an unprivileged <code>xmq</code> account and gives it
+    only the directories the broker actually writes. Until now the service ran as root, which a
+    process listening on a network has no reason to do.
+</p>
+
+<h3>Logs no longer grow without limit</h3>
+
+<p>
+    The log is rotated daily and a week of archives is kept, configurable through
+    <code>logs_to_keep</code>. This works on every platform, Windows included, where the external
+    rotation tools the Unix world assumes simply are not there.
+</p>
+
+<h3>One fix worth naming</h3>
+
+<p>
+    A subscription could be lost on reconnect. When a client reconnected while its previous session
+    was still being torn down, a write that failed on the old connection closed whichever connection
+    the session happened to be holding — which could be the new one, taking the subscription just
+    made with it. It was rare, it looked like a client bug from the outside, and it is fixed.
+</p>
+
+<p>
+    Packages for Linux, FreeBSD and Windows are on the <a href="/downloads">downloads page</a>.
+</p>

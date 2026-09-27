@@ -1,0 +1,23 @@
+{
+  "name": "500K Connection Test",
+  "type": "Connections",
+  "publishers": {
+    "id_prefix": "client-",
+    "protocol_version": 3,
+    "client_count": 500000,
+    "qos": 1,
+    "clean_session": true
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1883,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "duration_sec": 1800,
+    "payload_size": 16,
+    "connection_rate": 2500,
+    "keep_alive_sec": 300
+  }
+}

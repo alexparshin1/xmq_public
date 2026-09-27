@@ -1,0 +1,1865 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<wsdl:definitions xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://www.sptk.net/xmq/"
+                  xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                  name="xmq" targetNamespace="http://www.sptk.net/xmq/">
+    <wsdl:types>
+        <xsd:schema targetNamespace="http://www.sptk.net/xmq/">
+            <xsd:element name="GetClientSessions">
+                <xsd:annotation>
+                    <xsd:documentation>Get client sessions, optionally using pattern.</xsd:documentation>
+                </xsd:annotation>
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action" type="tns:ActionType"/>
+                        <xsd:element name="pattern" type="xsd:string"/>
+                        <xsd:element name="client" type="tns:ConnectionInfo" maxOccurs="1" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="GetClientSessionsResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="client_sessions" type="tns:ClientSessionInfo" maxOccurs="unbounded"
+                                     minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:simpleType name="ActionType">
+                <xsd:restriction base="xsd:string">
+                    <xsd:enumeration value="list"/>
+                    <xsd:enumeration value="create"/>
+                    <xsd:enumeration value="modify"/>
+                    <xsd:enumeration value="remove"/>
+                </xsd:restriction>
+            </xsd:simpleType>
+
+            <xsd:complexType name="ConnectionInfo">
+                <xsd:sequence>
+                    <xsd:element name="client_name" type="xsd:string"/>
+                    <xsd:element name="is_connected" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="protocol_version" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="clean_session" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="keep_alive_sec" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="last_will_flag" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="last_will_retain" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="last_will_qos" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="last_will_topic" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="last_will_message" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:element name="Login">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="username" type="xsd:string"/>
+                        <xsd:element name="password" type="xsd:string"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="LoginResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="token"
+                                     type="xsd:string">
+                        </xsd:element>
+                        <!-- Set while the administrator account still has no password, which is
+                             how a server that has been installed and never set up arrives. The
+                             interface answers on the loopback address alone until it is set, and
+                             the sign-in page goes straight to Initial Setup on seeing this. -->
+                        <xsd:element name="setup_required" type="xsd:boolean"
+                                     maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+
+            <xsd:complexType name="QueueLimits">
+                <xsd:annotation>
+                    <xsd:documentation>Limits for server queues</xsd:documentation>
+                </xsd:annotation>
+                <xsd:sequence>
+                    <xsd:element name="max_size">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="max_inflight_messages">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1"/>
+                                <xsd:maxExclusive value="1024"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="ServerLimits">
+                <xsd:annotation>
+                    <xsd:documentation>Limits for server parameters</xsd:documentation>
+                </xsd:annotation>
+                <xsd:sequence>
+                    <xsd:element name="send_threads">
+                    	<xsd:simpleType>
+                    		<xsd:restriction base="xsd:string">
+                    			<xsd:pattern value="^(auto|\d+)$"></xsd:pattern>
+                    		</xsd:restriction>
+                    	</xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="receive_threads">
+                    	<xsd:simpleType>
+                    		<xsd:restriction base="xsd:string">
+                    			<xsd:pattern value="^(auto|\d+)$"></xsd:pattern>
+                    		</xsd:restriction>
+                    	</xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="delivery_threads" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="max_topic_alias">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="0"/>
+                                <xsd:maxExclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="max_packet_size" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="User">
+                <xsd:sequence>
+                    <xsd:element name="id" type="xsd:int" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="username" type="xsd:string"/>
+                    <xsd:element name="password" type="xsd:string"/>
+                    <xsd:element name="is_enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- Whether this account may administer the broker is its membership of the
+                         Administrators group, and is not a field here as well: two places
+                         answering one question are two places that can disagree. -->
+                    <!-- Every group this account belongs to, by name. Sent whole and stored whole:
+                         saving an account sets its membership to exactly this list, so the screen
+                         can send an account's groups every time without working out which of them
+                         changed. -->
+                    <xsd:element name="groups" type="xsd:string"
+                                 maxOccurs="unbounded" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- A group, which for now is a name. Its permissions arrive with the ACL work; the
+                 group exists already because membership does, and a group nobody has given rules
+                 to is still a group somebody has been put in. -->
+            <xsd:complexType name="UserGroup">
+                <xsd:sequence>
+                    <xsd:element name="id" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <xsd:element name="name" type="xsd:string"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="ServerConfiguration">
+                <xsd:sequence>
+                    <xsd:element name="connections"
+                                 type="tns:Connections">
+                    </xsd:element>
+                    <xsd:element name="queue_limits"
+                                 type="tns:QueueLimits">
+                    </xsd:element>
+                    <xsd:element name="server_limits"
+                                 type="tns:ServerLimits">
+                    </xsd:element>
+                    <xsd:element name="authentication"
+                                 type="tns:Authentication">
+                    </xsd:element>
+                    <xsd:element name="persistence"
+                                 type="tns:Persistence">
+                    </xsd:element>
+                    <xsd:element name="logging" type="tns:Logging"/>
+                    <xsd:element name="events" type="tns:SubjectEvents"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="web_service"
+                                 type="tns:WebService" maxOccurs="1" minOccurs="1"/>
+                    <xsd:element name="bridges" type="tns:Bridge"
+                                 maxOccurs="unbounded" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="cluster" type="tns:Cluster"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Persistence">
+                <xsd:sequence>
+                    <xsd:element name="redis_uri" type="xsd:string"></xsd:element>
+                    <xsd:element name="clean_start" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="enabled" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="max_redis_connections" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <!-- Messages whose Redis record may still be in flight while they are delivered.
+                         0 waits for every record to be durable before its message is sent. Above 0,
+                         record writes pipeline instead, which roughly doubles throughput, and this
+                         is the number of messages that would be lost if the server were killed. -->
+                    <xsd:element name="max_queued_writes" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Logging">
+                <xsd:sequence>
+                    <xsd:element name="log_to" type="xsd:string"/>
+                    <xsd:element name="keep_logs" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <xsd:element name="min_log_level" type="tns:LogLevel"></xsd:element>
+                    <xsd:element name="log_level"
+                                 type="tns:SubjectLogLevels">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:simpleType name="LogSubject">
+                <xsd:restriction base="xsd:string">
+                    <xsd:enumeration value="server_events"/>
+                    <xsd:enumeration value="server_connections"/>
+                    <xsd:enumeration value="publish"/>
+                    <xsd:enumeration value="subscribe"/>
+                    <xsd:enumeration value="unsubscribe"/>
+                    <xsd:enumeration value="connect"/>
+                    <xsd:enumeration value="disconnect"/>
+                    <xsd:enumeration value="ack"/>
+                </xsd:restriction>
+            </xsd:simpleType>
+
+
+            <xsd:simpleType name="LogLevel">
+                <xsd:restriction base="xsd:string">
+                    <xsd:enumeration value="PANIC"/>
+                    <xsd:enumeration value="ERROR"/>
+                    <xsd:enumeration value="WARNING"/>
+                    <xsd:enumeration value="NOTICE"/>
+                    <xsd:enumeration value="INFO"/>
+                    <xsd:enumeration value="DEBUG"/>
+                </xsd:restriction>
+            </xsd:simpleType>
+
+
+            <xsd:complexType name="Listener">
+                <xsd:sequence>
+                    <xsd:element name="id" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <xsd:element name="name" type="xsd:string"></xsd:element>
+                    <xsd:element name="bind_ip" maxOccurs="1"
+                                 minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:pattern
+                                        value="^(|\d+\.\d+\.\d+\.\d+)$">
+                                </xsd:pattern>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="port">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1024"/>
+                                <xsd:maxExclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="threads">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1"/>
+                                <xsd:maxExclusive value="1024"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="protocol">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:enumeration value="MQTT"></xsd:enumeration>
+                                <xsd:enumeration value="MQTT+SSL"></xsd:enumeration>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="enable" type="xsd:boolean"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+
+            <xsd:complexType name="Connections">
+                <xsd:sequence>
+                    <xsd:element name="listener" type="tns:Listener"
+                                 maxOccurs="unbounded" minOccurs="1">
+                    </xsd:element>
+                    <xsd:element name="ssl_keys" type="tns:SSLKeys"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="SSLKeys">
+                <xsd:sequence>
+                    <xsd:element name="cafile" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="keyfile" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="certfile" type="xsd:string"/>
+                    <xsd:element name="verify_depth" type="xsd:string"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- A certificate this node trusts another node by. Broker-to-broker links - bridges
+                 and cluster members - are between servers the same administrator runs, so there
+                 is no certificate authority in the picture and none is wanted: each node holds
+                 the certificates of the nodes it talks to, and a self-signed certificate vouches
+                 for itself. Without this a link can be encrypted and still be answered by
+                 anything that can take the address. -->
+            <xsd:complexType name="PeerCertificate">
+                <xsd:sequence>
+                    <!-- What this peer is called here. Names the file the certificate is kept in,
+                         so it is a file name and not a free-text label. -->
+                    <xsd:element name="name" type="tns:Name"/>
+                    <!-- The certificate in PEM form. Sent when importing; on the way out it is
+                         sent only when asked for, because a listing of twenty peers does not need
+                         twenty certificates in it. -->
+                    <xsd:element name="certificate" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <!-- What the certificate says about itself: subject, expiry, and SHA-256
+                         fingerprint. Read from the file rather than stored. -->
+                    <xsd:element name="description" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- Certificate and key the configuration interface is served with. Separate from
+                 SSLKeys, which is the broker's: there is no CA and no verify depth here, because
+                 the interface authenticates itself to browsers and never asks them for a
+                 certificate in return. -->
+            <xsd:complexType name="WebServiceKeys">
+                <xsd:sequence>
+                    <!-- On the way out, the paths of the installed files. On the way in, the
+                         content of files being installed; empty means keep what is there. -->
+                    <xsd:element name="certfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="keyfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- What the installed certificate says about itself: subject, expiry, and
+                         SHA-256 fingerprint. Reported, never sent: it is read from the
+                         certificate rather than stored anywhere. -->
+                    <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="ClientSessionInfo">
+                <xsd:sequence>
+                    <xsd:element name="client_id">
+                    	<xsd:simpleType>
+                    		<xsd:restriction base="xsd:string">
+                    			<xsd:pattern value="^\w\S+$"></xsd:pattern>
+                    		</xsd:restriction>
+                    	</xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="ip" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="connected" type="xsd:dateTime" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="subscriptions" type="tns:Subscription"
+                                 maxOccurs="unbounded" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="WebService">
+                <xsd:sequence>
+                    <xsd:element name="listener_port">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1024"/>
+                                <xsd:maxExclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <!-- Serve the interface over TLS. On by default, and absent means on: the
+                         interface carries the administrator's password and everything the server
+                         is configured with, none of which belongs on the wire in clear text. -->
+                    <xsd:element name="encrypted" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- Certificate and key the interface is served with. Its own pair, not the
+                         broker's: the two are reached under different names as often as not, and
+                         a certificate replaced for one should not silently change the other.
+                         A self-signed pair is generated at these paths when they are absent, so
+                         an installation is encrypted without anyone having to prepare anything;
+                         replace the files to use a certificate that browsers already trust. -->
+                    <xsd:element name="certfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="keyfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+            <xsd:element name="GetSubscriptions">
+                <xsd:annotation>
+                    <xsd:documentation>Get subscriptions, optionally using pattern.</xsd:documentation>
+                </xsd:annotation>
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="pattern" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Optional pattern to match subscription name.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="client_id"
+                                     type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Optional client id</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="GetSubscriptionsResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="subscription"
+                                     type="tns:Subscription" maxOccurs="unbounded" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="result"
+                                     type="tns:Result">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:complexType name="ClientSubscription">
+                <xsd:sequence>
+                    <xsd:element name="client_id" type="xsd:string"/>
+                    <xsd:element name="getQos" type="xsd:int"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Subscription">
+                <xsd:sequence>
+                	<xsd:element name="topic" type="xsd:string" />
+                	<xsd:element name="qos">
+                		<xsd:simpleType>
+                			<xsd:restriction base="xsd:int">
+                				<xsd:enumeration value="0"></xsd:enumeration>
+                				<xsd:enumeration value="1"></xsd:enumeration>
+                				<xsd:enumeration value="2"></xsd:enumeration>
+                			</xsd:restriction>
+                		</xsd:simpleType>
+                	</xsd:element>
+                	<xsd:element name="options" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Authentication">
+                <xsd:sequence>
+                    <xsd:element name="allow_anonymous"
+                                 type="xsd:boolean">
+                    </xsd:element>
+                    <!-- Where the accounts live. Any database SPTK can reach: SQLite, PostgreSQL
+                         or MySQL, as postgresql://user:password@host/database and so on.
+
+                         Left out, it is an SQLite file beside this configuration - so a fresh
+                         installation needs no database and no setting, and two brokers whose
+                         configurations live in different directories do not share accounts by
+                         accident. -->
+                    <xsd:element name="database_uri" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"></xsd:element>
+                    <!-- Cost of hashing a password, in PBKDF2 iterations. The number is stored
+                         inside each password, so changing it here applies to passwords set from
+                         then on, and every existing one still verifies at the cost it was made
+                         with. Raise it and each account moves over at its owner's next login. -->
+                    <xsd:element name="password_iterations" type="xsd:int"
+                                 maxOccurs="1" minOccurs="0"></xsd:element>
+                    <!-- Accounts live in their own file, not here. This stays only so a
+                         configuration written by an older version still loads. -->
+                    <xsd:element name="users" type="tns:User" maxOccurs="unbounded" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- Contents of the users file: the accounts, and nothing else. -->
+            <xsd:complexType name="Users">
+                <xsd:sequence>
+                    <xsd:element name="users" type="tns:User" maxOccurs="unbounded" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+            <xsd:element name="UserControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="add"></xsd:enumeration>
+                                    <xsd:enumeration value="modify"></xsd:enumeration>
+                                    <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <xsd:enumeration value="list"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="user" type="tns:User" maxOccurs="1" minOccurs="0"></xsd:element>
+                        <xsd:element name="allow_anonymous" type="xsd:boolean" maxOccurs="1"
+                                     minOccurs="0"></xsd:element>
+                        <xsd:element name="filter" type="xsd:string" maxOccurs="1" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <!-- Asked before anyone has signed in, and the only operation that is. A server
+                 that has never been set up has an administrator with no password, and the
+                 interface it serves should open the setup page rather than a sign-in form
+                 nobody can explain. Nothing is disclosed by the answer: while it is true the
+                 interface is bound to the loopback address, so whoever is asking is already at
+                 the machine, and once it is false it says only that the server was set up. -->
+            <xsd:element name="SetupState">
+                <xsd:complexType>
+                    <xsd:sequence></xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="SetupStateResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="setup_required" type="xsd:boolean"
+                                     maxOccurs="1" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <!-- One setting of one extension, as the extension declares it and as the
+                 configuration currently holds it. Declared rather than discovered: the broker sees
+                 only an opaque map of strings, so without this the screen could offer nothing but a
+                 bare key/value box. -->
+            <xsd:complexType name="ExtensionSetting">
+                <xsd:sequence>
+                    <xsd:element name="name" type="xsd:string"/>
+                    <xsd:element name="label" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- string, integer, boolean, choice, secret. A secret is never shown and never
+                         logged: a connection URI with a password in it is the ordinary case. -->
+                    <xsd:element name="type" type="xsd:string"/>
+                    <xsd:element name="default_value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="choices" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="required" type="xsd:boolean"/>
+                    <xsd:element name="value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- False for a key that is set but that the extension never declared - usually
+                         a misspelling, which is the commonest reason a setting does nothing. -->
+                    <xsd:element name="declared" type="xsd:boolean"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Extension">
+                <xsd:sequence>
+                    <xsd:element name="name" type="xsd:string"/>
+                    <xsd:element name="version" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="library" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- Which file the entry came from: the single file or one fragment among
+                         several is not something an operator should have to hunt for. -->
+                    <xsd:element name="source" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="running" type="xsd:boolean"/>
+                    <!-- The broker does not serve MQTT without a required extension, so it gets no
+                         enable or disable button: that would be a way to stop serving that does not
+                         say it is one. -->
+                    <xsd:element name="required" type="xsd:boolean"/>
+                    <xsd:element name="observer" type="xsd:boolean"/>
+                    <xsd:element name="authenticator" type="xsd:boolean"/>
+                    <xsd:element name="authorizer" type="xsd:boolean"/>
+                    <xsd:element name="events_delivered" type="xsd:int"/>
+                    <xsd:element name="admitted" type="xsd:int"/>
+                    <xsd:element name="refused" type="xsd:int"/>
+                    <xsd:element name="store_errors" type="xsd:int"/>
+                    <xsd:element name="settings" type="tns:ExtensionSetting"
+                                 maxOccurs="unbounded" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- What the screen sends back: a name and a value, and nothing else.
+                 A separate type from ExtensionSetting on purpose. That one describes a setting -
+                 type, default, choices, whether the extension declared it - and every one of those
+                 is required, because in an answer they are always known. Reusing it for the request
+                 made the screen echo fields it has no business sending, and the schema refused the
+                 request when it did not: "Element 'type' is required". It would break again the
+                 next time a field is added for display. -->
+            <xsd:complexType name="ExtensionSettingValue">
+                <xsd:sequence>
+                    <xsd:element name="name" type="xsd:string"/>
+                    <xsd:element name="value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:element name="ExtensionControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="list"></xsd:enumeration>
+                                    <!-- enable also starts it, disable also stops it. -->
+                                    <xsd:enumeration value="enable"></xsd:enumeration>
+                                    <xsd:enumeration value="disable"></xsd:enumeration>
+                                    <!-- Write the settings back to the file the entry came from,
+                                         then apply them without stopping the broker. -->
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="settings" type="tns:ExtensionSettingValue"
+                                     maxOccurs="unbounded" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="ExtensionControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="message" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="list" type="tns:Extension"
+                                     maxOccurs="unbounded" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="UserGroupControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="add"></xsd:enumeration>
+                                    <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <xsd:enumeration value="list"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="group" type="tns:UserGroup" maxOccurs="1" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="UserGroupControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="list" type="tns:UserGroup"
+                                     maxOccurs="unbounded" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="UserControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="list" type="tns:User"
+                                     maxOccurs="unbounded" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="allow_anonymous"
+                                     type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:complexType name="Result">
+                <xsd:sequence>
+                    <xsd:element name="success" type="xsd:boolean"></xsd:element>
+                    <xsd:element name="related_id" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"></xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+            <xsd:element name="ListenerControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="add"></xsd:enumeration>
+                                    <xsd:enumeration value="modify"></xsd:enumeration>
+                                    <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <xsd:enumeration value="list"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="listener" type="tns:Listener" maxOccurs="1" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="ListenerControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="list"
+                                     type="tns:Listener" maxOccurs="unbounded" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="PersistenceControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="persistence"
+                                     type="tns:Persistence" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="PersistenceControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="persistence"
+                                     type="tns:Persistence" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="SSLKeysControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                    <!-- Issue a fresh self-signed certificate for the
+                                         configuration interface, replacing whatever is installed.
+                                         The way back when the installed one has expired, or names
+                                         a host this machine no longer answers to. -->
+                                    <xsd:enumeration value="reissue"></xsd:enumeration>
+                                    <!-- Trust another node by its certificate, or stop doing so.
+                                         Both take the 'peer' element; removing needs only its
+                                         name. -->
+                                    <xsd:enumeration value="trust-peer"></xsd:enumeration>
+                                    <xsd:enumeration value="distrust-peer"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="keys"
+                                     type="tns:SSLKeys" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Absent leaves the interface's own certificate alone, so that saving
+                             the broker's keys does not touch it. -->
+                        <xsd:element name="web_service_keys"
+                                     type="tns:WebServiceKeys" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- The peer being trusted or distrusted. Only for those two actions. -->
+                        <xsd:element name="peer"
+                                     type="tns:PeerCertificate" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="SSLKeysControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="keys"
+                                     type="tns:SSLKeys" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="web_service_keys"
+                                     type="tns:WebServiceKeys" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Every node this one trusts, reported whatever the action was, without
+                             the certificates themselves. -->
+                        <xsd:element name="peers" type="tns:PeerCertificate"
+                                     maxOccurs="unbounded" minOccurs="0">
+                        </xsd:element>
+                        <!-- This node's own certificate in PEM form, which is what the other
+                             nodes have to be given. Reported so that setting up a link does not
+                             need a shell on this machine. -->
+                        <xsd:element name="node_certificate" type="xsd:string"
+                                     maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="LimitsControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="server_limits"
+                                     type="tns:ServerLimits" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="queue_limits"
+                                     type="tns:QueueLimits" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="LimitsControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="server_limits"
+                                     type="tns:ServerLimits" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="queue_limits"
+                                     type="tns:QueueLimits" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="LoggingControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="logging"
+                                     type="tns:Logging" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="LoggingControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="logging"
+                                     type="tns:Logging">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="ServiceControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="web_service"
+                                     type="tns:WebService" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="ServiceControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="web_service"
+                                     type="tns:WebService" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Set when the port changed and the interface could not take the new
+                             one, so it is still answering on the old one and only a restart of
+                             the service will move it. -->
+                        <xsd:element name="service_restart_required" type="xsd:boolean"
+                                     maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Why it could not move, when it could not. -->
+                        <xsd:element name="message" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <!-- The handful of settings that make a working server, for setting one up from
+                 scratch. Everything else comes from xmq_server.conf.template, so applying this
+                 replaces the whole configuration rather than editing part of it. -->
+            <xsd:complexType name="InitialSetup">
+                <xsd:sequence>
+                    <!-- Password for the 'admin' account, which the setup creates if it is not
+                         there and re-passwords if it is: a server nobody can sign in to
+                         administer is not a working server. Optional in the schema only so that
+                         reading the defaults does not have to invent one; applying without it is
+                         refused. Never sent back. -->
+                    <xsd:element name="admin_password" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="node_name" type="tns:Name">
+                        <xsd:annotation>
+                            <xsd:documentation>Name this server is known by, which must be unique
+                                among the nodes it is bridged or clustered with.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <!-- The host name or address other machines reach this server at. Distinct
+                         from node_name, which only labels it: this one has to resolve from
+                         elsewhere. It is what other nodes are told to connect to, and what the
+                         certificate issued here is made out to - a certificate naming a host
+                         nobody connects by proves nothing to the node that connects by another.
+                         Absent means this machine's own host name, which is right for a single
+                         server and wrong for every cluster. -->
+                    <xsd:element name="node_host" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="mqtt_port" type="xsd:int"/>
+                    <xsd:element name="mqtt_ssl_port" type="xsd:int"/>
+                    <xsd:element name="web_service_port" type="xsd:int"/>
+                    <!-- Optional, and the only optional part: without a Redis host the server is
+                         set up with persistence turned off. -->
+                    <xsd:element name="redis_host" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="redis_port" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:element name="InitialSetupControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <!-- The values a new configuration would start from. -->
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <!-- Replace the configuration and restart the MQTT server. -->
+                                    <xsd:enumeration value="set"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="setup"
+                                     type="tns:InitialSetup" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="InitialSetupControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="setup"
+                                     type="tns:InitialSetup" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Whether MQTT is being served once the new configuration is in place. -->
+                        <xsd:element name="running" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Why it is not, when the restart did not bring it back. -->
+                        <xsd:element name="message" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <!-- Set when the interface port changed: the interface is bound for the
+                             lifetime of the process, so it keeps answering on the old port until
+                             the whole service is restarted. -->
+                        <xsd:element name="service_restart_required" type="xsd:boolean"
+                                     maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <!-- Starting and stopping the MQTT server from the interface. The interface itself is
+                 not affected: it is hosted outside the server, so it stays up while MQTT is
+                 stopped - which is how a server that will not start gets corrected. -->
+            <xsd:element name="ServerControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="status"></xsd:enumeration>
+                                    <xsd:enumeration value="start"></xsd:enumeration>
+                                    <xsd:enumeration value="stop"></xsd:enumeration>
+                                    <!-- Re-read the extension configuration without stopping. What
+                                         a broker running for months needs: a setting changed
+                                         without dropping every client to pick it up. -->
+                                    <xsd:enumeration value="reload-extensions"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <!-- What the dashboard shows. Two independent sections: the broker's own counters,
+                 which exist only while it is running, and the machine's, which are just as true
+                 when it is stopped. -->
+            <xsd:complexType name="BrokerStatistics">
+                <xsd:sequence>
+                    <xsd:element name="clients_connected" type="xsd:int"/>
+                    <xsd:element name="clients_disconnected" type="xsd:int"/>
+                    <xsd:element name="clients_maximum" type="xsd:int"/>
+                    <xsd:element name="clients_total" type="xsd:int"/>
+                    <xsd:element name="messages_received" type="xsd:int"/>
+                    <xsd:element name="messages_sent" type="xsd:int"/>
+                    <xsd:element name="messages_publish_received" type="xsd:int"/>
+                    <xsd:element name="messages_publish_sent" type="xsd:int"/>
+                    <xsd:element name="messages_publish_dropped" type="xsd:int"/>
+                    <xsd:element name="messages_retained" type="xsd:int"/>
+                    <xsd:element name="messages_stored" type="xsd:int"/>
+                    <xsd:element name="bytes_received" type="xsd:int"/>
+                    <xsd:element name="bytes_sent" type="xsd:int"/>
+                    <xsd:element name="subscriptions" type="xsd:int"/>
+                    <!-- Since the server was last started, which with start/stop in the interface
+                         is not the same as how long the process has been up. -->
+                    <xsd:element name="uptime_seconds" type="xsd:int"/>
+                    <!-- Depth of the broker's own hand-off queues, sampled once a second. Unlike
+                         the counters above these say what the broker is doing now rather than what
+                         it has done: a queue that stands full is the first sign it has begun
+                         falling behind, and it shows before the delay reaches latency. Optional,
+                         so an older broker answering this call is still understood. -->
+                    <xsd:element name="queue_receive" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="queue_send" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="queue_delivery" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="HostStatistics">
+                <xsd:sequence>
+                    <!-- Share of the whole machine, 0..100. -->
+                    <xsd:element name="cpu_percent_total" type="xsd:float"/>
+                    <!-- Share of one core, so 400 means four cores' worth - as top reports it. -->
+                    <xsd:element name="cpu_percent_process" type="xsd:float"/>
+                    <!-- Hardware threads, so the figure above can be shown as a share of the
+                         machine rather than of a single core. -->
+                    <xsd:element name="cpu_cores" type="xsd:int"/>
+                    <xsd:element name="memory_used_by_process" type="xsd:int"/>
+                    <!-- In use as free(1) and task managers report it: everything that is neither
+                         free nor holding cache. Shown alongside available rather than derived
+                         from it, because the two differ on a host with unreclaimable cache. -->
+                    <xsd:element name="memory_used" type="xsd:int"/>
+                    <xsd:element name="memory_available" type="xsd:int"/>
+                    <xsd:element name="memory_total" type="xsd:int"/>
+                    <xsd:element name="process_uptime_seconds" type="xsd:int"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- Reported from INFO rather than from the filesystem: it works whether Redis is on
+                 this host or another, needs no access to its data directory, and the memory it
+                 holds is what governs capacity - an on-disk snapshot may be stale or absent. -->
+            <xsd:complexType name="RedisStatistics">
+                <xsd:sequence>
+                    <xsd:element name="connected" type="xsd:boolean"/>
+                    <xsd:element name="host" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="used_memory" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="used_memory_peak" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="keys" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <!-- Disk is reported only when Redis runs on this host and tells us where its
+                         database lives. For a remote Redis the figures would describe the wrong
+                         machine, which is worse than showing nothing. -->
+                    <xsd:element name="is_local" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="data_directory" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="disk_available" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="disk_total" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:element name="GetStatistics">
+                <xsd:complexType>
+                    <xsd:sequence/>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="GetStatisticsResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="server_running" type="xsd:boolean"/>
+                        <!-- Absent while the server is stopped: it holds no counters then, and
+                             zeroes would read as an idle broker rather than as no broker. -->
+                        <xsd:element name="broker" type="tns:BrokerStatistics" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="host" type="tns:HostStatistics" maxOccurs="1" minOccurs="0"/>
+                        <!-- Absent unless persistence is configured. -->
+                        <xsd:element name="redis" type="tns:RedisStatistics" maxOccurs="1" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:element name="ServerControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <!-- Whether MQTT is being served once the action has been carried out. -->
+                        <xsd:element name="running" type="xsd:boolean"></xsd:element>
+                        <!-- Why it is not running, when a start was asked for and did not happen. -->
+                        <xsd:element name="message" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="version" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:complexType name="Bridge">
+                <xsd:sequence>
+                    <xsd:element name="id" type="xsd:int" maxOccurs="1"
+                                 minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="node_name">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:pattern value="[A-Za-z][\w\-]"></xsd:pattern>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="enabled" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="1">
+                    </xsd:element>
+                    <xsd:element name="host_port">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:pattern
+                                        value="^[\w\d\.]+:\d{3,5}">
+                                </xsd:pattern>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="username" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="password" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- MQTT client id the bridge connects with. Must be stable across
+                         reconnects: a non-clean bridge session on the remote broker is keyed by
+                         it. Defaults to bridge_<this node>_<remote node> when omitted. -->
+                    <xsd:element name="client_id" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="encrypted" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="ssl_keys" type="tns:SSLKeys"
+                                 maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="clean_session" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="1">
+                    </xsd:element>
+                    <xsd:element name="topics" type="tns:BridgeTopic"
+                                 maxOccurs="unbounded" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="mode" maxOccurs="1" minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:enumeration value="in"></xsd:enumeration>
+                                <xsd:enumeration value="out"></xsd:enumeration>
+                                <xsd:enumeration value="inout"></xsd:enumeration>
+                                <xsd:enumeration value="cluster"></xsd:enumeration>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:element name="BridgeControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="add"></xsd:enumeration>
+                                    <xsd:enumeration value="modify"></xsd:enumeration>
+                                    <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <xsd:enumeration value="list"></xsd:enumeration>
+                                    <xsd:enumeration value="apply"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="bridge" type="tns:Bridge" maxOccurs="1" minOccurs="0"></xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="BridgeControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="list"
+                                     type="tns:Bridge" maxOccurs="unbounded" minOccurs="0">
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
+            <xsd:complexType name="SubjectLogLevels">
+                <xsd:sequence>
+                    <xsd:element name="connect" type="tns:LogLevel"></xsd:element>
+                    <xsd:element name="disconnect"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                    <xsd:element name="subscribe" type="tns:LogLevel"></xsd:element>
+                    <xsd:element name="unsubscribe"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                    <xsd:element name="publish" type="tns:LogLevel"></xsd:element>
+                    <xsd:element name="ack" type="tns:LogLevel"></xsd:element>
+                    <xsd:element name="server_connections"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                    <xsd:element name="server_events"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                    <xsd:element name="cluster_connections"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                    <xsd:element name="cluster_events"
+                                 type="tns:LogLevel">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!--
+                Which broker events reach an observer extension. Shaped like SubjectLogLevels, and
+                deliberately booleans rather than the DEBUG..PANIC hierarchy: an event either
+                happens or does not.
+
+                An event nobody asked for costs the thread that raised it three string copies into
+                a bounded queue. Once per session or per subscription that is nothing; per message
+                it is on the broker's hottest path, which is why publish and ack are the two that
+                default off. Omitting the whole block leaves every subject at its default.
+            -->
+            <xsd:complexType name="SubjectEvents">
+                <xsd:sequence>
+                    <xsd:element name="connect" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="disconnect" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="subscribe" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="unsubscribe" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="publish" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="ack" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="server_connections" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="server_events" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="cluster_connections" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="cluster_events" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="ServerNode">
+                <xsd:sequence>
+                    <xsd:element name="id" type="xsd:int" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Node ID (in the database).</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="node_state" type="xsd:int" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Node state.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="node_name" type="tns:Name">
+                        <xsd:annotation>
+                            <xsd:documentation>Node name.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="host_port" type="xsd:string">
+                        <xsd:annotation>
+                            <xsd:documentation>Host name or IP address</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="xmq_version" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>XMQ server version.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="encrypted" type="xsd:boolean"
+                                 maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Flag: Is connection encrypted?</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="ssl_keys" type="tns:SSLKeys"
+                                 maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>SSL keys. Required if the connection is encrypted.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="Cluster">
+                <xsd:sequence>
+                    <xsd:element name="this_node"
+                                 type="tns:ServerNode">
+                        <xsd:annotation>
+                            <xsd:documentation>This node information from the cluster point of view.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Database URI that must be the same for all cluster nodes. During the
+                                joinCluster request, it's set automatically from the server "persistence" section.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="password" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Secret this node presents when it connects to the other nodes, as the
+                                'cluster' account. It lives here rather than among the accounts because presenting a
+                                secret and checking one are different things: a node has to be able to read this,
+                                while the 'cluster' account holds a one-way verifier like every other account, which
+                                is what incoming peers are checked against. Carried over from the accounts file by
+                                the migration, where it was still readable.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="nodes" type="tns:ServerNode"
+                                 maxOccurs="unbounded" minOccurs="1">
+                        <xsd:annotation>
+                            <xsd:documentation>Array of cluster nodes. Must contain at least the node itself for the
+                                node_name in cluster element.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:simpleType name="Name">
+                <xsd:restriction base="xsd:string">
+                    <xsd:pattern value="^\w[\w\._\-]+$"></xsd:pattern>
+                </xsd:restriction>
+            </xsd:simpleType>
+
+            <xsd:complexType name="BridgeTopic">
+                <xsd:sequence>
+                    <!-- Which way this topic is carried. Defaults to inout. -->
+                    <xsd:element name="direction" maxOccurs="1" minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:string">
+                                <xsd:enumeration value="in"></xsd:enumeration>
+                                <xsd:enumeration value="out"></xsd:enumeration>
+                                <xsd:enumeration value="inout"></xsd:enumeration>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <!-- Topic filter to bridge, e.g. "sensors/#". The only element a topic
+                         entry needs: topics are carried under the name they were published
+                         with. -->
+                    <xsd:element name="pattern" type="xsd:string"></xsd:element>
+                    <!-- Optional remapping, for carrying a topic under a different parent on
+                         the far side. Leave both empty to map one to one. -->
+                    <xsd:element name="source_topic"
+                                 type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="destination_topic"
+                                 type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- QoS to subscribe with. Defaults to 1. -->
+                    <xsd:element name="qos" maxOccurs="1" minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minInclusive value="0"></xsd:minInclusive>
+                                <xsd:maxInclusive value="2"></xsd:maxInclusive>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+        
+            <xsd:complexType name="TestScenario">
+            	<xsd:sequence>
+            		<xsd:element name="name" type="xsd:string"></xsd:element>
+            		<xsd:element name="type">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:string">
+            					<xsd:enumeration value="Fan-In"></xsd:enumeration>
+            					<xsd:enumeration value="Fan-Out"></xsd:enumeration>
+            					<xsd:enumeration
+            						value="Point-To-Point">
+            					</xsd:enumeration>
+            					<xsd:enumeration value="Connections"></xsd:enumeration>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="publishers"
+            			type="tns:TestClientGroup">
+            		</xsd:element>
+            		<xsd:element name="subscribers"
+            			type="tns:TestClientGroup" maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="server" type="tns:Host"></xsd:element>
+            		<xsd:element name="parameters" type="tns:TestScenarioParameters"></xsd:element>
+            	</xsd:sequence>
+
+            </xsd:complexType>
+        
+            <!-- One MQTT5 property as a scenario writes it: the name the command line uses
+                 ("receive-maximum", "user-property"), and its value. A user property's value is
+                 itself a pair, "name=value", exactly as with -D.
+
+                 A list and not a map, because MQTT5 allows the same user property name more than
+                 once and keeps their order. The broker's own container is still a map and does
+                 drop the repeats - a scenario can therefore ask for something the broker cannot
+                 yet carry, which is the point: it is what will show the fix when it lands. -->
+            <xsd:complexType name="MessageProperty">
+            	<xsd:sequence>
+            		<xsd:element name="name" type="xsd:string"></xsd:element>
+            		<xsd:element name="value" type="xsd:string"></xsd:element>
+            	</xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="TestClientGroup">
+            	<xsd:sequence>
+            		<xsd:element name="id_prefix" type="xsd:string"></xsd:element>
+            		<xsd:element name="protocol_version">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:enumeration value="3"></xsd:enumeration>
+            					<xsd:enumeration value="4"></xsd:enumeration>
+            					<xsd:enumeration value="5"></xsd:enumeration>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="client_count">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="0"></xsd:minInclusive>
+            					<xsd:maxInclusive value="1000000"></xsd:maxInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="qos">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="0"></xsd:minInclusive>
+            					<xsd:maxInclusive value="2"></xsd:maxInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="clean_session"
+            			type="xsd:boolean">
+            		</xsd:element>
+            		<xsd:element name="topics" type="xsd:string"
+            			maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<!-- Broker this group connects to, overriding the scenario's own server.
+            		     Absent means the scenario's server, which is what every scenario
+            		     without this element gets. Giving publishers and subscribers
+            		     different brokers is how a bridge is exercised: messages published
+            		     on one must arrive at subscribers on the other. -->
+            		<xsd:element name="server" type="tns:Host"
+            			maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<!-- Properties this group sends. Both need MQTT5; the run is refused on 3 or 4
+            		     rather than quietly sending none, because a measurement that silently
+            		     dropped what it was asked to measure is worse than no measurement. -->
+            		<xsd:element name="connect_properties" type="tns:MessageProperty"
+            			maxOccurs="unbounded" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="publish_properties" type="tns:MessageProperty"
+            			maxOccurs="unbounded" minOccurs="0">
+            		</xsd:element>
+            	</xsd:sequence>
+            </xsd:complexType>
+        
+            <xsd:complexType name="TestTopicGroup">
+            	<xsd:sequence>
+            		<xsd:element name="id_prefix" type="xsd:string"></xsd:element>
+            		<xsd:element name="is_shared" type="xsd:boolean"></xsd:element>
+            	</xsd:sequence>
+            </xsd:complexType>
+        
+            <xsd:complexType name="Host">
+            	<xsd:sequence>
+            		<xsd:element name="hostname" type="xsd:string"></xsd:element>
+            		<xsd:element name="port" type="xsd:int"></xsd:element>
+            		<xsd:element name="username" type="xsd:string"></xsd:element>
+            		<xsd:element name="password" type="xsd:string"></xsd:element>
+            	</xsd:sequence>
+            </xsd:complexType>
+        
+            <xsd:complexType name="TestScenarioParameters">
+            	<xsd:sequence>
+            		<xsd:element name="message_count" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="0"></xsd:minInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="duration_sec" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="payload_size" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="64"></xsd:minInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="connection_rate" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="keep_alive_sec" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="publish_rate" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="64"></xsd:minInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            		<xsd:element name="expected_connect_latency"
+            			type="xsd:float" maxOccurs="1" minOccurs="0">
+            		</xsd:element>
+            		<xsd:element name="expected_message_latency" type="xsd:string" maxOccurs="1" minOccurs="0"></xsd:element>
+            		<xsd:element name="max_inflight_messages" type="xsd:int"
+            			maxOccurs="1" minOccurs="0">
+            			<xsd:simpleType>
+            				<xsd:restriction base="xsd:int">
+            					<xsd:minInclusive value="0"></xsd:minInclusive>
+            				</xsd:restriction>
+            			</xsd:simpleType>
+            		</xsd:element>
+            	</xsd:sequence>
+            </xsd:complexType>
+        </xsd:schema>
+    </wsdl:types>
+    <wsdl:message name="GetClientSessions">
+        <wsdl:part element="tns:GetClientSessions" name="parameters"/>
+    </wsdl:message>
+    <wsdl:message name="GetClientSessionsResponse">
+        <wsdl:part element="tns:GetClientSessionsResponse" name="parameters"/>
+    </wsdl:message>
+    <wsdl:message name="Login">
+        <wsdl:part name="parameters" element="tns:Login"/>
+    </wsdl:message>
+    <wsdl:message name="LoginResponse">
+        <wsdl:part name="parameters" element="tns:LoginResponse"/>
+    </wsdl:message>
+    <wsdl:message name="GetSubscriptionsRequest">
+        <wsdl:part name="parameters" element="tns:GetSubscriptions"/>
+    </wsdl:message>
+    <wsdl:message name="GetSubscriptionsResponse">
+        <wsdl:part name="parameters" element="tns:GetSubscriptionsResponse"/>
+    </wsdl:message>
+    <wsdl:message name="SetupStateRequest">
+        <wsdl:part name="parameters" element="tns:SetupState"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="SetupStateResponse">
+        <wsdl:part name="parameters" element="tns:SetupStateResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ExtensionControlRequest">
+        <wsdl:part name="parameters" element="tns:ExtensionControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ExtensionControlResponse">
+        <wsdl:part name="parameters" element="tns:ExtensionControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="UserGroupControlRequest">
+        <wsdl:part name="parameters" element="tns:UserGroupControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="UserGroupControlResponse">
+        <wsdl:part name="parameters" element="tns:UserGroupControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="UserControlRequest">
+        <wsdl:part name="parameters" element="tns:UserControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="UserControlResponse">
+        <wsdl:part name="parameters" element="tns:UserControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ListenerControlRequest">
+        <wsdl:part name="parameters" element="tns:ListenerControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ListenerControlResponse">
+        <wsdl:part name="parameters" element="tns:ListenerControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="PersistenceControlRequest">
+        <wsdl:part name="parameters" element="tns:PersistenceControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="PersistenceControlResponse">
+        <wsdl:part name="parameters" element="tns:PersistenceControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="SSLKeysControlRequest">
+        <wsdl:part name="parameters" element="tns:SSLKeysControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="SSLKeysControlResponse">
+        <wsdl:part name="parameters" element="tns:SSLKeysControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="LimitsControlRequest">
+        <wsdl:part name="parameters" element="tns:LimitsControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="LimitsControlResponse">
+        <wsdl:part name="parameters" element="tns:LimitsControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="LoggingControlRequest">
+        <wsdl:part name="parameters" element="tns:LoggingControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="LoggingControlResponse">
+        <wsdl:part name="parameters" element="tns:LoggingControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ServiceControlRequest">
+        <wsdl:part name="parameters" element="tns:ServiceControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ServiceControlResponse">
+        <wsdl:part name="parameters" element="tns:ServiceControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="InitialSetupControlRequest">
+        <wsdl:part name="parameters" element="tns:InitialSetupControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="InitialSetupControlResponse">
+        <wsdl:part name="parameters" element="tns:InitialSetupControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ServerControlRequest">
+        <wsdl:part name="parameters" element="tns:ServerControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ServerControlResponse">
+        <wsdl:part name="parameters" element="tns:ServerControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="GetStatisticsRequest">
+        <wsdl:part name="parameters" element="tns:GetStatistics"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="GetStatisticsResponse">
+        <wsdl:part name="parameters" element="tns:GetStatisticsResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="BridgeControlRequest">
+        <wsdl:part name="parameters" element="tns:BridgeControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="BridgeControlResponse">
+        <wsdl:part name="parameters" element="tns:BridgeControlResponse"></wsdl:part>
+    </wsdl:message>
+    <wsdl:portType name="xmq">
+        <wsdl:operation name="GetClientSessions">
+            <wsdl:input message="tns:GetClientSessions"/>
+            <wsdl:output message="tns:GetClientSessionsResponse"/>
+        </wsdl:operation>
+        <wsdl:operation name="Login">
+            <wsdl:input message="tns:Login"/>
+            <wsdl:output message="tns:LoginResponse"/>
+        </wsdl:operation>
+        <wsdl:operation name="GetSubscriptions">
+            <wsdl:input message="tns:GetSubscriptionsRequest"/>
+            <wsdl:output message="tns:GetSubscriptionsResponse"/>
+        </wsdl:operation>
+        <wsdl:operation name="UserControl">
+            <wsdl:input message="tns:UserControlRequest"></wsdl:input>
+            <wsdl:output message="tns:UserControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ExtensionControl">
+            <wsdl:input message="tns:ExtensionControlRequest"></wsdl:input>
+            <wsdl:output message="tns:ExtensionControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="UserGroupControl">
+            <wsdl:input message="tns:UserGroupControlRequest"></wsdl:input>
+            <wsdl:output message="tns:UserGroupControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SetupState">
+            <wsdl:input message="tns:SetupStateRequest"></wsdl:input>
+            <wsdl:output message="tns:SetupStateResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ListenerControl">
+            <wsdl:input message="tns:ListenerControlRequest"></wsdl:input>
+            <wsdl:output message="tns:ListenerControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PersistenceControl">
+            <wsdl:input message="tns:PersistenceControlRequest"></wsdl:input>
+            <wsdl:output message="tns:PersistenceControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SSLKeysControl">
+            <wsdl:input message="tns:SSLKeysControlRequest"></wsdl:input>
+            <wsdl:output message="tns:SSLKeysControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="LimitsControl">
+            <wsdl:input message="tns:LimitsControlRequest"></wsdl:input>
+            <wsdl:output message="tns:LimitsControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="LoggingControl">
+            <wsdl:input message="tns:LoggingControlRequest"></wsdl:input>
+            <wsdl:output message="tns:LoggingControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ServiceControl">
+            <wsdl:input message="tns:ServiceControlRequest"></wsdl:input>
+            <wsdl:output message="tns:ServiceControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="InitialSetupControl">
+            <wsdl:input message="tns:InitialSetupControlRequest"></wsdl:input>
+            <wsdl:output message="tns:InitialSetupControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ServerControl">
+            <wsdl:input message="tns:ServerControlRequest"></wsdl:input>
+            <wsdl:output message="tns:ServerControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="GetStatistics">
+            <wsdl:input message="tns:GetStatisticsRequest"></wsdl:input>
+            <wsdl:output message="tns:GetStatisticsResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="BridgeControl">
+            <wsdl:input message="tns:BridgeControlRequest"></wsdl:input>
+            <wsdl:output message="tns:BridgeControlResponse"></wsdl:output>
+        </wsdl:operation>
+    </wsdl:portType>
+    <wsdl:binding name="xmqSOAP" type="tns:xmq">
+        <soap:binding style="document"
+                      transport="http://schemas.xmlsoap.org/soap/http"/>
+        <wsdl:operation name="GetClientSessions">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/GetClientSessions"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="Login">
+            <soap:operation soapAction="http://www.sptk.net/xmq/Login"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="GetSubscriptions">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/GetSubscriptions"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="UserControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/UserControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SetupState">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/SetupState"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ExtensionControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/ExtensionControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="UserGroupControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/UserGroupControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ListenerControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/ListenerControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PersistenceControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/PersistenceControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SSLKeysControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/SSLKeysControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="LimitsControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/LimitsControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="LoggingControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/LoggingControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ServiceControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/ServiceControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="InitialSetupControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/InitialSetupControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ServerControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/ServerControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="GetStatistics">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/GetStatistics"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+    </wsdl:binding>
+    <wsdl:service name="xmq">
+        <wsdl:port binding="tns:xmqSOAP" name="xmqSOAP">
+            <soap:address location="http://localhost:18883/"/>
+        </wsdl:port>
+    </wsdl:service>
+</wsdl:definitions>

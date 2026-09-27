@@ -1,0 +1,120 @@
+#!/bin/sh
+#
+# FreeBSD rc.d script for the XMQ broker. Installed as /usr/local/etc/rc.d/xmq_server.
+#
+# PROVIDE: xmq_server
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable the broker:
+#
+#   xmq_server_enable="YES"
+#
+# Optional settings, shown with their defaults:
+#
+#   xmq_server_config="/usr/local/etc/xmq/xmq_server.conf"
+#   xmq_server_user="xmq"
+#   xmq_server_flags=""
+#
+
+. /etc/rc.subr
+
+name="xmq_server"
+rcvar="xmq_server_enable"
+
+load_rc_config $name
+
+: ${xmq_server_enable:="NO"}
+: ${xmq_server_config:="/usr/local/etc/xmq/xmq_server.conf"}
+# The account the package makes on installation, which owns the configuration, the certificates
+# and the log. A broker listening on a network should not be root, and nothing it does needs to be:
+# every port it binds is above 1024.
+: ${xmq_server_user:="xmq"}
+: ${xmq_server_flags:=""}
+
+# Two pid files, and both are needed. -p records the broker itself, which is what "service status"
+# checks; -P records daemon(8)'s own supervising process. Stopping has to kill the supervisor: kill
+# only the broker and the supervisor faithfully starts it again, so the service would refuse to die.
+#
+# In a directory of their own rather than in /var/run itself. rc.subr runs the whole command as
+# ${name}_user - it wraps it in su(1) - so daemon(8) is already unprivileged by the time it creates
+# them, and /var/run belongs to root: "pidfile ``/var/run/xmq_server.pid'': Permission denied", and
+# nothing started. The directory is made at every start rather than by the package, because
+# /var/run does not survive a reboot.
+pidfile_directory="/var/run/${name}"
+pidfile="${pidfile_directory}/${name}.pid"
+supervisor_pidfile="${pidfile_directory}/${name}.supervisor.pid"
+procname="/usr/local/bin/xmq_server"
+
+# daemon(8) does the backgrounding, and the broker no longer does any of its own: it stays in the
+# foreground of whatever starts it, so daemon(8) supervises the real process. It used to fork
+# unless told not to, which left daemon(8) watching a parent that had already exited and restarting
+# it forever. -r with -R 5 mirrors the systemd unit's Restart=always and RestartSec=5:
+# come back after a failure, but not in a hot loop when the configuration is bad or the port is taken.
+#
+# -f closes the descriptors daemon(8) inherited. Without it the service holds on to whatever
+# terminal started it - "service xmq_server start" over ssh never returns, because the connection
+# waits for a pipe the broker is still holding open. The broker keeps its own log under
+# /var/log/xmq, so nothing is lost by closing them.
+#
+# No -u here, though daemon(8) has one. rc.subr has already dropped to ${name}_user, so a second
+# drop is made by a process that is no longer root and fails - and -f has by then sent daemon's
+# complaint to /dev/null, so what you see is a service that reports "Starting xmq_server." and
+# leaves nothing running, with an empty pid file that blocks the next attempt as well.
+command="/usr/sbin/daemon"
+command_args="-c -f -r -R 5 -t ${name} -p ${pidfile} -P ${supervisor_pidfile} \
+    ${procname} --configuration-file ${xmq_server_config} ${xmq_server_flags}"
+
+# Closing a large number of connections is not instant, and the broker flushes persistence on the
+# way out. rc.subr's default is to wait 30 seconds before resorting to SIGKILL, which would cut a
+# busy broker off mid-shutdown; the systemd unit allows 300 for the same reason.
+stop_cmd="xmq_server_stop"
+start_precmd="xmq_server_precmd"
+
+xmq_server_precmd()
+{
+    # No check that the configuration exists. There used to be one, and it turned the first start
+    # after a fresh install into a refusal the moment the package stopped shipping a live
+    # configuration file: the broker writes one from the installed template when it finds none, and
+    # this ran before it and said the file was missing. A missing configuration is the broker's
+    # business, not this script's.
+
+    install -d -o "${xmq_server_user}" -g wheel -m 0755 "${pidfile_directory}"
+}
+
+xmq_server_stop()
+{
+    if [ ! -f "${supervisor_pidfile}" ] && [ ! -f "${pidfile}" ]; then
+        echo "${name} is not running."
+        return 0
+    fi
+    echo "Stopping ${name}."
+    _supervisor=$(cat ${supervisor_pidfile} 2>/dev/null)
+    _broker=$(cat ${pidfile} 2>/dev/null)
+    # The supervisor first, so that it does not restart the broker while the broker is shutting down.
+    [ -n "${_supervisor}" ] && kill -TERM ${_supervisor} 2>/dev/null
+    [ -n "${_broker}" ] && kill -TERM ${_broker} 2>/dev/null
+    wait_for_pids_timeout 300 ${_supervisor} ${_broker}
+    rm -f ${pidfile} ${supervisor_pidfile}
+}
+
+# rc.subr has no timeout of its own on wait_for_pids, so give it one: check every second and only
+# then give up, rather than waiting forever on a broker that will not stop.
+wait_for_pids_timeout()
+{
+    _timeout=$1
+    shift
+    _pids="$*"
+    [ -z "${_pids}" ] && return 0
+    _waited=0
+    while [ ${_waited} -lt ${_timeout} ]; do
+        kill -0 ${_pids} 2>/dev/null || return 0
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    echo "${name} did not stop within ${_timeout} seconds; sending SIGKILL."
+    kill -KILL ${_pids} 2>/dev/null
+    return 0
+}
+
+run_rc_command "$1"

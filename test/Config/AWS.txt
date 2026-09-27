@@ -1,0 +1,49 @@
+Same AZ is easy. CLuster placement group and ENA - I'm not sure where to configure it.
+
+● Both are AWS EC2 configuration, not something in this repo — here's how to set them up:
+
+  Cluster Placement Group
+
+  Console:
+  1. EC2 Console → Network & Security → Placement Groups → Create placement group
+  2. Name it (e.g. xmq-bench-cluster), strategy = Cluster, create.
+  3. When launching each instance (broker and every client instance), under Advanced details → Placement
+  group, select it.
+
+  CLI:
+  aws ec2 create-placement-group --group-name xmq-bench-cluster --strategy cluster
+
+  aws ec2 run-instances ... \
+    --placement "GroupName=xmq-bench-cluster,AvailabilityZone=us-east-1a"
+
+  Gotchas worth knowing before you commit to this for the 1M-connection run:
+  - A cluster placement group is pinned to a single AZ the moment the first instance lands in it — fine
+  since you've already decided same-AZ.
+  - Capacity risk: packing many instances into one physical cluster can hit InsufficientInstanceCapacity,
+  especially if you scale up gradually rather than launching everything at once. Launch the broker + all
+  client instances together in one batch (or via an ASG/launch template) rather than one-by-one to maximize
+  the odds AWS can place them all.
+  - Pick a current-gen, network-optimized type for both broker and clients — c5n/c6in/m6in etc. (the "n"
+  suffix = enhanced network bandwidth, up to 100 Gbps). Avoid t3/t2 burstable types for this — their network
+  performance isn't consistent enough for a latency benchmark.
+
+
+ ENA (Enhanced Networking)
+
+  Good news: on any current-gen Nitro-based instance type with a recent AMI (Amazon Linux 2/2023, Ubuntu
+  20.04+), ENA is on by default — nothing to configure. It only becomes a manual step if you're using an
+  old/custom AMI or an older instance family.
+
+  To confirm it's actually active once instances are up:
+  # from your machine, against a running instance:
+  aws ec2 describe-instances --instance-ids i-xxxx \
+    --query "Reservations[].Instances[].EnaSupport"
+
+  # from inside the instance itself:
+  ethtool -i ens5   # primary NIC on Nitro instances (may be eth0 on older AMIs)
+  # look for: driver: ena
+
+  Practical takeaway: pick a network-optimized current-gen type + recent AMI and ENA is free; the placement
+  group is the only thing you actually have to remember to do. Once it's up, worth re-running the same ping
+  sanity check we just did on your LAN to confirm you're actually landing in the sub-0.1–0.3ms range before
+  trusting the benchmark numbers.

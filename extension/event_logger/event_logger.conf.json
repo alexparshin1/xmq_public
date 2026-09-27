@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "_comment": "Writes every broker event to syslog: connections, subscriptions and publishes, one line each. Declares XMQ_CAP_OBSERVER, so it is never asked whether a client may connect. 'ident' is the name syslog tags the lines with, 'facility' is where they land - user, daemon, or local0..local7, which is what an administrator has to separate this broker's lines from everything else.",
+      "name": "event_logger",
+      "library": "/home/alexeyp/.local/lib/xmq-extensions/libxmq_event_logger.so",
+      "enabled": true,
+      "required": false,
+      "settings": {
+        "ident": "xmq",
+        "facility": "local0"
+      }
+    }
+  ]
+}

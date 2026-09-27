@@ -1,0 +1,32 @@
+
+  The 64K limit is per source IP (per destination), not per interface, and bind() doesn't
+  care whether the IP lives on its own adapter. A single adapter with secondary addresses works identically:
+
+  ip addr add 10.1.1.101/24 dev eth0
+  ip addr add 10.1.1.102/24 dev eth0 ...
+
+  --bind-to-interfaces 10.1.1.100/24 will pick them all up — the implementation enumerates every IPv4 address via getifaddrs, and
+  secondary addresses show up there. Multiple adapters only buy you something if you want separate interrupt/queue paths for
+  bandwidth, which a connection-count test doesn't need. (If you do want more adapters anyway, VirtualBox supports 8 — the GUI only
+  shows 4, but VBoxManage modifyvm --nic5 ... configures the rest.)
+
+  Give yourself port headroom. 250K clients ÷ 4 IPs = 62.5K per IP, which is within ~2K of the absolute ceiling (ip_local_port_range
+  maxes out around 64.5K usable). Any stray connection, TIME_WAIT residue, or retry will hit exhaustion mid-run. Use 5–8 IPs per VM
+  so you're at ~30–50K per IP.
+
+  VirtualBox-specific traps:
+
+  - Use bridged networking with virtio-net, never NAT — NAT mode runs its own userspace connection tracking and will collapse long
+  before 250K.
+  - If all four VMs sit on one physical host, the host's conntrack table (nf_conntrack_max, default ~262K) will overflow at 1M flows.
+  Raise it or unload conntrack on the host, the VMs, and the broker machine.
+  - Budget VM RAM for kernel socket memory: ~10–20KB per established socket → 250K sockets ≈ 3–5GB just for the network stack, plus
+  the client objects themselves. And ulimit -n / fs.nr_open above 250K in the VM.
+
+  One real blocker in the utility itself: all four VMs would run the same scenario JSON, so they'd generate identical client IDs
+  (test-publisher-0…) and the broker will keep kicking each other's sessions. id_prefix currently comes only from the scenario file —
+  there's no CLI override. You'd either need four JSON variants or, cleaner, an --id-prefix option per generator (--id-prefix vm1-).
+  Want me to add that option? It's a small change on the pattern already in place.
+
+  Also plan the connect rate: the engine paces globally per process, so to mirror the EMQX enterprise test's aggregate rate, set each
+  VM's --connection-rate to a quarter of the target.

@@ -1,0 +1,69 @@
+# Scenario set: AWS (c5n.4xlarge broker, c5n.4xlarge client, same AZ + cluster placement group)
+#
+# What this set is for: the published cross-broker comparison in results/AWS/. Several brokers per
+# scenario, one file per scenario, and the numbers go on the web site. AWS time is billed and the
+# home bench is not, so exploration belongs on the bench - but a final figure comes from here.
+# Where the two disagree this is the one that is right, because it is the one that resembles what
+# anybody else will run.
+#
+# Every scenario here is run against every broker in the comparison, on the same instances, on the
+# same day, with the other brokers stopped: a competing broker still owning the port voids the
+# run, and has done - a whole day of it.
+#
+# Record a Version: line for every broker (broker_versions.sh prints them ready to paste). None of
+# the install scripts pin a version, so a published figure without one cannot be reproduced.
+#
+# Two host settings distort a cross-broker run badly enough that they have to be equal on both
+# sides and written down: iommu.passthrough (worth 8% to XMQ but 8x to FlashMQ) and CPU affinity
+# (33.6% to XMQ, 7.5% to FlashMQ). Equalise them, then say in the file what they were.
+#
+# Say what the broker was configured with, too - send_threads and receive_threads at least, in the
+# --server-note. The 2026-07-30 figures do not, and when 2026-09-08 measured Fan-Out 16% slower it
+# could not be told from the record whether the code or the configuration had changed: that host's
+# /etc/xmq had been edited on 2026-08-11 for a fan-out experiment, between the two runs. A record
+# that cannot answer that question makes the next version's comparison guesswork.
+#
+# Machine-readable: every line that is not a '#' comment or blank is one scenario, in run order.
+
+# results/AWS/Fan-Out-250K.txt
+Fan-Out-5-1000-5-250K-5min.json
+
+# results/AWS/Fan-In-50K.txt
+Fan-In-50K-500-50K-50K.json
+
+# results/AWS/50K-Point-To-Point.txt
+Point-To-Point-50K-50K-50K-50K.json
+
+# results/AWS/Persistence.txt - the ONE scenario here run with persistence ON: Redis reachable,
+# XMQ persistence enabled, clean_start true against an empty Redis database. Record Redis's own
+# CPU alongside the broker's.
+#
+# 30K, not the 10K the 2026-07-30 file used: 10K persistent sessions cost so little that the
+# measurement mostly says the machine was idle. The bench runs 20K and this runs 30K - the
+# instances are the larger machines, and the point of the scenario is what the storage costs
+# when there is enough of it to cost anything.
+Point-To-Point-30K-persistent.json
+
+# results/AWS/500K-connections.txt and results/AWS/1M-connections.txt. Last, as on the bench:
+# they leave the broker at peak RSS.
+#
+# Both, since 2026-09-08. The million is where the interesting numbers are now and half a
+# million says less every release - but 500K is the scenario EMQX and Mosquitto were measured
+# on, and dropping it would strand that comparison at whatever it said in July.
+500K-Connections-2500-rate.json
+1M-Connections-5K-rate.json
+
+# NOT in this set, and why:
+#
+# Fan-Out-5-1000-5-250K.json          The four-second burst. Superseded by the 5-minute variant
+#                                     everywhere; kept on the bench only for continuity with the
+#                                     older version records.
+#
+# Fan-Out-5-1000-5-250K-10min.json    A bench diagnostic for the latency drift seen at five
+#                                     minutes. If that drift turns out to be real and the
+#                                     broker's own, this belongs here too - and then the other
+#                                     brokers have to be asked the same question.
+#
+# Fan-In-30K-500-30K-30K.json         The 30k/s fallback for brokers that cannot complete 50k/s on
+#                                     a small host. On these instances all of them can, so the
+#                                     comparison is made at 50k/s.

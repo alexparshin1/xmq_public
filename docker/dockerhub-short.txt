@@ -1,0 +1,1 @@
+Fast, free MQTT server. MQTT 5, QoS 0-2, TLS, bridging.

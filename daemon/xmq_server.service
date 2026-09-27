@@ -1,0 +1,36 @@
+[Unit]
+Description=XMQ MQTT Server
+After=network.target
+
+[Service]
+# The account the package makes on installation, which owns /etc/xmq and /var/log/xmq. A broker
+# with a port open to a network has no business being root, and this one needs nothing that root
+# is for: its ports are all above 1024.
+User=xmq
+
+# The broker stays in the foreground of whatever starts it, which is what systemd wants: it
+# supervises the real process. It used to put itself into the background unless told not to, and
+# then systemd (Type=simple) saw the process it started exit within milliseconds, concluded the
+# service had died and, with Restart=always, started it again - a restart loop. It is still a
+# background service; systemd is what puts it there.
+Type=simple
+ExecStart=/usr/local/bin/xmq_server
+Restart=always
+
+# Don't hot-loop when the server fails at startup (bad config, port already bound).
+RestartSec=5
+
+# One descriptor per connection, plus listeners, the event reactor and any database
+# sockets. Services do NOT inherit /etc/security/limits.conf - they get
+# DefaultLimitNOFILE, commonly 524288, which is enough for a 500K-connection test
+# (500017 needed) but not for 1M: that would stall near 524K and look like a broker
+# fault rather than a limit. Set it explicitly.
+LimitNOFILE=2097152
+
+# Closing a large number of connections is not instant. systemd's default 90s stop
+# timeout would SIGKILL a server still shutting sessions down, losing the clean
+# shutdown and any persistence flush.
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

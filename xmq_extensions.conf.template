@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "Extensions loaded by the broker at startup, listed here rather than discovered by scanning a",
+    "directory: a broker that loads whatever is in a folder behaves according to what someone left",
+    "there.",
+    "",
+    "This is a template. Copy it to xmq_extensions.conf beside xmq_server.conf and edit it. Nothing",
+    "installs the live file, and a broker without one simply has no extensions - which is not an",
+    "error and is the normal case.",
+    "",
+    "It is a separate file rather than a section of xmq_server.conf because that file is generated",
+    "from xmq.wsdl and rewritten from that model, so a section the model does not know about would",
+    "be dropped the first time anything was saved. Accounts live in their own file for the same",
+    "reason.",
+    "",
+    "'name' must match the name the library declares, or the broker refuses to load it - otherwise",
+    "this file names one extension and the broker runs another. Everything under 'settings' belongs",
+    "to the extension and means whatever its documentation says it means.",
+    "",
+    "There are two places the broker reads: this file, and xmq_extensions.d beside it. Every",
+    "*.conf in that directory is read after this file, in name order - hence the convention of a",
+    "numeric prefix, 10-, 50-, since the order extensions are asked in is part of what they mean.",
+    "It exists so that an extension can install its own entry instead of asking somebody to merge",
+    "one into this file by hand, and so that installing a second extension does not touch the",
+    "first one's. A fragment holds the same {\"extensions\": [ ... ]} shape as this file.",
+    "",
+    "'required' says whether the broker may serve MQTT without this extension. It defaults to",
+    "false, which is the rule the broker has always had: a broken extension does not stop it. Set",
+    "it true for an extension that is the only way clients are authenticated - otherwise a library",
+    "that fails to load leaves the broker with no authentication at all and nothing that says so.",
+    "A required extension that does not start stops the MQTT listeners, and only those: the",
+    "configuration interface still comes up, which is where the fault is repaired from.",
+    "",
+    "'library' is a full path and the broker loads exactly it. Keep extensions out of lib/xmq: that",
+    "is the directory the web interface is served from, so anything left there can be fetched over",
+    "HTTP by anyone who can reach the control service. lib/xmq-extensions is not served.",
+    "",
+    "All three entries below are the shipped samples, and all are switched off. Their sources are",
+    "in share/xmq/examples/extensions and are public domain: copy one to start your own."
+  ],
+  "extensions": [
+    {
+      "_comment": "Writes every broker event to a file. Declares XMQ_CAP_OBSERVER, so it is never asked about a connection.",
+      "name": "event-log",
+      "library": "/usr/local/lib/xmq-extensions/libxmq_event_log.so",
+      "enabled": false,
+      "settings": {
+        "file": "/var/log/xmq/events.log"
+      }
+    },
+    {
+      "_comment": "Authenticates against the broker's own SQL user database - the tables the Users screen edits - so an account added there can connect a second later, on any node sharing the database. Declares XMQ_CAP_AUTHENTICATOR. Set 'required' to true where this is the only way clients are authenticated: without it a library that fails to load leaves the broker admitting nobody and saying nothing about why. Where that database is comes from the broker, not from here: the interface writes to the broker's address, and a second copy of it in this block could be pointed elsewhere - every account added in the interface would then be saved, listed, and admit nobody. Set it with 'database_uri' in the broker's own authentication section. 'unknown_user' is 'deny' by default, because this extension is the account database and a name it does not have is a name that does not exist; set it to 'abstain' to stack this with a directory that may know the client instead.",
+      "name": "user-database",
+      "library": "/usr/local/lib/xmq-extensions/libxmq_user_database.so",
+      "enabled": false,
+      "required": false,
+      "settings": {
+        "unknown_user": "deny"
+      }
+    },
+    {
+      "_comment": "Admits the listed client ids and abstains on everyone else, leaving them to the broker's own accounts. Declares XMQ_CAP_AUTHENTICATOR, so it is never handed an event. 'lookup_ms' stands in for the directory round trip a real one makes.",
+      "name": "allow-list",
+      "library": "/usr/local/lib/xmq-extensions/libxmq_allow_list.so",
+      "enabled": false,
+      "settings": {
+        "allow": "sensor-1, sensor-2, gateway",
+        "lookup_ms": "0"
+      }
+    },
+    {
+      "_comment": "Lets a group use the topics under its own name: 'ops-alice' and 'ops-bob' are both group 'ops', and both may use site/ops/... and nothing else. Declares XMQ_CAP_AUTHORIZER. Permissions belong to the group, never to the client - that is what lets the broker cache each answer per group and topic and keep the extension off the message path.",
+      "name": "topic-guard",
+      "library": "/usr/local/lib/xmq-extensions/libxmq_topic_guard.so",
+      "enabled": false,
+      "settings": {
+        "separator": "-",
+        "root": "site"
+      }
+    }
+  ]
+}

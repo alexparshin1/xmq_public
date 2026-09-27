@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# Runs after pkg(8) has unpacked the package, from the "post-install" entry of its manifest.
+#
+# CPack's FreeBSD generator has no setting for package scripts, in the same way it has none for
+# the message: both are put into the manifest by build_freebsd_package.sh, which unpacks what
+# cpack built, rewrites the manifest and builds the package again from the very same files.
+set -e
+
+# The account the broker runs as. pw(8) is the FreeBSD way and is in the base system, so the
+# package needs nothing installed to do this. -w no means no password can be used to log in;
+# nologin means nothing can log in at all.
+if ! pw usershow @XMQ_SERVICE_USER@ >/dev/null 2>&1; then
+    pw groupadd @XMQ_SERVICE_USER@ 2>/dev/null || true
+    pw useradd @XMQ_SERVICE_USER@ -g @XMQ_SERVICE_USER@ -d /nonexistent -s /usr/sbin/nologin \
+        -w no -c "XMQ MQTT broker"
+fi
+
+# The broker writes all three: it rewrites its configuration and the accounts file from the web
+# interface, issues its own certificate into certs/, and appends to the log. So the account owns
+# them. The group is wheel - FreeBSD's root group - so that an administrator can read them without
+# any group being created for the purpose, and 0750 so that nobody else can: the accounts file and
+# the certificate's private key are both under the configuration directory.
+for directory in "@XMQ_CONF_DIRECTORY@" "@XMQ_CERTS_DIRECTORY@" "@XMQ_LOGS_DIRECTORY@"; do
+    mkdir -p "$directory"
+    chown @XMQ_SERVICE_USER@:wheel "$directory"
+    chmod 750 "$directory"
+done
+
+# What the package brought with it arrives owned by root:wheel, stamped on at build time so that
+# pkg records it - and the broker has to be able to rewrite its configuration. Files only, so the
+# directory modes set just above stand.
+chown -R @XMQ_SERVICE_USER@:wheel "@XMQ_CONF_DIRECTORY@"
+find "@XMQ_CONF_DIRECTORY@" -type f -exec chmod 640 {} +
+
+exit 0

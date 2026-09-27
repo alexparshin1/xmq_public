@@ -1,0 +1,61 @@
+#!/bin/sh
+#
+# Runs after the package manager has unpacked the files: .deb through dpkg's postinst, .rpm
+# through %post. It says what is left to do, because a freshly installed broker is not finished -
+# the administrator has no password yet.
+set -e
+
+# CPack writes a postinst of its own to run this, and only when the package has no postinst
+# already - so providing one takes the job over. The package ships SPTK's shared libraries into
+# the system library directory, and without this the loader does not know they are there.
+#
+# Debian only: the argument is "configure" there, and a number under rpm, where the distributions
+# that use it run ldconfig from a file trigger instead.
+if [ "$1" = "configure" ]; then
+    ldconfig
+fi
+
+# The account the broker runs as. Created here rather than expected to exist, because a package is
+# the only thing that knows it is needed - and a broker reachable from a network has no business
+# running as root, which is what it did until this was added.
+#
+# useradd's short flags are used throughout: -r for a system account with no ageing and an id from
+# the system range, -M so no home directory is made, -d /nonexistent to say so. They are the same
+# on Debian and on the RPM distributions, which the long forms are not. The account keeps a group
+# of its own, made by useradd; what the broker writes is owned by the account, not by the group.
+if ! getent passwd @XMQ_SERVICE_USER@ >/dev/null 2>&1; then
+    # /usr/sbin/nologin on Debian, /sbin/nologin on the RPM side; /bin/false answers everywhere.
+    for loginShell in /usr/sbin/nologin /sbin/nologin /bin/false; do
+        [ -x "$loginShell" ] && break
+    done
+    useradd -r -M -d /nonexistent -s "$loginShell" -c "XMQ MQTT broker" @XMQ_SERVICE_USER@
+fi
+
+# The broker writes all three: it rewrites its configuration and the accounts file from the web
+# interface, issues its own certificate into certs/, and appends to the log. So the account owns
+# them. The group is root, which asks for no new group to be joined: an administrator reads them
+# because they are root, and nobody else reads them at all - 0750, because the accounts file and
+# the certificate's private key are both in there.
+for directory in "@XMQ_CONF_DIRECTORY@" "@XMQ_CERTS_DIRECTORY@" "@XMQ_LOGS_DIRECTORY@"; do
+    mkdir -p "$directory"
+    chown @XMQ_SERVICE_USER@:root "$directory"
+    chmod 750 "$directory"
+done
+
+# The configuration the package brought with it arrives owned by root, and the broker has to be
+# able to replace it. Files rather than the tree, so the directory modes set just above stand.
+chown -R @XMQ_SERVICE_USER@:root "@XMQ_CONF_DIRECTORY@"
+find "@XMQ_CONF_DIRECTORY@" -type f -exec chmod 640 {} +
+
+# Said on a first installation only. An upgrade keeps the accounts it already had, where this
+# would be telling an operator to do something they did the day they installed it. The users
+# file is the test because the broker writes it on its first start and never removes it.
+if [ ! -f "@XMQ_CONF_DIRECTORY@/xmq_users.conf" ]; then
+    echo
+    cat <<'XMQ_FIRST_START_MESSAGE'
+@XMQ_FIRST_START_MESSAGE@
+XMQ_FIRST_START_MESSAGE
+    echo
+fi
+
+exit 0

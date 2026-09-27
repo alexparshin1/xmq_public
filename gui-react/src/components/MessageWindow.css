@@ -1,0 +1,42 @@
+/* A message window is as tall as its message, unlike the editor it shares a container class with:
+   a sentence in a 500-pixel-tall box reads as something that failed to finish drawing. */
+.messageWindow {
+    /* Wider than a one-line confirmation needs, because the messages that matter are not one line:
+       a refused setting arrives as what failed, what the database said, and what to do about it.
+       At 460px that became a narrow column several screens tall. Capped against the viewport so a
+       long connection string cannot push it off a small display. */
+    width: 560px;
+    max-width: 90vw;
+    height: auto;
+    min-height: 180px;
+}
+
+.messageWindowBody {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 10px 16px 16px 16px;
+    flex: 1;
+}
+
+/* Fixed, so the message starts at the same place whatever the sign is. */
+.messageWindowSign {
+    flex: 0 0 64px;
+    width: 64px;
+    height: 64px;
+}
+
+.messageWindowText {
+    flex: 1;
+    /* The line breaks the message was given are kept, and a long word cannot push the button off
+       the edge - a database URI in an error message is one unbreakable word. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding-top: 4px;
+    line-height: 1.4;
+}
+
+.messageWindowFooter {
+    justify-content: center;
+    padding-bottom: 12px;
+}

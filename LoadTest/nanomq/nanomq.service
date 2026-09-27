@@ -1,0 +1,16 @@
+[Unit]
+Description=NanoMQ MQTT Broker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nanomq start --conf /etc/nanomq.conf
+Restart=on-failure
+RestartSec=2
+
+# Matches the server-side ulimit target in 1M-Connection-Test-Plan.md section 4 —
+# without this, a fresh host's systemd default (~1024 soft) caps connections far below 1M.
+LimitNOFILE=1200000
+
+[Install]
+WantedBy=multi-user.target

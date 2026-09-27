@@ -1,0 +1,66 @@
+.inputScreenSaveButton {
+    background-color: cornflowerblue;
+    color: white;
+    width: 100px;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+.inputScreenRow {
+    padding-left: 10px;
+    padding: 4px;
+    text-align: left;
+}
+
+.inputScreenLabel {
+    display: inline-block;
+    width: 200px;
+    text-align: left;
+    padding-left: 10px;
+}
+
+.inputScreenIntro {
+    text-align: left;
+    max-width: 640px;
+    padding: 0 10px 10px 10px;
+    color: dimgray;
+}
+
+.inputScreenIntro p {
+    margin-top: 0;
+    margin-bottom: 8px;
+}
+
+.inputScreenNote {
+    color: gray;
+    font-size: 0.9em;
+    padding-left: 6px;
+}
+
+.inputScreenWarning {
+    color: darkorange;
+    font-size: 0.9em;
+    padding-left: 6px;
+}
+
+.inputScreenSelect {
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.inputScreenHint {
+    color: gray;
+    font-size: 0.9em;
+    padding-left: 8px;
+}
+
+/* Same reason as in the dialog: the password field counts its width from the outside, because the
+   room for the show-password button is taken out of it, so the fields it stands among have to be
+   measured the same way or they no longer line up. */
+.inputScreenRow input,
+.inputScreenRow select {
+    box-sizing: border-box;
+}

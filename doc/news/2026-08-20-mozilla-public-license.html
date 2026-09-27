@@ -1,0 +1,113 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ moves to the Mozilla Public License 2.0
+  Date:  2026-08-20
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and covers every release, while this is written for a reader who is
+  not upgrading anything and exists only for releases worth announcing.
+-->
+
+<p>
+    XMQ 0.9.14 and SPTK 5.6.8 are out, and the change that matters most in them is not in the code.
+    <strong>XMQ is now licensed under the <a href="https://mozilla.org/MPL/2.0/">Mozilla Public
+        License 2.0</a></strong>, replacing the GPL version 2 it carried before, and <strong>SPTK keeps
+    its LGPL with a linking exception added</strong>.
+</p>
+
+<h3>Why</h3>
+
+<p>
+    Under the GPL, a product that links XMQ into itself has to be released under the GPL as well.
+    That is the license working exactly as designed, and for a great deal of software it is the
+    right design. For a message broker it is the wrong one. A broker is a component: it is embedded
+    in appliances, bundled into industrial systems, and shipped inside products whose own licensing
+    was settled long before anyone chose an MQTT implementation. Asking those products to change
+    their license in order to use XMQ meant, in practice, that they used something else.
+</p>
+
+<p>
+    The Mozilla Public License is copyleft too, but per file rather than per program. Changes to
+    XMQ's own source files stay open and come back — which is the part worth protecting, and the
+    reason for choosing MPL over a permissive license that protects nothing. A larger work that
+    combines those files with its own may be released under its own terms. That is the whole of the
+    change: XMQ stays open, and it stops reaching into whatever it is embedded in.
+</p>
+
+<h3>SPTK, and a compliance defect that had been there a long time</h3>
+
+<p>
+    SPTK, the C++ library XMQ is built on, remains under the LGPL. What it gains is the standard
+    linking exception: link it, statically or dynamically, into a program of your own, and the
+    LGPL's relinking obligation does not follow. Modifications to SPTK itself are still covered, so
+    the library keeps the protection it had.
+</p>
+
+<p>
+    This matters more than it sounds. XMQ links SPTK statically so that a download is one file, and
+    section 6 of the LGPL requires anyone distributing such a binary to make relinking possible —
+    an obligation that quietly attached to every product embedding it. The exception removes it.
+    While looking at this we also found that SPTK had never shipped the text of its own license,
+    only the notice referring to it, which the LGPL requires. The full text is now in
+    <code>COPYING.LGPL</code>.
+</p>
+
+<h3>What you need to do</h3>
+
+<p>
+    Nothing, unless you were previously unable to use XMQ because of the GPL — in which case that
+    reason is gone. Existing deployments are unaffected: the license governs what you may do with
+    the source, not how the broker behaves.
+</p>
+
+<h3>Also in this release</h3>
+
+<ul>
+    <li>
+        <strong>Retained messages survive a restart.</strong> They are now held per topic and
+        persisted rather than kept on a subscription object, which also fixes a wildcard
+        subscription receiving only some of the retained messages it matched. A retained message
+        published today is still there after the broker is restarted tomorrow.
+    </li>
+    <li>
+        <strong><code>xmq_sub</code> can subscribe to wildcards.</strong> It rejected
+        <code>#</code> and <code>+</code> while validating its own arguments, before a packet was
+        ever sent — so the one thing a subscription is for could not be done from the shipped
+        client. Fixed, with tests.
+    </li>
+    <li>
+        <strong>Point-to-point latency roughly halved.</strong> On a 16 vCPU cloud instance the
+        broker's own share of the path fell from 64 to 30 microseconds and the end-to-end figure
+        from 296 to 227, while using 11% less CPU. The cause was a batching round that both the
+        receiving and the sending workers took, although only the sending side has any use for one:
+        a session taken into a round waited for the ones ahead of it instead of being picked up by
+        an idle worker.
+    </li>
+    <li>
+        <strong>Thread defaults are now 3 send and 3 receive, and they are measured.</strong> The
+        old 8/8 was the worst point on a 16 vCPU machine, 56% behind. The setup documentation now
+        carries the full sweeps, including the finding that the optimum tracks the inbound packet
+        rate rather than the core count — so a value that suits one scenario can be wrong for
+        another.
+    </li>
+    <li>
+        <strong>The broker can tell you where its time goes.</strong> Run with
+        <code>XMQ_LATENCY_TRACE</code> set and a per-hop breakdown is reported: reactor to read,
+        decode, handler, delivery, socket write. Every phase in the broker's own total is stamped
+        by the broker, so it stays meaningful even when the client's clock disagrees.
+    </li>
+    <li>
+        <strong>An official Docker image.</strong> Configuration and stored state survive a restart
+        of the container, and the logging arrangement is documented.
+    </li>
+    <li>
+        <strong>io_uring was evaluated as a replacement for epoll, and rejected.</strong> A
+        complete implementation matched epoll to within one percent, and every tuning option
+        either lost outright or turned out to have an epoll equivalent that performed identically.
+        The reason is structural: the event mechanism is 6% of the broker's system calls and thread
+        handoffs are 67%, so halving the former changes nothing measurable. It has been removed
+        rather than kept as a second code path for a result that was at best a tie.
+    </li>
+</ul>

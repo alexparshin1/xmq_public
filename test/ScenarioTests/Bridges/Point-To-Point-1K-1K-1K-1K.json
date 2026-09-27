@@ -1,0 +1,48 @@
+{
+  "name": "Bridged-Point-To-Point-1K-1K-1K-1K",
+  "type": "Point-To-Point",
+  "comments": [
+    "Bridge test: 1k publishers on one broker, 1k subscribers on another, 1k topics.",
+    "Every message has to cross the bridge, so the measured latency is the bridge's.",
+    "The two brokers must be bridged for the topics below, in the direction",
+    "publisher-server -> subscriber-server.",
+    "Both servers default to localhost here. Point them at the real hosts with",
+    "  xmq_scn -s Bridges/Point-To-Point-1K-1K-1K-1K.json \\",
+    "          -h <publisher host> -p 1883 --subscriber-host <subscriber host> --subscriber-port 1883"
+  ],
+  "publishers": {
+    "id_prefix": "bridge-publisher-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "bridged/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "bridge-subscriber-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "bridged/topic$clientindex",
+    "server": {
+      "hostname": "localhost",
+      "port": 1884,
+      "username": "user",
+      "password": "secret"
+    }
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1883,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "duration_sec": 30,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "expected_message_latency": 5,
+    "keep_alive_sec": 300
+  }
+}

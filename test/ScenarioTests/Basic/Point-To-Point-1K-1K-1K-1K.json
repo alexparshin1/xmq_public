@@ -1,0 +1,38 @@
+{
+  "name": "Point-To-Point-1K-1K-1K-1K",
+  "type": "Point-To-Point",
+  "comments": [
+    "1k publishers, 1k subscribers, 1k topics.",
+    "Each publisher pubs 1 message per second.",
+    "QoS 1, payload 16B."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1880,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "duration_sec": 10,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "expected_message_latency": 2,
+    "keep_alive_sec": 300
+  }
+}

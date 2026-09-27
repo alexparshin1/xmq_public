@@ -1,0 +1,42 @@
+.dataTableContainer {
+    display: flex;
+    align-items: flex-start;
+    /* The buttons sit in their own column to the right of the grid. Both the gap and the
+       container's own height keep them clear of the grid and of whatever follows the table. */
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.dataTableButtons {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+}
+
+.dataTableGrid {
+    flex: 1 1 auto;
+    height: 100%;
+    min-width: 0;
+}
+
+.dataTableAddEditButton {
+    background-color: cornflowerblue;
+    color: white;
+    width: 100px;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+.dataTableRemoveButton {
+    background-color: crimson;
+    color: white;
+    width: 100px;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}

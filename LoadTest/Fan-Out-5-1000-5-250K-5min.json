@@ -1,0 +1,51 @@
+{
+  "name": "Fan-Out 250K (5 min)",
+  "type": "Fan-Out",
+  "comments": [
+    "5-minute variant of Fan-Out-5-1000-5-250K.json, for quick cross-broker comparison.",
+    "5 publishers, 5 topics, 1000 subscribers each subscribed to all 5 topics.",
+    "Publish rate 50/s per publisher = 250/s in, delivered as 250/s x 1000 = 250k/s out.",
+    "The inbound side is trivial; what this measures is delivery fan-out - one received",
+    "message becoming a thousand sends.",
+    "",
+    "Duration-bound rather than message_count-bound: the parent scenario stops after 1000",
+    "published messages (1M deliveries), which at this rate lasts only seconds. Dropping",
+    "message_count makes duration_sec govern, matching the Fan-In and Point-To-Point",
+    "scenarios.",
+    "QoS 1, payload 16B, MQTT 3, 5 minutes.",
+    "",
+    "Connections are paced at 5000/s. A thousand clients are no burst, so this changes nothing",
+    "here - it is declared so that every scenario states its ramp rather than leaving the",
+    "reader to work out which ones have one."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/#"
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1884,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 300,
+    "payload_size": 16,
+    "publish_rate": 50,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

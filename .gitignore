@@ -1,0 +1,48 @@
+lib/
+w64/
+# Generated into the build tree by base/CMakeLists.txt; its contents depend on the prefix.
+base/xmq-config.h
+
+# The OpenAPI description, written by wsdl2cxx beside the service sources it generates. Nothing
+# reads it - it is a side effect of the -j flag - and tracking it meant a 2216-line diff every time
+# it was regenerated on a platform whose line endings differed from the last one's.
+xmq.json
+
+# service/ is wsdl2cxx's output - 127 files regenerated from xmq.wsdl whenever any of them is
+# missing, which CMakeLists.txt arranges. Tracking them meant every regeneration showed up as a
+# hundred-file diff, and a stale one that nobody noticed was worse: the build glob picks up what is
+# on disk, so a checked-in file that no longer matched the WSDL was compiled in preference to
+# nothing at all.
+#
+# These six are written by hand and live here because they belong beside the generated types.
+service/*
+!service/CClientSession.cpp
+!service/CClientSession.h
+!service/CConnectMessageParameters.cpp
+!service/CConnectMessageParameters.h
+!service/CLastWill.cpp
+!service/CLastWill.h
+
+# Build trees. They are named by hand - Debug, Release, Debug-ASan, Release-LTO and whatever the
+# next question needs - and each holds a node_modules of its own. Left unignored, one "git add -A"
+# offers thirty-three thousand files, which is exactly what happened on 2026-09-12.
+Debug*/
+Release*/
+build/
+cmake-build-*/
+
+# CPack writes these into the source directory when packaging is configured.
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# Editors and the load tests' own scratch output.
+.idea/
+.externalToolBuilders/
+*.log
+LoadTest/results/runs/
+
+# Written by the test suite and by a running broker, not by anybody. test.message is saved by
+# ExternalClient before it publishes it; server.pid holds the pid of whatever was last started here.
+server.pid
+test.message
+test.xml

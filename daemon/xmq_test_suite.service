@@ -1,0 +1,11 @@
+[Unit]
+Description=XMQ MQTT Server
+After=network.target
+
+[Service]
+#User=xmq
+ExecStart=/usr/local/bin/xmq_test_suite
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

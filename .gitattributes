@@ -1,0 +1,3 @@
+# Windows Internet shortcuts are parsed by the shell, which expects CRLF. Without this the
+# file is stored with LF and can check out that way, leaving a shortcut that does not open.
+*.url text eol=crlf

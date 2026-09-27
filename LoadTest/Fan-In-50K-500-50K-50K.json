@@ -1,0 +1,53 @@
+{
+  "name": "Fan-In 50K",
+  "type": "Fan-In",
+  "comments": [
+    "Mirrors the Enterprise fan-in (shared subscription) case of the Open MQTT Benchmark",
+    "Suite, results/singlenode-sharesub-50K-500-50K-50K.md at",
+    "https://github.com/emqx/mqttbs/tree/main/results - so the numbers can be read against",
+    "theirs. Their definition: 50k publishers, 50k distinct topics, 500 subscribers on one",
+    "shared subscription, QoS 1, 16B payload, 1 msg/s per publisher (50k/s in aggregate),",
+    "30 minutes.",
+    "",
+    "Subscribers consume through a shared subscription, so a slow consumer throttles only its",
+    "own share rather than the whole topic - 500 of them split the 50k/s between them.",
+    "Shared subscription filter: $share/benchmark/test/# - group name matches theirs.",
+    "Publish topics: test/$clientindex gives test/0..test/49999, against their",
+    "test/1..test/50000: same shape, numbering offset by one.",
+    "",
+    "Connections are paced at 5000/s. Without it the client opens all of them as fast as it",
+    "can - 20000 CONNECTs in half a second, some 37000/s, a rate no deployment produces and",
+    "none of these scenarios ever claimed to measure. The connect phase is setup here, not the",
+    "measurement, which starts when publishing does."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 50000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 500,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "$share/benchmark/test/#"
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1883,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 1800,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

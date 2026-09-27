@@ -1,0 +1,41 @@
+{
+  "name": "Fan-In-1K-5-1K-1K",
+  "type": "Fan-In",
+  "comments": [
+    "1k publishers, 1k pub topics",
+    "5 subscribers consume all messages in a shared subscription way",
+    "Publish rate: 1k/s (each publisher pubs a message per second)",
+    "Shared subscription’s topic: $share/perf/test/#",
+    "Publish topics: test/$clientid",
+    "QoS 1, payload 16B"
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 3,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "$share/perf/test/#"
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1880,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "duration_sec": 1,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "expected_message_latency": 0.2,
+    "keep_alive_sec": 300
+  }
+}

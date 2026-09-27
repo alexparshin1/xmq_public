@@ -1,0 +1,29 @@
+.AccordionGroupTitle {
+    background-color: #E0E8ff;
+    width: 100;
+    margin: 0px;
+    padding: 8px;
+    border: none;
+    cursor: pointer;
+}
+
+.AccordionGroupItem {
+    padding: 8px;
+    border-spacing: 0;
+}
+
+.AccordionGroupItem > a {
+    text-decoration: none;
+    padding: 8px;
+    color: black;
+}
+
+.AccordionGroupItem > a.active {
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.AccordionGroupItem:has(> a.active) {
+    text-decoration: none;
+    background-color: white;
+}

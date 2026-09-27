@@ -1,0 +1,34 @@
+IF (WIN32)
+   SET (ROCKSDB_POSSIBLE_INCLUDE_PATHS
+        $ENV{ProgramFiles}/rocksdb/include
+        $ENV{ProgramFiles\(x86\)}/rocksdb/include)
+   SET (ROCKSDB_POSSIBLE_LIB_PATHS
+        $ENV{ProgramFiles}/rocksdb/lib
+        $ENV{ProgramFiles\(x86\)}/rocksdb/lib)
+ELSE (WIN32)
+   SET (ROCKSDB_POSSIBLE_INCLUDE_PATHS
+        $ENV{HOME}/local/include
+        /usr/local/include
+        /usr/include)
+   SET (ROCKSDB_POSSIBLE_LIB_PATHS
+        $ENV{HOME}/local/lib
+        /usr/local/lib
+        /usr/lib /usr/lib/*)
+ENDIF (WIN32)
+
+FIND_PATH(ROCKSDB_INCLUDE_DIR rocksdb/rocksdb_namespace.h ${ROCKSDB_POSSIBLE_INCLUDE_PATHS})
+FIND_LIBRARY(ROCKSDB_LIBRARY NAMES rocksdb PATHS ${ROCKSDB_POSSIBLE_LIB_PATHS})
+
+IF (ROCKSDB_INCLUDE_DIR AND ROCKSDB_LIBRARY)
+   SET(ROCKSDB_FOUND TRUE)
+ENDIF (ROCKSDB_INCLUDE_DIR AND ROCKSDB_LIBRARY)
+
+IF (ROCKSDB_FOUND)
+   IF (NOT RocksDB_FIND_QUIETLY)
+      MESSAGE(STATUS "Found ROCKSDB: ${ROCKSDB_LIBRARY}")
+   ENDIF ()
+ELSE (ROCKSDB_FOUND)
+   IF (ROCKSDB_FIND_REQUIRED)
+      MESSAGE(FATAL_ERROR "Could not find ROCKSDB")
+   ENDIF (ROCKSDB_FIND_REQUIRED)
+ENDIF (ROCKSDB_FOUND)

@@ -1,0 +1,61 @@
+# XMQ with message persistence.
+#
+#   docker compose up
+#
+# Without Redis the broker runs fine but forgets everything on restart: queued
+# messages, retained messages and sessions live in Redis, and the server's default
+# configuration already points at the hostname used below.
+
+services:
+  xmq:
+    build:
+      context: .
+      args:
+        XMQ_VERSION: "0.9.16"
+        SPTK_VERSION: "5.6.9"
+    image: alexeyparshin/xmq:0.9.16
+    depends_on:
+      redis_server:
+        condition: service_healthy
+    ports:
+      - "1883:1883"      # MQTT
+      - "8883:8883"      # MQTT over TLS
+      - "18883:18883"    # configuration web interface (https, self-signed)
+    environment:
+      XMQ_PERSISTENCE: "true"
+      XMQ_REDIS_URI: "redis://redis_server:6379"
+      # On by default, as in the image itself, so a stack started from this file is
+      # usable without creating an account first. Set it to false before the ports
+      # below are reachable from anywhere you do not control: with it on, anyone who
+      # can reach 1883 can publish.
+      XMQ_ALLOW_ANONYMOUS: "true"
+      XMQ_LOG_LEVEL: "INFO"
+    volumes:
+      # Keeps the configuration, the accounts and the certificate across restarts.
+      # Without it every restart is a fresh install and the admin password resets.
+      - xmq-config:/etc/xmq
+    ulimits:
+      # One descriptor per connection. The Docker default of 1024 caps the broker at
+      # roughly a thousand clients, far below what it can actually hold.
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    restart: unless-stopped
+
+  redis_server:
+    image: redis:8-alpine
+    # appendonly makes Redis survive its own restart; without it persistence only
+    # covers the broker restarting, not the store under it.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  xmq-config:
+  redis-data:

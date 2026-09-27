@@ -1,0 +1,49 @@
+{
+  "name": "Bridged-Fan-In-1K-5-1K-1K",
+  "type": "Fan-In",
+  "comments": [
+    "Bridge test: 1k publishers on one broker, 5 shared subscribers on another.",
+    "Shared subscription's topic: $share/perf/bridged/#",
+    "Publish topics: bridged/$clientid",
+    "What this checks: the subscribers subscribe to the shared topic on the far side, the",
+    "publishers publish to N topics on the near side, the bridge carries those topics across,",
+    "and the group receives N messages in total - one delivery per message, distributed across",
+    "the five subscribers, rather than N to each of them.",
+    "QoS 1, payload 16B"
+  ],
+  "publishers": {
+    "id_prefix": "bridge-publisher-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "bridged/$clientid"
+  },
+  "subscribers": {
+    "id_prefix": "bridge-subscriber-",
+    "protocol_version": 5,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "$share/perf/bridged/#",
+    "server": {
+      "hostname": "localhost",
+      "port": 1884,
+      "username": "user",
+      "password": "secret"
+    }
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1883,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "duration_sec": 30,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "expected_message_latency": 5,
+    "keep_alive_sec": 300
+  }
+}

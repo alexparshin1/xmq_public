@@ -1,0 +1,47 @@
+# Writes the template this extension's configuration is created from.
+#
+# The template, not the configuration: the live fragment is a file the operator owns - it says
+# whether the extension is on, and holds settings answered once - and a package that owned it would
+# put its own copy back on every upgrade. Which is exactly what happened, and was only found by
+# marking both configuration files on a test machine and installing over them: the mark in the
+# fragment was gone. The broker copies this template beside itself when it finds no live fragment,
+# in ExtensionHost::createConfigurationFragments(), and never touches one that exists.
+#
+# Run at install time rather than at configure time, so that "cmake --install --prefix somewhere"
+# and a DESTDIR staging build both put the file where that installation will look for it. The
+# configure-time version answered for the prefix the tree was configured with, which is the wrong
+# question when installing to another.
+
+SET(confDestination "@XMQ_CONF_INSTALL_DESTINATION@")
+IF (NOT IS_ABSOLUTE "${confDestination}")
+    SET(confDestination "${CMAKE_INSTALL_PREFIX}/${confDestination}")
+ENDIF ()
+
+# The paths written into the file are where things will be at run time, so DESTDIR - which is only
+# a staging area for a package - is deliberately not part of them.
+#
+# CPack, though, does not stage with DESTDIR at all: it runs the install with CMAKE_INSTALL_PREFIX
+# pointing inside its own tree, .../_CPack_Packages/<system>/<generator>/<package>/<real prefix>.
+# Taken at face value there, the build machine's path is written into a file only the target
+# machine ever reads - and the FreeBSD package shipped exactly that: installed, it named its
+# required extension at a path that exists on no other machine, so the broker started its
+# configuration interface and refused to serve MQTT at all. The Linux packages are staged through
+# DESTDIR and were never affected, which is how it reached a release candidate unnoticed.
+SET(runtimePrefix "${CMAKE_INSTALL_PREFIX}")
+IF (runtimePrefix MATCHES "/_CPack_Packages/[^/]+/[^/]+/[^/]+")
+    STRING(REGEX REPLACE "^.*/_CPack_Packages/[^/]+/[^/]+/[^/]+" "" runtimePrefix "${runtimePrefix}")
+ENDIF ()
+SET(XMQ_USER_DATABASE_LIBRARY "${runtimePrefix}/lib/xmq-extensions/@XMQ_USER_DATABASE_LIBRARY_NAME@")
+
+# No database URI written here any more. The broker hands it to the extension over the ABI, which
+# is what makes "the interface and the authenticator use the same database" true by construction
+# rather than by two files agreeing - and the agreement was exactly what nothing checked.
+
+SET(fragmentDirectory "$ENV{DESTDIR}${confDestination}/xmq_extensions.d")
+SET(fragmentTemplate "${fragmentDirectory}/50-user-database.conf.template")
+
+MESSAGE(STATUS "Writing the user-database configuration template: ${fragmentTemplate}")
+FILE(MAKE_DIRECTORY "${fragmentDirectory}")
+CONFIGURE_FILE("@XMQ_USER_DATABASE_TEMPLATE@" "${fragmentTemplate}" @ONLY)
+# The same permissions the other configuration files get: this one can hold a database password.
+FILE(CHMOD "${fragmentTemplate}" PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ)

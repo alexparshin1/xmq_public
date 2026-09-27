@@ -1,0 +1,26 @@
+#!/usr/sbin/nft -f
+# Exempt MQTT benchmark ports 1880-1886 from connection tracking.
+#
+# Docker and libvirt load nf_conntrack on this host, so without this every test
+# connection consumes a conntrack entry. At 500K connections that overruns
+# nf_conntrack_max and the kernel silently drops packets - the host stops
+# accepting new connections entirely, including SSH.
+#
+# NOTRACK is preferred over simply raising nf_conntrack_max: it also removes the
+# per-packet conntrack lookup from the path being benchmarked.
+#
+# Idempotent: the create/delete/create dance lets this be re-applied safely.
+table ip raw {}
+delete table ip raw
+table ip raw {
+    chain PREROUTING {
+        type filter hook prerouting priority raw; policy accept;
+        tcp sport 1880-1886 notrack
+        tcp dport 1880-1886 notrack
+    }
+    chain OUTPUT {
+        type filter hook output priority raw; policy accept;
+        tcp dport 1880-1886 notrack
+        tcp sport 1880-1886 notrack
+    }
+}

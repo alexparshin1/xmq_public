@@ -1,0 +1,14 @@
+[Unit]
+Description=NOTRACK for MQTT benchmark ports 1880-1886
+Documentation=file:///etc/nftables.d/xmq-notrack.nft
+After=docker.service libvirtd.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/xmq-notrack.nft
+ExecStop=/usr/sbin/nft delete table ip raw
+
+[Install]
+WantedBy=multi-user.target

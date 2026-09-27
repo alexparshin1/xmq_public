@@ -1,0 +1,9 @@
+The installation is complete, and XMQ has one thing left to set up.
+
+Open https://127.0.0.1:@XMQ_WEB_INTERFACE_PORT@ and sign in as "admin", leaving the
+password field empty. The Initial Setup page opens: type the administrator
+password there and submit. The browser will warn about the certificate,
+because XMQ issues its own.
+
+Until then the web interface answers on this machine only, and "admin" cannot
+connect over MQTT.

@@ -1,0 +1,155 @@
+.modalBackground {
+    width: 100%;
+    height: 100%;
+    /* Shading rather than a solid fill: the page stays readable behind the dialog,
+       which matters for a help popup describing a field on that page. */
+    background-color: rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(1px);
+    position: fixed;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+}
+
+.modalContainer {
+    width: 500px;
+    height: 500px;
+    border-radius: 10px;
+    background-color: white;
+    box-shadow: rgba(0, 0, 0, 0.35) 0 5px 15px;
+    display: flex;
+    flex-direction: column;
+    padding: 0px;
+}
+
+.modalContainer .title {
+    display: inline-block;
+    text-align: left;
+    background-color: cornflowerblue;
+    padding-left: 10px;
+    padding-top: 4px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    height: 24px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    margin-block-start: 0px;
+}
+
+.modalContainer .body {
+    flex: 50%;
+    display: flex;
+    justify-content: left;
+    align-items: left;
+    font-size: 1.7rem;
+    text-align: left;
+}
+
+.modalContainerRow {
+    text-align: left;
+    padding-left: 8px;
+    padding-top: 4px;
+}
+
+.modalContainerLabel {
+    display: inline-block;
+    width: 150px;
+    text-align: left;
+    font-weight: bold;
+    margin-bottom: 10px;
+    margin-block-start: 0px;
+}
+
+.modalContainer .footer {
+    flex: 20%;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.modalOkButton {
+    background-color: cornflowerblue;
+    color: white;
+    width: 100px;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+.modalCancelButton {
+    background-color: crimson;
+    color: white;
+    width: 100px;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+.modalFooter {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px;
+}
+
+.modalFooterSpace {
+    flex-grow: 1;
+    justify-content: flex-end;
+    padding: 10px;
+}
+
+/* A field that offers several of a known set - group membership, at the time of writing. Boxed and
+   scrolled rather than left to grow: the dialog is a fixed size, and a list of every group there is
+   would otherwise push the buttons off the bottom of it on any installation with more than a few. */
+.modalTableBox {
+    display: inline-block;
+    width: 240px;
+    max-height: 120px;
+    overflow-y: auto;
+    border: 1px solid #c0c0c0;
+    border-radius: 3px;
+    background: #ffffff;
+    vertical-align: top;
+}
+
+.modalTable {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.modalTable td {
+    padding: 2px 4px;
+    white-space: nowrap;
+}
+
+.modalTable label {
+    cursor: pointer;
+}
+
+.modalTableTick {
+    width: 20px;
+}
+
+/* Said rather than left blank: an empty box reads as something that failed to load, and on a
+   broker whose accounts are still in a file there are genuinely no groups to offer. */
+.modalTableEmpty {
+    color: #808080;
+    font-style: italic;
+}
+
+/* Every field in a dialog measured the same way. The password field carries a button inside its
+   right-hand end and so has to count its own padding as part of its width; a neighbour whose width
+   means "content only" then comes out a few pixels wider than the field under it, which on a
+   column of stacked fields is exactly the kind of raggedness one notices without seeing why. */
+.modalContainerRow input,
+.modalContainerRow select {
+    box-sizing: border-box;
+}

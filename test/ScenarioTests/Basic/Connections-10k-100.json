@@ -1,0 +1,27 @@
+{
+  "name": "Connections-10k-100",
+  "type": "Connections",
+  "comments": [
+    "10k connections",
+    "Connection rate (cps): 100/s"
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 3,
+    "client_count": 10000,
+    "qos": 0,
+    "clean_session": true
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1880,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "payload_size": 128,
+    "connection_rate": 100,
+    "expected_connect_latency": 0.5,
+    "keep_alive_sec": 300
+  }
+}

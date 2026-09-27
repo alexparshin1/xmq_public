@@ -1,0 +1,87 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 0.9.17: faster across the board, and half the memory per connection
+  Date:  2026-09-18
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything. Percentages here, precision on the charts.
+-->
+
+<p>
+    XMQ 0.9.17 is out. Nothing in it changes how the broker is operated; it is a release about what
+    the same work costs. Every scenario we measure got faster, and a connected session takes about
+    half the memory it took in 0.9.16. You can download it <a href="/downloads">here</a>.
+</p>
+
+<h3>Faster, everywhere we measure</h3>
+
+<p>
+    Measured on the same pair of AWS instances as 0.9.16, one for the broker and one for the load
+    client, the same six scenarios:
+</p>
+
+<ul>
+    <li><b>Fan-out, a quarter of a million messages a second delivered: 9% faster.</b></li>
+    <li><b>A million connections: 12% faster</b>, and half a million 9% faster.</li>
+    <li>Fan-in, point-to-point and persistent sessions: <b>1 to 2% faster</b> — which is to say they
+        did not move, and were not expected to.</li>
+</ul>
+
+<p>
+    The interesting number is the one that did not appear before: the broker's own thread counts are
+    now chosen for the machine it runs on. Left to pick for itself on a 16-vCPU instance, it settles
+    on three send threads where the shipped configuration said eight — and on that instance alone,
+    that is worth 40% of the fan-out latency. A configuration file no longer carries a number chosen
+    for somebody else's hardware.
+</p>
+
+<p>
+    These are end-to-end measurements, and in this release the load client changed as well as the
+    broker, so the gain belongs to the pair rather than to one end of it. The
+    <a href="/tests">test pages</a> carry every run, every interval and the conditions it was taken
+    under, for anyone who wants the microseconds rather than the percentages.
+</p>
+
+<h3>A connection costs about half of what it did</h3>
+
+<p>
+    A session used to keep the whole parsed CONNECT packet, its own copy of names it shares with
+    every other session, a queue for messages in flight whether or not any message ever waited in
+    it, and four timer events where one will do. It now keeps a handful of numbers, points at what
+    it shares, builds the queue when the first message needs it, and waits on a single event. At a
+    million connections the broker's peak memory fell by <b>47%</b>: what needed 4.8 Gb needs
+    2.5 Gb. On a small machine that is the difference between holding a load and swapping.
+</p>
+
+<h3>MQTT 5 properties, told truthfully</h3>
+
+<p>
+    The CONNACK used to report a client's own limits back to it as though they were the server's —
+    the receive maximum, the maximum packet size, the topic-alias maximum. A client that trusted it
+    was reading its own settings. That is fixed, a user property that appears more than once is
+    kept rather than collapsed, and the properties a message carries are now held as the bytes that
+    go on the wire instead of two hash maps, which is most of where the fan-out gain comes from.
+</p>
+
+<p>
+    The command-line tools and the load scenarios can send properties too, so the cost of carrying
+    them is something you can measure rather than guess at.
+</p>
+
+<h3>Smaller things worth knowing</h3>
+
+<ul>
+    <li>The broker warns at start-up when the network card its listeners use has a single receive
+        queue and nothing steering packets across CPUs. Such a card runs every client's receive path
+        on one CPU, and the log now says so and links to the manual section that fixes it.</li>
+    <li>The broker and the load tools pin themselves to the machine's best cores — the fastest ones,
+        one thread per physical core — and say in the log what they picked and why. It is worth
+        several per cent on a machine with cores of different speeds and nothing at all on a cloud
+        instance where every vCPU is the same. <code>--no-cpu-affinity</code> turns it off.</li>
+    <li><code>min_keep_alive_seconds</code> is gone. It let a broker override what a client asked
+        for, which MQTT gives it no standing to do. A configuration that still carries it loads and
+        runs; the setting is ignored.</li>
+</ul>

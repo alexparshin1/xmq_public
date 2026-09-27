@@ -1,0 +1,45 @@
+{
+  "name": "Bridged-Fan-Out-1-1k-1-1K",
+  "type": "Fan-Out",
+  "comments": [
+    "Bridge test: 1 publisher on one broker, 1000 subscribers on another, 1 topic.",
+    "One message crossing the bridge has to reach a thousand subscribers on the far side,",
+    "so this measures what the bridge costs when the fan-out happens after it.",
+    "QoS 1, payload 16B"
+  ],
+  "publishers": {
+    "id_prefix": "bridge-publisher-",
+    "protocol_version": 5,
+    "client_count": 1,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "bridged/1"
+  },
+  "subscribers": {
+    "id_prefix": "bridge-subscriber-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "bridged/1",
+    "server": {
+      "hostname": "localhost",
+      "port": 1884,
+      "username": "user",
+      "password": "secret"
+    }
+  },
+  "server": {
+    "hostname": "localhost",
+    "port": 1883,
+    "username": "user",
+    "password": "secret"
+  },
+  "parameters": {
+    "duration_sec": 30,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "expected_message_latency": 5,
+    "keep_alive_sec": 300
+  }
+}

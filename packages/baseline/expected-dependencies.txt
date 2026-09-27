@@ -1,0 +1,6 @@
+# Dependencies this release's package may declare that the previous release's did not, one per line,
+# versions stripped, as inspect_package.py prints them. Each one is something every installation now
+# pulls in. Cleared at every release.
+libspdb5.so.5.6.12
+libsputil5.so.5.6.12
+libspwsdl5.so.5.6.12
