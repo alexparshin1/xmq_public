@@ -350,6 +350,10 @@ That is exactly how the 100k msg/s Point-To-Point run failed on thinker11 (e1000
 A bigger ring (`ethtool -G ... rx 4096`) changed nothing: the ring was not too small, it was drained
 too slowly.
 
+The bench no longer runs over that card: thinker11 has a second NIC with four receive queues, and the
+bench traffic goes through it. With four queues the card spreads interrupts itself (RSS), so RPS is not
+needed on the bench path. The e1000e record above stays as the reference for any single-queue host.
+
 ### Do you need it? Three signs, all at once
 
 1. **One receive queue:** `ls /sys/class/net/<if>/queues/` shows only `rx-0`, and
