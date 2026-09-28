@@ -215,40 +215,27 @@ void XMQ_ServerTests::testSubscribeRetainHandling(ProtocolVersion protocolVersio
                              {.m_cleanSession = false}, protocolVersion);
     EXPECT_EQ(ReasonCode::Success, rc);
 
-    // Receive the message as a retained message.
-    bool const retainedMessageReceived = messageIsReceived.wait_for(MediumTimeout);
+    // The resumed session has its subscription back without a SUBSCRIBE, and MQTT sends retained
+    // messages only in answer to one - whatever the retain handling.
+    EXPECT_FALSE(messageIsReceived.wait_for(MediumTimeout)) << "A retained message was re-sent on session resume";
 
-    switch (retainHandling)
+    // SUBSCRIBE again, to the subscription the session still holds. Retain handling is about exactly
+    // this moment: 0 sends the retained message, 1 sends it only for a subscription that did not
+    // exist yet - and this one did - and 2 never sends it.
+    ASSERT_TRUE(test::subscribeAndWait(subscriber, destination))
+        << "The broker did not acknowledge the repeated subscription";
+    const bool retainedMessageReceived = messageIsReceived.wait_for(MediumTimeout);
+
+    if (retainHandling == SubscribeRetainHandling::RetainAlways)
     {
-        case SubscribeRetainHandling::RetainAlways:
-            if (!retainedMessageReceived)
-            {
-                FAIL() << "Message expected but is not received.";
-            }
-            break;
-        case SubscribeRetainHandling::RetainIfNew:
-            if (!retainedMessageReceived)
-            {
-                FAIL() << "Message expected but is not received.";
-            }
-            break;
-        case SubscribeRetainHandling::DoNotRetain:
-            if (retainedMessageReceived && protocolVersion == ProtocolVersion::MqttV5)
-            {
-                FAIL() << "Message not expected but received.";
-            }
-            break;
+        EXPECT_TRUE(retainedMessageReceived) << "Retain handling 0: no retained message on SUBSCRIBE";
+    }
+    else
+    {
+        EXPECT_FALSE(retainedMessageReceived)
+            << "Retain handling " << static_cast<int>(retainHandling)
+            << ": retained message sent for an existing subscription";
     }
 
     subscriber->disconnect();
-    this_thread::sleep_for(SmallTimeout);
-
-    if (retainHandling == SubscribeRetainHandling::RetainIfNew)
-    {
-        rc = subscriber->connect(Host("localhost", TestTcpPortNumber), credentials,
-                                 {.m_cleanSession = false}, protocolVersion);
-        EXPECT_EQ(ReasonCode::Success, rc);
-        EXPECT_FALSE(messageIsReceived.wait_for(SmallTimeout));
-        subscriber->disconnect();
-    }
 }

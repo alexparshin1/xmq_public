@@ -89,6 +89,89 @@ TEST_F(XMQ_PersistenceTests, Retained_SurvivesServerRestart)
     stopServers();
 }
 
+// MQTT sends retained messages in answer to SUBSCRIBE and at no other time. A session resumed after
+// a restart has its subscriptions restored without one, so the retained message it already had must
+// not arrive a second time - while the restored subscription itself has to go on delivering.
+TEST_F(XMQ_PersistenceTests, Retained_NotResentToRestoredSubscription)
+{
+    stopServers();
+    auto server = createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, true);
+
+    const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
+    const String retainedPayload("retained, sent once");
+    const String livePayload("published after the restart");
+
+    {
+        const auto publisher = connectRetainClient(publisherClientId);
+        publisher->publish(topicName, retainedPayload.c_str(), Qos::Qos1, true);
+        this_thread::sleep_for(settleTime);
+        publisher->disconnect();
+    }
+
+    mutex          receivedMutex;
+    vector<string> receivedPayloads;
+    Semaphore      received;
+    const auto     collect = [&receivedMutex, &receivedPayloads, &received](const SPublishMessage& message)
+    {
+        {
+            const scoped_lock lock(receivedMutex);
+            receivedPayloads.emplace_back(bit_cast<const char*>(message->payloadData()), message->payloadSize());
+        }
+        received.post();
+    };
+
+    const auto connectPersistent = [&subscriberClientId, &collect]
+    {
+        auto client = make_shared<client::MqttClient>(logEngine());
+        client::ConnectParameters connectParameters;
+        connectParameters.m_cleanSession = false;
+        client->onMessage(collect);
+        EXPECT_EQ(ReasonCode::Success,
+                  client->connect(Host("localhost", TestTcpPortNumber),
+                                  ConnectCredentials(subscriberClientId, "user", "secret"),
+                                  connectParameters, ProtocolVersion::MqttV31));
+        return client;
+    };
+
+    {
+        const auto subscriber = connectPersistent();
+        subscriber->subscribe(topicName);
+        ASSERT_TRUE(received.wait_for(deliveryTimeout)) << "The retained message did not arrive on SUBSCRIBE";
+        this_thread::sleep_for(settleTime);
+        subscriber->disconnect();
+    }
+
+    server = restartServer();
+
+    const auto subscriber = connectPersistent();
+    EXPECT_FALSE(received.wait_for(deliveryTimeout)) << "The retained message was re-sent to a restored subscription";
+
+    {
+        const auto publisher = connectRetainClient(publisherClientId + "-live");
+        publisher->publish(topicName, livePayload.c_str(), Qos::Qos1, false);
+        this_thread::sleep_for(settleTime);
+        publisher->disconnect();
+    }
+    EXPECT_TRUE(received.wait_for(deliveryTimeout)) << "The restored subscription delivers nothing";
+
+    {
+        const scoped_lock lock(receivedMutex);
+        EXPECT_EQ((vector<string> {retainedPayload, livePayload}), receivedPayloads);
+    }
+
+    subscriber->disconnect();
+
+    // Leave nothing behind for the next test that subscribes with '#'.
+    {
+        const auto publisher = connectRetainClient(publisherClientId + "-clear");
+        publisher->publish(topicName, string(), Qos::Qos1, true);
+        this_thread::sleep_for(settleTime);
+        publisher->disconnect();
+    }
+
+    stopServers();
+}
+
 // A wildcard subscription matches many topics, and each of them may hold its own retained message.
 // Keeping the payload on the Subscription gave the subscriber exactly one - whichever topic
 // happened to be published last - and named it after the filter rather than the topic.

@@ -77,10 +77,6 @@ public:
         return m_clientSession;
     }
 
-    [[nodiscard]] bool retainDelivered() const;
-
-    void setRetainDelivered(bool retainDelivered);
-
     /**
      * @brief Get this object's connection record id.
      */
@@ -114,7 +110,6 @@ private:
     SubscriptionOptions                  m_subscriptionOptions {}; ///< Subscription options
     std::shared_ptr<ISubscriptionClient> m_clientSession;          ///< Client session
     std::shared_ptr<Subscription>        m_subscription;           ///< Subscription.
-    uint8_t                              m_retainDelivered {0};    ///< Retain delivered flag
 
     /**
      * @brief Constructor.

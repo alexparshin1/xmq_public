@@ -21,6 +21,20 @@ Requires SPTK 5.6.13.
   stays installed, so a second `SIGHUP` does another reload rather than falling through to the
   signal's default action.
 
+### Fixed
+
+- **A client resuming its session could crash the broker.** A client reconnecting with a persistent
+  session (clean session / clean start off) whose subscriptions matched a retained message published
+  with QoS 1 or 2 aborted the broker: the retained messages were sent while the session's lock was
+  held, and delivering them took the same lock again. No restart was needed - an ordinary reconnect
+  did it.
+- **Retained messages are sent only in answer to SUBSCRIBE.** A resumed session was sent every retained
+  message its restored subscriptions matched, as if it had subscribed again. MQTT sends retained
+  messages when a subscription is made and at no other time.
+- **Retain handling 1 ("send only if the subscription is new") now asks exactly that.** It checked
+  whether a retained message had been sent on the subscription before, so a subscription made before
+  anything was retained got the retained message again on every repeated SUBSCRIBE.
+
 ## 0.9.18 — 2026-09-28
 
 Requires SPTK 5.6.12.

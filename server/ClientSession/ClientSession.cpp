@@ -162,7 +162,9 @@ void ClientSession::continueSession(const SConnectMessage& connectMessage)
                 });
         }
     }
-    sendRetainedMessages();
+    // No retained messages here. MQTT sends them in answer to SUBSCRIBE only, and a resumed session
+    // has its subscriptions without one. Sending them here also crashed the broker: it ran under
+    // m_mutex, and a QoS 1/2 delivery to a persistent session takes that mutex again via server().
     scheduleIdleDisconnect();
 }
 
@@ -275,7 +277,8 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
 }
 
 void ClientSession::postRetainedMessages(const std::shared_ptr<Subscription>& subscription,
-                                         SessionSubscription*                 connectionSubscription)
+                                         SessionSubscription*                 connectionSubscription,
+                                         const bool                           subscriptionExisted)
 {
     if (connectionSubscription == nullptr)
     {
@@ -289,7 +292,10 @@ void ClientSession::postRetainedMessages(const std::shared_ptr<Subscription>& su
     {
         return;
     }
-    if (retainHandling != SubscribeRetainHandling::RetainAlways && connectionSubscription->retainDelivered())
+    // "Only if the subscription does not currently exist" - not "only if nothing retained was sent
+    // yet", which is what this checked: a subscription made before anything was retained re-sent it
+    // on every repeated SUBSCRIBE.
+    if (retainHandling == SubscribeRetainHandling::RetainIfNew && subscriptionExisted)
     {
         return;
     }
@@ -297,32 +303,14 @@ void ClientSession::postRetainedMessages(const std::shared_ptr<Subscription>& su
     // One retained message per matching topic, and the topic is the one it was published to. A
     // wildcard subscriber used to get a single message named after its own filter, because the
     // payload was kept on the subscription rather than on the topic.
-    auto delivered = false;
     serverUnlocked().getSubscriptionManager()->retainedMessages().forEachMatching(
         subscription->fullName(),
-        [this, &subscriptionOptions, &delivered](const std::string& topicName, const RetainedMessages::Record& record)
+        [this, &subscriptionOptions](const std::string& topicName, const RetainedMessages::Record& record)
         {
             auto retainedMessage = make_shared<mqtt::PublishMessage>(serverUnlocked().getTopic(topicName), record.m_payload,
                                                                      static_cast<MessageId>(0), false);
             postMessage(retainedMessage, record.m_qos, {}, subscriptionOptions.m_retainAsPublished);
-            delivered = true;
         });
-
-    if (delivered)
-    {
-        connectionSubscription->setRetainDelivered(true);
-    }
-}
-
-void ClientSession::sendRetainedMessages()
-{
-    const unique_lock lock(m_mutex);
-
-    for (const auto& [topic, clientSubscription]: getSubscribedToUnlocked())
-    {
-        postRetainedMessages(clientSubscription.subscription,
-                             clientSubscription.subscription->sessionSubscription(shared()));
-    }
 }
 
 DateTime::time_point ClientSession::keepAliveDeadlineUnlocked() const
@@ -1223,8 +1211,8 @@ void ClientSession::handleSubscribeMessage(const Message* msg)
         const auto  clientSession = dynamic_pointer_cast<ClientSession>(shared());
         const auto& destinations = subscriptionMessage->getDestinations();
 
-        vector<SSubscription> subscriptions;
-        vector<uint8_t>       subscriptionResults;
+        vector<NewSubscription> subscriptions;
+        vector<uint8_t>         subscriptionResults;
         subscriptions.reserve(destinations.size());
         for (const auto& destination: destinations)
         {
@@ -1234,8 +1222,8 @@ void ClientSession::handleSubscribeMessage(const Message* msg)
                                           : static_cast<uint8_t>(reasonCode);
 
             subscriptionResults.push_back(subscriptionResult);
-            const auto subscription = server().subscribeClient(clientSession, destination, subscriptionId);
-            subscriptions.push_back(subscription);
+            const bool existed = isSubscribed(destination.m_topic->name());
+            subscriptions.push_back({server().subscribeClient(clientSession, destination, subscriptionId), existed});
         }
 
         const auto subscriptionAck = make_shared<SubscribeAckMessage>(subscriptionMessage->getId(), subscriptionResults);
@@ -1246,11 +1234,11 @@ void ClientSession::handleSubscribeMessage(const Message* msg)
     }
 }
 
-void ClientSession::sendRetainedMessages(const vector<shared_ptr<Subscription>>& subscriptions)
+void ClientSession::sendRetainedMessages(const vector<NewSubscription>& subscriptions)
 {
-    for (const auto& subscription: subscriptions)
+    for (const auto& [subscription, existed]: subscriptions)
     {
-        postRetainedMessages(subscription, subscription->sessionSubscription(shared()));
+        postRetainedMessages(subscription, subscription->sessionSubscription(shared()), existed);
     }
 }
 

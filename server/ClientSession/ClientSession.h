@@ -513,17 +513,20 @@ private:
      * per topic, so a filter simply matches more of them.
      */
     void postRetainedMessages(const std::shared_ptr<Subscription>& subscription,
-                              SessionSubscription*                 connectionSubscription);
-
-
-    /**
-     * @brief During the reconnection of the continued session, send retained messages from the subscriptions, if any.
-     */
-    void sendRetainedMessages();
+                              SessionSubscription*                 connectionSubscription,
+                              bool                                 subscriptionExisted);
 
     bool initializeSessionContinuation(const SConnectMessage& connectMessage);
 
-    void sendRetainedMessages(const std::vector<std::shared_ptr<Subscription>>& subscriptions);
+    /// A subscription made by SUBSCRIBE, and whether the session already held it - which is what
+    /// retain handling 1 decides on.
+    struct NewSubscription
+    {
+        std::shared_ptr<Subscription> subscription;
+        bool                          existed;
+    };
+
+    void sendRetainedMessages(const std::vector<NewSubscription>& subscriptions);
     /**
      * @brief Directly send a message to the client.
      * @param messageDispatch               Message delivery.

@@ -44,16 +44,6 @@ std::shared_ptr<SessionSubscription> SessionSubscription::create(const std::shar
     return sessionSubscription;
 }
 
-bool SessionSubscription::retainDelivered() const
-{
-    return m_retainDelivered != 0;
-}
-
-void SessionSubscription::setRetainDelivered(const bool retainDelivered)
-{
-    m_retainDelivered = retainDelivered ? 1 : 0;
-}
-
 RecordId SessionSubscription::sessionRecordId() const
 {
     return m_clientSession->recordId();
