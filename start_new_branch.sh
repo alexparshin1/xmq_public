@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 #
-# Opens the next version: a branch, the version numbers that live in three places, and the package
-# checks reset to measure against the release just made.
+# Opens the next version: a branch, VERSION (which CMakeLists.txt reads), the installer's own copy
+# of the number, and the package checks reset to measure against the release just made.
 #
 #   ./start_new_branch.sh                 next patch version (0.9.17 -> 0.9.18)
 #   ./start_new_branch.sh 0.10.0          a version named outright
 #   ./start_new_branch.sh --packages DIR  take the released packages from there rather than the farm
 #
-# Written because opening 0.9.18 by hand took four separate edits, two of which nobody would think
-# of: the installer keeps its own copy of the version and needs a new product code with it, and the
-# package inspection compares against the previous release, so its baselines have to be re-read from
-# the packages that were just published or it keeps checking against the release before last.
+# Written because opening a version by hand took several separate edits, two of which nobody would
+# think of: the installer keeps its own copy of the version and needs a new product code with it,
+# and the package inspection compares against the previous release, so its baselines have to be
+# re-read from the packages that were just published or it keeps checking against the release
+# before last. VERSION itself used to be three SET() lines inside CMakeLists.txt, one edit each;
+# 0.9.19 simplified that to the one file this script now writes.
 #
 set -u
 
@@ -32,8 +34,8 @@ die() { echo "STOPPED: $*" >&2; exit 1; }
 
 [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the working tree has changes; commit or stash them first"
 
-old_version=$(sed -nE 's/^SET\(VERSION_(MAJOR|MINOR|PATCH) "([0-9]+)"\)$/\2/p' CMakeLists.txt | paste -sd.)
-[ -n "$old_version" ] || die "cannot read the version from CMakeLists.txt"
+old_version=$(cat VERSION 2>/dev/null)
+[ -n "$old_version" ] || die "cannot read the version from VERSION"
 if [ -z "${new_version:-}" ]; then
     new_version=$(echo "$old_version" | awk -F. '{printf "%s.%s.%s", $1, $2, $3 + 1}')
 fi
@@ -42,16 +44,8 @@ say "$old_version -> $new_version"
 git rev-parse --verify --quiet "$new_version" >/dev/null && die "branch $new_version already exists"
 git checkout -q -b "$new_version" || die "could not create the branch"
 
-# 1. The version itself. Everything in the build composes its own strings from these three.
-python3 - "$new_version" <<'PY' || die "could not write the version into CMakeLists.txt"
-import re, sys
-major, minor, patch = sys.argv[1].split('.')
-s = open('CMakeLists.txt').read()
-for name, value in (('MAJOR', major), ('MINOR', minor), ('PATCH', patch)):
-    s, count = re.subn(rf'SET\(VERSION_{name} "\d+"\)', f'SET(VERSION_{name} "{value}")', s, count=1)
-    assert count == 1, f'VERSION_{name} not found'
-open('CMakeLists.txt', 'w').write(s)
-PY
+# 1. The version itself. CMakeLists.txt reads it from here rather than keeping its own copy.
+echo "$new_version" > VERSION || die "could not write VERSION"
 
 # 2. The installer's own copy, with a new product code beside it. Advanced Installer does both when
 #    the version is changed in its interface: a new version carrying the previous product code is a
@@ -123,12 +117,13 @@ PY
 done
 say "expected removals and dependencies cleared"
 
-git add -A CMakeLists.txt msi/XMQ.aip packages/baseline
+git add -A VERSION msi/XMQ.aip packages/baseline
 git commit -q -m "$new_version opens.
 
-The version in CMakeLists and the installer's own copy of it in msi/XMQ.aip, whose product code is
-regenerated with it. The package baselines are re-read from the $old_version packages, and the
-expected removals and dependencies are cleared: each line in them was a decision about $old_version."
+VERSION, which CMakeLists.txt reads, and the installer's own copy of it in msi/XMQ.aip, whose
+product code is regenerated with it. The package baselines are re-read from the $old_version
+packages, and the expected removals and dependencies are cleared: each line in them was a
+decision about $old_version."
 
 say "branch $new_version committed - $(git log --oneline -1 | cut -c1-60)"
 cat <<NEXT
