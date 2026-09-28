@@ -58,6 +58,13 @@ public:
         return {};
     }
 
+    /// The real one rotates the log engine's file; this double has no log engine of its own to
+    /// rotate, and no test here asks it to - only that SIGHUP's handling can reach the interface.
+    std::filesystem::path rotateLog() override
+    {
+        return {};
+    }
+
     /// These tests are about the control service, not about which extensions a broker happens to
     /// have loaded - and this double has no broker behind it to ask.
     std::vector<ExtensionHost::Description> describeExtensions() override
