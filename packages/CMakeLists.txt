@@ -109,8 +109,8 @@ IF (BSD)
     SET(CPACK_PRE_BUILD_SCRIPTS "${CMAKE_CURRENT_LIST_DIR}/FreeBSDOwnership.cmake")
 
     # Nor has it a setting for package scripts, so this one is written out here and put into the
-    # manifest by build_freebsd_package.sh, which is already unpacking and rebuilding the package
-    # to add the first-start message. It makes the account the broker runs as and gives it the
+    # manifest by build_freebsd_package.sh - in the xmq_build_farm repository - which is already
+    # unpacking and rebuilding the package to add the first-start message. It makes the account the broker runs as and gives it the
     # directories it has to write.
     CONFIGURE_FILE("${CMAKE_CURRENT_LIST_DIR}/FreeBSDPostInstall.sh.in"
                    "${CMAKE_CURRENT_BINARY_DIR}/FreeBSDPostInstall.sh" @ONLY)

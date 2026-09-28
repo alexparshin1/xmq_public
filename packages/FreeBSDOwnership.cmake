@@ -21,5 +21,5 @@ EXECUTE_PROCESS(COMMAND chown -R root:wheel "${CPACK_TEMPORARY_INSTALL_DIRECTORY
 IF (NOT chownResult EQUAL 0)
     MESSAGE(FATAL_ERROR
             "Could not set root:wheel on the staged files: ${chownError}"
-            "Build the package as root - 'sudo cpack', or build_freebsd_package.sh, which does it.")
+            "Build the package as root - 'sudo cpack', or the build farm's build_freebsd_package.sh, which does it.")
 ENDIF ()

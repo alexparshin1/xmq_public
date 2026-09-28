@@ -3,7 +3,7 @@
 # Runs after pkg(8) has unpacked the package, from the "post-install" entry of its manifest.
 #
 # CPack's FreeBSD generator has no setting for package scripts, in the same way it has none for
-# the message: both are put into the manifest by build_freebsd_package.sh, which unpacks what
+# the message: both are put into the manifest by build_freebsd_package.sh (xmq_build_farm), which unpacks what
 # cpack built, rewrites the manifest and builds the package again from the very same files.
 set -e
 
