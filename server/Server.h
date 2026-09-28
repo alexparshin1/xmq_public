@@ -382,6 +382,11 @@ private:
     std::vector<std::shared_ptr<Bridge>> m_bridges;      ///< Outbound bridge connections to other brokers.
     std::atomic<size_t>                  m_bridgeCount {0}; ///< Bridges started and not yet stopped; read without the lock.
 
+    /// EXPERIMENT: XMQ_PERSISTENT_DIRECT_DELIVERY=1 delivers persistent messages on the receive
+    /// thread too, so a slow store pushes back on the publisher instead of growing the pool's queue.
+    const bool m_persistentDirectDelivery {std::getenv("XMQ_PERSISTENT_DIRECT_DELIVERY") != nullptr &&
+                                           std::string_view(std::getenv("XMQ_PERSISTENT_DIRECT_DELIVERY")) == "1"};
+
     SStorage                          m_storage;                                                 ///< Optionally persistent storage.
     std::shared_ptr<RedisStorage>     m_redisStorage;                                            ///< Redis storage.
     SSubscriptionManager              m_subscriptionManager;                                     ///< Subscription manager.
