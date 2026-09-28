@@ -12,6 +12,15 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.13.
 
+### Changed
+
+- **`SIGHUP` reloads instead of stopping the broker.** It shared a handler with `SIGTERM`/`SIGINT`,
+  so a `SIGHUP` - the conventional "reload configuration, reopen the log" signal for a daemon - shut
+  the broker down silently instead. It now re-reads extension configuration and rotates the log,
+  the same operation the daily rotation performs, on demand; the process stays up, and the handler
+  stays installed, so a second `SIGHUP` does another reload rather than falling through to the
+  signal's default action.
+
 ## 0.9.18 — 2026-09-28
 
 Requires SPTK 5.6.12.

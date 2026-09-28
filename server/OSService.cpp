@@ -22,6 +22,7 @@ using namespace xmq;
 IServerController* OSService::m_controlledServer;
 std::atomic_bool   OSService::s_terminationRequested {false};
 std::atomic_int    OSService::s_terminationSignal {0};
+std::atomic_bool   OSService::s_reloadRequested {false};
 
 // Stored from a signal handler, which is only safe for an atomic that never takes a lock.
 static_assert(std::atomic_int::is_always_lock_free);
@@ -41,6 +42,16 @@ bool OSService::terminationRequested()
 int OSService::terminationSignal()
 {
     return s_terminationSignal.load(std::memory_order_relaxed);
+}
+
+void OSService::requestReload()
+{
+    s_reloadRequested.store(true, std::memory_order_release);
+}
+
+bool OSService::takeReloadRequest()
+{
+    return s_reloadRequested.exchange(false, std::memory_order_acq_rel);
 }
 
 namespace {
@@ -218,7 +229,23 @@ void OSService::execute()
         m_controlledServer->startService();
         while (!terminationRequested() && !m_controlledServer->isStopped(chrono::seconds(1)))
         {
-            // Waiting until the server is stopped or termination is requested
+            // SIGHUP: re-read extension configuration and rotate the log, the way a daemon
+            // conventionally does on this signal, instead of the broker quietly stopping - which
+            // is what shared signalHandler with SIGTERM/SIGINT used to make it do.
+            if (takeReloadRequest())
+            {
+                m_logger.info("Received SIGHUP, reloading.");
+                const auto extensionsReport = m_controlledServer->reloadExtensions();
+                for (const auto& note: extensionsReport.m_notes)
+                {
+                    m_logger.info(note);
+                }
+                for (const auto& problem: extensionsReport.m_problems)
+                {
+                    m_logger.error(problem);
+                }
+                m_controlledServer->rotateLog();
+            }
         }
         // Said before the shutdown, so it is the line above "Server stopped." A clean stop with no
         // reason beside it reads as the broker deciding to quit: on 2026-09-28 three restarts by

@@ -41,6 +41,18 @@ void signalHandler(const int theSignal)
     OSService::requestTermination(theSignal);
 }
 
+#ifndef _WIN32
+void reloadSignalHandler(int /*theSignal*/)
+{
+    // Async-signal-safe: only sets a flag. The actual reload - re-reading extension configuration
+    // and rotating the log - runs on the service thread, not here. The handler stays installed
+    // (unlike signalHandler above), so a second SIGHUP does another reload rather than falling
+    // through to SIG_DFL's default action, which for SIGHUP is to terminate the process - the one
+    // thing this signal must not do.
+    OSService::requestReload();
+}
+#endif
+
 /**
  * @brief The file the log engine will actually write to.
  *
@@ -115,8 +127,9 @@ int main(int argc, const char* argv[])
     (void) signal(SIGTERM, signalHandler);
     (void) signal(SIGINT, signalHandler);
 #ifndef _WIN32
-    signal(SIGHUP, signalHandler);
-    signal(SIGKILL, signalHandler);
+    // Reload, not terminate - the conventional meaning for a daemon, and the one this used to get
+    // wrong: SIGHUP shared signalHandler with SIGTERM/SIGINT and stopped the broker silently.
+    signal(SIGHUP, reloadSignalHandler);
 #endif
     // For some reason, on Windows only, argc becomes 0 and argv becomes null
     // on the first use of argc. Making a copy of both:

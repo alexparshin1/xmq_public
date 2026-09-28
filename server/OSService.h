@@ -70,6 +70,25 @@ public:
     static int terminationSignal();
 
     /**
+     * @brief Request a reload - reread extension configuration and rotate the log - as SIGHUP
+     * conventionally asks a daemon to do.
+     *
+     * Async-signal-safe: only sets a lock-free atomic flag. The service loop observes it and does
+     * the actual work on its own thread. Safe to call from a signal handler.
+     */
+    static void requestReload();
+
+    /**
+     * @brief Take the pending reload request, if there is one.
+     *
+     * Clears the flag as it reads it, so the service loop's next poll sees no request until
+     * another SIGHUP sets one - a reload is serviced once per signal, not repeated.
+     *
+     * @return true if a reload was pending.
+     */
+    static bool takeReloadRequest();
+
+    /**
      * @brief Execute service.
      */
     void execute();
@@ -92,6 +111,7 @@ public:
 private:
     static std::atomic_bool s_terminationRequested; ///< Set by requestTermination(); polled by the service loop.
     static std::atomic_int  s_terminationSignal;    ///< The signal that requested termination, 0 if none.
+    static std::atomic_bool s_reloadRequested;      ///< Set by requestReload(); taken (and cleared) by the service loop.
 
     sptk::Logger m_logger;       ///< External logger
     bool         m_runAsService; ///< Run-as-service flag

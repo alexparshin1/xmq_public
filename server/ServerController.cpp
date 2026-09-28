@@ -117,21 +117,27 @@ size_t ServerController::logsToKeep() const
     return value > 0 ? static_cast<size_t>(value) : LogEngine::keepAllArchives;
 }
 
+std::filesystem::path ServerController::rotateLog()
+{
+    // Logged after the rotation, so the line lands in the new file and says where the old one
+    // went. An engine with nothing to set aside - a log that is not a file of ours - returns an
+    // empty path and is not worth a line.
+    const auto archived = m_logEngine->rotate(logsToKeep());
+    if (const Logger logger(*m_logEngine, "[Log] ");
+        !archived.empty())
+    {
+        logger.info("Log rotated, yesterday's is " + String(archived.string()));
+    }
+    return archived;
+}
+
 void ServerController::scheduleLogRotation()
 {
     m_logRotationEvent = m_logRotationTimer.fireAt(
         nextMidnight().timePoint(),
         [this]
         {
-            // Logged after the rotation, so the line lands in the new file and says where the old
-            // one went. An engine with nothing to set aside - a log that is not a file of ours -
-            // returns an empty path and is not worth a line.
-            const auto archived = m_logEngine->rotate(logsToKeep());
-            if (const Logger logger(*m_logEngine, "[Log] ");
-                !archived.empty())
-            {
-                logger.info("Log rotated, yesterday's is " + String(archived.string()));
-            }
+            rotateLog();
             scheduleLogRotation();
         });
 }

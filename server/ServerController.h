@@ -75,6 +75,17 @@ public:
      */
     virtual ExtensionHost::Report reloadExtensions() = 0;
 
+    /**
+     * @brief Set the log aside and start a fresh one, the way the daily rotation does.
+     *
+     * The same operation SIGHUP conventionally asks a daemon to do, on demand rather than at
+     * midnight - useful to logrotate, or to anyone who wants the current log's tail to mean
+     * "since I asked" rather than "since midnight".
+     *
+     * @return path of the archived (previous) log, or empty when there was nothing to archive.
+     */
+    virtual std::filesystem::path rotateLog() = 0;
+
     /// What the interface shows on the Extensions screen. Empty while the MQTT server is stopped:
     /// extensions live inside it, so there is nothing loaded to describe.
     virtual std::vector<ExtensionHost::Description> describeExtensions() = 0;
@@ -203,6 +214,7 @@ public:
     bool isStopped(std::chrono::milliseconds sleepInterval) override;
 
     ExtensionHost::Report            reloadExtensions() override;
+    std::filesystem::path            rotateLog() override;
     std::vector<ExtensionHost::Description> describeExtensions() override;
     ExtensionHost::Report            switchExtension(const std::string& name, bool on) override;
     ExtensionHost::Report            setExtensionSettings(
