@@ -1,0 +1,38 @@
+Server:   XMQ
+Version:  6.3.1
+Host:     AWS c5n.4xlarge, 16 vCPU, 40Gb RAM, Ubuntu 26.04; EMQX 6.3.1 with durable_sessions ENABLED (real persistence, crash-recoverable), LimitNOFILE 2000000, port 1882; scenario gated on a pub/sub round-trip
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.18
+Date:     2026-09-28
+
+EMQX persistence number for the site chart: durable sessions on, so the broker persists and can recover after a crash. Compared against XMQ 0.9.17 (Redis). FlashMQ is excluded - it only snapshots periodically.
+
+Broker restarted before each scenario.
+
+Summary - interval medians, as xmq_scn reports them:
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Point-To-Point-30K-persistent        293965us        10
+
+
+
+Scenario: Point-To-Point-30K-persistent
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           4989230 11848409us        27717
+180000ms      4963776    54126us        27576
+360000ms      4963489    83336us        27574
+540000ms      4963857    93890us        27576
+720000ms      4958457   112426us        27546
+900000ms      4968509   107816us        27602
+1080000ms     4957692   293965us        27542
+1260000ms     4962969   381002us        27572
+1440000ms     4951106   364633us        27506
+1620000ms     4941676   350845us        27453
+─────────────────────────────────────────────
+Average      49620761  1375298us        27567
+Median                  293965us
+  interval median 293965us over 10 samples (as xmq_scn reports it), range 54126-11848409us
+  server CPU   mean 1348%, peak 1606%
+  server RSS   11352 Mb peak
+  client NIC ens5: no dropped packets during the run

@@ -1,0 +1,21 @@
+Scenario: 500K-Connections-2500-rate
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             50000      306us         2500
+20000ms         49999      285us         2499
+40000ms         50000      302us         2500
+60000ms         50001      296us         2500
+80000ms         50000      297us         2500
+100000ms        49999      286us         2499
+120000ms        50001      286us         2500
+140000ms        50000      294us         2500
+160000ms        50000      294us         2500
+180000ms        49999      286us         2499
+200000ms            1      307us            0
+─────────────────────────────────────────────
+Average        500000      293us         2272
+Median                     294us
+  interval median 294us over 11 samples (as xmq_scn reports it), range 285-307us
+  server CPU   mean 25%, peak 100%
+  server RSS   1378 Mb peak
+  client NIC ens5: no dropped packets during the run

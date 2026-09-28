@@ -1,0 +1,6 @@
+14:13:28 EMQX-6.3.1-persistent: EMQX rerun over, turning durable sessions back on
+    durable_sessions:     enable = true
+14:13:28 EMQX-6.3.1-persistent: run started
+14:44:12 EMQX-6.3.1-persistent: run finished, exit 0
+14:44:27 EMQX-6.3.1-persistent: emqx stopped
+14:44:27 EMQX persistent finished

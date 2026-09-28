@@ -1,0 +1,20 @@
+Scenario: Point-To-Point-50K-50K-50K-50K
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           8999989      193us        49999
+180000ms      9000002      193us        50000
+360000ms      8999998      193us        49999
+540000ms      8999998      194us        49999
+720000ms      8999997      193us        49999
+900000ms      9000006      194us        50000
+1080000ms     8999996      194us        49999
+1260000ms     9000003      193us        50000
+1440000ms     8999998      194us        49999
+1620000ms     8974184      193us        49856
+─────────────────────────────────────────────
+Average      89974171      193us        49985
+Median                     193us
+  interval median 193us over 10 samples (as xmq_scn reports it), range 193-194us
+  server CPU   mean 204%, peak 268%
+  server RSS   494 Mb peak
+  client NIC ens5: no dropped packets during the run

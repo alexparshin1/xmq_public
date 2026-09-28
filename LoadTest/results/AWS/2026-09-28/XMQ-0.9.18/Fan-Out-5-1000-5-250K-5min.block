@@ -1,0 +1,20 @@
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7500000     1280us       250000
+30000ms       7500000     1297us       250000
+60000ms       7500000     1294us       250000
+90000ms       7500000     1309us       250000
+120000ms      7500000     1310us       250000
+150000ms      7500000     1302us       250000
+180000ms      7500000     1298us       250000
+210000ms      7500000     1304us       250000
+240000ms      7500000     1312us       250000
+270000ms      7498001     1291us       249933
+─────────────────────────────────────────────
+Average      74998001     1300us       249993
+Median                    1302us
+  interval median 1302us over 10 samples (as xmq_scn reports it), range 1280-1312us
+  server CPU   mean 356%, peak 370%
+  server RSS   52 Mb peak
+  client NIC ens5: no dropped packets during the run

@@ -1,0 +1,20 @@
+Scenario: Point-To-Point-30K-persistent
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           4715635 11415157us        26197
+180000ms      4698857 34502551us        26104
+360000ms      4704494 57754728us        26136
+540000ms      4697564 81058591us        26097
+720000ms      4694858 104564984us        26082
+900000ms      4697353 128006081us        26096
+1080000ms     4699193 151395092us        26106
+1260000ms     4693739 174818693us        26076
+1440000ms     4689069 198445863us        26050
+1620000ms     4681554 222125884us        26008
+─────────────────────────────────────────────
+Average      46972316 116303680us        26095
+Median                128006081us
+  interval median 128006081us over 10 samples (as xmq_scn reports it), range 11415157-222125884us
+  server CPU   mean 337%, peak 369%
+  server RSS   2644 Mb peak
+  client NIC ens5: no dropped packets during the run

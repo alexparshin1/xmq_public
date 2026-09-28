@@ -1,0 +1,42 @@
+=== 10:42:35 Fan-Out-5-1000-5-250K-5min: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 10:42:36 Fan-Out-5-1000-5-250K-5min: restarting the broker
+=== 10:42:43 Fan-Out-5-1000-5-250K-5min: running
+=== 10:47:45 Fan-Out-5-1000-5-250K-5min: median 1286us over 10 samples (as xmq_scn reports it), range 1275-1290us
+=== 10:47:45 Fan-In-50K-500-50K-50K: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 10:47:50 Fan-In-50K-500-50K-50K: restarting the broker
+=== 10:47:58 Fan-In-50K-500-50K-50K: running
+=== 11:18:11 Fan-In-50K-500-50K-50K: median 202us over 10 samples (as xmq_scn reports it), range 201-203us
+=== 11:18:11 Point-To-Point-50K-50K-50K-50K: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 11:18:16 Point-To-Point-50K-50K-50K-50K: restarting the broker
+=== 11:18:24 Point-To-Point-50K-50K-50K-50K: running
+=== 11:48:49 Point-To-Point-50K-50K-50K-50K: median 199us over 10 samples (as xmq_scn reports it), range 198-199us
+=== 11:48:49 Point-To-Point-30K-persistent: setup
+    persistence on (persistence.enabled=true, clean_start=true) on 172.31.13.230
+=== 11:48:52 Point-To-Point-30K-persistent: restarting the broker
+=== 11:49:00 Point-To-Point-30K-persistent: running
+=== 12:19:16 Point-To-Point-30K-persistent: median 128006081us over 10 samples (as xmq_scn reports it), range 11415157-222125884us
+=== 12:19:16 500K-Connections-2500-rate: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 12:19:25 500K-Connections-2500-rate: restarting the broker
+=== 12:19:32 500K-Connections-2500-rate: running
+=== 12:23:11 500K-Connections-2500-rate: median 294us over 11 samples (as xmq_scn reports it), range 285-307us
+=== 12:23:11 1M-Connections-5K-rate: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 12:23:15 1M-Connections-5K-rate: restarting the broker
+=== 12:23:23 1M-Connections-5K-rate: running
+=== 12:27:18 1M-Connections-5K-rate: median 317us over 11 samples (as xmq_scn reports it), range 303-340us
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Fan-Out-5-1000-5-250K-5min             1286us        10
+  Fan-In-50K-500-50K-50K                  202us        10
+  Point-To-Point-50K-50K-50K-50K          199us        10
+  Point-To-Point-30K-persistent        128006081us        10
+  500K-Connections-2500-rate              294us        11
+  1M-Connections-5K-rate                  317us        11
+
+Logs: /home/alexeyp/aws-2026-09-28/XMQ-0.9.18-rerun
+Record: /home/alexeyp/aws-2026-09-28/record-XMQ-0.9.18-rerun.txt

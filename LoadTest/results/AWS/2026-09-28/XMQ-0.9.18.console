@@ -1,0 +1,51 @@
+=== 08:05:25 Fan-Out-5-1000-5-250K-5min: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 08:05:26 Fan-Out-5-1000-5-250K-5min: restarting the broker
+=== 08:05:34 Fan-Out-5-1000-5-250K-5min: running
+=== 08:10:36 Fan-Out-5-1000-5-250K-5min: median 1302us over 10 samples (as xmq_scn reports it), range 1280-1312us
+=== 08:10:36 Fan-In-50K-500-50K-50K: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 08:10:39 Fan-In-50K-500-50K-50K: restarting the broker
+=== 08:10:47 Fan-In-50K-500-50K-50K: running
+=== 08:41:01 Fan-In-50K-500-50K-50K: median 201us over 10 samples (as xmq_scn reports it), range 200-202us
+=== 08:41:01 Point-To-Point-50K-50K-50K-50K: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 08:41:05 Point-To-Point-50K-50K-50K-50K: restarting the broker
+=== 08:41:13 Point-To-Point-50K-50K-50K-50K: running
+=== 08:46:47 Point-To-Point-50K-50K-50K-50K: FAILED (exit 1), see /home/alexeyp/aws-2026-09-28/XMQ-0.9.18/Point-To-Point-50K-50K-50K-50K.log
+    ─────────────────────────────────────────────
+    Average         50000      316us         5000
+    Median                     325us
+=== 08:46:47 Point-To-Point-30K-persistent: setup
+    persistence on (persistence.enabled=true, clean_start=true) on 172.31.13.230
+=== 08:46:52 Point-To-Point-30K-persistent: restarting the broker
+=== 08:47:00 Point-To-Point-30K-persistent: running
+=== 08:48:13 Point-To-Point-30K-persistent: FAILED (exit 1), see /home/alexeyp/aws-2026-09-28/XMQ-0.9.18/Point-To-Point-30K-persistent.log
+    Client 'vm1-test-subscriber-23936' connect to 172.31.13.230:1884 failed: Server not available in ScenarioEngine.cpp:19309/28/26 08:47:11.249 [ERROR] (vm1-test-subscriber-23936) Connection closed in SocketVirtualMethods.cpp:693
+    Client 'vm1-test-subscriber-23937' connect to 172.31.13.230:1884 failed: Server not available in ScenarioEngine.cpp:19309/28/26 08:47:11.250 [ERROR
+    ] (vm1-test-subscriber-23937) Connection closed in SocketVirtualMethods.cpp:693
+=== 08:48:13 500K-Connections-2500-rate: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 08:48:18 500K-Connections-2500-rate: restarting the broker
+=== 08:48:25 500K-Connections-2500-rate: running
+=== 08:52:55 500K-Connections-2500-rate: FAILED (exit 1), see /home/alexeyp/aws-2026-09-28/XMQ-0.9.18/500K-Connections-2500-rate.log
+    Client 'vm1-client-299624' connect to 172.31.13.230:1884 failed: Server not available in ScenarioEngine.cpp:193
+    09/28/26 08:50:26.054 [ERROR] (vm1-client-299625) Connection closed in SocketVirtualMethods.cpp:693
+    Client 'vm1-client-299625' connect to 172.31.13.230:1884 failed: Server not available in ScenarioEngine.cpp:193
+=== 08:52:55 1M-Connections-5K-rate: setup
+    persistence off (persistence.enabled=false, clean_start=true) on 172.31.13.230
+=== 08:52:59 1M-Connections-5K-rate: restarting the broker
+=== 08:53:07 1M-Connections-5K-rate: running
+=== 08:57:02 1M-Connections-5K-rate: median 313us over 11 samples (as xmq_scn reports it), range 223-323us
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Fan-Out-5-1000-5-250K-5min             1302us        10
+  Fan-In-50K-500-50K-50K                  201us        10
+  Point-To-Point-50K-50K-50K-50K       failed (exit 1)          
+  Point-To-Point-30K-persistent        failed (exit 1)          
+  500K-Connections-2500-rate           failed (exit 1)          
+  1M-Connections-5K-rate                  313us        11
+
+Logs: /home/alexeyp/aws-2026-09-28/XMQ-0.9.18
+Record: /home/alexeyp/aws-2026-09-28/record-XMQ-0.9.18.txt

@@ -1,0 +1,12 @@
+08:05:24 campaign started
+08:05:25 server: 0.9.18 emqx-enterprise 6.3.1 flashmq 1.27.1-2604+resolute+1787087201 
+08:05:25 XMQ-0.9.18: set started
+08:57:02 XMQ-0.9.18: set finished, exit 1
+08:57:06 XMQ-0.9.18: xmq_server stopped
+08:57:06 FlashMQ-1.27.1: set started
+10:41:03 FlashMQ-1.27.1: set finished, exit 0
+10:41:04 FlashMQ-1.27.1: flashmq stopped
+10:41:04 EMQX-6.3.1: set started
+10:42:29 EMQX-6.3.1: set finished, exit 1
+10:42:33 EMQX-6.3.1: emqx stopped
+10:42:33 campaign finished

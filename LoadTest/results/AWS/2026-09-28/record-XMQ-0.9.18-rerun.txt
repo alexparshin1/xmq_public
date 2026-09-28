@@ -1,0 +1,150 @@
+Server:   XMQ
+Version:  0.9.18
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1010-aws, CONFIG_HZ=1000, no IOMMU, no CPU affinity, apt timers disabled; XMQ on port 1884 as systemd service, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, clean_start) only for Point-To-Point-30K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.18, no CPU affinity
+Date:     2026-09-28
+
+Rerun of the XMQ set of the same day: the first one was restarted mid-scenario by unattended upgrades and ran with delivery_threads=16.
+
+Broker restarted before each scenario.
+
+Summary - interval medians, as xmq_scn reports them:
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Fan-Out-5-1000-5-250K-5min             1286us        10
+  Fan-In-50K-500-50K-50K                  202us        10
+  Point-To-Point-50K-50K-50K-50K          199us        10
+  Point-To-Point-30K-persistent        128006081us        10
+  500K-Connections-2500-rate              294us        11
+  1M-Connections-5K-rate                  317us        11
+
+
+
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7500000     1277us       250000
+30000ms       7500000     1275us       250000
+60000ms       7500000     1290us       250000
+90000ms       7500000     1276us       250000
+120000ms      7500000     1289us       250000
+150000ms      7500000     1290us       250000
+180000ms      7500000     1285us       250000
+210000ms      7500000     1286us       250000
+240000ms      7500000     1285us       250000
+270000ms      7498001     1288us       249933
+─────────────────────────────────────────────
+Average      74998001     1284us       249993
+Median                    1286us
+  interval median 1286us over 10 samples (as xmq_scn reports it), range 1275-1290us
+  server CPU   mean 347%, peak 367%
+  server RSS   52 Mb peak
+  client NIC ens5: no dropped packets during the run
+
+Scenario: Fan-In-50K-500-50K-50K
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           8999989      201us        49999
+180000ms      8999999      203us        49999
+360000ms      8999999      201us        49999
+540000ms      9000003      202us        50000
+720000ms      8999997      201us        49999
+900000ms      9000002      202us        50000
+1080000ms     8999997      201us        49999
+1260000ms     9000004      201us        50000
+1440000ms     8999998      202us        49999
+1620000ms     8999813      203us        49998
+─────────────────────────────────────────────
+Average      89999801      202us        49999
+Median                     202us
+  interval median 202us over 10 samples (as xmq_scn reports it), range 201-203us
+  server CPU   mean 223%, peak 237%
+  server RSS   292 Mb peak
+  client NIC ens5: no dropped packets during the run
+
+Scenario: Point-To-Point-50K-50K-50K-50K
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           8999987      199us        49999
+180000ms      9000005      199us        50000
+360000ms      8999997      198us        49999
+540000ms      9000000      199us        50000
+720000ms      8999997      199us        49999
+900000ms      9000003      198us        50000
+1080000ms     8999999      199us        49999
+1260000ms     8999998      199us        49999
+1440000ms     9000004      198us        50000
+1620000ms     8975298      198us        49862
+─────────────────────────────────────────────
+Average      89975288      199us        49986
+Median                     199us
+  interval median 199us over 10 samples (as xmq_scn reports it), range 198-199us
+  server CPU   mean 247%, peak 290%
+  server RSS   534 Mb peak
+  client NIC ens5: no dropped packets during the run
+
+Scenario: Point-To-Point-30K-persistent
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           4715635 11415157us        26197
+180000ms      4698857 34502551us        26104
+360000ms      4704494 57754728us        26136
+540000ms      4697564 81058591us        26097
+720000ms      4694858 104564984us        26082
+900000ms      4697353 128006081us        26096
+1080000ms     4699193 151395092us        26106
+1260000ms     4693739 174818693us        26076
+1440000ms     4689069 198445863us        26050
+1620000ms     4681554 222125884us        26008
+─────────────────────────────────────────────
+Average      46972316 116303680us        26095
+Median                128006081us
+  interval median 128006081us over 10 samples (as xmq_scn reports it), range 11415157-222125884us
+  server CPU   mean 337%, peak 369%
+  server RSS   2644 Mb peak
+  client NIC ens5: no dropped packets during the run
+
+Scenario: 500K-Connections-2500-rate
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             50000      306us         2500
+20000ms         49999      285us         2499
+40000ms         50000      302us         2500
+60000ms         50001      296us         2500
+80000ms         50000      297us         2500
+100000ms        49999      286us         2499
+120000ms        50001      286us         2500
+140000ms        50000      294us         2500
+160000ms        50000      294us         2500
+180000ms        49999      286us         2499
+200000ms            1      307us            0
+─────────────────────────────────────────────
+Average        500000      293us         2272
+Median                     294us
+  interval median 294us over 11 samples (as xmq_scn reports it), range 285-307us
+  server CPU   mean 25%, peak 100%
+  server RSS   1378 Mb peak
+  client NIC ens5: no dropped packets during the run
+
+Scenario: 1M-Connections-5K-rate
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             99999      340us         4999
+20000ms         99999      337us         4999
+40000ms        100000      328us         5000
+60000ms        100000      305us         5000
+80000ms        100001      317us         5000
+100000ms        99997      329us         4999
+120000ms       100002      310us         5000
+140000ms       100000      311us         5000
+160000ms       100001      322us         5000
+180000ms        99999      317us         4999
+200000ms            2      303us            0
+─────────────────────────────────────────────
+Average       1000000      322us         4545
+Median                     317us
+  interval median 317us over 11 samples (as xmq_scn reports it), range 303-340us
+  server CPU   mean 47%, peak 121%
+  server RSS   2521 Mb peak
+  client NIC ens5: no dropped packets during the run
