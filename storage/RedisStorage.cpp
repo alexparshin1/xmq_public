@@ -26,12 +26,30 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
+namespace {
+
+size_t sharedConnectionCountFromEnvironment()
+{
+    const char* value = getenv("XMQ_REDIS_SHARED_CONNECTIONS");
+    return value == nullptr ? 0 : static_cast<size_t>(strtoul(value, nullptr, 10));
+}
+
+} // namespace
+
 RedisStorage::RedisStorage(URL redisUrl, Server* server, const size_t /*connectionPoolSize*/, const bool cleanStart)
     : m_redisUrl(std::move(redisUrl))
     , m_server(server)
     , m_cleanStart(cleanStart)
     , m_cleanupConnection(make_shared<RedisConnect>())
+    , m_sharedConnectionCount(sharedConnectionCountFromEnvironment())
 {
+    m_sharedConnections.resize(m_sharedConnectionCount);
+    if (m_sharedConnectionCount != 0 && server != nullptr)
+    {
+        server->logMessage(LogSubject::ServerEvents, LogPriority::Warning,
+                           format("EXPERIMENT: {} shared Redis connection(s) instead of one per thread.",
+                                  m_sharedConnectionCount));
+    }
     // Asynchronous cleanup failures never reach the per-operation callbacks, so surface them to the
     // log via the connection's error handler.
     m_cleanupConnection->setAsyncErrorHandler(
@@ -67,6 +85,13 @@ void RedisStorage::disconnect() const
     {
         redisConnection->disconnect();
     }
+    for (const auto& redisConnection: m_sharedConnections)
+    {
+        if (redisConnection)
+        {
+            redisConnection->disconnect();
+        }
+    }
 }
 
 void RedisStorage::clear() const
@@ -81,6 +106,18 @@ void RedisStorage::clear() const
 
 SRedisConnect RedisStorage::getRedis()
 {
+    if (m_sharedConnectionCount != 0)
+    {
+        const auto index = m_nextSharedConnection++ % m_sharedConnectionCount;
+        const scoped_lock lock(m_mutex);
+        auto& connection = m_sharedConnections[index];
+        if (!connection)
+        {
+            connection = makeConnection();
+        }
+        return connection;
+    }
+
     const auto threadId = this_thread::get_id();
 
     {
@@ -95,6 +132,14 @@ SRedisConnect RedisStorage::getRedis()
     // mutex that every other thread needs for a map lookup - so the first Redis use by any thread
     // stopped all the others for a network round trip, and longer still when Redis is not on this
     // host. Nothing races: a thread is the only one that can insert its own id.
+    auto redisConnect = makeConnection();
+
+    const scoped_lock lock(m_mutex);
+    return m_redisConnections.emplace(threadId, std::move(redisConnect)).first->second;
+}
+
+SRedisConnect RedisStorage::makeConnection() const
+{
     auto redisConnect = make_shared<RedisConnect>();
 
     // Asynchronous writes report failures here and nowhere else - without a handler a session
@@ -111,9 +156,7 @@ SRedisConnect RedisStorage::getRedis()
             }
         });
     redisConnect->connect(m_redisUrl);
-
-    const scoped_lock lock(m_mutex);
-    return m_redisConnections.emplace(threadId, std::move(redisConnect)).first->second;
+    return redisConnect;
 }
 
 void RedisStorage::cleanupSessionAsync(const string& clientId, const string& nodeName) const

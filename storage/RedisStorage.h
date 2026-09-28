@@ -94,6 +94,13 @@ private:
 
     sptk::SRedisConnect m_cleanupConnection; ///< Dedicated connection for asynchronous session cleanup.
 
+    /// EXPERIMENT: XMQ_REDIS_SHARED_CONNECTIONS=K hands out K shared connections round-robin instead
+    /// of one per thread, so each connection's pipeline carries more commands per round trip.
+    const size_t                     m_sharedConnectionCount;
+    std::vector<sptk::SRedisConnect> m_sharedConnections;
+    std::atomic_size_t               m_nextSharedConnection {0};
+
+    sptk::SRedisConnect makeConnection() const;
     void clear() const;
 };
 
