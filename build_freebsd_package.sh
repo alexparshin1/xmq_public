@@ -18,7 +18,7 @@ set -e
 
 WORK_DIR="${WORK_DIR:-$HOME/xmq-package-build}"
 SPTK_REPO="${SPTK_REPO:-git@github.com:alexparshin1/sptk5.git}"
-XMQ_REPO="${XMQ_REPO:-git@github.com:alexparshin1/xmq.git}"
+XMQ_REPO="${XMQ_REPO:-git@github.com:alexparshin1/xmq_public.git}"
 SPTK_BRANCH="${SPTK_BRANCH:-}"
 XMQ_BRANCH="${XMQ_BRANCH:-}"
 
