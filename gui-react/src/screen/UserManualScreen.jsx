@@ -247,16 +247,16 @@ sudo service xmq_server status`}</pre>
                 the password can also be set from the command line:
             </p>
 
-            <pre className="userManualCode">{`printf '%s' 'the-new-password' | sudo -u xmq xmq_server --set-password admin`}</pre>
+            <pre className="userManualCode">{`sudo -u xmq xmq_server --set-password admin`}</pre>
 
             <p>
-                The password is read from standard input, not taken as an argument, so it does not
-                appear in the process list or the shell history. On a headless server the
-                alternative is to forward the port &mdash;
+                It asks for the password without showing it, and from a pipe reads standard input
+                instead, so the password never appears in the process list or the shell history.
+                On a headless server the alternative is to forward the port &mdash;
                 <code>ssh -L 18883:127.0.0.1:18883 the-server</code> &mdash; and use the interface
-                as usual. In a container neither the console nor the loopback address is available,
-                and the image sets the password from <code>XMQ_ADMIN_PASSWORD</code> for this
-                reason.
+                as usual. In a Docker container, run it with{" "}
+                <code>docker exec -it &lt;container&gt; xmq_server --set-password admin</code>, then
+                restart the container; keep <code>/etc/xmq</code> on a volume and it stays set.
             </p>
 
             <p>
