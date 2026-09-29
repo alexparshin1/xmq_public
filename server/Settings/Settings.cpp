@@ -179,7 +179,7 @@ const char* defaultConfigurationText()
     "clean_start": true,
     "enabled": false,
     "max_redis_connections": 32,
-    "max_queued_writes": 100
+    "max_queued_writes": 1000
   },
   "logging": {
     "log_to": "xmq_server.log",

@@ -483,11 +483,15 @@ const ParameterHelp = {
             "At 0 every message waits for its own record to become durable before it is sent. " +
             "That is the safest setting, and the slowest: a single Redis connection answers about " +
             "38,000 unpipelined writes per second, against about 600,000 pipelined.",
-            "Above 0, record writes pipeline instead, which roughly doubles throughput. The value " +
-            "is also, roughly, how many messages could be lost if the server were killed outright."
+            "Above 0, record writes pipeline instead, and a record whose message is acknowledged " +
+            "within a millisecond is never written at all. The value is also how many messages " +
+            "could be lost if the server were killed outright - on top of what Redis itself loses " +
+            "when its machine goes down, which its appendfsync setting decides.",
+            "When the window is full, the publisher's connection is not read until Redis catches " +
+            "up: the publisher slows down, nobody else does."
         ],
         range: "0 .. 100000",
-        suggested: "0 for full durability, or around 100 for throughput",
+        suggested: "1000 (the default): at 60,000 messages a second that is under 20 ms of traffic",
         min: 0,
         max: 100000,
         warning: (value) => value > 1000

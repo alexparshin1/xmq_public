@@ -38,6 +38,12 @@ Requires SPTK 5.6.13.
   - a message's record is written a millisecond after the delivery, and not at all when the
     subscriber has acknowledged it by then - which with connected subscribers is nearly always -
     so most messages cost Redis nothing, rather than a write and a delete each.
+- **`persistence.max_queued_writes` defaults to 1000.** The configuration a new installation is created
+  with said 0 - every message waiting for its own Redis write, which caps a broker at a few tens of
+  thousands of persistent messages a second and, with delivery now on the receive thread, holds that
+  thread for each write. 1000 is under 20 ms of traffic at 60 000 messages a second. **An existing
+  configuration keeps the value it has**: the file is created once, on first start, and upgrades do
+  not touch it. Set it to 1000 by hand to get the numbers above.
 - **What a crash can lose depends on Redis as well as the broker.** `persistence.max_queued_writes`
   bounds the messages the broker has acknowledged but Redis has not yet confirmed. Redis's own setting
   decides what it loses when the machine does: with `appendfsync always` nothing, with `everysec` up
