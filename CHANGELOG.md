@@ -8,7 +8,11 @@ This file starts at 0.9.14. Earlier releases are not described here; their histo
 Announcements published on the website live in `doc/news/` and are a different thing: they are written for readers who
 are not upgrading anything, and most releases do not get one.
 
-## 0.9.19 — unreleased
+## 0.9.20 — unreleased
+
+Requires SPTK 5.6.14.
+
+## 0.9.19 — 2026-09-30
 
 Requires SPTK 5.6.13.
 
