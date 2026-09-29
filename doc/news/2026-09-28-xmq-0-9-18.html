@@ -1,0 +1,51 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 0.9.18: Faster and with less memory
+  Date:  2026-09-28
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ 0.9.18 is out. It is mostly about doing everything faster. You can download it  <a href='/downloads'>here</a>.
+</p>
+<h3>The whole machine, not half of it</h3>
+<p>
+    The <code>--no-cpu-affinity</code> option is
+    replaced with <code>--use-cpu-affinity</code>. Affinity is now off by default. 
+</p>
+<p>
+    The broker used to pin itself to one hardware thread per physical core and leave the
+    hyperthread siblings unused. On our test bench that cap was the whole of a latency cliff:
+    Point-To-Point held under a millisecond at 100,000 messages a second and jumped to 158 ms at
+    125,000, while five of the eight CPUs sat idle. With pinning off by default, the same runs go
+    125,000 a second comfortably and 150,000 well — within 3% of FlashMQ on the same client and
+    scenario. <code>--use-cpu-affinity</code> turns pinning back on for anyone who wants it.
+</p>
+<h3>Use less memory</h3>
+<p>
+    The message path lost half its allocations — about six per message fewer — by not
+    building a heap copy of a callback on every subscription lookup and by reusing the list of
+    recipients from one message to the next.
+</p>
+<h3>How much is waiting</h3>
+<p>
+    The counters always said what the broker had done. Now it also reports how much work is queued
+    in each of its three stages — receiving, delivering and sending — once a second, on
+    <code>$SYS/broker/queues/…/length</code>, in the statistics API, and in a new Queues panel on the
+    dashboard. A queue that keeps growing is a broker falling behind, and that is now visible before
+    it becomes latency.
+</p>
+<h3>Smaller things worth knowing</h3>
+<ul class='news'>
+    <li>The log says which signal stopped the broker. A clean stop with no reason beside it used to
+        read as the broker deciding to quit.</li>
+    <li>The load client warns when its source addresses are on a VPN tunnel — such a run measures
+        the tunnel, not the broker.</li>
+    <li>The configuration interface runs on one worker thread instead of four; nothing it serves
+        needs more.</li>
+</ul>

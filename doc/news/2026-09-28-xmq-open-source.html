@@ -2,8 +2,8 @@
   News item for the website. The body below is what goes in the "News" field; the title and date
   are the other two fields on the form.
 
-  Title: XMQ's source is on GitHub
-  Date:  2026-09-29
+  Title: XMQ repo is now public
+  Date:  2026-09-28
 
   Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
   written for someone upgrading, while this is written for a reader who is not upgrading anything.
@@ -11,39 +11,33 @@
 
 <p>
     XMQ has been open source by licence since August, when it moved to the
-    <a href="https://mozilla.org/MPL/2.0/">Mozilla Public License 2.0</a>. As of this week it is open
+    <a href='https://mozilla.org/MPL/2.0/'>Mozilla Public License 2.0</a>. As of this week it is open
     source in practice as well: <strong>the broker is developed in a public repository,
-    <a href="https://github.com/alexparshin1/xmq_public">github.com/alexparshin1/xmq_public</a></strong>,
+    <a href='https://github.com/alexparshin1/xmq_public'>github.com/alexparshin1/xmq_public</a></strong>,
     and every change is made there, in the open, from 0.9.18 on.
 </p>
-
 <h3>What is there</h3>
-
-<ul>
+<ul class='news'>
     <li><strong>The whole broker</strong> — the MQTT server, the configuration interface, the
         command-line clients, the Windows and Linux packaging, the Docker image and the tests.</li>
     <li><strong>The load generator and every benchmark scenario.</strong> The numbers on the
-        <a href="/tests">test pages</a> were produced by code you can now read and run against any
+        <a href='/tests'>test pages</a> were produced by code you can now read and run against any
         MQTT broker, including ours, on your own hardware.</li>
     <li><strong>The extension API</strong> and its samples, for anyone who wants to add an
         authenticator, an access-control scheme or an event observer without touching the broker's
         source.</li>
     <li><strong>The changelog</strong>, written for someone deciding whether and how to upgrade.</li>
 </ul>
-
 <p>
-    XMQ is built on <a href="https://github.com/alexparshin1/sptk5">SPTK</a>, the C++20 library
+    XMQ is built on <a href='https://github.com/alexparshin1/sptk5'>SPTK</a>, the C++20 library
     developed alongside it, which is open source under the LGPL. The networking, threading and
     database layers the broker runs on are all there to read too.
 </p>
-
 <p>
     The repository's history starts at 0.9.18. Earlier releases are described in the changelog
     from 0.9.14 on; the development history before that stays where it was.
 </p>
-
 <h3>What does not change</h3>
-
 <p>
     The licence is the one XMQ has carried since 0.9.14. The MPL is copyleft per file: changes to
     XMQ's own source files stay open, while a product that merely includes the broker, or an
@@ -51,13 +45,11 @@
     its author chooses. Binary packages stay free to download, and nothing about how the broker
     behaves depends on where its source lives.
 </p>
-
 <h3>Taking part</h3>
-
 <p>
     Bug reports and questions are welcome in the repository's
-    <a href="https://github.com/alexparshin1/xmq_public/issues">issue tracker</a>, or by email to
-    <a href="mailto:alexeyp@gmail.com">alexeyp@gmail.com</a>. A report is most useful with the broker
+    <a href='https://github.com/alexparshin1/xmq_public/issues'>issue tracker</a>, or by email to
+    <a href='mailto:alexeyp@gmail.com'>alexeyp@gmail.com</a>. A report is most useful with the broker
     version, the platform and the part of the log around the problem — the broker now says, among
     other things, which signal stopped it and how much work is waiting in its queues.
 </p>
