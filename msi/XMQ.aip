@@ -13,10 +13,10 @@
     <ROW Property="CTRLS" Value="2"/>
     <ROW Property="Manufacturer" Value="Alexey Parshin"/>
     <ROW Property="MsiLogging" MultiBuildValue="x64_Release:vp"/>
-    <ROW Property="ProductCode" Value="1033:{DE1840E1-9E6F-4F4C-BD9E-EE7D24265CB7} " Type="16"/>
+    <ROW Property="ProductCode" Value="1033:{3A3CAE1F-9D7B-49C1-A750-0BAC5175D20F} " Type="16"/>
     <ROW Property="ProductLanguage" Value="1033"/>
     <ROW Property="ProductName" Value="XMQ"/>
-    <ROW Property="ProductVersion" Value="0.9.19" Options="32"/>
+    <ROW Property="ProductVersion" Value="0.9.20" Options="32"/>
     <ROW Property="RUNAPPLICATION" Value="1" Type="4"/>
     <ROW Property="SecureCustomProperties" Value="OLDPRODUCTS;AI_NEWERPRODUCTFOUND;AI_SETUPEXEPATH;SETUPEXEDIR;XMQ_SERVER_PORT;XMQ_SSL_SERVER_PORT;XMQ_GUI_SERVER_PORT"/>
     <ROW Property="UpgradeCode" Value="{9C3EBA0E-3E6F-4210-8C43-B18F63B22244}"/>
