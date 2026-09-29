@@ -15,7 +15,12 @@ NAME=xmq-image-check-$$
 PORT=28883
 
 docker rm -f "$NAME" >/dev/null 2>&1
-docker run -d --name "$NAME" -p "$PORT:18883" "$IMAGE" >/dev/null || exit 1
+# With a password, because without one the image keeps its configuration interface on the
+# container's own loopback, where a published port - and so this check - cannot reach it. The
+# suffix meets the rest of the password rules: the hex has only lowercase letters and digits.
+docker run -d --name "$NAME" -p "$PORT:18883" \
+    -e XMQ_ADMIN_PASSWORD="$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')Z!" \
+    "$IMAGE" >/dev/null || exit 1
 trap 'docker rm -f "$NAME" >/dev/null 2>&1' EXIT
 
 for _ in $(seq 30); do

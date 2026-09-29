@@ -25,8 +25,9 @@ The image carries XMQ's own clients too, so nothing has to be installed on the h
 `docker exec <container> xmq_pub -h localhost -t test/hello -m 'first message'`.
 
 The configuration interface is on `https://localhost:18883` (self-signed certificate,
-so the browser will warn). Sign in as **admin / admin** and change the password
-immediately — those are the credentials the server creates when it finds no accounts.
+so the browser will warn) once `XMQ_ADMIN_PASSWORD` is set: sign in as **admin** with that
+password. Without it the interface answers only inside the container, so a published port
+reaches nothing - the broker does not open an interface nobody has set a password for.
 
 Anonymous access is on because the image is mostly used to try the broker out, and a
 first attempt that fails on credentials nobody has been told about wastes everybody's
@@ -55,7 +56,7 @@ Anything not listed here is edited in the file itself, or through the web interf
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `XMQ_ADMIN_PASSWORD` | unset | Password for the `admin` account. Until it is set the configuration interface answers inside the container only, so a published port reaches nothing |
+| `XMQ_ADMIN_PASSWORD` | unset | Password for the `admin` account: upper and lower case, a digit and a punctuation character, or the container refuses to start. Until it is set the configuration interface answers inside the container only, so a published port reaches nothing |
 | `XMQ_ALLOW_ANONYMOUS` | `true` | Accept clients with no credentials |
 | `XMQ_PERSISTENCE` | `false` | Store sessions and messages in Redis |
 | `XMQ_REDIS_URI` | `redis://redis_server:6379` | Where that Redis is |
