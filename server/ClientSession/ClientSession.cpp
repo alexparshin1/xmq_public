@@ -17,7 +17,10 @@
 #include "base/LatencyTrace.h"
 #include "base/ProtocolException.h"
 #include "common/SubscribeAckMessage.h"
+#include "common/mqtt/FixedHeader.h"
+#include "common/mqtt/FrameTypeTests.h"
 #include "common/mqtt/PublishMessage.h"
+#include "server/MessageDelivery.h"
 #include <algorithm>
 #include <format>
 #include <utility>
@@ -460,6 +463,13 @@ void ClientSession::onSessionTimerEvent()
                 break;
 
             case Active:
+                if (awaitingWriteCapacity())
+                {
+                    // Nothing has been read from this client because the broker stopped reading
+                    // it, so its silence proves nothing. Restarting the interval also moves the
+                    // deadline past now, which keeps the re-arm below from firing at once.
+                    touchLastClientMessageTimestamp();
+                }
                 keepAliveTimedOut = passed(keepAliveDeadlineUnlocked());
                 break;
 
@@ -541,6 +551,19 @@ void ClientSession::onSessionTimerEvent()
 
     // Drops what has expired, works out when the next message does, and arms the timer again.
     pruneExpiredMessages(!isConnected());
+}
+
+void ClientSession::resumeAfterWriteCapacity()
+{
+    touchLastClientMessageTimestamp();
+    m_awaitingWriteCapacity.store(false, std::memory_order_release);
+
+    // The bytes it stopped at are still in the read buffer, and the socket may hold more that the
+    // reactor has already reported and will not report again.
+    if (const auto receiveThread = clientSessionReceiveThread())
+    {
+        receiveThread->queueProcessSession(shared());
+    }
 }
 
 void ClientSession::scheduleIdleDisconnect()
@@ -728,6 +751,15 @@ SendReceiveResult ClientSession::receiveMessages()
         return result;
     }
 
+    if (awaitingWriteCapacity())
+    {
+        // Paused until Redis catches up (see awaitingWriteCapacity()). Nothing is read, so what the
+        // client sends waits in the socket and TCP slows it down; MessageDelivery queues the
+        // session again when it resumes.
+        result.noMoreMessages = true;
+        return result;
+    }
+
     // Held for the duration: a raw pointer taken from the returned shared_ptr would outlive
     // it, and a concurrent disconnect could then destroy the socket under this thread.
     // Honoured here rather than where it was requested: this is the only thread that owns
@@ -818,11 +850,28 @@ SendReceiveResult ClientSession::receiveMessages()
         size_t offset = 0;
         while (offset < m_readBuffer.bytes())
         {
-            auto empty = true;
-            auto packet = m_packetReader->readPacket(m_readBuffer, empty, offset);
+            auto       empty = true;
+            const auto packetStart = offset;
+            auto       packet = m_packetReader->readPacket(m_readBuffer, empty, offset);
             if (empty)
             {
                 // Only a partial packet remains; keep it for the next read.
+                break;
+            }
+
+            // A PUBLISH that would add a record while Redis is max_queued_writes behind stays in
+            // the buffer, unread, and the session pauses. Left to MessageDelivery::create() it
+            // would park this receive thread instead - and with it every session the thread
+            // serves, whose PINGREQs then go unread until the broker disconnects them for
+            // silence. Asked of the fixed header, so the packet is not decoded twice.
+            if (const auto& header = packet.header<mqtt::FixedHeader>();
+                static_cast<mqtt::FrameTypeTests>(header.m_type << 4U) == mqtt::FrameTypeTests::Publish &&
+                header.m_qos != Qos::Qos0 && MessageDelivery::writeCapacityExhausted(shared()))
+            {
+                offset = packetStart;
+                pauseForWriteCapacity();
+                MessageDelivery::pauseUntilWriteCapacity(shared());
+                result.noMoreMessages = true;
                 break;
             }
 

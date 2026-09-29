@@ -50,7 +50,12 @@ void ClientSessionReceiveThread::processSession(SClientSession& clientSession)
     {
         if (clientSession->isConnected())
         {
-            if (server().getTriggerMode() == SocketPoolTriggerMode::OneShot)
+            if (clientSession->awaitingWriteCapacity())
+            {
+                // Neither re-armed nor queued: a OneShot re-arm would fire straight back for the
+                // bytes left in the socket. Resuming queues the session.
+            }
+            else if (server().getTriggerMode() == SocketPoolTriggerMode::OneShot)
             {
                 // OneShot disarmed the socket when the event fired; the re-arm re-checks
                 // readiness, so any bytes left in the socket re-fire the event immediately.

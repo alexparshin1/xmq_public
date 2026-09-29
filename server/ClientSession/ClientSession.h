@@ -410,6 +410,30 @@ public:
     }
 
     /**
+     * @brief Is reading this session paused until Redis catches up with its record writes?
+     *
+     * Set when the next packet is a PUBLISH that would add a record while
+     * persistence.max_queued_writes records are already unconfirmed. The socket is then not read
+     * at all, so the client is slowed by TCP itself rather than by a receive thread parked on its
+     * behalf - a parked thread stops reading every other session it serves, and their PINGREQs go
+     * unread until the broker disconnects them. MessageDelivery resumes the session.
+     */
+    [[nodiscard]] bool awaitingWriteCapacity() const
+    {
+        return m_awaitingWriteCapacity.load(std::memory_order_acquire);
+    }
+
+    /// @return true if the pause starts now, false if the session was already paused.
+    bool pauseForWriteCapacity()
+    {
+        return !m_awaitingWriteCapacity.exchange(true, std::memory_order_acq_rel);
+    }
+
+    /// Reads the session again. The pause was the broker's silence, not the client's, so the
+    /// keep-alive interval starts over.
+    void resumeAfterWriteCapacity();
+
+    /**
      * @brief Record when the reactor saw this session become readable.
      *
      * The reactor hands the session to a receive thread, and only that thread stamps a timestamp
@@ -501,6 +525,7 @@ private:
     std::atomic_bool                        m_isClusterSession {false};   ///< Is this session a cluster control session?
     std::atomic<uint64_t>                   m_reactorReadyTimestamp {0};  ///< When the reactor last saw this session readable; see setReactorReadyTimestamp().
     std::atomic_bool                        m_authenticationPending {false}; ///< CONNECT is waiting on an extension; see authenticationPending().
+    std::atomic_bool                        m_awaitingWriteCapacity {false}; ///< Reading paused for Redis; see awaitingWriteCapacity().
     const std::string*                      m_bridgeOrigin {nullptr};     ///< What bridge this session is connected to.
     bool                                    m_logPublishMessages;         ///< Is logging of Publish messages enabled?
     static ClientSessionSerial              m_serial;                     ///< Session serial.

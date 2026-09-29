@@ -32,6 +32,12 @@ atomic_size_t      MessageDelivery::m_queuedWrites;
 atomic_size_t      MessageDelivery::m_writeCapacityWaiters;
 atomic_size_t      MessageDelivery::m_writeCapacityResumeAt;
 
+mutex                             MessageDelivery::m_pausedSessionsMutex;
+vector<weak_ptr<ClientSession>>   MessageDelivery::m_pausedSessions;
+atomic_size_t                     MessageDelivery::m_pausedSessionCount;
+atomic_size_t                     MessageDelivery::m_writeCapacityPauses;
+STimerEvent                       MessageDelivery::m_pauseTimeout;
+
 namespace {
 
 // Never wait forever on Redis: if writes stopped completing the broker should keep delivering,
@@ -89,7 +95,12 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
 
 void MessageDelivery::awaitWriteCapacity(const size_t maxQueuedWrites)
 {
-    if (m_queuedWrites.load() < maxQueuedWrites)
+    // Called after the write was counted, so a backlog of exactly maxQueuedWrites is the window
+    // full, not exceeded. A full window is the receive path's to handle - it pauses the publisher's
+    // session before the next PUBLISH (see pauseUntilWriteCapacity()). Blocking here at a full
+    // window would park the thread first, every time, and the pause would never be reached. What
+    // is left for this is a PUBLISH whose own fan-out overran the window.
+    if (m_queuedWrites.load() <= maxQueuedWrites)
     {
         return;
     }
@@ -111,18 +122,84 @@ void MessageDelivery::awaitWriteCapacity(const size_t maxQueuedWrites)
     --m_writeCapacityWaiters;
 }
 
+bool MessageDelivery::writeCapacityExhausted(const shared_ptr<ClientSession>& clientSession)
+{
+    const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession);
+    return maxQueuedWrites != 0 && m_queuedWrites.load(memory_order_relaxed) >= maxQueuedWrites;
+}
+
+void MessageDelivery::pauseUntilWriteCapacity(const shared_ptr<ClientSession>& clientSession)
+{
+    const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession);
+    const auto resumeAt = maxQueuedWrites / 2;
+    m_writeCapacityResumeAt.store(resumeAt);
+    m_writeCapacityPauses.fetch_add(1, memory_order_relaxed);
+
+    {
+        const scoped_lock lock(m_pausedSessionsMutex);
+        m_pausedSessions.push_back(clientSession);
+        m_pausedSessionCount.store(m_pausedSessions.size(), memory_order_relaxed);
+
+        if (m_pausedSessions.size() == 1)
+        {
+            if (const auto timer = clientSession->server().getTimer())
+            {
+                m_pauseTimeout = timer->fireAt(DateTime::clock::now() + WriteCapacityTimeout, []
+                                               {
+                                                   resumePausedSessions();
+                                               });
+            }
+        }
+    }
+
+    // The writes may all have completed between the caller's check and the session joining the
+    // list, and then no completion is left to resume it.
+    if (m_queuedWrites.load() <= resumeAt)
+    {
+        resumePausedSessions();
+    }
+}
+
+void MessageDelivery::resumePausedSessions()
+{
+    vector<weak_ptr<ClientSession>> paused;
+    STimerEvent                     timeout;
+    {
+        const scoped_lock lock(m_pausedSessionsMutex);
+        paused.swap(m_pausedSessions);
+        m_pausedSessionCount.store(0, memory_order_relaxed);
+        timeout = std::move(m_pauseTimeout);
+    }
+    if (timeout)
+    {
+        timeout->cancel();
+    }
+
+    for (const auto& weakSession: paused)
+    {
+        if (const auto clientSession = weakSession.lock())
+        {
+            clientSession->resumeAfterWriteCapacity();
+        }
+    }
+}
+
 void MessageDelivery::releaseWriteCapacity()
 {
     // Only broadcast when it can actually release someone. Notifying on every completed write
     // means tens of thousands of wakeups per second across all blocked delivery threads, and
     // that thundering herd costs far more than the round-trips it was meant to save.
-    if (m_writeCapacityWaiters.load(memory_order_relaxed) == 0)
+    if (m_writeCapacityWaiters.load(memory_order_relaxed) == 0 && m_pausedSessionCount.load(memory_order_relaxed) == 0)
     {
         return;
     }
     if (m_queuedWrites.load(memory_order_relaxed) > m_writeCapacityResumeAt.load(memory_order_relaxed))
     {
         return;
+    }
+    if (m_pausedSessionCount.load(memory_order_relaxed) != 0)
+    {
+        resumePausedSessions();
     }
     m_writeCapacityAvailable.notify_all();
 }
