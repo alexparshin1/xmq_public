@@ -43,6 +43,12 @@ shared_ptr<client::MqttClient> connectClient(const string& clientId, const bool 
     return client;
 }
 
+size_t sessionRecordCount(const string& clientId)
+{
+    const auto redis = XMQ_PersistenceTests::server()->getRedisStorage()->getRedis();
+    return redis->getHashValues("session_" + clientId + "_messages").size();
+}
+
 } // namespace
 
 // With max_queued_writes at 1 nearly every PUBLISH arrives while a record write is still
@@ -89,6 +95,57 @@ TEST_F(XMQ_PersistenceTests, WriteCapacity_PausedPublisherLosesNothing)
     EXPECT_TRUE(allReceived.wait_for(20s)) << "Received " << received.load() << " of " << messageCount;
     EXPECT_TRUE(ordered.load()) << "Messages arrived out of order";
     EXPECT_GT(MessageDelivery::writeCapacityPauses(), pausesBefore) << "The publisher was never paused, so the test proved nothing";
+
+    // Every delivery was acknowledged, so whatever was written has been deleted again and whatever
+    // was not written yet was dropped: nothing may be left behind.
+    this_thread::sleep_for(200ms);
+    EXPECT_EQ(0U, sessionRecordCount(subscriberClientId));
+
+    publisher->disconnect();
+    subscriber->disconnect();
+    settings->m_persistence.m_max_queued_writes.setNull();
+}
+
+// Write-behind drops a record only when its delivery finished first. A subscriber that is not
+// connected finishes nothing, so every record must reach Redis - and be gone again once the
+// subscriber has come back and acknowledged them.
+TEST_F(XMQ_PersistenceTests, WriteBehind_OfflineSubscriberRecordsAreWritten)
+{
+    const auto& settings = server()->getSettings();
+    settings->m_persistence.m_max_queued_writes = 1000;
+
+    const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
+    constexpr int messageCount = 20;
+
+    {
+        const auto subscriber = connectClient(subscriberClientId, false);
+        subscriber->subscribe(topicName);
+        this_thread::sleep_for(100ms);
+        subscriber->disconnect();
+    }
+
+    const auto publisher = connectClient(publisherClientId, true);
+    for (int i = 0; i < messageCount; ++i)
+    {
+        publisher->publish(topicName, to_string(i), Qos::Qos1);
+    }
+    this_thread::sleep_for(200ms);
+    EXPECT_EQ(static_cast<size_t>(messageCount), sessionRecordCount(subscriberClientId))
+        << "Records for an offline subscriber were not written";
+
+    atomic_int received {0};
+    Semaphore  allReceived;
+    const auto subscriber = connectClient(subscriberClientId, false,
+                                          [&](const SPublishMessage&)
+                                          {
+                                              if (++received == messageCount)
+                                              {
+                                                  allReceived.post();
+                                              }
+                                          });
+    EXPECT_TRUE(allReceived.wait_for(5s)) << "Received " << received.load() << " of " << messageCount;
+    this_thread::sleep_for(200ms);
+    EXPECT_EQ(0U, sessionRecordCount(subscriberClientId)) << "Acknowledged records were not deleted";
 
     publisher->disconnect();
     subscriber->disconnect();

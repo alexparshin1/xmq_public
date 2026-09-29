@@ -22,6 +22,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace xmq {
@@ -124,6 +125,20 @@ public:
     void pack(sptk::Buffer& record) override;
     void unpack(const sptk::Buffer& record) override;
     void storeRecordAsync(const std::function<void()>& callback) override;
+
+    /**
+     * @brief Queue the record to be written WriteBehindDelay from now, unless it is gone by then.
+     *
+     * For the max_queued_writes path, where the delivery does not wait for its record anyway.
+     * Most deliveries are acknowledged within the delay, and a record whose delivery has already
+     * finished is dropped from the queue instead of written and then deleted: two Redis commands
+     * and two AOF entries fewer per message. A queued record counts as an unconfirmed write, so
+     * max_queued_writes bounds what a crash loses exactly as before.
+     */
+    void storeRecordBehind();
+
+    /// Send every queued record now. Called on shutdown, before storage disconnects.
+    static void flushPendingWrites();
     void removeRecordAsync(const std::function<void(const size_t&)>& callback) override;
 
     RecordId getRecordId() const
@@ -192,6 +207,23 @@ private:
     static std::atomic_size_t                        m_pausedSessionCount; ///< m_pausedSessions.size(), read without the lock.
     static std::atomic_size_t                        m_writeCapacityPauses; ///< See writeCapacityPauses().
     static sptk::STimerEvent                         m_pauseTimeout;       ///< Resumes every paused session if Redis does not.
+
+    struct PendingWrite
+    {
+        sptk::SRedisConnect redis;  ///< The delivery's own connection, so its HDEL can never overtake this HSET.
+        std::string         key;
+        std::string         field;
+        sptk::Buffer        record;
+    };
+
+    static void runWriteFlusher();
+    static void flushPendingWritesLocked();
+
+    // References to objects that are never destroyed: the flusher thread waits on them until the
+    // process ends, and destroying a condition variable something still waits on blocks exit.
+    static std::mutex&                                  m_pendingWritesMutex;
+    static std::condition_variable&                     m_pendingWritesAdded;
+    static std::unordered_map<RecordId, PendingWrite>&  m_pendingWrites; ///< Records waiting out WriteBehindDelay; see storeRecordBehind().
 
     static std::mutex              m_writeCapacityMutex;
     static std::condition_variable m_writeCapacityAvailable;

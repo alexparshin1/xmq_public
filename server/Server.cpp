@@ -660,6 +660,9 @@ void Server::stopServer()
         // the libraries the handlers live in.
         m_extensions.stop();
 
+        // Records still waiting out the write-behind delay go to Redis while it is connected.
+        MessageDelivery::flushPendingWrites();
+
         if (m_storage)
         {
             m_storage->disconnect();

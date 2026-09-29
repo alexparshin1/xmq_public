@@ -36,6 +36,10 @@ mutex                             MessageDelivery::m_pausedSessionsMutex;
 vector<weak_ptr<ClientSession>>   MessageDelivery::m_pausedSessions;
 atomic_size_t                     MessageDelivery::m_pausedSessionCount;
 atomic_size_t                     MessageDelivery::m_writeCapacityPauses;
+
+mutex&                                          MessageDelivery::m_pendingWritesMutex = *new mutex;
+condition_variable&                             MessageDelivery::m_pendingWritesAdded = *new condition_variable;
+unordered_map<RecordId, MessageDelivery::PendingWrite>& MessageDelivery::m_pendingWrites = *new unordered_map<RecordId, MessageDelivery::PendingWrite>;
 STimerEvent                       MessageDelivery::m_pauseTimeout;
 
 namespace {
@@ -43,6 +47,11 @@ namespace {
 // Never wait forever on Redis: if writes stopped completing the broker should keep delivering,
 // degraded, rather than stall every sending thread.
 constexpr auto WriteCapacityTimeout = std::chrono::seconds(5);
+
+// How long a record waits before it is written, in case its delivery finishes first. Long enough
+// for a connected subscriber's PUBACK, which takes a few hundred microseconds; short enough that
+// the records waiting at any moment - rate times this - stay well inside max_queued_writes.
+constexpr auto WriteBehindDelay = std::chrono::milliseconds(1);
 
 // 0 (or absent) means every delivery waits for its own record - the fully durable default.
 size_t maxQueuedWritesSetting(const std::shared_ptr<ClientSession>& clientSession)
@@ -86,7 +95,7 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
             // Cached: let the delivery proceed while its record is written, so writes pipeline.
             // Up to maxQueuedWrites messages may then be in flight without a durable record and
             // would be lost if the server crashed - the setting is that window.
-            messageDelivery->storeRecordAsync({});
+            messageDelivery->storeRecordBehind();
             awaitWriteCapacity(maxQueuedWrites);
         }
     }
@@ -257,8 +266,88 @@ MessageDelivery::~MessageDelivery()
     // If Redis is not connected, the record is not removed.
     if (m_persisted)
     {
+        // Still waiting to be written: then it never will be, and there is nothing to delete.
+        // Decided under the lock the flusher sends under, so a record is either dropped here
+        // or already queued on this connection ahead of the HDEL below - never neither.
+        bool dropped = false;
+        {
+            const scoped_lock lock(m_pendingWritesMutex);
+            dropped = m_pendingWrites.erase(m_recordId) != 0;
+        }
+        if (dropped)
+        {
+            --m_queuedOperations;
+            --m_queuedWrites;
+            releaseWriteCapacity();
+            return;
+        }
         removeRecordAsync({});
     }
+}
+
+void MessageDelivery::storeRecordBehind()
+{
+    const auto redis = getRedis();
+    if (!redis || !redis->isConnected())
+    {
+        return;
+    }
+
+    static once_flag flusherStarted;
+    call_once(flusherStarted, []
+              {
+                  thread(runWriteFlusher).detach();
+              });
+
+    Buffer record;
+    pack(record);
+    m_persisted = true;
+    ++m_queuedOperations;
+    ++m_queuedWrites;
+    {
+        const scoped_lock lock(m_pendingWritesMutex);
+        m_pendingWrites.emplace(m_recordId, PendingWrite {redis, m_sessionMessagesKey, to_string(m_recordId), std::move(record)});
+    }
+    m_pendingWritesAdded.notify_one();
+}
+
+void MessageDelivery::runWriteFlusher()
+{
+    while (true)
+    {
+        {
+            unique_lock lock(m_pendingWritesMutex);
+            m_pendingWritesAdded.wait(lock, []
+                                      {
+                                          return !m_pendingWrites.empty();
+                                      });
+        }
+        // Everything queued in the meantime rides along, so under load this is one flush per
+        // WriteBehindDelay, not one per record.
+        this_thread::sleep_for(WriteBehindDelay);
+        flushPendingWrites();
+    }
+}
+
+void MessageDelivery::flushPendingWrites()
+{
+    const scoped_lock lock(m_pendingWritesMutex);
+    flushPendingWritesLocked();
+}
+
+void MessageDelivery::flushPendingWritesLocked()
+{
+    for (auto& [recordId, write]: m_pendingWrites)
+    {
+        write.redis->setHashValueAsync(write.key, write.field, Variant(std::move(write.record)),
+                                       []
+                                       {
+                                           --m_queuedOperations;
+                                           --m_queuedWrites;
+                                           releaseWriteCapacity();
+                                       });
+    }
+    m_pendingWrites.clear();
 }
 
 void MessageDelivery::pack(Buffer& record)
