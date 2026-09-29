@@ -24,14 +24,16 @@ Requires SPTK 5.6.13.
   the delivery pool, which acknowledged the publisher before the message's record reached Redis and
   then let the pool's queue grow without limit while Redis fell behind - so a crash could lose more
   than `persistence.max_queued_writes` promised. Now the window holds: a full window pauses the
-  publisher instead of queueing past it. A broker with a bridge running or other cluster nodes still
+  publisher instead of queueing past it: that publisher's connection is not read until Redis catches
+  up, TCP slows it down, and every other connection is read as usual. A broker with a bridge running or other cluster nodes still
   delivers through the pool, as do messages arriving from a bridge or another node: delivering into a
   bridge can wait on a remote broker, which a receive thread must not. `server_limits.delivery_threads`
   sizes the pool for those cases only.
 - **Persistent Point-To-Point runs at 60 000 messages a second with sub-millisecond latency.** On the
   test bench, with Redis writing its append-only file once a second, the median is 199 µs and no
-  minute averages above 1.2 ms - twice the 30 000 a second where 0.9.17 stopped. With Redis syncing every write to disk (`appendfsync always`) the broker holds
-  40 000 a second at 237 µs. Three changes make up the difference:
+  minute averages above 1.2 ms - twice the 30 000 a second where 0.9.17 stopped. With Redis syncing every write to disk (`appendfsync always`) it holds 40 000 a
+  second at 237 µs on an NVMe disk; on a disk slow to flush, persistent clients connect too slowly -
+  issue #1, for 0.9.20. Three changes make up the difference:
   - SPTK 5.6.13 keeps many batches of Redis commands in flight on a connection instead of waiting for
     each batch's replies before sending the next;
   - the broker shares `persistence.max_redis_connections` Redis connections between its threads
@@ -53,13 +55,6 @@ Requires SPTK 5.6.13.
   Run Redis with `appendonly yes` for the window to mean what it says.
 
 ### Fixed
-
-- **A slow Redis no longer disconnects clients that had nothing to do with it.** When writes fell
-  behind, the thread handling a publisher waited for Redis - and every other connection that thread
-  served went unread, so their keep-alive pings were never seen and the broker disconnected them. At
-  60 000 messages a second with Redis syncing every write, that was nearly every subscriber. Now only
-  the publisher's connection stops being read, TCP slows that client down, and a paused connection's
-  silence is not counted against its keep-alive.
 
 - **A client resuming its session could crash the broker.** A client reconnecting with a persistent
   session (clean session / clean start off) whose subscriptions matched a retained message published

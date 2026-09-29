@@ -1,0 +1,41 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 0.9.19: persistence fixed, and twice as fast
+  Date:  2026-09-30 (the date of the release - change it if the release moves)
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ 0.9.19 is out. It fixes what 0.9.18 broke in persistence, and makes persistent delivery
+    twice as fast. You can download it <a href='/downloads'>here</a>.
+</p>
+<h3>Fixed</h3>
+<ul class='news'>
+    <li>A client resuming a persistent session could crash the broker when its subscription matched
+        a retained QoS&nbsp;1 or 2 message.</li>
+    <li>With the settings 0.9.18 shipped with, persistent delivery fell behind at 30,000 messages a
+        second and never caught up.</li>
+</ul>
+<h3>60,000 persistent messages a second</h3>
+<p>
+    On our AWS test pair, point-to-point with every session persistent: <b>60,000 messages a second
+    at 210&nbsp;µs</b>, flat for the whole run. 0.9.17 managed 30,000 at 186&nbsp;µs.
+</p>
+<p>
+    And with a stronger guarantee: measured with Redis syncing its log every second, so a power
+    failure loses at most one second - earlier figures used Redis's defaults, which can lose a
+    minute or more. See the new
+    <a href='/xmq_persistence'>Persistence</a> page.
+</p>
+<h3>Smaller things worth knowing</h3>
+<ul class='news'>
+    <li>New persistence defaults: <code>max_queued_writes</code> 1000, <code>max_redis_connections</code> 2.
+        Existing configurations keep their values.</li>
+    <li>Retained messages are sent only in answer to SUBSCRIBE, as MQTT specifies.</li>
+    <li><code>SIGHUP</code> reloads the configuration and reopens the log instead of stopping the broker.</li>
+</ul>
