@@ -24,10 +24,15 @@ mosquitto_pub -h localhost -t test/hello -m 'first message'
 The image carries XMQ's own clients too, so nothing has to be installed on the host:
 `docker exec <container> xmq_pub -h localhost -t test/hello -m 'first message'`.
 
-The configuration interface is on `https://localhost:18883` (self-signed certificate,
-so the browser will warn) once `XMQ_ADMIN_PASSWORD` is set: sign in as **admin** with that
-password. Without it the interface answers only inside the container, so a published port
-reaches nothing - the broker does not open an interface nobody has set a password for.
+The configuration interface, `https://localhost:18883` (self-signed certificate, so the
+browser will warn), opens once `admin` has a password. Until then it answers only inside
+the container. Set the password once and restart; with `/etc/xmq` on a volume it stays set:
+
+```bash
+docker run -d --name xmq -p 1883:1883 -p 18883:18883 -v xmq-config:/etc/xmq alexeyparshin/xmq
+docker exec -it xmq xmq_server --set-password admin
+docker restart xmq
+```
 
 Anonymous access is on because the image is mostly used to try the broker out, and a
 first attempt that fails on credentials nobody has been told about wastes everybody's
@@ -56,7 +61,6 @@ Anything not listed here is edited in the file itself, or through the web interf
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `XMQ_ADMIN_PASSWORD` | unset | Password for the `admin` account: upper and lower case, a digit and a punctuation character, or the container refuses to start. Until it is set the configuration interface answers inside the container only, so a published port reaches nothing |
 | `XMQ_ALLOW_ANONYMOUS` | `true` | Accept clients with no credentials |
 | `XMQ_PERSISTENCE` | `false` | Store sessions and messages in Redis |
 | `XMQ_REDIS_URI` | `redis://redis_server:6379` | Where that Redis is |
@@ -75,7 +79,7 @@ activity shows up; `XMQ_LOG_LEVEL` alone does not do it.
 
 **Mount `/etc/xmq` if the container is more than a quick try.** The configuration, the
 accounts and the certificate live there. Without a volume, every restart is a fresh
-install: the admin password goes back to `admin` and the certificate changes.
+install: the admin password is gone and the certificate changes.
 
 ```bash
 docker run -d -p 1883:1883 -v xmq-config:/etc/xmq alexeyparshin/xmq

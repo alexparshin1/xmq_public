@@ -73,24 +73,12 @@ if [ "${XMQ_LOG_FILE:-discard}" = "discard" ]; then
     fi
 fi
 
-# Until the administrator has a password the broker serves its configuration interface on the
-# loopback address only. That is right for a machine with a console and wrong for a container:
-# a container's loopback is not the host's, so a published port reaches no listener, and the
-# interface that would set the password is the one that cannot be reached. Setting it here breaks
-# that circle. The password goes in on standard input, never as an argument, so it does not appear
-# in the container's process list.
+# Until the administrator has a password the configuration interface answers on the container's
+# own loopback, which a published port does not reach. The password is set once, from outside,
+# and kept in the /etc/xmq volume, as on any other installation:
 #
-# Without XMQ_ADMIN_PASSWORD the container keeps the safe default: MQTT works, and the interface
-# answers inside the container only - reachable with `docker run --network host`, or by setting
-# this variable.
-if [ -n "${XMQ_ADMIN_PASSWORD:-}" ]; then
-    if printf '%s' "$XMQ_ADMIN_PASSWORD" | xmq_server --set-password admin; then
-        echo "xmq: administrator password set from XMQ_ADMIN_PASSWORD; the configuration interface is on 18883"
-    else
-        echo "xmq: could not set the administrator password - refusing to start, rather than starting one that cannot be administered" >&2
-        exit 1
-    fi
-fi
+#   docker exec -it <container> xmq_server --set-password admin
+#   docker restart <container>
 
 # No flag needed to stay in the foreground, which is what a container wants: the broker
 # runs where it is started. It used to fork itself into the background unless told not

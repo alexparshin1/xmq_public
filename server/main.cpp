@@ -21,6 +21,10 @@
 #include "common/DirectoryNames.h"
 
 #include <iostream>
+#ifndef _WIN32
+#include <termios.h>
+#include <unistd.h>
+#endif
 
 #include "server/Server.h"
 #include "server/ServerCommandLine.h"
@@ -181,8 +185,28 @@ int main(int argc, const char* argv[])
         const String account = serverCommandLine.getOptionValue("set-password");
         String       password;
         // From standard input rather than the command line: an argument is visible in the process
-        // list to every user on the machine, and lands in the shell history besides.
-        if (!getline(cin, password))
+        // list to every user on the machine, and lands in the shell history besides. Typed at a
+        // terminal - `docker exec -it`, for one - it is asked for and not echoed, as passwd does.
+#ifndef _WIN32
+        termios   savedTerminal {};
+        const bool fromTerminal = isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &savedTerminal) == 0;
+        if (fromTerminal)
+        {
+            cerr << "Password for " << account << ": " << flush;
+            termios silent = savedTerminal;
+            silent.c_lflag &= ~static_cast<tcflag_t>(ECHO);
+            tcsetattr(STDIN_FILENO, TCSANOW, &silent);
+        }
+#endif
+        const bool gotPassword = static_cast<bool>(getline(cin, password));
+#ifndef _WIN32
+        if (fromTerminal)
+        {
+            tcsetattr(STDIN_FILENO, TCSANOW, &savedTerminal);
+            cerr << endl;
+        }
+#endif
+        if (!gotPassword)
         {
             CERR("No password on standard input. Pipe it in, as in: "
                  "printf '%s' \"$PASSWORD\" | xmq_server --set-password admin");

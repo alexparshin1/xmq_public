@@ -10,12 +10,14 @@ TLS, message persistence, bridging, and a million concurrent connections on one 
 ## Try it
 
 ```bash
-docker run --rm -p 1883:1883 -p 18883:18883 -e XMQ_ADMIN_PASSWORD=<password> alexeyparshin/xmq:latest
+docker run -d --name xmq -p 1883:1883 -p 18883:18883 -v xmq-config:/etc/xmq alexeyparshin/xmq
+docker exec -it xmq xmq_server --set-password admin
+docker restart xmq
 ```
 
-MQTT is then on `localhost:1883` and the configuration interface on
-`https://localhost:18883`, where you sign in as **admin** with that password. Without
-`XMQ_ADMIN_PASSWORD` MQTT works, but the interface stays inside the container.
+MQTT is on `localhost:1883` at once. The configuration interface,
+`https://localhost:18883`, opens once `admin` has a password - set once, as above; the
+volume keeps it.
 
 Or install the package for your distribution from the
 [downloads page](https://xmq.sptk.net/downloads) — `.deb` and `.rpm` are built for

@@ -2,19 +2,19 @@
 
 A fast, free MQTT server for Linux and Windows, written in C++.
 
-    docker run --rm -p 1883:1883 -p 18883:18883 -e XMQ_ADMIN_PASSWORD=<password> alexeyparshin/xmq
+    docker run -d --name xmq -p 1883:1883 -p 18883:18883 -v xmq-config:/etc/xmq alexeyparshin/xmq
+    docker exec -it xmq xmq_server --set-password admin
+    docker restart xmq
 
-MQTT is on `localhost:1883` and takes clients with no credentials, so there is nothing
-to set up before the first publish. The configuration interface is on
-`https://localhost:18883` — sign in as **admin** with that password. Without
-`XMQ_ADMIN_PASSWORD` the interface stays inside the container. Set `XMQ_ALLOW_ANONYMOUS=false` before the container is reachable from anywhere you do
+MQTT is on `localhost:1883` at once and takes clients with no credentials. The
+configuration interface, `https://localhost:18883`, opens once `admin` has a password:
+set it once as above - the volume keeps it - and sign in as **admin**. Set `XMQ_ALLOW_ANONYMOUS=false` before the container is reachable from anywhere you do
 not control.
 
 ## Settings
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `XMQ_ADMIN_PASSWORD` | unset | Password for the `admin` account: upper and lower case, a digit and a punctuation character, or the container refuses to start. Until it is set the configuration interface answers inside the container only, so a published port reaches nothing |
 | `XMQ_ALLOW_ANONYMOUS` | `true` | Accept clients with no credentials |
 | `XMQ_PERSISTENCE` | `false` | Store state in Redis |
 | `XMQ_REDIS_URI` | `redis://redis_server:6379` | Where that Redis is |

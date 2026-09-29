@@ -15,18 +15,24 @@ NAME=xmq-image-check-$$
 PORT=28883
 
 docker rm -f "$NAME" >/dev/null 2>&1
-# With a password, because without one the image keeps its configuration interface on the
-# container's own loopback, where a published port - and so this check - cannot reach it. The
-# suffix meets the rest of the password rules: the hex has only lowercase letters and digits.
-docker run -d --name "$NAME" -p "$PORT:18883" \
-    -e XMQ_ADMIN_PASSWORD="$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')Z!" \
-    "$IMAGE" >/dev/null || exit 1
+docker run -d --name "$NAME" -p "$PORT:18883" "$IMAGE" >/dev/null || exit 1
 trap 'docker rm -f "$NAME" >/dev/null 2>&1' EXIT
 
-for _ in $(seq 30); do
-    docker logs "$NAME" 2>&1 | grep -q "Server started" && break
-    sleep 1
-done
+wait_started() {
+    for _ in $(seq 30); do
+        [ "$(docker logs "$NAME" 2>&1 | grep -c "Server started")" -ge "$1" ] && return
+        sleep 1
+    done
+}
+
+# A password first, the way a user sets one: without it the configuration interface stays on the
+# container's own loopback, where a published port - and so this check - cannot reach it. The
+# suffix meets the rest of the password rules: the hex has only lowercase letters and digits.
+wait_started 1
+printf '%s' "$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')Z!" \
+    | docker exec -i "$NAME" xmq_server --set-password admin >/dev/null || exit 1
+docker restart "$NAME" >/dev/null || exit 1
+wait_started 2    # the log survives the restart, so the second start is the one to wait for
 
 python3 - "$PORT" <<'PY'
 import gzip, socket, ssl, sys

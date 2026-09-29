@@ -12,6 +12,21 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.14.
 
+### Changed
+
+- **`xmq_server --set-password` asks for the password at a terminal**, and does not echo it,
+  as `passwd` does. From a pipe it reads standard input as before.
+
+### Removed
+
+- **The Docker image's `XMQ_ADMIN_PASSWORD`.** It set the administrator's password on every
+  start, so a password changed in the configuration interface came back after a restart, and
+  it sat in plain sight in `docker inspect`. The password is set the way it is on any other
+  installation, once, and kept in the `/etc/xmq` volume:
+  `docker exec -it <container> xmq_server --set-password admin`, then `docker restart`.
+  **A container started with `XMQ_ADMIN_PASSWORD` and no volume** has no administrator
+  password after the upgrade.
+
 ## 0.9.19 — 2026-09-30
 
 Requires SPTK 5.6.13.
