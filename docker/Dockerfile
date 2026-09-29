@@ -3,8 +3,8 @@
 # Installs the released .deb rather than building from source, so the image holds
 # exactly the binaries published on xmq.sptk.net.
 #
-#   docker build -t xmq:0.9.16 docker/
-#   docker run -p 1883:1883 xmq:0.9.16
+#   docker build -t xmq:0.9.19 docker/
+#   docker run -p 1883:1883 xmq:0.9.19
 #
 # Debian forky is the base because the package needs libstdc++6 >= 15 and
 # libc6 >= 2.38, and the forky build of the package is made against exactly it.
@@ -12,8 +12,8 @@
 
 FROM debian:forky-slim
 
-ARG XMQ_VERSION=0.9.16
-ARG SPTK_VERSION=5.6.10
+ARG XMQ_VERSION=0.9.19
+ARG SPTK_VERSION=5.6.13
 ARG XMQ_DISTRO=debian-forky
 ARG XMQ_DEB_URL=https://xmq.sptk.net/download/SPTK-${SPTK_VERSION}/${XMQ_DISTRO}/xmq-server_${XMQ_VERSION}_amd64.deb
 

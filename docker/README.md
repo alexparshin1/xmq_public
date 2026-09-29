@@ -6,8 +6,8 @@ Runs the released XMQ MQTT server in a container. The image installs the publish
 ## Quick start
 
 ```bash
-docker build -t xmq:0.9.16 .
-docker run --rm -p 1883:1883 -p 18883:18883 xmq:0.9.16
+docker build -t xmq:0.9.19 .
+docker run --rm -p 1883:1883 -p 18883:18883 xmq:0.9.19
 ```
 
 The broker is then on `localhost:1883` and accepts clients with no credentials, so
@@ -30,7 +30,7 @@ time. It is the wrong setting the moment the container is reachable from a netwo
 do not control — turn it off there, and create accounts in the web interface:
 
 ```bash
-docker run --rm -p 1883:1883 -e XMQ_ALLOW_ANONYMOUS=false xmq:0.9.16
+docker run --rm -p 1883:1883 -e XMQ_ALLOW_ANONYMOUS=false xmq:0.9.19
 ```
 
 ## With persistence
@@ -73,7 +73,7 @@ accounts and the certificate live there. Without a volume, every restart is a fr
 install: the admin password goes back to `admin` and the certificate changes.
 
 ```bash
-docker run -d -p 1883:1883 -v xmq-config:/etc/xmq xmq:0.9.16
+docker run -d -p 1883:1883 -v xmq-config:/etc/xmq xmq:0.9.19
 ```
 
 **Raise the descriptor limit for real load.** Docker gives a container 1024 open
@@ -81,7 +81,7 @@ files by default, which caps the broker at about a thousand connections — nowh
 near what it can hold. `docker-compose.yml` sets this already; for `docker run`:
 
 ```bash
-docker run --ulimit nofile=1048576:1048576 -p 1883:1883 xmq:0.9.16
+docker run --ulimit nofile=1048576:1048576 -p 1883:1883 xmq:0.9.19
 ```
 
 **The log goes to stdout only.** The broker writes to stdout *and* to
@@ -104,8 +104,8 @@ The account is `alexeyparshin`; create a repository named `xmq` under it, then:
 
 ```bash
 docker login
-docker build -t alexeyparshin/xmq:0.9.16 -t alexeyparshin/xmq:latest .
-docker push alexeyparshin/xmq:0.9.16
+docker build -t alexeyparshin/xmq:0.9.19 -t alexeyparshin/xmq:latest .
+docker push alexeyparshin/xmq:0.9.19
 docker push alexeyparshin/xmq:latest
 ```
 

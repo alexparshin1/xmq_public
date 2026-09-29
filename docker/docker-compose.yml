@@ -11,9 +11,9 @@ services:
     build:
       context: .
       args:
-        XMQ_VERSION: "0.9.16"
-        SPTK_VERSION: "5.6.9"
-    image: alexeyparshin/xmq:0.9.16
+        XMQ_VERSION: "0.9.19"
+        SPTK_VERSION: "5.6.13"
+    image: alexeyparshin/xmq:0.9.19
     depends_on:
       redis_server:
         condition: service_healthy
