@@ -131,12 +131,6 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     , m_cluster(make_shared<cluster::Cluster>(this))
     , m_extensions(*logEngine, getVersion())
 {
-    if (m_persistentDirectDelivery)
-    {
-        logMessage(LogSubject::ServerEvents, LogPriority::Warning,
-                   "EXPERIMENT: persistent messages are delivered on the receive thread.");
-    }
-
     // The statistics object has no way to reach the thread pools, so the broker hands it the
     // queue depths instead. Called once a second by the metrics scan, never from the message path:
     // reading a queue's size takes the same mutex its push and pop take.
@@ -383,8 +377,11 @@ void Server::stopBridges()
 
 bool Server::deliversOnReceiveThread() const noexcept
 {
-    if ((m_storage && m_storage->isPersistent() && !m_persistentDirectDelivery) ||
-        m_bridgeCount.load(memory_order_relaxed) != 0)
+    // Persistence no longer rules it out. A delivery's record is queued, not waited for, and a
+    // full max_queued_writes window pauses the publisher's session rather than the thread - so a
+    // slow Redis slows the publisher, instead of growing the delivery pool's queue while the
+    // publisher's PUBACK has already told it the messages are safe.
+    if (m_bridgeCount.load(memory_order_relaxed) != 0)
     {
         return false;
     }

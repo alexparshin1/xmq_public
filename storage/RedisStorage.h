@@ -85,19 +85,19 @@ public:
 
 
 private:
-    using RedisConnectMap = std::unordered_map<std::thread::id, sptk::SRedisConnect>;
     mutable std::mutex m_mutex;
     sptk::URL          m_redisUrl; ///< Redis server URL, including the optional credentials.
     Server*            m_server {nullptr};
-    RedisConnectMap    m_redisConnections;   ///< A map of thread IDs to Redis connections.
     bool               m_cleanStart {false}; ///< If true then clean the database upon the connecting.
 
     sptk::SRedisConnect m_cleanupConnection; ///< Dedicated connection for asynchronous session cleanup.
 
-    /// EXPERIMENT: XMQ_REDIS_SHARED_CONNECTIONS=K hands out K shared connections round-robin instead
-    /// of one per thread, so each connection's pipeline carries more commands per round trip.
-    const size_t                     m_sharedConnectionCount;
-    std::vector<sptk::SRedisConnect> m_sharedConnections;
+    /// Connections are shared round-robin rather than one per thread: fewer connections carry more
+    /// commands per write, and Redis spends its time on commands rather than on reading sockets.
+    /// Two measured best at 50K persistent messages/s - one was slower, and more spread the same
+    /// load thinner.
+    static constexpr size_t          SharedConnectionCount = 2;
+    std::vector<sptk::SRedisConnect> m_sharedConnections {SharedConnectionCount};
     std::atomic_size_t               m_nextSharedConnection {0};
 
     sptk::SRedisConnect makeConnection() const;
