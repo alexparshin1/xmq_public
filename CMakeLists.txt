@@ -334,7 +334,7 @@ ENDIF ()
 # built here name these libraries and load nothing else; the package carries the same release in
 # lib/xmq-sptk. Changing it is part of moving XMQ to a new SPTK, together with the CHANGELOG's
 # "Requires SPTK" line.
-SET(XMQ_SPTK_VERSION "5.6.13")
+SET(XMQ_SPTK_VERSION "5.6.14")
 FIND_PACKAGE(SPTK ${XMQ_SPTK_VERSION} EXACT QUIET)
 IF (NOT SPTK_FOUND AND SPTK_NOT_FOUND_REASON)
     MESSAGE(FATAL_ERROR "SPTK library:       ${SPTK_NOT_FOUND_REASON}")
