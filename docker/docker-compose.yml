@@ -1,6 +1,7 @@
 # XMQ with message persistence.
 #
-#   docker compose up
+#   docker compose up                                    # the published image
+#   source ./versions.sh && docker compose up --build    # built from this tree's versions
 #
 # Without Redis the broker runs fine but forgets everything on restart: queued
 # messages, retained messages and sessions live in Redis, and the server's default
@@ -11,9 +12,9 @@ services:
     build:
       context: .
       args:
-        XMQ_VERSION: "0.9.19"
-        SPTK_VERSION: "5.6.13"
-    image: alexeyparshin/xmq:0.9.19
+        XMQ_VERSION: "${XMQ_VERSION:-}"
+        SPTK_VERSION: "${SPTK_VERSION:-}"
+    image: alexeyparshin/xmq:${XMQ_VERSION:-latest}
     depends_on:
       redis_server:
         condition: service_healthy

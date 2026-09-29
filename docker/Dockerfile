@@ -3,8 +3,12 @@
 # Installs the released .deb rather than building from source, so the image holds
 # exactly the binaries published on xmq.sptk.net.
 #
-#   docker build -t xmq:0.9.19 docker/
-#   docker run -p 1883:1883 xmq:0.9.19
+#   ./build.sh
+#   docker run -p 1883:1883 alexeyparshin/xmq
+#
+# build.sh passes XMQ_VERSION and SPTK_VERSION from the projects' VERSION files (see
+# versions.sh); there are no defaults here, so the image cannot silently be built from a
+# version number someone forgot to update.
 #
 # Debian forky is the base because the package needs libstdc++6 >= 15 and
 # libc6 >= 2.38, and the forky build of the package is made against exactly it.
@@ -12,8 +16,8 @@
 
 FROM debian:forky-slim
 
-ARG XMQ_VERSION=0.9.19
-ARG SPTK_VERSION=5.6.13
+ARG XMQ_VERSION
+ARG SPTK_VERSION
 ARG XMQ_DISTRO=debian-forky
 ARG XMQ_DEB_URL=https://xmq.sptk.net/download/SPTK-${SPTK_VERSION}/${XMQ_DISTRO}/xmq-server_${XMQ_VERSION}_amd64.deb
 
@@ -25,6 +29,8 @@ ARG XMQ_DEB_URL=https://xmq.sptk.net/download/SPTK-${SPTK_VERSION}/${XMQ_DISTRO}
 # (xmq_scn, xmq_pub, xmq_sub, xmq_con) stay, because running them against a broker is
 # something someone may well want to do from here.
 RUN set -eux; \
+    : "${XMQ_VERSION:?build with ./build.sh, or pass --build-arg XMQ_VERSION}"; \
+    : "${SPTK_VERSION:?build with ./build.sh, or pass --build-arg SPTK_VERSION}"; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl jq openssl; \
     curl -fsSL -o /tmp/xmq.deb "${XMQ_DEB_URL}"; \

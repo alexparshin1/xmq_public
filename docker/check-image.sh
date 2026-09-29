@@ -7,7 +7,7 @@
 # .deb the image installs rather than in anything this repository builds: an image can regress
 # without a single line here changing.
 #
-#   ./check-image.sh alexeyparshin/xmq:0.9.19
+#   ./check-image.sh alexeyparshin/xmq:<version>
 set -u
 
 IMAGE=${1:?usage: check-image.sh <image>}
