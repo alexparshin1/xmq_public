@@ -571,9 +571,14 @@ TEST_F(XMQ_HttpsInterfaceTests, servesPlainHttpWhenEncryptionIsTurnedOff)
     ASSERT_TRUE(output.m_result.m_success.asBool()) << output.m_result.m_description.asString().c_str();
     EXPECT_FALSE(output.m_service_restart_required.asBool()) << output.m_message.asString().c_str();
 
-    // The same request that used to be answered with a redirect is now the ordinary way in.
-    const auto response = plainRequestOnceServed("GET /users HTTP/1.1\r\nHost: localhost:" +
-                                                 to_string(httpsTestPort) + "\r\n\r\n");
+    // A request that used to be answered with a redirect is now the ordinary way in. The API rather
+    // than a page: a page is only there when the web interface has been built, and a 404 for a
+    // missing file says nothing about whether plain HTTP is served.
+    const String body = R"({"action":"status"})";
+    const auto   response = plainRequestOnceServed("POST /ServerControl HTTP/1.1\r\nHost: localhost:" +
+                                                   to_string(httpsTestPort) +
+                                                   "\r\nContent-Type: application/json\r\nContent-Length: " +
+                                                   to_string(body.length()) + "\r\n\r\n" + body);
     EXPECT_TRUE(response.starts_with("HTTP/1.1 200")) << response.c_str();
     EXPECT_TRUE(headerValue(response, "location").empty()) << response.c_str();
 }
