@@ -10,8 +10,8 @@ Runs the released XMQ MQTT server in a container. The image installs the publish
 docker run --rm -p 1883:1883 -p 18883:18883 alexeyparshin/xmq
 ```
 
-`build.sh` takes the XMQ version from `../VERSION` and the SPTK version from
-`../../sptk5/code/VERSION` (see `versions.sh`), so no version number is written down
+`build.sh` takes the XMQ version from `../VERSION.txt` and the SPTK version from
+`../../sptk5/code/VERSION.txt` (see `versions.sh`), so no version number is written down
 in this directory.
 
 The broker is then on `localhost:1883` and accepts clients with no credentials, so

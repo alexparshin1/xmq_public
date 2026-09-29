@@ -24,9 +24,9 @@ set(TARGET_MESSAGES OFF)
 set(CMAKE_TARGET_MESSAGES OFF)
 set(CMAKE_INSTALL_MESSAGE NEVER)
 
-# The version is read from VERSION, beside this file - one line to change on a release instead of
+# The version is read from VERSION.txt, beside this file - one line to change on a release instead of
 # the three SET() lines it replaces, which a release script had to edit in step with each other.
-FILE(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" XMQ_VERSION_LINE LIMIT_COUNT 1)
+FILE(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt" XMQ_VERSION_LINE LIMIT_COUNT 1)
 STRING(REPLACE "." ";" XMQ_VERSION_PARTS "${XMQ_VERSION_LINE}")
 LIST(GET XMQ_VERSION_PARTS 0 VERSION_MAJOR)
 LIST(GET XMQ_VERSION_PARTS 1 VERSION_MINOR)
