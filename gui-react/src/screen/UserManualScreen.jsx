@@ -683,11 +683,13 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             </p>
 
             <p>
-                One setting there is a genuine trade-off. <b>Max queued writes</b> at 0 makes every
-                message wait for its own record to become durable before it is sent: the safest
-                setting, and the slowest. Above 0, record writes pipeline instead, roughly doubling
-                throughput, and the value is approximately how many messages could be lost if the
-                server were killed outright.
+                What survives a failure is decided in two places: <b>Max queued writes</b> on that
+                page bounds what the server can lose, and Redis's own <code>appendfsync</code>{" "}
+                setting decides what Redis loses when its machine goes down. Redis's defaults keep
+                only periodic snapshots, so turn on <code>appendonly yes</code>. The two modes worth
+                using - Durable and Super-Durable - and what each can lose are described on{" "}
+                <a href="https://xmq.sptk.net/xmq_persistence" target="_blank"
+                   rel="noopener noreferrer">xmq.sptk.net/xmq_persistence</a>.
             </p>
         </div>;
     }
