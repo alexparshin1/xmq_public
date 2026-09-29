@@ -309,7 +309,7 @@ SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const ui
             "redis_uri": ")" + TestServers::redisUri() + R"(",
             "clean_start": true,
             "max_threads": 8,
-            "max_redis_connections": 32
+            "max_redis_connections": 2
         },
         "logging": {
             "log_to": "xmq_server.log",

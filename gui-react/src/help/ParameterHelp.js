@@ -49,18 +49,18 @@ const ParameterHelp = {
     "persistence.max_redis_connections": {
         title: "Max Redis connections",
         text: [
-            "Upper bound on the Redis connection pool. XMQ uses one connection per thread that " +
-            "touches Redis, so this needs to cover the persistence threads plus the session " +
-            "threads that read stored state.",
-            "Redis itself handles many connections cheaply, so a value that is somewhat too high " +
-            "costs little; too low makes threads wait for each other."
+            "How many connections to Redis the broker keeps. Every thread shares them, in turn.",
+            "More is not faster. Each connection keeps many batches of commands in flight, so a " +
+            "few connections carry large batches, which is what Redis does fastest; many " +
+            "connections split the same writes into small ones. Two measured best at 50,000 " +
+            "persistent messages a second."
         ],
         range: "1 .. 512",
-        suggested: "32",
+        suggested: "2",
         min: 1,
         max: 512,
-        warning: (value) => value > 256
-                            ? "Very few deployments need more than 256 Redis connections."
+        warning: (value) => value > 8
+                            ? "More connections spread the same writes thinner, which Redis handles slower."
                             : null
     },
 

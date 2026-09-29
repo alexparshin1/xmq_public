@@ -178,7 +178,7 @@ const char* defaultConfigurationText()
     "redis_uri": "redis://localhost:6379",
     "clean_start": true,
     "enabled": false,
-    "max_redis_connections": 32,
+    "max_redis_connections": 2,
     "max_queued_writes": 1000
   },
   "logging": {

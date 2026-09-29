@@ -92,12 +92,11 @@ private:
 
     sptk::SRedisConnect m_cleanupConnection; ///< Dedicated connection for asynchronous session cleanup.
 
-    /// Connections are shared round-robin rather than one per thread: fewer connections carry more
-    /// commands per write, and Redis spends its time on commands rather than on reading sockets.
-    /// Two measured best at 50K persistent messages/s - one was slower, and more spread the same
-    /// load thinner.
-    static constexpr size_t          SharedConnectionCount = 2;
-    std::vector<sptk::SRedisConnect> m_sharedConnections {SharedConnectionCount};
+    /// persistence.max_redis_connections of them, shared round-robin rather than one per thread:
+    /// fewer connections carry more commands per write, and Redis spends its time on commands
+    /// rather than on reading sockets. Two measured best at 50K persistent messages/s - one was
+    /// slower, and more spread the same load thinner.
+    std::vector<sptk::SRedisConnect> m_sharedConnections;
     std::atomic_size_t               m_nextSharedConnection {0};
 
     sptk::SRedisConnect makeConnection() const;

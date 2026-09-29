@@ -26,11 +26,12 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
-RedisStorage::RedisStorage(URL redisUrl, Server* server, const size_t /*connectionPoolSize*/, const bool cleanStart)
+RedisStorage::RedisStorage(URL redisUrl, Server* server, const size_t connectionPoolSize, const bool cleanStart)
     : m_redisUrl(std::move(redisUrl))
     , m_server(server)
     , m_cleanStart(cleanStart)
     , m_cleanupConnection(make_shared<RedisConnect>())
+    , m_sharedConnections(max<size_t>(connectionPoolSize, 1))
 {
     // Asynchronous cleanup failures never reach the per-operation callbacks, so surface them to the
     // log via the connection's error handler.
@@ -84,7 +85,7 @@ void RedisStorage::clear() const
 
 SRedisConnect RedisStorage::getRedis()
 {
-    const auto index = m_nextSharedConnection++ % SharedConnectionCount;
+    const auto index = m_nextSharedConnection++ % m_sharedConnections.size();
     const scoped_lock lock(m_mutex);
     auto& connection = m_sharedConnections[index];
     if (!connection)

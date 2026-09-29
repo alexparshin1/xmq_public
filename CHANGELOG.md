@@ -34,7 +34,9 @@ Requires SPTK 5.6.13.
   40 000 a second at 237 µs. Three changes make up the difference:
   - SPTK 5.6.13 keeps many batches of Redis commands in flight on a connection instead of waiting for
     each batch's replies before sending the next;
-  - the broker uses two shared Redis connections instead of one per thread;
+  - the broker shares `persistence.max_redis_connections` Redis connections between its threads
+    instead of opening one per thread - the setting was read and then ignored. It defaults to 2,
+    which measured best; an existing configuration probably says 32, and is better at 2;
   - a message's record is written a millisecond after the delivery, and not at all when the
     subscriber has acknowledged it by then - which with connected subscribers is nearly always -
     so most messages cost Redis nothing, rather than a write and a delete each.

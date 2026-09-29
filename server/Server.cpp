@@ -79,7 +79,7 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
         auto maxRedisConnections = settings.m_persistence.m_max_redis_connections.asInteger();
         if (maxRedisConnections < 1)
         {
-            maxRedisConnections = 32;
+            maxRedisConnections = 2;
         }
         return make_shared<RedisStorage>(connectString, this, maxRedisConnections, settings.m_persistence.m_clean_start);
     }
