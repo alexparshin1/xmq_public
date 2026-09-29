@@ -1,0 +1,13 @@
+18:21:31 campaign start: XMQ 0.9.19, v=8.0.5
+    config: {"redis_uri":"redis://localhost:6379","clean_start":true,"enabled":true,"max_queued_writes":1000,"max_redis_connections":2}
+    config: {"send_threads":"3","receive_threads":"4","delivery_threads":"2","max_topic_alias":128,"max_packet_size":268435456}
+18:21:37 Super-Durable: appendonly=yes appendfsync=always
+18:21:37 XMQ-0.9.19-super-durable-40K: started
+18:24:23 XMQ-0.9.19-super-durable-40K: finished, exit 1; 
+18:24:24     server disk: 1.3G free, AOF: 6.6M
+18:24:29 Durable: appendonly=yes appendfsync=everysec
+18:24:29 XMQ-0.9.19-durable-60K: started
+18:39:40 XMQ-0.9.19-durable-60K: finished, exit 0; Average      35962060      210us        59936
+18:39:40     server disk: 1.3G free, AOF: 59M
+18:39:43 xmq_server stopped; Redis left in Durable: everysec
+18:39:43 CAMPAIGN DONE

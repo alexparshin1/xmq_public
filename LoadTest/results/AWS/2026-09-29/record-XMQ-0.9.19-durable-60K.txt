@@ -1,0 +1,38 @@
+Server:   XMQ
+Version:  0.9.19
+Host:     AWS c5n.4xlarge, 16 vCPU, 40Gb RAM, Ubuntu 26.04; XMQ 0.9.19 send 3 / receive 4 / delivery 2, max_queued_writes 1000, max_redis_connections 2, no CPU affinity; Redis 8.0.5 on the same host, appendonly yes, appendfsync everysec, otherwise default
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.19
+Date:     2026-09-29
+
+durable: Redis appendfsync everysec. Point-To-Point with persistent sessions, connections paced at 400/s.
+
+Broker restarted before each scenario.
+
+Summary - interval medians, as xmq_scn reports them:
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Point-To-Point-60K-persistent-slowconnect    210us        10
+
+
+
+Scenario: Point-To-Point-60K-persistent-slowconnect
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           3600000      210us        60000
+60000ms       3600063      210us        60001
+120000ms      3600142      210us        60002
+180000ms      3600146      211us        60002
+240000ms      3600143      210us        60002
+300000ms      3600143      210us        60002
+360000ms      3600148      210us        60002
+420000ms      3600142      211us        60002
+480000ms      3600148      210us        60002
+540000ms      3560985      210us        59349
+─────────────────────────────────────────────
+Average      35962060      210us        59936
+Median                     210us
+  interval median 210us over 10 samples (as xmq_scn reports it), range 210-211us
+  server CPU   mean 216%, peak 378%
+  server RSS   598 Mb peak
+  client NIC ens5: no dropped packets during the run

@@ -1,0 +1,15 @@
+Server:   XMQ
+Version:  0.9.19
+Host:     AWS c5n.4xlarge, 16 vCPU, 40Gb RAM, Ubuntu 26.04; XMQ 0.9.19 send 3 / receive 4 / delivery 2, max_queued_writes 1000, max_redis_connections 2, no CPU affinity; Redis 8.0.5 on the same host, appendonly yes, appendfsync always, otherwise default
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.19
+Date:     2026-09-29
+
+super-durable: Redis appendfsync always. Point-To-Point with persistent sessions, connections paced at 400/s.
+
+Broker restarted before each scenario.
+
+Summary - interval medians, as xmq_scn reports them:
+
+  Scenario                              Median   Samples
+  ──────────────────────────────────────────────────────
+  Point-To-Point-40K-persistent-slowconnect failed (exit 1)
