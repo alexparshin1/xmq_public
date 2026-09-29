@@ -10,7 +10,7 @@ TLS, message persistence, bridging, and a million concurrent connections on one 
 ## Try it
 
 ```bash
-docker run --rm -p 1883:1883 -p 18883:18883 alexeyparshin/xmq:0.9.14
+docker run --rm -p 1883:1883 -p 18883:18883 alexeyparshin/xmq:latest
 ```
 
 MQTT is then on `localhost:1883` and the configuration interface on
