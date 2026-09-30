@@ -57,3 +57,15 @@ a different URL. The browser handles a self-signed certificate warning.
 A desktop with a StatusNotifier/AppIndicator tray host is required. KDE Plasma
 and many other desktops provide one; GNOME Shell may need an AppIndicator
 extension. The executable reports a clear error when no tray host is available.
+
+For MATE, add **Notification Area** to the panel and enable its StatusNotifier
+support:
+
+```sh
+gsettings set org.mate.panel enable-sni-support true
+```
+
+Restart the MATE panel or log out and in, then verify that
+`busctl --user list | grep org.kde.StatusNotifierWatcher` shows an active owner.
+The separately listed `org.x.StatusNotifierWatcher` is an activatable xapp
+service and does not itself show that MATE's SNI host is running.
