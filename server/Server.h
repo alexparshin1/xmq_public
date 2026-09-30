@@ -14,6 +14,11 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
+#include <thread>
+#include <vector>
+
+#include <sptk5/threads/SynchronizedQueue.h>
 #include "ServerData.h"
 #include "common/AtomicSharedPtr.h"
 
@@ -393,12 +398,43 @@ private:
     SSystemStatistics                 m_systemStatistics;                                        ///< System statistics.
     AtomicSharedPtr<cluster::Cluster> m_cluster;                                                 ///< Cluster connections.
     ExtensionHost                     m_extensions;                                              ///< Loaded extensions; see ExtensionHost.
+    /// Where a CONNECT is finished once Redis has answered its session lookup: see
+    /// lookUpSessionThen(). A handful is enough - the waiting is Redis's, not theirs.
+    static constexpr size_t                          ConnectCompletionThreads = 4;
+    sptk::SynchronizedQueue<std::function<void()>>   m_connectCompletions;
+    std::vector<std::thread>                         m_connectCompletionThreads;
+    std::once_flag                                   m_connectCompletionsStarted;
+    std::atomic_bool                                 m_connectCompletionsStopped {false};
+
     static std::mutex                 m_instancesMutex;                                          ///< Mutex that protects server instances.
     static std::set<Server*>          m_instancesSet;                                            ///< Server instances.
 
     void clear();
 
     SClientSession                initializeNewClientSession(const SClientSession& clientSession, const SConnectMessage& connectMessage, bool& loadedPersistentData) const;
+
+    /// A persistent CONNECT from a client this node does not hold yet: its session record has to
+    /// come from Redis before the CONNACK can say whether a session is present.
+    [[nodiscard]] bool needsSessionLookup(const SConnectMessage& connectMessage) const;
+
+    /**
+     * @brief Finish a CONNECT whose session record may have to come from Redis first.
+     *
+     * The record is asked for asynchronously and no thread waits for it: with Redis syncing every
+     * write to disk its answer can take milliseconds, and a thread per waiting CONNECT caps how fast
+     * clients can connect at threads divided by that. The CONNECT is finished on a connect
+     * completion thread once the answer arrives. Without a lookup to make it is finished here.
+     */
+    void lookUpSessionThen(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+                           ExtensionHost::AuthDecision decision);
+
+    /// The end of a CONNECT that was left pending: complete it, and read the session again.
+    void completePendingConnect(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+                                ExtensionHost::AuthDecision decision);
+
+    void runConnectCompletion(std::function<void()> work);
+    void connectCompletionThread();
+    void stopConnectCompletions();
     std::shared_ptr<RedisStorage> initializeRedis(const Settings& settings, const std::shared_ptr<sptk::LogEngine>& logEngine);
     SStorage                      initializeStorage(const Settings& settings);
     static void                   handleMqtt5ConnectProperties(const SClientSession& clientSession, const SConnectMessage& connectMessage, ReasonCode& reasonCode);

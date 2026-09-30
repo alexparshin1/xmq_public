@@ -657,6 +657,9 @@ void Server::stopServer()
         // the libraries the handlers live in.
         m_extensions.stop();
 
+        // Before storage goes: a CONNECT being finished may still be reading from Redis.
+        stopConnectCompletions();
+
         // Records still waiting out the write-behind delay go to Redis while it is connected.
         MessageDelivery::flushPendingWrites();
 
@@ -1033,46 +1036,142 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
                 // Set before the session is let go, so the first PUBLISH it sends is already
                 // checked against the right group; after this the pointer is only ever read.
                 newClientSession->setAclGroup(std::move(aclGroup));
-                newClientSession->setAuthenticationPending(false);
-
-                SClientSession surviving;
-                const auto     outcome = completeConnectMessage(newClientSession, connectMessage, decision, &surviving);
-                if (outcome == ReasonCode::Success)
-                {
-                    // The survivor, not the session that carried the CONNECT: a takeover keeps the
-                    // existing one, and the bytes to be read again belong to whichever session now
-                    // owns the socket.
-                    // The survivor for the timer, because that is the session that lives on.
-                    (surviving ? surviving : newClientSession)->scheduleIdleDisconnect();
-                    // Whatever the client sent after its CONNECT is still in the read buffer and
-                    // the socket, and the reactor has no further event to give for it: an
-                    // edge-triggered pool reported those bytes once, while this session was
-                    // refusing to read them.
-                    // Whatever the client sent behind its CONNECT goes to the session that came
-                    // out of this, which is the existing one when the CONNECT took a session over.
-                    // The session that carried the CONNECT no longer has the socket then, and is
-                    // never read again - which is where those bytes used to be lost.
-                    const auto& reader = surviving ? surviving : newClientSession;
-                    if (auto awaiting = newClientSession->takeBytesAwaitingAuthentication())
-                    {
-                        reader->adoptPendingBytes(std::move(awaiting));
-                    }
-                    if (const auto receiveThread = reader->clientSessionReceiveThread())
-                    {
-                        receiveThread->queueProcessSession(reader);
-                    }
-                }
-                else
-                {
-                    logMessage(LogSubject::Connect, LogPriority::Error,
-                               format("Session rejected, reason: {}.", xmq::toString(outcome)));
-                }
+                lookUpSessionThen(newClientSession, connectMessage, decision);
             });
 
         return ReasonCode::Success;
     }
 
+    if (reasonCode == ReasonCode::Success && needsSessionLookup(connectMessage))
+    {
+        // Left pending the same way as for an extension: nothing more is read from this client
+        // until the CONNECT is finished, and this receive thread does not wait for Redis.
+        newClientSession->setAuthenticationPending(true);
+        lookUpSessionThen(newClientSession, connectMessage, ExtensionHost::AuthDecision::NotHandled);
+        return ReasonCode::Success;
+    }
+
     return completeConnectMessage(newClientSession, connectMessage, ExtensionHost::AuthDecision::NotHandled);
+}
+
+bool Server::needsSessionLookup(const SConnectMessage& connectMessage) const
+{
+    // A clean session loads nothing - its old record is removed asynchronously - and a client this
+    // node already holds is taken over rather than looked up.
+    const auto& parameters = connectMessage->getParameters();
+    return getRedisStorage() != nullptr && !parameters->m_cleanSession && !getClientSession(parameters->getClientId());
+}
+
+void Server::lookUpSessionThen(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+                               const ExtensionHost::AuthDecision decision)
+{
+    // A client an extension has already refused is not looked up: nothing will be done with the
+    // answer, and it would be Redis work done for somebody nobody admitted.
+    using enum ExtensionHost::AuthDecision;
+    const auto refused = decision == Deny || decision == Unavailable || decision == SubsystemError;
+    const auto redisStorage = getRedisStorage();
+    if (refused || !redisStorage || !needsSessionLookup(connectMessage))
+    {
+        completePendingConnect(newClientSession, connectMessage, decision);
+        return;
+    }
+
+    // The lookups of every CONNECT in flight share the connection's pipeline, and so share each of
+    // Redis's flushes. If Redis never answers, the connection is closed by its own timer, as a
+    // CONNECT that gets no answer from an extension is.
+    const auto& clientId = connectMessage->getParameters()->getClientId();
+    redisStorage->getRedis()->getValueAsync("session_" + clientId,
+                                            [this, newClientSession, connectMessage, decision](const Variant& record)
+                                            {
+                                                // On the Redis connection's reader thread, which
+                                                // every reply waits behind: hand the work over.
+                                                runConnectCompletion([this, newClientSession, connectMessage, decision, record]
+                                                                     {
+                                                                         newClientSession->setPrefetchedSession(record);
+                                                                         completePendingConnect(newClientSession, connectMessage, decision);
+                                                                     });
+                                            });
+}
+
+void Server::completePendingConnect(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+                                    const ExtensionHost::AuthDecision decision)
+{
+    newClientSession->setAuthenticationPending(false);
+
+    SClientSession surviving;
+    const auto     outcome = completeConnectMessage(newClientSession, connectMessage, decision, &surviving);
+    if (outcome == ReasonCode::Success)
+    {
+        // The survivor, not the session that carried the CONNECT: a takeover keeps the existing
+        // one, and it is the session that lives on - for the timer, and for the bytes to be read.
+        const auto& reader = surviving ? surviving : newClientSession;
+        reader->scheduleIdleDisconnect();
+        // Whatever the client sent behind its CONNECT is still in the read buffer and the socket,
+        // and the reactor has no further event to give for it: an edge-triggered pool reported
+        // those bytes once, while this session was refusing to read them. They go to the session
+        // that came out of this - the existing one when the CONNECT took a session over, since the
+        // session that carried the CONNECT no longer has the socket and is never read again.
+        if (auto awaiting = newClientSession->takeBytesAwaitingAuthentication())
+        {
+            reader->adoptPendingBytes(std::move(awaiting));
+        }
+        if (const auto receiveThread = reader->clientSessionReceiveThread())
+        {
+            receiveThread->queueProcessSession(reader);
+        }
+    }
+    else
+    {
+        logMessage(LogSubject::Connect, LogPriority::Error,
+                   format("Session rejected, reason: {}.", xmq::toString(outcome)));
+    }
+}
+
+void Server::runConnectCompletion(std::function<void()> work)
+{
+    std::call_once(m_connectCompletionsStarted, [this]
+                   {
+                       for (size_t i = 0; i < ConnectCompletionThreads; ++i)
+                       {
+                           m_connectCompletionThreads.emplace_back(&Server::connectCompletionThread, this);
+                       }
+                   });
+    m_connectCompletions.push_back(std::move(work));
+}
+
+void Server::connectCompletionThread()
+{
+    constexpr auto waitTime = chrono::milliseconds(200);
+    while (!m_connectCompletionsStopped.load(memory_order_relaxed))
+    {
+        std::function<void()> work;
+        if (!m_connectCompletions.pop_front(work, waitTime))
+        {
+            continue;
+        }
+        try
+        {
+            work();
+        }
+        catch (const exception& e)
+        {
+            logMessage(LogSubject::Connect, LogPriority::Error, format("Completing a CONNECT failed: {}", e.what()));
+        }
+    }
+}
+
+void Server::stopConnectCompletions()
+{
+    m_connectCompletionsStopped = true;
+    m_connectCompletions.wakeup();
+    for (auto& thread: m_connectCompletionThreads)
+    {
+        if (thread.joinable())
+        {
+            thread.join();
+        }
+    }
+    m_connectCompletionThreads.clear();
 }
 
 ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
