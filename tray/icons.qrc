@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file>xmq-tray.png</file>
+  </qresource>
+</RCC>

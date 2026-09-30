@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=XMQ Console
+Comment=Open the XMQ broker console
+Exec=xmq_tray
+Icon=xmq-tray
+Terminal=false
+Categories=Network;System;
