@@ -84,10 +84,10 @@ GVariant* iconPixmap() {
             const bool mark = (x >= 5 && x < 27 && y >= 8 && y < 24 &&
                                (abs(x - y) < 3 || abs((31 - x) - y) < 3));
             const size_t i = static_cast<size_t>(y * 32 + x) * 4;
-            pixels[i] = 255;
-            pixels[i + 1] = mark ? 81 : 21;
-            pixels[i + 2] = mark ? 215 : 51;
-            pixels[i + 3] = mark ? 177 : 77;
+            pixels[i] = mark ? 255 : 0;
+            pixels[i + 1] = mark ? 81 : 0;
+            pixels[i + 2] = mark ? 215 : 0;
+            pixels[i + 3] = mark ? 177 : 0;
         }
     }
     GVariantBuilder pixmaps;
