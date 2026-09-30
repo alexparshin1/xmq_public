@@ -214,10 +214,11 @@ private:
         std::string         key;
         std::string         field;
         sptk::Buffer        record;
+        std::chrono::steady_clock::time_point queuedAt; ///< Written once it is WriteBehindDelay old.
     };
 
     static void runWriteFlusher();
-    static void flushPendingWritesLocked();
+    static void flushPendingWritesLocked(std::chrono::steady_clock::time_point queuedBefore);
 
     // References to objects that are never destroyed: the flusher thread waits on them until the
     // process ends, and destroying a condition variable something still waits on blocks exit.
