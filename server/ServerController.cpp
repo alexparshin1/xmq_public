@@ -30,7 +30,8 @@ filesystem::path ServerController::logFilePath(const Settings& settings)
     if (!configured.has_parent_path())
     {
         const auto name = configured.filename();
-        return DirectoryNames::logsDirectory() / (name.empty() ? filesystem::path("xmq_server.log") : name);
+        auto       path = DirectoryNames::logsDirectory() / (name.empty() ? filesystem::path("xmq_server.log") : name);
+        return path;
     }
 
     return configured;
@@ -40,7 +41,7 @@ shared_ptr<LogEngine> ServerController::makeLogEngine(const std::shared_ptr<Sett
 {
     using enum LogEngine::Option;
     const auto serverLogPath = logFilePath(*settings);
-    const auto serverLogPathStr = String(serverLogPath.string());
+    auto       serverLogPathStr = String(serverLogPath.string());
 
     filesystem::create_directories(serverLogPath.parent_path());
 
@@ -49,18 +50,28 @@ shared_ptr<LogEngine> ServerController::makeLogEngine(const std::shared_ptr<Sett
     // log worth having - a server is restarted because something went wrong, and restarting it
     // was destroying the record of what. It cost us the evidence once already.
     constexpr auto appendToLog = true;
-    const auto     logEngine = make_shared<FileLogEngine>(serverLogPathStr.c_str(), appendToLog);
-    logEngine->option(STDOUT, true);
-    logEngine->option(DATE, true);
-    logEngine->option(TIME, true);
-    logEngine->option(MILLISECONDS, true);
+    try
+    {
+        const auto logEngine = make_shared<FileLogEngine>(serverLogPathStr.c_str(), appendToLog);
+        logEngine->option(STDOUT, true);
+        logEngine->option(DATE, true);
+        logEngine->option(TIME, true);
+        logEngine->option(MILLISECONDS, true);
 
-    return logEngine;
+        return logEngine;
+    }
+    catch (const Exception& exception)
+    {
+        // The log engine is the only thing that writes to stdout, so it is the only thing that
+        // can report this failure. It is not quiet about it.
+        cerr << "The log engine could not be created at " << serverLogPathStr << ": " << exception.what() << endl;
+        throw;
+    }
 }
 
 ServerController::ServerController(const shared_ptr<Settings>& settings)
     : m_settings(settings)
-    , m_logEngine(makeLogEngine(settings))
+      , m_logEngine(makeLogEngine(settings))
 {
 }
 
@@ -170,7 +181,7 @@ shared_ptr<SSLKeys> ServerController::webServiceKeys(const Logger& logger) const
     if (!m_settings->m_web_service.m_encrypted.asBool())
     {
         logger.warning("The configuration interface is set to plain HTTP. It carries the "
-                       "administrator's password and everything the server is configured with.");
+            "administrator's password and everything the server is configured with.");
         return {};
     }
 
@@ -282,7 +293,7 @@ vector<ExtensionHost::Description> ServerController::describeExtensions()
 
     // Empty rather than an error: extensions live inside the server, so a stopped broker has none
     // loaded, and the screen showing nothing is the truth rather than a failure.
-    return m_xmqServer ? m_xmqServer->describeExtensions() : vector<ExtensionHost::Description> {};
+    return m_xmqServer ? m_xmqServer->describeExtensions() : vector<ExtensionHost::Description>{};
 }
 
 ExtensionHost::Report ServerController::switchExtension(const string& name, const bool on)
@@ -429,7 +440,7 @@ bool ServerController::setControlServiceEncrypted(const bool encrypted, string& 
                 // right answer while starting up, where being unreachable is worse; here it is
                 // not, because the interface is already up and serving.
                 throw Exception("A certificate for the interface could not be prepared. The log "
-                                "says what went wrong with it.");
+                    "says what went wrong with it.");
             }
         }
 
