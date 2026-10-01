@@ -17,6 +17,7 @@
 #include "storage/MessageDeliveryPacker.h"
 #include "storage/RedisStorage.h"
 
+#include <future>
 #include <ranges>
 
 using namespace std;
@@ -131,9 +132,34 @@ PersistentClientSession::initSession(const string&                              
         return SessionInitType::New;
     }
 
-    // Find session:
+    // Find the session. A CONNECT has normally looked it up already, without any thread waiting
+    // on Redis for it (Server::lookUpSessionThen()), and left the answer here. Otherwise it is
+    // asked for now - through the pipeline, though this thread waits: a synchronous getValue() takes
+    // the connection's request socket for a round trip of its own, one caller at a time, and with
+    // appendfsync always every reply waits for Redis to flush its log.
     const auto sessionKey = "session_" + clientId;
-    const auto sessionInfo = m_redisConnection->getValue(sessionKey);
+    Variant    sessionInfo;
+    if (m_prefetchedSession)
+    {
+        sessionInfo = std::move(*m_prefetchedSession);
+        m_prefetchedSession.reset();
+    }
+    else
+    {
+        const auto lookup = std::make_shared<std::promise<Variant>>();
+        auto       lookupResult = lookup->get_future();
+        m_redisConnection->getValueAsync(sessionKey, [lookup](const Variant& value)
+                                         {
+                                             lookup->set_value(value);
+                                         });
+        // A failed command reaches the connection's error handler and never this callback.
+        if (constexpr auto lookupTimeout = std::chrono::seconds(10);
+            lookupResult.wait_for(lookupTimeout) != std::future_status::ready)
+        {
+            throw Exception("Redis did not answer the session lookup for " + clientId);
+        }
+        sessionInfo = lookupResult.get();
+    }
     const auto sessionInitType = sessionInfo.isNull() ? SessionInitType::New : SessionInitType::Restored;
 
     const auto nodeSessionsKey = "node_" + serverNodeName + "_sessions";

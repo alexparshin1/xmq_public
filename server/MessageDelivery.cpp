@@ -49,9 +49,15 @@ namespace {
 constexpr auto WriteCapacityTimeout = std::chrono::seconds(5);
 
 // How long a record waits before it is written, in case its delivery finishes first. Long enough
-// for a connected subscriber's PUBACK, which takes a few hundred microseconds; short enough that
-// the records waiting at any moment - rate times this - stay well inside max_queued_writes.
-constexpr auto WriteBehindDelay = std::chrono::milliseconds(1);
+// for a subscriber's PUBACK even when a whole burst is being acknowledged at once - on a disk slow
+// to flush, a record written costs a flush, and a burst written because its PUBACKs came a few
+// milliseconds late fills the window and never drains. Short enough that the records waiting at
+// any moment - rate times this - stay inside max_queued_writes: 600 at 60,000 messages a second.
+// A waiting record counts against that window, so the delay moves nothing about what a crash loses.
+constexpr auto WriteBehindDelay = std::chrono::milliseconds(10);
+
+// How often the flusher looks for records that have waited long enough.
+constexpr auto WriteBehindTick = std::chrono::milliseconds(1);
 
 // 0 (or absent) means every delivery waits for its own record - the fully durable default.
 size_t maxQueuedWritesSetting(const std::shared_ptr<ClientSession>& clientSession)
@@ -306,7 +312,8 @@ void MessageDelivery::storeRecordBehind()
     ++m_queuedWrites;
     {
         const scoped_lock lock(m_pendingWritesMutex);
-        m_pendingWrites.emplace(m_recordId, PendingWrite {redis, m_sessionMessagesKey, to_string(m_recordId), std::move(record)});
+        m_pendingWrites.emplace(m_recordId, PendingWrite {redis, m_sessionMessagesKey, to_string(m_recordId), std::move(record),
+                                                          std::chrono::steady_clock::now()});
     }
     m_pendingWritesAdded.notify_one();
 }
@@ -322,23 +329,30 @@ void MessageDelivery::runWriteFlusher()
                                           return !m_pendingWrites.empty();
                                       });
         }
-        // Everything queued in the meantime rides along, so under load this is one flush per
-        // WriteBehindDelay, not one per record.
-        this_thread::sleep_for(WriteBehindDelay);
-        flushPendingWrites();
+        // Only what has waited the whole delay: a record queued a moment before the flush gets its
+        // full chance to be acknowledged, and dropped, like any other.
+        this_thread::sleep_for(WriteBehindTick);
+        const scoped_lock lock(m_pendingWritesMutex);
+        flushPendingWritesLocked(std::chrono::steady_clock::now() - WriteBehindDelay);
     }
 }
 
 void MessageDelivery::flushPendingWrites()
 {
     const scoped_lock lock(m_pendingWritesMutex);
-    flushPendingWritesLocked();
+    flushPendingWritesLocked(std::chrono::steady_clock::time_point::max());
 }
 
-void MessageDelivery::flushPendingWritesLocked()
+void MessageDelivery::flushPendingWritesLocked(const std::chrono::steady_clock::time_point queuedBefore)
 {
-    for (auto& [recordId, write]: m_pendingWrites)
+    for (auto it = m_pendingWrites.begin(); it != m_pendingWrites.end();)
     {
+        auto& write = it->second;
+        if (write.queuedAt > queuedBefore)
+        {
+            ++it;
+            continue;
+        }
         write.redis->setHashValueAsync(write.key, write.field, Variant(std::move(write.record)),
                                        []
                                        {
@@ -346,8 +360,8 @@ void MessageDelivery::flushPendingWritesLocked()
                                            --m_queuedWrites;
                                            releaseWriteCapacity();
                                        });
+        it = m_pendingWrites.erase(it);
     }
-    m_pendingWrites.clear();
 }
 
 void MessageDelivery::pack(Buffer& record)

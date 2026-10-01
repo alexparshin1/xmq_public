@@ -16,6 +16,8 @@
 #include "ClientSessionData.h"
 #include "server/MessageDelivery.h"
 
+#include <optional>
+
 namespace xmq {
 
 class ClientSession;
@@ -81,6 +83,19 @@ public:
     ~PersistentClientSession() override = default;
 
     bool load();
+
+    /**
+     * @brief The session's record, already fetched from Redis, for the next load() to use.
+     *
+     * The CONNECT path looks it up asynchronously so that no thread waits on Redis for it (see
+     * Server::lookUpSessionThen()), and hands the answer over here; load() then takes it instead of
+     * asking again. A null Variant is an answer too: no such session.
+     */
+    void setPrefetchedSession(sptk::Variant record)
+    {
+        m_prefetchedSession = std::move(record);
+    }
+
     void persist();
     void unpersist();
 
@@ -121,7 +136,8 @@ public:
     void unsubscribedFrom(const Subscription& subscription) override;
 
 private:
-    std::shared_ptr<sptk::RedisConnect> m_redisConnection; ///< Redis connection.
+    std::shared_ptr<sptk::RedisConnect> m_redisConnection;   ///< Redis connection.
+    std::optional<sptk::Variant>        m_prefetchedSession; ///< See setPrefetchedSession(); consumed by the next lookup.
 };
 
 } // namespace xmq
