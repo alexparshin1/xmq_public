@@ -29,9 +29,9 @@ public:
     /// pools, and giving it one would tie it to the server's internals for three numbers.
     struct QueueDepths
     {
-        size_t receive {0};
-        size_t send {0};
-        size_t delivery {0};
+        size_t receive{0};
+        size_t send{0};
+        size_t delivery{0};
     };
 
     enum class SysTopicKind : uint8_t
@@ -129,10 +129,10 @@ public:
         }
 
     private:
-        uint64_t     m_value {0};
-        const Topic* m_topic {nullptr};
+        uint64_t     m_value{0};
+        const Topic* m_topic{nullptr};
         std::string  m_name;
-        bool         m_changed {false};
+        bool         m_changed{false};
     };
 
     SystemStatistics(const std::string& brokerVersion, STopicManager topicManager, SSubscriptionManager subscriptionManager);
@@ -142,9 +142,6 @@ public:
 
     /**
      * Register data size received by the broker
-     * @param dataSize          Received data size
-     * @param anyMessages       Received any messages count
-     * @param publishedMessages Received publish messages count
      */
     /// Called once a second by the metrics scan, if set. Reading a queue's size takes the same
     /// mutex its push and pop take, so this must not be called from the message path.
@@ -186,24 +183,24 @@ public:
     static std::string sysTopicKindToTopic(SysTopicKind topicKind);
 
 private:
-    struct alignas(64) TrafficCounters
+    struct TrafficCounters
     {
-        std::atomic<uint64_t> bytes {0};
-        std::atomic<uint64_t> messages {0};
-        std::atomic<uint64_t> published {0};
+        std::atomic<uint64_t> bytes{0};
+        std::atomic<uint64_t> messages{0};
+        std::atomic<uint64_t> published{0};
     };
 
-    mutable std::mutex   m_mutex;
-    TrafficCounters      m_received;
-    TrafficCounters      m_sent;
+    mutable std::mutex           m_mutex;
+    TrafficCounters              m_received;
+    TrafficCounters              m_sent;
     std::function<QueueDepths()> m_queueDepthProvider; ///< Supplied by the broker; see setQueueDepthProvider().
-    std::vector<Metric>  m_metrics;
-    STopicManager        m_topicManager;
-    SSubscriptionManager m_subscriptionManager;
-    std::thread          m_scanMetricsThread;
-    sptk::Flag           m_scanMetricsTerminated;
-    sptk::DateTime       m_brokerStartTime;
-    const std::string    m_brokerVersion;
+    std::vector<Metric>          m_metrics;
+    STopicManager                m_topicManager;
+    SSubscriptionManager         m_subscriptionManager;
+    std::thread                  m_scanMetricsThread;
+    sptk::Flag                   m_scanMetricsTerminated;
+    sptk::DateTime               m_brokerStartTime;
+    const std::string            m_brokerVersion;
 
     Metric& metric(SysTopicKind topicKind)
     {
@@ -215,9 +212,9 @@ private:
         return m_metrics[static_cast<size_t>(topicKind)];
     }
 
-    std::atomic<uint64_t>* trafficCounter(SysTopicKind topicKind);
+    std::atomic<uint64_t>*       trafficCounter(SysTopicKind topicKind);
     const std::atomic<uint64_t>* trafficCounter(SysTopicKind topicKind) const;
-    void syncTrafficMetrics();
+    void                         syncTrafficMetrics();
 
     void scanMetricsThreadFunction();
 };

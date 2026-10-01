@@ -32,7 +32,7 @@ namespace xmq::mqtt {
 
 MessageReader::MessageReader(const STopicManager& topicManager, const ProtocolVersion protocolVersion)
     : xmq::MessageReader(protocolVersion)
-    , m_topicManager(topicManager)
+      , m_topicManager(topicManager)
 {
 }
 
@@ -51,7 +51,7 @@ SMessage MessageReader::readMessage(Packet&& packet, BaseClientSession& clientSe
 
     switch (frameType)
     {
-        using enum FrameTypeTests;
+            using enum FrameTypeTests;
 
         case Publish:
             return readPublish(std::move(packet), messageHeader, clientSession, packetReceivedTS);
@@ -189,11 +189,11 @@ SMessage MessageReader::readConnect(Packet& packet, BaseClientSession& clientSes
 
 ReasonCode MessageReader::readLastWillInfo(Packet& packet, const uint8_t protocolVersionByte, const SLastWillInfo& lastWill, const ConnectFlags connectFlags)
 {
-    auto reasonCode {ReasonCode::Success};
+    auto reasonCode{ReasonCode::Success};
 
     if (protocolVersionByte >= static_cast<uint8_t>(ProtocolVersion::MqttV5))
     {
-        uint32_t readSize {0};
+        uint32_t readSize{0};
         tie(lastWill->m_properties, readSize) = readPropertiesMqtt5(packet);
     }
     lastWill->m_topic = packet.readString();
@@ -235,7 +235,7 @@ SMessage MessageReader::readPublish(Packet&& packet, const FixedHeader& messageH
         if (int64_t topicAlias = 0;
             publishMessage->getProperties()->takeProperty(Property::TopicAlias, topicAlias))
         {
-            clientSession.setPublishDestinationFromTopicAlias(static_cast<PublishMessage*>(publishMessage.get()), topicAlias);
+            clientSession.setPublishDestinationFromTopicAlias(static_cast<PublishMessage*>(publishMessage.get()), static_cast<uint16_t>(topicAlias));
         }
     }
 

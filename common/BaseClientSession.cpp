@@ -98,10 +98,10 @@ const SMessageQueue& BaseClientSession::inflightQueueUnlocked() const
         // non-const this, which const methods then used through the queue.
         auto* self = const_cast<BaseClientSession*>(this);
         m_inflightQueue = make_shared<MessageQueue>(m_maxInflightMessages.load(std::memory_order_relaxed),
-                                                   [self](const SMessageDispatch& messageDispatch)
-                                                   {
-                                                       self->forwardMessage(messageDispatch);
-                                                   });
+                                                    [self](const SMessageDispatch& messageDispatch)
+                                                    {
+                                                        self->forwardMessage(messageDispatch);
+                                                    });
     }
     return m_inflightQueue;
 }
@@ -109,7 +109,7 @@ const SMessageQueue& BaseClientSession::inflightQueueUnlocked() const
 std::vector<SMessageDispatch> BaseClientSession::enqueuedMessages() const
 {
     const auto& queue = getInflightQueueUnlocked();
-    return queue ? queue->enqueuedMessages() : std::vector<SMessageDispatch> {};
+    return queue ? queue->enqueuedMessages() : std::vector<SMessageDispatch>{};
 }
 
 void BaseClientSession::setMaxInflightMessages(const uint16_t maxInflightMessages) const
@@ -146,7 +146,7 @@ void BaseClientSession::applyConnectProperties(const IMessageProperties& propert
     if (int64_t topicAliasMaximum = 0;
         properties.getProperty(Property::TopicAliasMaximum, topicAliasMaximum))
     {
-        setTopicAliasMaximum(topicAliasMaximum);
+        setTopicAliasMaximum(static_cast<uint16_t>(topicAliasMaximum));
     }
 
     if (string_view responseTopic;

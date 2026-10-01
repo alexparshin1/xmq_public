@@ -70,9 +70,13 @@ void* openLibrary(const filesystem::path& path)
     return dlopen(path.string().c_str(), RTLD_NOW | RTLD_LOCAL);
 }
 void* findSymbol(void* handle, const char* name)
-{ return dlsym(handle, name); }
+{
+    return dlsym(handle, name);
+}
 void closeLibrary(void* handle)
-{ dlclose(handle); }
+{
+    dlclose(handle);
+}
 string libraryError()
 {
     const char* e = dlerror();
@@ -89,21 +93,24 @@ void* openLibrary(const filesystem::path& path)
     return reinterpret_cast<void*>(
         LoadLibraryExW(absolute(path).wstring().c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH));
 }
+
 void* findSymbol(void* handle, const char* name)
 {
     return reinterpret_cast<void*>(GetProcAddress(reinterpret_cast<HMODULE>(handle), name));
 }
+
 void closeLibrary(void* handle)
 {
     FreeLibrary(reinterpret_cast<HMODULE>(handle));
 }
+
 string libraryError()
 {
     const auto code = GetLastError();
     LPSTR      text = nullptr;
     const auto length =
         FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-                           FORMAT_MESSAGE_IGNORE_INSERTS,
+                       FORMAT_MESSAGE_IGNORE_INSERTS,
                        nullptr, code, 0, reinterpret_cast<LPSTR>(&text), 0, nullptr);
     if (length == 0 || text == nullptr)
     {
@@ -169,7 +176,7 @@ LogPriority toLogPriority(const xmq_log_priority priority)
 
 ExtensionHost::ExtensionHost(LogEngine& logEngine, string brokerVersion)
     : m_logger(logEngine, "[extensions] ")
-    , m_brokerVersion(std::move(brokerVersion))
+      , m_brokerVersion(std::move(brokerVersion))
 {
 }
 
@@ -201,7 +208,7 @@ void ExtensionHost::hostLog(void* context, const xmq_log_priority priority, cons
 std::string ExtensionHost::takeLastError(Loaded& loaded)
 {
     const std::scoped_lock lock(loaded.m_lastErrorLock);
-    return std::exchange(loaded.m_lastError, std::string {});
+    return std::exchange(loaded.m_lastError, std::string{});
 }
 
 namespace {
@@ -231,7 +238,7 @@ int64_t ExtensionHost::hostSetting(void* context, const char* key, char* buffer,
     std::string value;
     {
         const std::scoped_lock lock(loaded->m_settingsLock);
-        const auto setting = loaded->m_settings.find(key);
+        const auto             setting = loaded->m_settings.find(key);
         if (setting == loaded->m_settings.end())
         {
             return -1;
@@ -462,7 +469,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return nullptr;
     }
 
-    const string declared = loaded->m_table->name == nullptr ? string {} : loaded->m_table->name;
+    const string declared = loaded->m_table->name == nullptr ? string{} : loaded->m_table->name;
     if (declared != configured.m_name)
     {
         // Loading it anyway would mean the configuration names one extension and the broker runs
@@ -555,16 +562,16 @@ void ExtensionHost::createConfigurationFragments(const filesystem::path& configu
         // The same permissions the installed templates have: a fragment can hold a password.
         filesystem::permissions(fragment,
                                 filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                    filesystem::perms::group_read,
+                                filesystem::perms::group_read,
                                 errorCode);
         logger.info(format("{} was not found, so a starting one was created (copied from {})",
                            fragment.string(), entry.path().string()));
     }
 }
 
-void ExtensionHost::readConfigurationFile(const filesystem::path& path, const Logger& logger,
-                                          vector<Configured>&                    extensions,
-                                          map<string, filesystem::path>&         seenIn)
+void ExtensionHost::readConfigurationFile(const filesystem::path&        path, const Logger& logger,
+                                          vector<Configured>&            extensions,
+                                          map<string, filesystem::path>& seenIn)
 {
     try
     {
@@ -645,9 +652,9 @@ void ExtensionHost::readConfigurationFile(const filesystem::path& path, const Lo
 vector<ExtensionHost::Configured> ExtensionHost::readConfiguration(const filesystem::path& configurationPath,
                                                                    LogEngine&              logEngine)
 {
-    vector<Configured>            extensions;
-    const Logger                  logger(logEngine, "[extensions] ");
-    error_code                    errorCode;
+    vector<Configured> extensions;
+    const Logger       logger(logEngine, "[extensions] ");
+    error_code         errorCode;
 
     /// Which file each name came from, so a repeat can say what it collided with.
     map<string, filesystem::path> seenIn;
@@ -701,7 +708,9 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
     for (const auto& configured: extensions)
     {
         const auto loaded = ranges::find_if(m_loaded, [&configured](const auto& candidate)
-                                            { return candidate->m_name == configured.m_name; });
+        {
+            return candidate->m_name == configured.m_name;
+        });
         if (loaded == m_loaded.end() || !(*loaded)->m_started)
         {
             // Not loaded, so there is nothing here to reconfigure. Loading it is the other half of
@@ -751,7 +760,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
             // answer different questions, and one paragraph makes the reader find the seam.
             report.m_problems.push_back(
                 configured.m_name + ": refused the new settings and keeps what it had." +
-                (reason.empty() ? string {} : "\n\n" + reason));
+                (reason.empty() ? string{} : "\n\n" + reason));
             report += writeSettings(configured.m_name, previous);
             continue;
         }
@@ -763,7 +772,9 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
     for (const auto& configured: extensions)
     {
         const auto known = ranges::find_if(m_loaded, [&configured](const auto& candidate)
-                                           { return candidate->m_name == configured.m_name; });
+        {
+            return candidate->m_name == configured.m_name;
+        });
         if (known == m_loaded.end() || !(*known)->m_started)
         {
             report += enable(configured);
@@ -780,7 +791,9 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
             continue;
         }
         if (ranges::none_of(extensions, [&loaded](const auto& configured)
-                            { return configured.m_name == loaded->m_name; }))
+        {
+            return configured.m_name == loaded->m_name;
+        }))
         {
             departed.push_back(loaded->m_name);
         }
@@ -1142,7 +1155,9 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
         const std::scoped_lock lock(m_loadedLock);
 
         const auto loaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
-                                            { return candidate->m_name == name; });
+        {
+            return candidate->m_name == name;
+        });
         if (loaded != m_loaded.end())
         {
             source = (*loaded)->m_source;
@@ -1150,7 +1165,9 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
         else
         {
             const auto known = ranges::find_if(m_configuredOnly, [&name](const auto& candidate)
-                                               { return candidate.m_name == name; });
+            {
+                return candidate.m_name == name;
+            });
             if (known == m_configuredOnly.end())
             {
                 return refusedWrite(m_logger, name, "no such extension");
@@ -1212,7 +1229,9 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         const std::scoped_lock lock(m_loadedLock);
 
         const auto loaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
-                                            { return candidate->m_name == name; });
+        {
+            return candidate->m_name == name;
+        });
         if (loaded == m_loaded.end())
         {
             return refusedWrite(m_logger, name, "no such extension");
@@ -1299,7 +1318,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         error_code errorCode;
         filesystem::permissions(source,
                                 filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                    filesystem::perms::group_read,
+                                filesystem::perms::group_read,
                                 filesystem::perm_options::replace, errorCode);
     }
     catch (const Exception& e)
@@ -1336,7 +1355,9 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
             // Switched off in the file until now, so its library has never been opened. It leaves
             // the not-loaded list here and joins the loaded one below.
             std::erase_if(m_configuredOnly, [&configured](const auto& candidate)
-                          { return candidate.m_name == configured.m_name; });
+            {
+                return candidate.m_name == configured.m_name;
+            });
 
             // First time: the library has to be opened. load() also creates the instance.
             auto loaded = load(configured);
@@ -1465,9 +1486,9 @@ void ExtensionHost::unload(Loaded& loaded)
     }
 }
 
-void ExtensionHost::publishEvent(const xmq_event_type type, const string_view clientId,
-                                 const string_view username, const string_view topic,
-                                 const size_t payloadSize, const uint8_t qos, const bool retain,
+void ExtensionHost::publishEvent(const xmq_event_type  type, const string_view     clientId,
+                                 const string_view     username, const string_view topic,
+                                 const size_t          payloadSize, const uint8_t  qos, const bool retain,
                                  const EventAttributes attributes)
 {
     if (!m_watching.load(std::memory_order_relaxed))
@@ -1491,14 +1512,14 @@ void ExtensionHost::publishEvent(const xmq_event_type type, const string_view cl
         return;
     }
 
-    QueuedEvent queued {.m_type = type,
-                        .m_timestampUs = nowMicroseconds(),
-                        .m_clientId = string(clientId),
-                        .m_username = string(username),
-                        .m_topic = string(topic),
-                        .m_payloadSize = payloadSize,
-                        .m_qos = qos,
-                        .m_retain = retain};
+    QueuedEvent queued{.m_type = type,
+                       .m_timestampUs = nowMicroseconds(),
+                       .m_clientId = string(clientId),
+                       .m_username = string(username),
+                       .m_topic = string(topic),
+                       .m_payloadSize = payloadSize,
+                       .m_qos = qos,
+                       .m_retain = retain};
 
     // One relaxed load when nobody asked for anything, which is the ordinary case and the one on
     // the publish path: an attribute offered here is not copied unless some extension wants it.
@@ -1518,8 +1539,8 @@ void ExtensionHost::publishEvent(const xmq_event_type type, const string_view cl
     m_events.push_back(std::move(queued));
 }
 
-void ExtensionHost::publishError(const LogSubject subject, const string_view reason,
-                                 const string_view message, const string_view clientId,
+void ExtensionHost::publishError(const LogSubject  subject, const string_view      reason,
+                                 const string_view message, const string_view      clientId,
                                  const string_view username, const EventAttributes attributes)
 {
     if (!m_watching.load(std::memory_order_relaxed) ||
@@ -1534,10 +1555,10 @@ void ExtensionHost::publishError(const LogSubject subject, const string_view rea
         return;
     }
 
-    QueuedEvent queued {.m_type = XMQ_EVENT_ERROR,
-                        .m_timestampUs = nowMicroseconds(),
-                        .m_clientId = string(clientId),
-                        .m_username = string(username)};
+    QueuedEvent queued{.m_type = XMQ_EVENT_ERROR,
+                       .m_timestampUs = nowMicroseconds(),
+                       .m_clientId = string(clientId),
+                       .m_username = string(username)};
 
     // Taken whether or not anybody asked: these three are what the event says, not extra facts
     // about it, and an error an extension cannot identify is worse than no error at all.
@@ -1582,12 +1603,12 @@ void ExtensionHost::authenticate(AuthRequest                                    
     }
 
     m_queuedAuthentications.fetch_add(1, std::memory_order_relaxed);
-    m_authentications.push_back(PendingAuth {.m_request = std::move(request), .m_answer = std::move(answer)});
+    m_authentications.push_back(PendingAuth{.m_request = std::move(request), .m_answer = std::move(answer)});
 }
 
 ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& request)
 {
-    const xmq_auth_request wire {
+    const xmq_auth_request wire{
         .client_id = {.data = request.m_clientId.c_str(), .length = request.m_clientId.size()},
         .username = {.data = request.m_username.c_str(), .length = request.m_username.size()},
         .password = {.data = request.m_password.c_str(), .length = request.m_password.size()},
@@ -1643,7 +1664,7 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
 std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request, bool& refused)
 {
     refused = false;
-    const xmq_auth_request wire {
+    const xmq_auth_request wire{
         .client_id = {.data = request.m_clientId.c_str(), .length = request.m_clientId.size()},
         .username = {.data = request.m_username.c_str(), .length = request.m_username.size()},
         .password = {.data = request.m_password.c_str(), .length = request.m_password.size()},
@@ -1652,7 +1673,7 @@ std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request
         .encrypted = static_cast<uint8_t>(request.m_encrypted ? 1 : 0),
         .reserved = {}};
 
-    string     groupName;
+    string      groupName;
     const auto* active = m_active.load(std::memory_order_acquire);
     if (active == nullptr)
     {
@@ -1666,9 +1687,9 @@ std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request
             continue;
         }
 
-        array<char, MaxGroupNameLength> name {};
-        const InFlight inFlight(loaded->m_inFlight);
-        const auto     length = authorizer->resolve_group(loaded->m_instance, &wire, name.data(), name.size());
+        array<char, MaxGroupNameLength> name{};
+        const InFlight                  inFlight(loaded->m_inFlight);
+        const auto                      length = authorizer->resolve_group(loaded->m_instance, &wire, name.data(), name.size());
         if (length >= name.size())
         {
             // Not cut to fit: two long names that share their beginning would become one group,
@@ -1715,11 +1736,11 @@ void ExtensionHost::invalidateAcl()
     m_logger.info("cached permissions dropped; they will be asked for again");
 }
 
-AclDecision ExtensionHost::askAuthorizers(const string& group, const string_view topic,
+AclDecision ExtensionHost::askAuthorizers(const string&        group, const string_view topic,
                                           const xmq_acl_action action)
 {
-    const xmq_str wireGroup {.data = group.c_str(), .length = group.size()};
-    const xmq_str wireTopic {.data = topic.data(), .length = topic.size()};
+    const xmq_str wireGroup{.data = group.c_str(), .length = group.size()};
+    const xmq_str wireTopic{.data = topic.data(), .length = topic.size()};
 
     const auto* active = m_active.load(std::memory_order_acquire);
     if (active == nullptr)
@@ -1748,9 +1769,9 @@ AclDecision ExtensionHost::askAuthorizers(const string& group, const string_view
                 // otherwise write a line for every message the group publishes. Something
                 // rate-limited would be better if this ever needs to be visible by default.
                 m_logger.debug([&loaded]
-                               {
-                                   return loaded->m_name + " could not reach its permission store";
-                               });
+                {
+                    return loaded->m_name + " could not reach its permission store";
+                });
                 return AclDecision::SubsystemError;
         }
     }
@@ -1763,11 +1784,11 @@ namespace {
 struct LocalDecision
 {
     /// The group's own identity, not its address: see AclGroup::m_id for why an address will not do.
-    uint64_t        m_groupId {0};
-    uint64_t        m_generation {0};
-    xmq_acl_action  m_action {};
-    AclDecision     m_decision {};
-    string          m_topic;
+    uint64_t       m_groupId{0};
+    uint64_t       m_generation{0};
+    xmq_acl_action m_action{};
+    AclDecision    m_decision{};
+    string         m_topic;
 };
 
 /**
@@ -1796,7 +1817,7 @@ uint64_t AclGroup::nextId()
 {
     // Starts at 1 so that a zero-initialised cache entry - which is what an untouched slot holds -
     // matches no group at all.
-    static atomic<uint64_t> lastId {0};
+    static atomic<uint64_t> lastId{0};
     return lastId.fetch_add(1, memory_order_relaxed) + 1;
 }
 
@@ -1804,7 +1825,7 @@ namespace {
 
 size_t localSlot(const AclGroup* group, const string_view topic, const xmq_acl_action action)
 {
-    const auto mixed = hash<string_view> {}(topic) ^ (reinterpret_cast<uintptr_t>(group) >> 4U) ^
+    const auto mixed = hash<string_view>{}(topic) ^ (reinterpret_cast<uintptr_t>(group) >> 4U) ^
                        static_cast<size_t>(action) * 0x9E3779B9U;
     return mixed % LocalDecisions;
 }
@@ -1958,8 +1979,8 @@ void ExtensionHost::deliveryThread()
 
         for (const auto& queued: round)
         {
-            const xmq_event event {
-                .type = queued.m_type,
+            const xmq_event event{
+                .type = (uint32_t) queued.m_type,
                 .timestamp_us = queued.m_timestampUs,
                 .client_id = {.data = queued.m_clientId.c_str(), .length = queued.m_clientId.size()},
                 .username = {.data = queued.m_username.c_str(), .length = queued.m_username.size()},

@@ -47,7 +47,7 @@ TEST_P(XMQ_ServerTests, TopicAlias_MaxTopicAlias)
                 topicAliasMaximum = 0;
                 if (connectAckMessage->getProperties())
                 {
-                    connectAckMessage->getProperties()->getProperty(Property::TopicAliasMaximum, topicAliasMaximum);
+                    (void) connectAckMessage->getProperties()->getProperty(Property::TopicAliasMaximum, topicAliasMaximum);
                 }
                 COUT("TopicAliasMaximum: " << topicAliasMaximum);
                 ackReceived.post();
@@ -64,14 +64,14 @@ TEST_P(XMQ_ServerTests, TopicAlias_MaxTopicAlias)
 
     auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
 
-    const ConnectCredentials credentials {subscriberClientId, "user", "secret"};
+    const ConnectCredentials credentials{subscriberClientId, "user", "secret"};
     EXPECT_EQ(ReasonCode::Success,
               client.connect(Host("localhost", TestTcpPortNumber), credentials,
-                             {
-                                 .m_keepAliveInterval = 60s,
-                                 .m_cleanSession = false,
-                             },
-                             ProtocolVersion::MqttV5, properties));
+                  {
+                  .m_keepAliveInterval = 60s,
+                  .m_cleanSession = false,
+                  },
+                  ProtocolVersion::MqttV5, properties));
 
     if (!ackReceived.wait_for(MediumTimeout))
     {
@@ -106,20 +106,20 @@ auto createEnvironment(Semaphore& messageReceived, const SLogger& logger)
 
     constexpr auto sixtySeconds = 60s;
 
-    const ConnectCredentials credentials {subscriberClientId, "user", "secret"};
+    const ConnectCredentials credentials{subscriberClientId, "user", "secret"};
     EXPECT_EQ(ReasonCode::Success,
               subscriber->connect(Host("localhost", XMQ_ServerTests::TestTcpPortNumber),
-                                  credentials, {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+                  credentials, {.m_cleanSession = true}, ProtocolVersion::MqttV5));
 
-    const ConnectCredentials credentials2 {publisherClientId, "user", "secret"};
+    const ConnectCredentials credentials2{publisherClientId, "user", "secret"};
     EXPECT_EQ(ReasonCode::Success,
               sender->connect(Host("localhost", XMQ_ServerTests::TestTcpPortNumber), credentials2,
-                              {
-                                  .m_keepAliveInterval = sixtySeconds,
-                                  .m_cleanSession = true,
-                              },
-                              ProtocolVersion::MqttV5,
-                              senderConnectProperties));
+                  {
+                  .m_keepAliveInterval = sixtySeconds,
+                  .m_cleanSession = true,
+                  },
+                  ProtocolVersion::MqttV5,
+                  senderConnectProperties));
 
     const Destination topic(client::MqttClient::getTopic("topic1"));
     // EXPECT rather than ASSERT: this helper returns the two clients, so it cannot return early.
@@ -190,7 +190,7 @@ TEST_F(XMQ_ServerTests, TopicAlias_AnotherConnection)
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
 
-    const ConnectCredentials credentials {publisherClientId, "user", "secret"};
+    const ConnectCredentials credentials{publisherClientId, "user", "secret"};
     EXPECT_EQ(ReasonCode::Success,
               sender->connect(Host("localhost", TestTcpPortNumber), credentials, {.m_cleanSession = true}));
 
