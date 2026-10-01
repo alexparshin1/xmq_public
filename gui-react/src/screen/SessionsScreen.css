@@ -1,0 +1,13 @@
+.sessionsSearch { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 12px; }
+.sessionsSearch label { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.sessionsSearch input { padding: 6px; }
+.sessionsSearch label:first-child input { width: min(45vw, 340px); }
+.sessionsSearch input[type=number] { width: 85px; }
+.sessionsSearch button { padding: 7px 14px; cursor: pointer; }
+.sessionsSummary { text-align: left; color: dimgray; }
+.sessionsError { text-align: left; color: firebrick; }
+.sessionsTableWrap { overflow-x: auto; }
+.sessionsTable { width: 100%; border-collapse: collapse; text-align: left; }
+.sessionsTable th, .sessionsTable td { padding: 8px; border-bottom: 1px solid #ddd; }
+.sessionsTable th:nth-child(n+5), .sessionsTable td:nth-child(n+5) { text-align: right; }
+.sessionsTable td:first-child { overflow-wrap: anywhere; }
