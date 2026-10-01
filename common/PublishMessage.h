@@ -41,6 +41,24 @@ public:
     ~PublishMessage() override = default;
 
     /**
+     * @brief Get message sender.
+     * @return message sender.
+     */
+    [[nodiscard]] const std::string& getSender() const
+    {
+        return m_sender;
+    }
+
+    /**
+     * @brief Set message sender.
+     * @param sender Message sender.
+     */
+    void setSender(const std::string_view sender)
+    {
+        m_sender = sender;
+    }
+
+    /**
      * @brief Get message destination.
      * @return message destination.
      */
@@ -89,6 +107,9 @@ public:
         const auto* trace = reinterpret_cast<const LatencyTrace*>(data.data());
         return trace->m_signature == 0x5115 ? const_cast<LatencyTrace*>(trace) : nullptr;
     }
+
+private:
+    std::string m_sender; ///< Message sender.
 };
 
 using SPublishMessage = std::shared_ptr<PublishMessage>;

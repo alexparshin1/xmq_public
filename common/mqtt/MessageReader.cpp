@@ -91,15 +91,13 @@ SMessage MessageReader::readMessage(Packet&& packet, BaseClientSession& clientSe
             break;
 
         default:
-            throw ProtocolException(getProtocolVersion(), ReasonCode::MalformedPacket, "Not supported frame type: " + to_string(static_cast<int>(frameType)));
+            throw ProtocolException(getProtocolVersion(), ReasonCode::MalformedPacket, format("Not supported frame type: {}", static_cast<int>(frameType)));
     }
 
     if (message && message->getQos() == Qos::Invalid)
     {
         throw ProtocolException(getProtocolVersion(), ReasonCode::MalformedPacket, "Invalid QoS");
     }
-
-    message->setSender(clientSession.getClientIdUnlocked());
 
     return message;
 }
@@ -179,9 +177,10 @@ SMessage MessageReader::readConnect(Packet& packet, BaseClientSession& clientSes
 
     if (const auto messageProperties = connectMessage->getProperties())
     {
-        Latency::SET_LATENCY(messageProperties, LatencyPhase::ServerWireIn, packetReceivedTS);
-        Latency::SET_LATENCY(messageProperties, LatencyPhase::ServerBeforeDecode, beforeDecodeTS);
-        Latency::SNAP_LATENCY(messageProperties, LatencyPhase::ServerDecode);
+        using enum LatencyPhase;
+        Latency::SET_LATENCY(messageProperties, ServerWireIn, packetReceivedTS);
+        Latency::SET_LATENCY(messageProperties, ServerBeforeDecode, beforeDecodeTS);
+        Latency::SNAP_LATENCY(messageProperties, ServerDecode);
     }
 
     return connectMessage;
@@ -222,7 +221,8 @@ SMessage MessageReader::readPublish(Packet&& packet, const FixedHeader& messageH
         throw ProtocolException(getProtocolVersion(), ReasonCode::MalformedPacket, "Invalid QOS");
     }
 
-    SMessage publishMessage = make_shared<PublishMessage>(m_topicManager, messageHeader, std::move(packet), getProtocolVersion());
+    auto publishMessage = make_shared<PublishMessage>(m_topicManager, messageHeader, std::move(packet), getProtocolVersion());
+    publishMessage->setSender(clientSession.getClientIdUnlocked());
 
     if (publishMessage->getProperties())
     {
@@ -241,17 +241,18 @@ SMessage MessageReader::readPublish(Packet&& packet, const FixedHeader& messageH
 
     if (const auto messageProperties = publishMessage->getProperties())
     {
+        using enum LatencyPhase;
         if (clientSession.getSessionType() == BaseClientSession::SessionType::Client)
         {
-            Latency::SET_LATENCY(messageProperties, LatencyPhase::ClientWireIn, packetReceivedTS);
-            Latency::SET_LATENCY(messageProperties, LatencyPhase::ClientBeforeDecode, beforeDecodeTS);
-            Latency::SNAP_LATENCY(messageProperties, LatencyPhase::ClientDecode);
+            Latency::SET_LATENCY(messageProperties, ClientWireIn, packetReceivedTS);
+            Latency::SET_LATENCY(messageProperties, ClientBeforeDecode, beforeDecodeTS);
+            Latency::SNAP_LATENCY(messageProperties, ClientDecode);
         }
         else
         {
-            Latency::SET_LATENCY(messageProperties, LatencyPhase::ServerWireIn, packetReceivedTS);
-            Latency::SET_LATENCY(messageProperties, LatencyPhase::ServerBeforeDecode, beforeDecodeTS);
-            Latency::SNAP_LATENCY(messageProperties, LatencyPhase::ServerDecode);
+            Latency::SET_LATENCY(messageProperties, ServerWireIn, packetReceivedTS);
+            Latency::SET_LATENCY(messageProperties, ServerBeforeDecode, beforeDecodeTS);
+            Latency::SNAP_LATENCY(messageProperties, ServerDecode);
         }
     }
 

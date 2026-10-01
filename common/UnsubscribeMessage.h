@@ -75,7 +75,6 @@ public:
     {
         std::stringstream str;
         str << name() << " id=" << static_cast<int>(getId())
-            << " sender=" << getSender()
             << " destinations=[";
 
         sptk::Strings destinationStrings;

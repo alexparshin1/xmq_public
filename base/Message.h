@@ -188,29 +188,10 @@ public:
         return false;
     }
 
-    /**
-     * @brief Get message sender.
-     * @return message sender.
-     */
-    [[nodiscard]] const std::string& getSender() const
-    {
-        return m_sender;
-    }
-
-    /**
-     * @brief Set message sender.
-     * @param sender Message sender.
-     */
-    void setSender(const std::string_view sender)
-    {
-        m_sender = sender;
-    }
-
 private:
     MessageId          m_id {0};     ///< Message ID.
     Type               m_type;       ///< Message type.
     SMessageProperties m_properties; ///< Message properties (MQTT5 only).
-    std::string        m_sender;     ///< Message sender.
 };
 
 constexpr Message::Type messageTypeToAckType(const Message::Type& messageType, const Qos qos)

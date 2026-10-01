@@ -41,12 +41,6 @@ string SubscribeMessage::toString() const
         str << " id=" << static_cast<int>(getId());
     }
 
-    if (const auto sender = getSender();
-        !sender.empty())
-    {
-        str << " sender=" << sender;
-    }
-
     str << " destinations=[";
     sptk::Strings destinationStrings;
     for (const auto& destination: m_destinations)

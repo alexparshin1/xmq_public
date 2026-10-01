@@ -66,7 +66,6 @@ public:
     {
         std::stringstream str;
         str << name() << " id=" << getId()
-            << " sender=" << getSender()
             << " qos=" << std::to_string(static_cast<int>(getQos())) << " reason='"
             << xmq::toString(m_reasonCode) << "'.";
 
