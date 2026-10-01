@@ -14,6 +14,20 @@ Requires SPTK 5.6.14.
 
 ### Changed
 
+- **Persistent clients connect without any thread waiting for Redis.** The broker looked a
+  connecting client's stored session up with a synchronous request, one at a time per connection,
+  and with Redis syncing every write to disk (`appendfsync always`) each answer waited for a flush.
+  On a disk slow to flush the authentication queue overflowed and connections were refused - 32 000
+  of 40 000 on a USB hard disk. The lookup is now asynchronous and the CONNECT is finished when the
+  answer comes: no refusals on the same disk.
+- **A message's persistence record waits 10 ms before it is written**, and a record whose message
+  has been acknowledged by then is never written at all. It was 1 ms, and a record queued just
+  before a flush was written at once, so under a burst nearly every record reached Redis; on a slow
+  disk that filled `max_queued_writes` and the broker never caught up. A waiting record counts
+  against `max_queued_writes`, so what a crash can lose is unchanged. With Redis syncing every
+  write, 40 000 persistent messages a second now run at 159 µs on a USB hard disk, where 0.9.19
+  managed 1 500 a second.
+
 - **`xmq_server --set-password` asks for the password at a terminal**, and does not echo it,
   as `passwd` does. From a pipe it reads standard input as before.
 
