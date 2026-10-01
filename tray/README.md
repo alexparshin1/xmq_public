@@ -47,6 +47,17 @@ cmake --build tray/build
 cmake --install tray/build --prefix "$HOME/.local"
 ```
 
+On Linux, build the package for the current distribution with the `package`
+target after configuring and building:
+
+```sh
+cmake --build tray/build --target package
+```
+
+The target creates a `.deb` on Debian-based systems or an `.rpm` on RPM-based
+systems in `tray/build`. It installs the executable, desktop launcher, and icon
+under `/usr/local`. The Debian build needs `dpkg-deb`; the RPM build needs `rpmbuild`.
+
 Run `xmq_tray` from an application menu or shell. The default URL is
 `https://localhost:18883`, matching the repository's sample broker
 configuration. For a different web console port, run:
