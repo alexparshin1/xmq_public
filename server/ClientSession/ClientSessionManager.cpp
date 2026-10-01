@@ -28,7 +28,6 @@ ClientSessionManager::ClientSessionManager(Server* server)
     : m_xmqServer(server)
 {
     const auto reservation = possibleConnectionCount();
-    m_clientConnectionsByName.reserve(reservation);
     m_clientConnectionsByAddress.reserve(reservation);
 }
 
@@ -83,6 +82,26 @@ vector<CConnectionInfo> ClientSessionManager::getClientConnectionsInfo(const Reg
         }
     }
 
+    return result;
+}
+
+vector<SClientSession> ClientSessionManager::findSessions(const string_view prefix, const size_t limit) const
+{
+    const shared_lock lock(m_mutex);
+    vector<SClientSession> result;
+    result.reserve(limit + 1);
+    for (auto it = m_clientConnectionsByName.lower_bound(prefix); it != m_clientConnectionsByName.end(); ++it)
+    {
+        if (!it->first.starts_with(prefix))
+        {
+            break;
+        }
+        result.push_back(it->second);
+        if (result.size() > limit)
+        {
+            break;
+        }
+    }
     return result;
 }
 

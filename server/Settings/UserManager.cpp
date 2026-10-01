@@ -15,6 +15,7 @@
 #include "UserManager.h"
 
 #include "PasswordHash.h"
+#include <algorithm>
 #include <ranges>
 #include <set>
 #include <sptk5/JWT.h>
@@ -328,8 +329,34 @@ void UserManager::addUser(const CUser& user)
         throw Exception("User already exists: " + user.m_username.asString());
     }
 
+    if (!user.m_id.isNull() && m_users.contains(user.m_id.asInt64()))
+    {
+        throw Exception("User id already exists: " + to_string(user.m_id.asInt64()));
+    }
+
     setUserUnlocked(user);
-    storeUserUnlocked(m_users[m_passwords[user.m_username].m_id]);
+    const auto assignedId = m_passwords[user.m_username].m_id;
+    storeUserUnlocked(m_users.at(assignedId));
+    if (m_store)
+    {
+        // SQL allocates its own ID, which can be ahead of the highest surviving row
+        // after deletions. The list and the next edit must use the ID it actually wrote.
+        const auto stored = m_store->findUser(user.m_username);
+        if (stored && stored->m_id != static_cast<int64_t>(assignedId))
+        {
+            auto saved = std::move(m_users.at(assignedId));
+            m_users.erase(assignedId);
+            saved.m_id.setInt64(stored->m_id);
+            m_users[stored->m_id] = std::move(saved);
+            m_passwords[user.m_username].m_id = stored->m_id;
+            observeSerialId(stored->m_id);
+        }
+
+        if (const auto defaultGroup = m_store->findGroup(String(string(UserStore::defaultGroupName))); stored && defaultGroup)
+        {
+            m_store->addUserToGroup(stored->m_id, defaultGroup->m_id);
+        }
+    }
     m_verificationCache.forget();
     m_onChange();
 }
@@ -448,6 +475,7 @@ void UserManager::reload()
 
     std::map<uint64_t, CUser>                    users;
     std::map<std::string, UserInfo, std::less<>> passwords;
+    uint64_t lastId = 0;
     for (const auto& user: stored)
     {
         CUser entry;
@@ -458,9 +486,11 @@ void UserManager::reload()
 
         users[static_cast<uint64_t>(user.m_id)] = entry;
         passwords[user.m_username] = {static_cast<uint64_t>(user.m_id), user.m_password};
+        lastId = std::max(lastId, static_cast<uint64_t>(user.m_id));
     }
 
     const unique_lock lock(m_mutex);
+    observeSerialId(lastId);
     m_users = std::move(users);
     m_passwords = std::move(passwords);
     m_verificationCache.sizeFor(m_passwords.size());

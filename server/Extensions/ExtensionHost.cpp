@@ -120,16 +120,9 @@ string libraryError()
 }
 #endif
 
-/// The authenticator an extension declared, or nullptr. Reads the appended ABI 1.1 fields only
-/// when the extension actually filled them in - struct_size is what makes that safe.
+/// The authenticator an extension declared, or nullptr.
 const xmq_authenticator* authenticatorOfTable(const xmq_extension& table)
 {
-    constexpr size_t sizeThroughAuthenticator =
-        offsetof(xmq_extension, authenticator) + sizeof(xmq_extension::authenticator);
-    if (table.struct_size < sizeThroughAuthenticator)
-    {
-        return nullptr; // built against ABI 1.0, which had no authenticator
-    }
     if ((table.capabilities & XMQ_CAP_AUTHENTICATOR) == 0)
     {
         return nullptr;
@@ -139,16 +132,9 @@ const xmq_authenticator* authenticatorOfTable(const xmq_extension& table)
                : nullptr;
 }
 
-/// The authorizer an extension declared, or nullptr. Same struct_size reasoning as above, one ABI
-/// version later: an extension built against 1.1 stopped writing before this field exists.
+/// The authorizer an extension declared, or nullptr.
 const xmq_authorizer* authorizerOfTable(const xmq_extension& table)
 {
-    constexpr size_t sizeThroughAuthorizer =
-        offsetof(xmq_extension, authorizer) + sizeof(xmq_extension::authorizer);
-    if (table.struct_size < sizeThroughAuthorizer)
-    {
-        return nullptr; // built against ABI 1.1 or earlier, which had no authorizer
-    }
     if ((table.capabilities & XMQ_CAP_AUTHORIZER) == 0)
     {
         return nullptr;
@@ -218,47 +204,58 @@ std::string ExtensionHost::takeLastError(Loaded& loaded)
     return std::exchange(loaded.m_lastError, std::string {});
 }
 
-xmq_str ExtensionHost::hostSetting(void* context, const char* key)
+namespace {
+
+/// Hands a string to an extension the way the ABI says: copied into its buffer, NUL-terminated and
+/// cut to fit, with the whole length returned so a caller whose buffer was short can ask again.
+int64_t copyOut(const std::string& value, char* buffer, const size_t bufferSize)
+{
+    if (buffer != nullptr && bufferSize > 0)
+    {
+        const auto copied = std::min(value.size(), bufferSize - 1);
+        std::memcpy(buffer, value.data(), copied);
+        buffer[copied] = '\0';
+    }
+    return static_cast<int64_t>(value.size());
+}
+
+} // namespace
+
+int64_t ExtensionHost::hostSetting(void* context, const char* key, char* buffer, const size_t bufferSize)
 {
     auto* loaded = static_cast<Loaded*>(context);
     if (loaded == nullptr || key == nullptr)
     {
-        return {.data = nullptr, .length = 0};
+        return -1;
     }
-    const std::scoped_lock lock(loaded->m_settingsLock);
-
-    const auto setting = loaded->m_settings.find(key);
-    if (setting == loaded->m_settings.end())
+    std::string value;
     {
-        return {.data = nullptr, .length = 0};
+        const std::scoped_lock lock(loaded->m_settingsLock);
+        const auto setting = loaded->m_settings.find(key);
+        if (setting == loaded->m_settings.end())
+        {
+            return -1;
+        }
+        value = setting->second;
     }
-    // Kept alive in the record rather than returned from the map directly, so the contract - valid
-    // until the next call - holds even if the settings are ever reloaded underneath.
-    loaded->m_settingValue = setting->second;
-    return {.data = loaded->m_settingValue.c_str(), .length = loaded->m_settingValue.size()};
+    return copyOut(value, buffer, bufferSize);
 }
 
-xmq_str ExtensionHost::hostUserDatabaseUri(void* context)
+int64_t ExtensionHost::hostUserDatabaseUri(void* context, char* buffer, const size_t bufferSize)
 {
     auto* loaded = static_cast<Loaded*>(context);
     if (loaded == nullptr || loaded->m_host == nullptr)
     {
-        return {.data = nullptr, .length = 0};
+        return -1;
     }
-
+    std::string uri;
     {
         const std::scoped_lock lock(loaded->m_host->m_userDatabaseUriLock);
-        loaded->m_userDatabaseUriValue = loaded->m_host->m_userDatabaseUri;
+        uri = loaded->m_host->m_userDatabaseUri;
     }
-    if (loaded->m_userDatabaseUriValue.empty())
-    {
-        // A broker whose accounts are not in a database at all. NULL rather than an empty string,
-        // so that an extension can tell "nowhere" from "somewhere I could not read".
-        return {.data = nullptr, .length = 0};
-    }
-    // Copied into the record for the same reason setting() does it: the answer stays valid until
-    // the next call even if the configuration changes underneath.
-    return {.data = loaded->m_userDatabaseUriValue.c_str(), .length = loaded->m_userDatabaseUriValue.size()};
+    // A broker whose accounts are not in a database at all: -1 rather than an empty string, so an
+    // extension can tell "nowhere" from "somewhere I could not read".
+    return uri.empty() ? -1 : copyOut(uri, buffer, bufferSize);
 }
 
 void ExtensionHost::userDatabaseUri(std::string uri)
@@ -277,13 +274,9 @@ void ExtensionHost::userDatabaseUri(std::string uri)
     // only disturbs an extension whose own settings changed, and this address is deliberately not
     // one of those. reload() is the right call here and not accounts_changed() - the store itself
     // is different, so the connection has to be opened again, not a cache dropped.
-    constexpr size_t sizeThroughReload =
-        offsetof(xmq_extension, reload) + sizeof(xmq_extension::reload);
-
     for (const auto& loaded: m_loaded)
     {
-        if (!loaded->m_started || loaded->m_table == nullptr ||
-            loaded->m_table->struct_size < sizeThroughReload || loaded->m_table->reload == nullptr)
+        if (!loaded->m_started || loaded->m_table == nullptr || loaded->m_table->reload == nullptr)
         {
             continue;
         }
@@ -299,18 +292,13 @@ void ExtensionHost::userDatabaseUri(std::string uri)
 
 void ExtensionHost::accountsChanged()
 {
-    constexpr size_t sizeThroughAccountsChanged =
-        offsetof(xmq_extension, accounts_changed) + sizeof(xmq_extension::accounts_changed);
-
     for (const auto& loaded: m_loaded)
     {
-        if (!loaded->m_started || loaded->m_table == nullptr ||
-            loaded->m_table->struct_size < sizeThroughAccountsChanged ||
-            loaded->m_table->accounts_changed == nullptr)
+        if (!loaded->m_started || loaded->m_table == nullptr || loaded->m_table->accounts_changed == nullptr)
         {
-            // Built before ABI 1.8, or caches nothing. Not worth a note anywhere: an extension
-            // that does not cache has nothing to forget, and one that authenticates against
-            // something the broker does not edit was never going to be told.
+            // Caches nothing. Not worth a note anywhere: an extension that does not cache has
+            // nothing to forget, and one that authenticates against something the broker does not
+            // edit was never going to be told.
             continue;
         }
         loaded->m_table->accounts_changed(loaded->m_instance);
@@ -455,10 +443,13 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return nullptr;
     }
 
-    // An extension compiled against a larger table would have the broker read past what it wrote.
-    if (loaded->m_table->struct_size > sizeof(xmq_extension))
+    // An extension compiled against a larger table would have the broker read past what it wrote,
+    // and one compiled against a smaller table was built for an ABI before 1.0, whose layout this
+    // broker does not read. ABI 1.0 is the first; later minors will append, and relax the second.
+    if (loaded->m_table->struct_size != sizeof(xmq_extension))
     {
-        m_logger.error(format("{}: describes itself with {} bytes where this broker knows {}",
+        m_logger.error(format("{}: describes itself with {} bytes where this broker knows {} - rebuild "
+                              "it against this broker's xmq_extension.h",
                               configured.m_name, loaded->m_table->struct_size, sizeof(xmq_extension)));
         closeLibrary(loaded->m_handle);
         return nullptr;
@@ -486,14 +477,15 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return nullptr;
     }
 
-    loaded->m_hostTable = {.context = loaded.get(),
+    loaded->m_hostTable = {.struct_size = sizeof(xmq_host),
+                           .context = loaded.get(),
                            .log = &ExtensionHost::hostLog,
                            .setting = &ExtensionHost::hostSetting,
                            .broker_version = &ExtensionHost::hostBrokerVersion,
+                           .user_database_uri = &ExtensionHost::hostUserDatabaseUri,
                            .invalidate_acl = &ExtensionHost::hostInvalidateAcl,
                            .want_event_attributes = &ExtensionHost::hostWantEventAttributes,
-                           .event_attribute = &ExtensionHost::hostEventAttribute,
-                           .user_database_uri = &ExtensionHost::hostUserDatabaseUri};
+                           .event_attribute = &ExtensionHost::hostEventAttribute};
 
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)
@@ -736,10 +728,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
         // Told after the settings are in place, never before: the callback's whole job is to read
         // them, and an extension that read the old ones would apply the change it was told about
         // by not applying it.
-        constexpr size_t sizeThroughReload =
-            offsetof(xmq_extension, reload) + sizeof(xmq_extension::reload);
-        if ((*loaded)->m_table->struct_size < sizeThroughReload ||
-            (*loaded)->m_table->reload == nullptr)
+        if ((*loaded)->m_table->reload == nullptr)
         {
             report.m_notes.push_back(configured.m_name +
                                      ": settings changed, but it does not take them while running - "
@@ -1071,20 +1060,13 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
             one.m_version = loaded->m_table->version == nullptr ? "" : loaded->m_table->version;
             one.m_capabilities = loaded->m_table->capabilities;
 
-            // Guarded by struct_size, because an extension built against an older header has a
-            // shorter table and everything past its end is somebody else's memory.
-            if (loaded->m_table->struct_size >= sizeof(xmq_extension))
-            {
-                one.m_description = loaded->m_table->description == nullptr ? ""
-                                                                           : loaded->m_table->description;
-            }
+            one.m_description = loaded->m_table->description == nullptr ? "" : loaded->m_table->description;
         }
 
         const std::scoped_lock settingsLock(loaded->m_settingsLock);
         auto                   remaining = loaded->m_settings;
 
-        if (loaded->m_table != nullptr && loaded->m_table->struct_size >= sizeof(xmq_extension) &&
-            loaded->m_table->settings != nullptr)
+        if (loaded->m_table != nullptr && loaded->m_table->settings != nullptr)
         {
             for (size_t at = 0; at < loaded->m_table->setting_count; ++at)
             {
@@ -1093,7 +1075,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
                 setting.m_name = declared.name == nullptr ? "" : declared.name;
                 setting.m_label = declared.label == nullptr ? setting.m_name : declared.label;
                 setting.m_description = declared.description == nullptr ? "" : declared.description;
-                setting.m_type = declared.type;
+                setting.m_type = static_cast<xmq_setting_type>(declared.type);
                 setting.m_defaultValue = declared.default_value == nullptr ? "" : declared.default_value;
                 setting.m_choices = declared.choices == nullptr ? "" : declared.choices;
                 setting.m_required = declared.required != 0;
@@ -1243,9 +1225,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
 
         // The mask the screen was shown is what the screen sends back for an untouched secret.
         // Writing it would replace a password with a row of asterisks.
-        if ((*loaded)->m_table != nullptr &&
-            (*loaded)->m_table->struct_size >= sizeof(xmq_extension) &&
-            (*loaded)->m_table->settings != nullptr)
+        if ((*loaded)->m_table != nullptr && (*loaded)->m_table->settings != nullptr)
         {
             const std::scoped_lock settingsLock((*loaded)->m_settingsLock);
             for (size_t at = 0; at < (*loaded)->m_table->setting_count; ++at)
@@ -1660,8 +1640,9 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
     return AuthDecision::NotHandled;
 }
 
-std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request)
+std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request, bool& refused)
 {
+    refused = false;
     const xmq_auth_request wire {
         .client_id = {.data = request.m_clientId.c_str(), .length = request.m_clientId.size()},
         .username = {.data = request.m_username.c_str(), .length = request.m_username.size()},
@@ -1687,11 +1668,20 @@ std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request
 
         array<char, MaxGroupNameLength> name {};
         const InFlight inFlight(loaded->m_inFlight);
-        authorizer->resolve_group(loaded->m_instance, &wire, name.data(), name.size());
-        name.back() = '\0';
-        if (name[0] != '\0')
+        const auto     length = authorizer->resolve_group(loaded->m_instance, &wire, name.data(), name.size());
+        if (length >= name.size())
         {
-            groupName = name.data();
+            // Not cut to fit: two long names that share their beginning would become one group,
+            // and each would get the other's rights.
+            m_logger.error(format("{} named a {}-byte group for {}, longer than the {} bytes a group "
+                                  "name may have; refusing the connection",
+                                  loaded->m_name, length, request.m_clientId, name.size() - 1));
+            refused = true;
+            return {};
+        }
+        if (length > 0)
+        {
+            groupName.assign(name.data(), length);
             break;
         }
     }
@@ -1924,9 +1914,9 @@ void ExtensionHost::authenticationThread()
             continue;
         }
 
-        const auto decision = m_authenticating.load(std::memory_order_relaxed)
-                                  ? askAuthenticators(pending.m_request)
-                                  : AuthDecision::NotHandled;
+        auto decision = m_authenticating.load(std::memory_order_relaxed)
+                            ? askAuthenticators(pending.m_request)
+                            : AuthDecision::NotHandled;
 
         // Only for a client that is getting in. Asking a directory which groups a refused client
         // belongs to is work nobody will use, and on the connect path of a client being refused.
@@ -1934,7 +1924,12 @@ void ExtensionHost::authenticationThread()
         if (decision != AuthDecision::Deny && decision != AuthDecision::Unavailable &&
             m_authorizing.load(std::memory_order_relaxed))
         {
-            group = resolveGroup(pending.m_request);
+            bool refused = false;
+            group = resolveGroup(pending.m_request, refused);
+            if (refused)
+            {
+                decision = AuthDecision::Deny;
+            }
         }
 
         if (pending.m_answer)

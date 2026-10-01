@@ -621,8 +621,12 @@ public:
      * Never returns null: a client no extension recognised gets the unnamed group, which has its
      * own cache and its own answers, so an extension that denies by default still denies it once
      * rather than once per message.
+     *
+     * @param request   Client authentication request.
+     * @param refused   Set when an extension names a group too long to hold; the client is refused.
+     * @return The client's group, including the unnamed group when none is supplied.
      */
-    [[nodiscard]] std::shared_ptr<AclGroup> resolveGroup(const AuthRequest& request);
+    [[nodiscard]] std::shared_ptr<AclGroup> resolveGroup(const AuthRequest& request, bool& refused);
 
     /// Drops every cached decision, so that changed rules reach clients already connected. Called
     /// by an extension through the host table, and never on a hot path.
@@ -701,8 +705,6 @@ private:
         /// than on any path that carries messages.
         mutable std::mutex                 m_settingsLock;
         std::map<std::string, std::string> m_settings;
-        std::string                        m_settingValue; ///< Backs the last setting() answer.
-        std::string                        m_userDatabaseUriValue; ///< Backs the last user_database_uri() answer.
         ExtensionHost*                     m_host {nullptr};
         xmq_host                           m_hostTable {};
     };
@@ -726,12 +728,12 @@ private:
     // The three services an extension is given. Static, because they are C function pointers with
     // the Loaded record as their context.
     static void    hostLog(void* context, xmq_log_priority priority, const char* message);
-    static xmq_str hostSetting(void* context, const char* key);
+    static int64_t hostSetting(void* context, const char* key, char* buffer, size_t bufferSize);
 
     /// The last error an extension logged, cleared as it is read - see Loaded::m_lastError.
     static std::string takeLastError(Loaded& loaded);
     static xmq_str hostBrokerVersion(void* context);
-    static xmq_str hostUserDatabaseUri(void* context);
+    static int64_t hostUserDatabaseUri(void* context, char* buffer, size_t bufferSize);
     static void    hostInvalidateAcl(void* context);
 
     /// Rebuilds the snapshot readers iterate from the started entries of m_loaded, and recomputes

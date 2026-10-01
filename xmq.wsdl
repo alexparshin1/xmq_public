@@ -6,13 +6,12 @@
         <xsd:schema targetNamespace="http://www.sptk.net/xmq/">
             <xsd:element name="GetClientSessions">
                 <xsd:annotation>
-                    <xsd:documentation>Get client sessions, optionally using pattern.</xsd:documentation>
+                    <xsd:documentation>Find sessions by literal client ID prefix, with a bounded response.</xsd:documentation>
                 </xsd:annotation>
                 <xsd:complexType>
                     <xsd:sequence>
-                        <xsd:element name="action" type="tns:ActionType"/>
-                        <xsd:element name="pattern" type="xsd:string"/>
-                        <xsd:element name="client" type="tns:ConnectionInfo" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="prefix" type="xsd:string"/>
+                        <xsd:element name="limit" type="xsd:int"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
@@ -20,6 +19,7 @@
                 <xsd:complexType>
                     <xsd:sequence>
                         <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="has_more" type="xsd:boolean"/>
                         <xsd:element name="client_sessions" type="tns:ClientSessionInfo" maxOccurs="unbounded"
                                      minOccurs="0"/>
                     </xsd:sequence>
@@ -356,18 +356,12 @@
 
             <xsd:complexType name="ClientSessionInfo">
                 <xsd:sequence>
-                    <xsd:element name="client_id">
-                    	<xsd:simpleType>
-                    		<xsd:restriction base="xsd:string">
-                    			<xsd:pattern value="^\w\S+$"></xsd:pattern>
-                    		</xsd:restriction>
-                    	</xsd:simpleType>
-                    </xsd:element>
-                    <xsd:element name="ip" type="xsd:string" maxOccurs="1" minOccurs="0"/>
-                    <xsd:element name="connected" type="xsd:dateTime" maxOccurs="1" minOccurs="0"/>
-                    <xsd:element name="subscriptions" type="tns:Subscription"
-                                 maxOccurs="unbounded" minOccurs="0">
-                    </xsd:element>
+                    <xsd:element name="client_id" type="xsd:string"/>
+                    <xsd:element name="connected_at" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="online" type="xsd:boolean"/>
+                    <xsd:element name="persistent" type="xsd:boolean"/>
+                    <xsd:element name="queued_messages" type="xsd:int"/>
+                    <xsd:element name="subscription_count" type="xsd:int"/>
                 </xsd:sequence>
             </xsd:complexType>
 

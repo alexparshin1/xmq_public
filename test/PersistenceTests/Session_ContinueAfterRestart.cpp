@@ -158,6 +158,12 @@ TEST_F(XMQ_PersistenceTests, Session_ContinueAfterServerRestart)
     expectSessionInRedis(server->getRedisStorage()->getRedis(), subscriberClientId, messageCount);
     expectRestoredSession(subscriberClientId, topicNames, messageCount);
 
+    const auto restoredCount = server->getClientSessionManager()->clientCount();
+    EXPECT_EQ(restoredCount, server->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsDisconnected));
+    EXPECT_EQ(restoredCount, server->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsTotal));
+
     EXPECT_EQ(messageCount, receiveQueuedMessages(subscriberClientId, messageCount));
 
     stopServers();

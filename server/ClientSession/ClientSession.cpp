@@ -189,9 +189,37 @@ void ClientSession::closeSession()
     (void) closeSession({});
 }
 
+void ClientSession::registerConnectedClient(SystemStatistics& statistics, const bool existingSessionIsClean)
+{
+    const unique_lock accountingLock(m_accountingMutex);
+    bool              countConnection = false;
+    {
+        const unique_lock lock(m_mutex);
+        // The peer may have gone away while authentication or CONNACK was in progress.
+        if (isConnected())
+        {
+            m_connectedAt.store(std::time(nullptr), std::memory_order_relaxed);
+            if (!m_statisticsRegistered)
+            {
+                m_statisticsRegistered = true;
+                countConnection = true;
+            }
+        }
+    }
+    // The metrics scanner publishes while holding its mutex, and publishing can take a
+    // session lock. Never enter it while holding this session's lock.
+    if (countConnection)
+    {
+        statistics.registerConnectedClient(false, existingSessionIsClean);
+    }
+}
+
 bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& expectedConnection)
 {
-    auto notifyHangup = false;
+    auto        notifyHangup = false;
+    auto        countedConnectionClosed = false;
+    auto        countedConnectionWasClean = false;
+    unique_lock accountingLock(m_accountingMutex);
 
     // Taken here rather than after the lock, because clearConnection() below takes the connection -
     // and with it the address - away. Empty client id means there was nothing to disconnect.
@@ -219,6 +247,12 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
 
         if (isConnected())
         {
+            if (m_statisticsRegistered)
+            {
+                m_statisticsRegistered = false;
+                countedConnectionClosed = true;
+                countedConnectionWasClean = isCleanSession();
+            }
             BaseClientSession::closeSession();
 
             if (isCleanSession())
@@ -260,6 +294,15 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
         scheduleExpiration();
         setSessionStateUnlocked(isCleanSession() ? SessionState::Gone : SessionState::Detached);
     }
+
+    if (countedConnectionClosed)
+    {
+        if (auto* statistics = serverUnlocked().systemStatistics())
+        {
+            statistics->registerDisconnectedClient(countedConnectionWasClean);
+        }
+    }
+    accountingLock.unlock();
 
     // server() locks, so this waits for the same release handleConnectionHangup() does.
     if (!disconnectedClientId.empty())

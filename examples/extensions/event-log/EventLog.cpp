@@ -45,6 +45,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <mutex>
 #include <string>
 
 namespace {
@@ -129,6 +130,9 @@ public:
             return false;
         }
 
+        // onEvent() runs on its own thread meanwhile, writing to the file this replaces: the swap
+        // happens under the same lock as the writes, so no line is split between two files.
+        const std::scoped_lock lock(m_fileLock);
         m_file.flush();
         m_file.close();
         m_file = std::move(opened);
@@ -150,18 +154,20 @@ public:
 
     void onEvent(const xmq_event& event) override
     {
+        const std::scoped_lock lock(m_fileLock);
         if (!m_file.is_open())
         {
             return;
         }
 
-        m_file << timestamp(event.timestamp_us) << ' ' << eventName(event.type)
+        m_file << timestamp(event.timestamp_us) << ' ' << eventName(xmq::eventType(event))
                << " client=" << xmq::view(event.client_id);
 
         if (const auto username = xmq::view(event.username); !username.empty())
         {
             m_file << " user=" << username;
         }
+
         if (const auto address = eventAttribute(event, "remote_address"); !address.empty())
         {
             m_file << " from=" << address;
@@ -169,20 +175,23 @@ public:
 
         // An error carries what it was in three attributes that are always there - they are what
         // the event says, not extra facts about it, so they need no wantEventAttributes().
-        if (event.type == XMQ_EVENT_ERROR)
+        if (xmq::eventType(event) == XMQ_EVENT_ERROR)
         {
             m_file << " subject=" << eventAttribute(event, "error_subject")
                    << " reason=" << eventAttribute(event, "error_reason")
                    << " message=\"" << eventAttribute(event, "error_message") << '"';
         }
+
         if (const auto topic = xmq::view(event.topic); !topic.empty())
         {
             m_file << " topic=" << topic << " qos=" << static_cast<int>(event.qos);
         }
-        if (event.type == XMQ_EVENT_PUBLISHED)
+
+        if (xmq::eventType(event) == XMQ_EVENT_PUBLISHED)
         {
             m_file << " bytes=" << event.payload_size << (event.retain != 0 ? " retained" : "");
         }
+
         m_file << '\n';
 
         // Flushed per event on purpose: an event log is read while the broker is still running,
@@ -192,6 +201,7 @@ public:
     }
 
 private:
+    std::mutex    m_fileLock; ///< reload() swaps the file while onEvent() writes to it.
     std::string   m_path;
     std::ofstream m_file;
     uint64_t      m_written {0};

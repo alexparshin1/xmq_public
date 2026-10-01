@@ -17,22 +17,27 @@ cmake --build tray/build --config Release
 ```
 
 Run `tray/build/Release/xmq_tray.exe`, or copy the executable wherever you
-want. Use `--url https://localhost:18883` if your console runs on the sample
-configuration's port. Edge handles certificate warnings in its normal way.
+want. The default URL is `https://localhost:18883`, matching the sample
+configuration. Edge handles certificate warnings in its normal way.
 
 ## Linux
 
 The Linux version uses GLib/GIO for a StatusNotifier tray icon and launches a
-Chromium-based browser in app mode. It does not require Qt. Clicking the tray
-icon opens a console window without browser tabs or toolbar. The tray menu has
-**Open XMQ Console** and **Quit** actions. Closing the browser window leaves
-the tray application running.
+Chromium-based browser in app mode. It does not require Qt. Starting the tray
+does not open a browser window. Clicking the tray icon opens the console; later
+clicks hide or show that same window. The tray menu has **Open XMQ Console**
+and **Quit** actions. Closing the browser window leaves the tray application
+running. Window toggling requires an X11 or XWayland session. Chromium uses a
+separate profile under the user's cache directory for this window.
 
 On Debian or Ubuntu, install the small development package and a browser:
 
 ```sh
-sudo apt install libglib2.0-dev chromium
+sudo apt install libglib2.0-dev libx11-dev chromium
 ```
+
+On FreeBSD, the same source should build with GLib/GIO, X11, CMake,
+pkg-config, and Chromium installed. It has not been tested on FreeBSD.
 
 Build and install independently of the broker:
 
@@ -43,11 +48,11 @@ cmake --install tray/build --prefix "$HOME/.local"
 ```
 
 Run `xmq_tray` from an application menu or shell. The default URL is
-`https://localhost:1883`, as requested. The repository's sample broker
-configuration uses port **18883** for the web console, so with that setup run:
+`https://localhost:18883`, matching the repository's sample broker
+configuration. For a different web console port, run:
 
 ```sh
-xmq_tray --url https://localhost:18883
+xmq_tray --url https://localhost:PORT
 ```
 
 Use `--browser /path/to/browser` to select a different Chromium-based browser.

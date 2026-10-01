@@ -54,7 +54,7 @@ std::string XMQ_ControlServiceTests::Login(const string& username, const string&
     {
         throw Exception(format("Login failed: {}", output.m_result.m_description.asString().c_str()));
     }
-    return output.m_token.asString();
+    return output.m_token.asString().c_str();
 }
 
 TEST_F(XMQ_ControlServiceTests, login)
@@ -177,6 +177,8 @@ TEST_F(XMQ_ControlServiceTests, userControl)
     input.m_user = user;
     m_controlService->UserControl(input, output, &authentication);
     verifyResult(output.m_result);
+    // SQL assigns the persistent ID; edits use the ID the list will return.
+    user.m_id = server()->getSettings()->userManager().findUser("user1").m_id;
     // The password is checked directly rather than by signing in: signing in also requires the
     // account to be an administrator, which is a membership now, and this test is about the
     // account's password rather than about what the account is allowed to do.
@@ -211,6 +213,30 @@ TEST_F(XMQ_ControlServiceTests, userControl)
     m_controlService->UserControl(input, output, &authentication);
     verifyResult(output.m_result);
     EXPECT_EQ(originalUserCount, output.m_list.size());
+}
+
+/**
+ * @brief Changing anonymous access through UserControl does not require a user record.
+ */
+TEST_F(XMQ_ControlServiceTests, userControlChangesAnonymousAccessWithoutAUserRecord)
+{
+    const auto token = Login("admin", "admin");
+    HttpAuthentication authentication("bearer " + token);
+    const auto& users = server()->getSettings()->userManager();
+    const auto original = users.isAllowAnonymous();
+
+    CUserControl input;
+    CUserControlResponse output;
+    input.m_action = "modify";
+    input.m_allow_anonymous = !original;
+    m_controlService->UserControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(!original, users.isAllowAnonymous());
+
+    input.m_allow_anonymous = original;
+    m_controlService->UserControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(original, users.isAllowAnonymous());
 }
 
 TEST_F(XMQ_ControlServiceTests, listenerControl)
@@ -388,13 +414,61 @@ TEST_F(XMQ_ControlServiceTests, getClientSessions)
     EXPECT_FALSE(token.empty());
     HttpAuthentication authentication("bearer " + token);
 
-    CGetClientSessions         input;
+    const auto manager = server()->getClientSessionManager();
+    const auto addSession = [&](const string& id, const bool clean) {
+        auto parameters = make_shared<ConnectMessageParameters>();
+        parameters->setClientId(id);
+        parameters->m_cleanSession = clean;
+        auto session = ClientSession::factory(server().get(), parameters);
+        manager->add(session);
+        return session;
+    };
+    const auto first = addSession("sessions-test-one", false);
+    const auto second = addSession("sessions-test-two", true);
+    const auto outside = addSession("other-sessions-test-one", false);
+
+    CGetClientSessions input;
+    input.m_prefix = "sessions-test-";
+    input.m_limit = 1;
     CGetClientSessionsResponse output;
     m_controlService->GetClientSessions(input, output, &authentication);
     verifyResult(output.m_result);
+    ASSERT_EQ(output.m_client_sessions.size(), 1U);
+    EXPECT_EQ(output.m_client_sessions[0].m_client_id.asString(), "sessions-test-one");
+    EXPECT_TRUE(output.m_has_more.asBool());
+    EXPECT_EQ(output.m_client_sessions[0].m_queued_messages.asInteger(), 0);
+    EXPECT_EQ(output.m_client_sessions[0].m_subscription_count.asInteger(), 0);
+    EXPECT_FALSE(output.m_client_sessions[0].m_online.asBool());
 
-    ASSERT_GE(output.m_client_sessions.size(), 1U);
-    EXPECT_STREQ("127.0.0.1", output.m_client_sessions[0].m_ip.getString());
+    input.m_limit = 2;
+    output = CGetClientSessionsResponse();
+    m_controlService->GetClientSessions(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(output.m_client_sessions.size(), 2U);
+    EXPECT_FALSE(output.m_has_more.asBool());
+    EXPECT_EQ(output.m_client_sessions[0].m_client_id.asString(), "sessions-test-one");
+    EXPECT_EQ(output.m_client_sessions[1].m_client_id.asString(), "sessions-test-two");
+    for (const auto& session: output.m_client_sessions)
+    {
+        EXPECT_EQ(session.m_persistent.asBool(), session.m_client_id.asString() == "sessions-test-one");
+    }
+
+    input.m_limit = 501;
+    output = CGetClientSessionsResponse();
+    m_controlService->GetClientSessions(input, output, &authentication);
+    EXPECT_FALSE(output.m_result.m_success.asBool());
+
+    input.m_limit = 10;
+    input.m_prefix = "sessions-test-(";
+    output = CGetClientSessionsResponse();
+    m_controlService->GetClientSessions(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_TRUE(output.m_client_sessions.empty());
+    EXPECT_FALSE(output.m_has_more.asBool());
+
+    manager->remove(first);
+    manager->remove(second);
+    manager->remove(outside);
 }
 
 
@@ -410,8 +484,7 @@ namespace {
  */
 void giveTheAccountsADatabase(const std::shared_ptr<Settings>& settings)
 {
-    const auto file = filesystem::temp_directory_path() /
-                      ("xmq_control_groups_" + to_string(::getpid()) + ".db");
+    const auto file = filesystem::temp_directory_path() / format("xmq_control_groups_{}.db", getpid());
     filesystem::remove(file);
 
     auto store = make_shared<UserStore>(

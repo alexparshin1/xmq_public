@@ -168,7 +168,7 @@ CPP_OBSERVER = '''
         // same way on purpose: a fact that is not there is not an error.
         const auto address = eventAttribute(event, "remote_address");
 
-        switch (event.type)
+        switch (xmq::eventType(event))
         {
             case XMQ_EVENT_CLIENT_CONNECTED:
                 // TODO: a client connected. username is empty for an anonymous one, and address
@@ -203,6 +203,10 @@ CPP_AUTHENTICATOR = '''
      * is expected: a directory lookup, an HTTP call, a database query all belong right here. While
      * this is outstanding the broker reads nothing more from that client and serves everybody else
      * as usual.
+     *
+     * Called on several of those threads at once, for different clients: anything this reads that
+     * something else changes - a counter, a cache, settings a reload() replaces - has to be atomic
+     * or guarded.
      *
      * Four answers, and the difference between them is what an operator will judge this on:
      *
@@ -243,8 +247,9 @@ CPP_AUTHORIZER = '''
      *
      * Permissions belong to the group and never to the client. That is not a style preference: it
      * is what lets the broker cache one answer per group and topic and keep this extension off the
-     * message path entirely. Return an empty string for a client you do not place, and authorize()
-     * will not be asked about it.
+     * message path entirely. Return an empty string for a client you do not place: it goes into the
+     * unnamed group, which authorize() is still asked about. A name longer than the broker takes
+     * refuses the connection rather than being cut short.
      */
     std::string resolveGroup(const xmq_auth_request& request) override
     {
@@ -261,7 +266,7 @@ CPP_AUTHORIZER = '''
      * Asked once per group, topic and action, and then cached until the rules change - so this is
      * not on the message path, but it must not block: a connection is waiting on the answer.
      * Anything slow belongs in start(), and anything that changes belongs behind a snapshot you
-     * swap.
+     * swap - this runs on the broker's message threads, several at once.
      *
      *   XMQ_ACL_ALLOW / XMQ_ACL_DENY   the rule you found.
      *   XMQ_ACL_NOT_HANDLED            "no opinion": the next authorizer is asked, and the broker
@@ -324,8 +329,9 @@ DATABASE_START = '''
 
         try
         {
-            // One connection per authentication thread the broker keeps. The pool is not the place
-            // to discover that a database has a connection limit.
+            // The broker calls authenticate() from several threads at once; the pool hands each a
+            // connection of its own, and the rest wait for one. The pool is not the place to
+            // discover that a database has a connection limit.
             m_database = std::make_shared<sptk::DatabaseConnectionPool>(uri.c_str(), 4);
 
             // Asked here rather than on the first request: a wrong connection string, an absent

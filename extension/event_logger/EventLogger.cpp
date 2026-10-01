@@ -18,6 +18,7 @@
 
 #include <extension/XmqExtension.h>
 
+#include <mutex>
 #include <string>
 #include <syslog.h>
 
@@ -139,6 +140,11 @@ public:
         }
 
         const auto ident = setting("ident", "xmq");
+
+        // onEvent() runs on its own thread meanwhile, writing through the identity this replaces -
+        // and openlog() keeps a pointer into m_ident, so the string must not change under a
+        // syslog() call that is reading it.
+        const std::scoped_lock lock(m_syslogLock);
         if (ident == m_ident && facility == m_facility)
         {
             return true; // nothing that syslog cares about changed
@@ -190,7 +196,7 @@ public:
         // same way on purpose: a fact that is not there is not an error.
         const auto address = eventAttribute(event, "remote_address");
 
-        std::string line(eventName(event.type));
+        std::string line(eventName(xmq::eventType(event)));
         line += " client=" + clientId;
 
         if (!username.empty())
@@ -207,7 +213,7 @@ public:
             // sent, which is why the line goes to syslog as an argument and not as a format.
             line += " topic=" + topic;
         }
-        if (event.type == XMQ_EVENT_PUBLISHED)
+        if (xmq::eventType(event) == XMQ_EVENT_PUBLISHED)
         {
             line += " bytes=" + std::to_string(event.payload_size) +
                     " qos=" + std::to_string(static_cast<unsigned>(event.qos)) +
@@ -217,6 +223,7 @@ public:
         // "%s" and never line.c_str() as the format. A client id or a topic is whatever the client
         // chose to send, and one containing %s or %n would be read as a conversion - which is a
         // stack read, or worse, driven from outside the broker.
+        const std::scoped_lock lock(m_syslogLock);
         syslog(LOG_INFO, "%s", line.c_str());
         ++m_written;
     }
@@ -227,6 +234,7 @@ private:
     int         m_facility {LOG_DAEMON};
     bool        m_open {false};
     uint64_t    m_written {0};
+    std::mutex  m_syslogLock; ///< reload() reopens syslog while onEvent() writes to it.
 };
 
 } // namespace

@@ -51,7 +51,8 @@ export default class MainMenu extends React.Component {
         // Its own group: the dashboard is where the server is watched and operated, which is a
         // different activity from editing what it will do when it next starts.
         let operationGroup = {
-            "/dashboard": "Dashboard"
+            "/dashboard": "Dashboard",
+            "/sessions": "Sessions"
         };
         let configGroup = {
             // First, and named for what it is: it is where a new installation starts, and the one

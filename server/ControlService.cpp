@@ -22,6 +22,9 @@
 #include <sptk5/net/RedisConnect.h>
 
 #include <array>
+#include <algorithm>
+#include <climits>
+#include <ctime>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -132,27 +135,51 @@ void ControlService::authenticate(HttpAuthentication* authentication, CUser& /*u
     throw Exception("Not authenticated");
 }
 
-void ControlService::GetClientSessions(const CGetClientSessions&, CGetClientSessionsResponse& output, HttpAuthentication* authentication)
+void ControlService::GetClientSessions(const CGetClientSessions& input, CGetClientSessionsResponse& output, HttpAuthentication* authentication)
 {
     try
     {
         CUser user;
         authenticate(authentication, user);
 
-        CClientSessionInfo clientSessionInfo;
-        clientSessionInfo.m_connected = DateTime::Now();
-        clientSessionInfo.m_ip = "127.0.0.1";
-        clientSessionInfo.m_client_id = "test";
+        const std::string prefix = input.m_prefix.asString();
+        const auto limit = input.m_limit.asInteger();
+        if (prefix.size() > 256)
+        {
+            throw Exception("Client ID prefix is too long (maximum 256 characters).");
+        }
+        if (limit < 1 || limit > 500)
+        {
+            throw Exception("Session limit must be between 1 and 500.");
+        }
 
-        CSubscription subscription;
-        subscription.m_topic = "topic/1";
-        subscription.m_qos = 1;
-        clientSessionInfo.m_subscriptions.push_back(subscription);
+        const auto sessions = requireServer().getClientSessionManager()->findSessions(prefix, limit);
+        output.m_has_more = sessions.size() > static_cast<size_t>(limit);
+        for (size_t index = 0; index < std::min(sessions.size(), static_cast<size_t>(limit)); ++index)
+        {
+            const auto& session = sessions[index];
+            CClientSessionInfo info;
+            info.m_client_id = session->getClientId();
+            info.m_online = session->isConnected();
+            info.m_persistent = !session->isCleanSession();
+            info.m_subscription_count = static_cast<int>(std::min(session->subscriptionCount(), static_cast<size_t>(INT_MAX)));
+            const auto queue = session->getInflightQueue();
+            info.m_queued_messages = queue ? static_cast<int>(std::min(queue->size(), static_cast<size_t>(INT_MAX))) : 0;
 
-        subscription.m_topic = "topic/2";
-        clientSessionInfo.m_subscriptions.push_back(subscription);
-
-        output.m_client_sessions.push_back(std::move(clientSessionInfo));
+            if (const auto connectedAt = session->connectedAt(); connectedAt != 0)
+            {
+                std::tm utc {};
+#ifdef _WIN32
+                gmtime_s(&utc, &connectedAt);
+#else
+                gmtime_r(&connectedAt, &utc);
+#endif
+                char timestamp[32] {};
+                std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &utc);
+                info.m_connected_at = timestamp;
+            }
+            output.m_client_sessions.push_back(std::move(info));
+        }
         output.m_result.m_success = true;
     }
     catch (const Exception& e)

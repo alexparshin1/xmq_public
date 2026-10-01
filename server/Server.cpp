@@ -425,6 +425,14 @@ void Server::restoreServerState() const
         }
 
         getClientSessionManager()->load(m_storage, getNodeName());
+        // Restored persistent sessions start offline. Reconnecting one moves it from
+        // "disconnected" to "connected", so seed both counters before listeners open.
+        if (auto* statistics = systemStatistics(); statistics != nullptr)
+        {
+            const auto restored = getClientSessionManager()->clientCount();
+            statistics->setValue(SystemStatistics::SysTopicKind::BrokerClientsDisconnected, restored);
+            statistics->setValue(SystemStatistics::SysTopicKind::BrokerClientsTotal, restored);
+        }
         logMessage(LogSubject::ServerEvents, LogPriority::Info, "Restore server state completed.");
     }
 }
@@ -831,11 +839,6 @@ void Server::closeSession(const SClientSession& clientSession, const bool takeOv
             clientSession->clearSession();
         }
 
-        if (systemStatistics())
-        {
-            systemStatistics()->registerDisconnectedClient(clientSession->isCleanSession());
-        }
-
         logMessage(LogSubject::ServerConnections, LogPriority::Debug,
                    [&clientId]
                    {
@@ -1203,7 +1206,6 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
                                   extensionDecision);
     }
 
-    auto existingSessionIsConnected = false;
     auto existingSessionIsClean = true;
     auto clientSession = newClientSession;
     if (reasonCode == ReasonCode::Success)
@@ -1230,7 +1232,6 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
         }
         else
         {
-            existingSessionIsConnected = existingClientSession->isConnected();
             existingSessionIsClean = existingClientSession->isCleanSession();
             // The takeover moves the connection to the existing session; everything below
             // (CONNACK, session continuation) must operate on that session, not newClientSession.
@@ -1271,7 +1272,7 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
 
     if (systemStatistics())
     {
-        systemStatistics()->registerConnectedClient(existingSessionIsConnected, existingSessionIsClean);
+        clientSession->registerConnectedClient(*systemStatistics(), existingSessionIsClean);
         systemStatistics()->registerSentData(messageBuffer.bytes(), 1, 0);
     }
 

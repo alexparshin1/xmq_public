@@ -53,6 +53,19 @@ public:
     }
 
     /**
+     * @brief Advance the last record id if the given id is greater.
+     * @param id                Record id to observe.
+     */
+    void advanceLastRecordId(const uint64_t id)
+    {
+        std::scoped_lock lock(m_mutex);
+        if (id > m_lastRecordId)
+        {
+            m_lastRecordId = id;
+        }
+    }
+
+    /**
      * @brief Get next record id.
      * @return Next record id.
      */

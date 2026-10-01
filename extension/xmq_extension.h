@@ -28,7 +28,19 @@
  *     the call. Copy anything you keep.
  *   - Strings carry an explicit length and are not guaranteed to be NUL-terminated; payloads are
  *     binary and frequently are not.
- *   - The broker never calls into one extension instance from two threads at once.
+ *
+ * Threads. The broker calls an extension from several threads at once, and an extension has to be
+ * written for that:
+ *
+ *   - create(), start(), stop() and destroy() are never concurrent with anything: create() and
+ *     start() come before any other call, and stop() only once every other call has returned.
+ *   - Everything else may run concurrently, with itself and with each other - authenticate() and
+ *     resolve_group() on each of the broker's authentication threads, authorize() on its message
+ *     threads, on_event() on its event thread, reload() and accounts_changed() on the thread of
+ *     whoever changed the configuration. Settings a reload() replaces are being read by the other
+ *     calls while it runs; swap them atomically, or guard them.
+ *   - Every xmq_host function may be called from any thread, at any time between create() and
+ *     destroy().
  *
  * An extension is a shared library exporting exactly one symbol, xmq_extension_describe(). The
  * broker calls it, checks the ABI version, and then uses the returned table.
@@ -73,18 +85,14 @@ extern "C" {
  * measured in customer upgrades, so it should happen approximately never.
  */
 /*
- * Until XMQ 1.0 ships, this ABI is not published and promises nothing. The minor number below is a
- * build-compatibility counter, not a compatibility guarantee: it moves whenever the layout changes
- * so that the handshake refuses an extension binary older than the broker - xmq_host has no
- * struct_size, so that check is the only thing standing between a stale binary and reading fields
- * nobody filled. No minor is supported once superseded, and every extension is rebuilt with the
- * broker. The append-only discipline below is practice for the promise, not the promise itself.
+ * 1.0 is the ABI of XMQ 1.0, and where the promise begins. Everything numbered before it was
+ * unpublished and is not honoured: an extension built against a pre-1.0 header is refused.
  *
- * At 1.0 the numbering is reset and the promise begins. Nothing between here and there was ever
- * released, so nothing between here and there needs to be honoured.
+ * From here on, a minor version only ever appends fields to the end of xmq_host and xmq_extension,
+ * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 8
+#define XMQ_EXTENSION_ABI_MINOR 0
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -150,7 +158,8 @@ typedef enum xmq_event_type
  */
 typedef struct xmq_event
 {
-    xmq_event_type type;
+    uint32_t       type;           /**< An xmq_event_type. Fixed width: the size of an enum is the
+                                        compiler's choice, and this crosses between compilers. */
     uint64_t       timestamp_us;   /**< Wall clock, microseconds since the epoch. */
     xmq_str        client_id;
     xmq_str        username;       /**< Empty for an anonymous client. */
@@ -169,43 +178,56 @@ typedef struct xmq_event
  */
 typedef struct xmq_host
 {
-    void* context;                 /**< Opaque broker state; pass it back unchanged. */
+    size_t struct_size;            /**< sizeof(xmq_host) as the broker compiled it: a function
+                                        appended in a later minor version exists only when this
+                                        reaches past it. */
+    void*  context;                /**< Opaque broker state; pass it back unchanged. */
 
     /** @brief Write to the broker's log, under the extension's name. */
     void (*log)(void* context, xmq_log_priority priority, const char* message);
 
     /**
      * @brief Read a setting from this extension's own configuration block.
-     * @return The value, or a NULL xmq_str when the key is absent. Valid until the next call.
+     *
+     * Copied into the caller's buffer, so that two threads asking at once cannot overwrite each
+     * other's answer, and so that a reload() running meanwhile cannot change it underneath.
+     *
+     * @param buffer       Receives the value, NUL-terminated and cut to fit when it is too long.
+     * @param buffer_size  Size of buffer, including room for the NUL.
+     * @return The length of the whole value without the NUL - when it is buffer_size or more, the
+     *         value did not fit: ask again with a larger buffer - or -1 when the key is absent.
      */
-    xmq_str (*setting)(void* context, const char* key);
+    int64_t (*setting)(void* context, const char* key, char* buffer, size_t buffer_size);
 
-    /** @brief The broker's version, for an extension that wants to log or check it. */
+    /** @brief The broker's version. Valid for the life of the process. */
     xmq_str (*broker_version)(void* context);
 
-    /* Appended in ABI 1.2. */
+    /**
+     * @brief Where the broker's own accounts live, as a database URI.
+     *
+     * For an authenticator that answers out of that database - the same accounts the Users screen
+     * edits. It is the broker's address to give: the interface writes there, so an extension that
+     * took the address from a setting of its own could be pointed somewhere else and then admit
+     * nobody the interface had added, with neither side able to notice.
+     *
+     * Copied like setting(), with the same return value; -1 on a broker whose accounts are not in a
+     * database. An extension authenticating against something else - LDAP, a file, another
+     * service - has no use for this and should not ask.
+     */
+    int64_t (*user_database_uri)(void* context, char* buffer, size_t buffer_size);
 
     /** @brief Drops every authorization decision the broker has cached, so that the next publish
      *         or subscribe asks again. Call it when the rules change; it is cheap and it is the
      *         only way a rule change takes effect on clients already connected. */
     void (*invalidate_acl)(void* context);
 
-    /* Appended in ABI 1.4. xmq_host has no struct_size and cannot be given one, so an extension
-     * that uses anything below this line must first check broker_version(). */
-
     /**
      * @brief Ask for facts about events that are not fields of xmq_event.
      *
      * The struct is fixed; this is not. A fact the broker learns to publish - the address a client
      * came from, why it went - becomes a name here rather than a new field, so adding one costs no
-     * ABI version and no rebuild of anybody's extension.
-     *
-     * That is what it buys an extension author, who cannot change this file: from here on, one
-     * build serves every broker from 1.4 onwards. A broker that has learned names this extension
-     * never heard of simply does not offer them; a name this extension asks for that its broker
-     * does not publish comes back NULL, which is a branch to write once rather than a build to make
-     * per version. It does not work backwards - an extension built against 1.4 is refused by a 1.3
-     * broker, because the handshake cannot know which of 1.4's additions it depends on.
+     * ABI version and no rebuild of anybody's extension. A name this broker does not publish comes
+     * back NULL, which is a branch to write once rather than a build to make per version.
      *
      * @param names  Comma-separated, e.g. "remote_address, disconnect_reason". Replaces any
      *               previous request.
@@ -224,22 +246,6 @@ typedef struct xmq_host
      *         or this broker does not publish that name. Valid until on_event() returns.
      */
     xmq_str (*event_attribute)(void* context, const xmq_event* event, const char* name);
-
-    /* Appended in ABI 1.8. */
-
-    /**
-     * @brief Where the broker's own accounts live, as a database URI.
-     *
-     * For an authenticator that answers out of that database - the same accounts the Users screen
-     * edits. It is the broker's address to give: the interface writes there, so an extension that
-     * took the address from a setting of its own could be pointed somewhere else and then admit
-     * nobody the interface had added, with neither side able to notice.
-     *
-     * @return The URI, or a NULL xmq_str on a broker whose accounts are not in a database.
-     *         Valid until the next call. An extension authenticating against something else -
-     *         LDAP, a file, another service - has no use for this and should not ask.
-     */
-    xmq_str (*user_database_uri)(void* context);
 } xmq_host;
 
 /**
@@ -289,7 +295,7 @@ typedef struct xmq_setting
     const char*      name;          /**< The key in xmq_extensions.conf. */
     const char*      label;         /**< For a person; NULL means use the name. */
     const char*      description;   /**< One line, shown beside the field. */
-    xmq_setting_type type;
+    uint32_t         type;          /**< An xmq_setting_type, fixed width like xmq_event::type. */
     const char*      default_value; /**< What the extension uses when it is not set; may be NULL. */
     const char*      choices;       /**< Comma-separated, for XMQ_SETTING_CHOICE; NULL otherwise. */
     uint8_t          required;      /**< Non-zero when the extension cannot start without it. */
@@ -415,9 +421,17 @@ typedef enum xmq_acl_decision
  */
 typedef struct xmq_authorizer
 {
-    /** @brief Names the group a connecting client belongs to. May block. Write nothing and the
-     *         client is treated as belonging to no group, for which authorize() is still asked. */
-    void (*resolve_group)(void* instance, const xmq_auth_request* request, char* group, size_t group_size);
+    /**
+     * @brief Names the group a connecting client belongs to. May block.
+     *
+     * Writes the name into group, NUL-terminated, and returns its length without the NUL. Returning
+     * 0 puts the client in no group, for which authorize() is still asked.
+     *
+     * A name that does not fit is not cut short: the extension returns its full length, which is
+     * group_size or more, and the broker refuses the connection. Cut to fit, two groups could come
+     * out with the same name - and so with each other's rights.
+     */
+    size_t (*resolve_group)(void* instance, const xmq_auth_request* request, char* group, size_t group_size);
 
     /** @brief May this group do this to this topic? Must not block. */
     xmq_acl_decision (*authorize)(void* instance, const xmq_str* group, const xmq_str* topic,
@@ -432,9 +446,19 @@ typedef struct xmq_authorizer
  */
 typedef struct xmq_extension
 {
-    size_t      struct_size;       /**< sizeof(xmq_extension) as the extension compiled it. */
+    size_t      struct_size;       /**< sizeof(xmq_extension) as the extension compiled it: the
+                                        broker reads no field beyond it. */
     const char* name;              /**< Short, stable; appears in the log and in configuration. */
     const char* version;           /**< The extension's own version, for the log. */
+
+    /**
+     * @brief One line saying what this extension is for, shown wherever it is listed.
+     *
+     * NULL when the extension does not say. The broker keeps the last one it saw in the extension's
+     * configuration entry, so an extension that is switched off can still describe itself without
+     * its library being loaded to ask - which is what "switched off" is supposed to mean.
+     */
+    const char* description;
 
     void* (*create)(const xmq_host* host);
     void (*destroy)(void* instance);
@@ -445,25 +469,12 @@ typedef struct xmq_extension
     /** @brief Stop and join everything started. The broker will not call anything after this. */
     xmq_status (*stop)(void* instance);
 
-    const xmq_observer* observer;  /**< NULL when the extension does not watch events. */
-
-    /* Appended in ABI 1.1. Fields are only ever added at the end, and struct_size says how far an
-       extension actually filled the table in - which is what lets a newer broker run an older
-       extension without reading past what it wrote. */
-    uint32_t                 capabilities;  /**< Bitwise OR of xmq_capability. */
-    const xmq_authenticator* authenticator; /**< NULL when the extension does not authenticate. */
-
-    /* Appended in ABI 1.2. */
-    const xmq_authorizer* authorizer;       /**< NULL when the extension does not authorize. */
-
-    /* Appended in ABI 1.6. Fields are only ever added at the end, and struct_size says how far an
-     * extension's own table reaches - so a broker must check it before reading anything here. */
-
     /**
      * @brief This extension's settings have changed; read them again.
      *
      * Called on a broker that is running and serving, so that a long-lived installation need not be
-     * restarted to change a setting. Nothing else is called into this extension while it runs.
+     * restarted to change a setting - and so concurrently with the extension's other calls: see
+     * Threads, at the top of this file.
      *
      * Only the settings change. The library is the one that was loaded, the instance is the one
      * that was created, and whatever the extension holds open stays open - that is the difference
@@ -478,28 +489,6 @@ typedef struct xmq_extension
      */
     xmq_status (*reload)(void* instance);
 
-    /* Appended in ABI 1.7. */
-
-    /**
-     * @brief One line saying what this extension is for, shown wherever it is listed.
-     *
-     * NULL when the extension does not say. The broker keeps the last one it saw in the extension's
-     * configuration entry, so an extension that is switched off can still describe itself without
-     * its library being loaded to ask - which is what "switched off" is supposed to mean.
-     */
-    const char* description;
-
-    /**
-     * @brief The settings this extension takes, or NULL when it declares none.
-     *
-     * What makes a configuration screen possible: labels, types, defaults, and which values are
-     * refused before they reach the extension rather than after.
-     */
-    const xmq_setting* settings;
-    size_t             setting_count;
-
-    /* Appended in ABI 1.8. */
-
     /**
      * @brief The accounts in the broker's user database have changed; forget what was cached.
      *
@@ -513,11 +502,25 @@ typedef struct xmq_extension
      * the wrong thing to be told about late: an account is usually revoked because somebody should
      * not be connecting now.
      *
-     * Called on a broker that is running and serving, from the thread that made the change, so an
-     * extension that blocks here delays the interface. NULL when the extension caches nothing or
-     * authenticates against something the broker does not edit.
+     * Called from the thread that made the change, so an extension that blocks here delays the
+     * interface. NULL when the extension caches nothing or authenticates against something the
+     * broker does not edit.
      */
     void (*accounts_changed)(void* instance);
+
+    uint32_t                 capabilities;  /**< Bitwise OR of xmq_capability. */
+    const xmq_observer*      observer;      /**< NULL when the extension does not watch events. */
+    const xmq_authenticator* authenticator; /**< NULL when the extension does not authenticate. */
+    const xmq_authorizer*    authorizer;    /**< NULL when the extension does not authorize. */
+
+    /**
+     * @brief The settings this extension takes, or NULL when it declares none.
+     *
+     * What makes a configuration screen possible: labels, types, defaults, and which values are
+     * refused before they reach the extension rather than after.
+     */
+    const xmq_setting* settings;
+    size_t             setting_count;
 } xmq_extension;
 
 /**

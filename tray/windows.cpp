@@ -9,7 +9,7 @@ constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kOpen = 1001;
 constexpr UINT kQuit = 1002;
 constexpr UINT kTrayId = 1;
-std::wstring consoleUrl = L"https://localhost:1883";
+std::wstring consoleUrl = L"https://localhost:18883";
 UINT taskbarCreated = 0;
 
 bool validUrl(const std::wstring& url) {

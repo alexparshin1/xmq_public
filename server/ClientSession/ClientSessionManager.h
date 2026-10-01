@@ -17,6 +17,7 @@
 
 #include "ClientSession.h"
 #include "service/CConnectionInfo.h"
+#include <map>
 #include <shared_mutex>
 
 namespace xmq {
@@ -75,6 +76,14 @@ public:
     [[nodiscard]] std::vector<CConnectionInfo> getClientConnectionsInfo(const sptk::RegularExpression& matchClientName);
 
     /**
+     * @brief Find sessions whose client ids start with a prefix.
+     * @param prefix            Client id prefix.
+     * @param limit             Maximum number of matches before the extra page indicator.
+     * @return At most limit + 1 sessions in client id order.
+     */
+    [[nodiscard]] std::vector<SClientSession> findSessions(std::string_view prefix, size_t limit) const;
+
+    /**
      * @brief Remove the client session.
      * @param clientSession     Client session to remove.
      */
@@ -99,7 +108,7 @@ public:
 private:
     mutable std::shared_mutex                          m_mutex;                      ///< Mutex to protect client session collections.
     Server*                                            m_xmqServer;                  ///< XMQ server.
-    XMQ_MAP_TYPE<std::string, SClientSession>          m_clientConnectionsByName;    ///< Client id to the client session map.
+    std::map<std::string, SClientSession, std::less<>>  m_clientConnectionsByName;    ///< Ordered client ID index for prefix queries.
     XMQ_MAP_TYPE<const ClientSession*, SClientSession> m_clientConnectionsByAddress; ///< Client address to the client session map.
 
     /**

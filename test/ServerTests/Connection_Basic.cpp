@@ -92,6 +92,8 @@ TEST_F(XMQ_ServerTests, Connection_TakeOver)
  */
 TEST_F(XMQ_ServerTests, Connection_NoConnectMessage)
 {
+    const auto connectedBefore = server()->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsConnected);
     server()->setWaitForConnectMessageTimeout(1s);
     TCPSocket socket;
     socket.open(Host("localhost", TestTcpPortNumber));
@@ -111,7 +113,27 @@ TEST_F(XMQ_ServerTests, Connection_NoConnectMessage)
     }
     EXPECT_FALSE(socket.active());
     EXPECT_EQ(0U, socket.socketBytes());
+    EXPECT_EQ(connectedBefore, server()->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsConnected));
     server()->setWaitForConnectMessageTimeout(10s);
+}
+
+/**
+ * @brief Closing a TCP socket before MQTT CONNECT does not change the client count.
+ */
+TEST_F(XMQ_ServerTests, Connection_CloseBeforeConnectDoesNotChangeClientCount)
+{
+    const auto connectedBefore = server()->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsConnected);
+
+    TCPSocket socket;
+    socket.open(Host("localhost", TestTcpPortNumber));
+    socket.close();
+
+    // Let the reactor handle the peer close. An unaccepted TCP socket is not an MQTT client.
+    this_thread::sleep_for(200ms);
+    EXPECT_EQ(connectedBefore, server()->systemStatistics()->getValue(
+        SystemStatistics::SysTopicKind::BrokerClientsConnected));
 }
 
 TEST_P(XMQ_ServerTests, Connection_InvalidProtocolVersion)

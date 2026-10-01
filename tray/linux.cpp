@@ -1,6 +1,10 @@
 #include <gio/gio.h>
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <X11/Xutil.h>
 
 #include <array>
+#include <cstdlib>
 #include <string>
 
 namespace {
@@ -44,8 +48,13 @@ const char* xml = R"xml(
 
 struct App {
     GMainLoop* loop = nullptr;
-    std::string url = "https://localhost:1883";
+    std::string url = "https://localhost:18883";
     std::string browser;
+    Display* display = nullptr;
+    Window window = None;
+    bool visible = false;
+    bool launching = false;
+    unsigned int launchChecks = 0;
 };
 
 bool validUrl(const std::string& url) {
@@ -66,13 +75,79 @@ bool validUrl(const std::string& url) {
     return valid;
 }
 
-void openConsole(App* app) {
+Window findConsoleWindow(Display* display) {
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char* data = nullptr;
+    const Atom clientList = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    if (XGetWindowProperty(display, DefaultRootWindow(display), clientList, 0, 4096, False,
+                           XA_WINDOW, &type, &format, &count, &remaining, &data) != Success ||
+        type != XA_WINDOW || format != 32) {
+        if (data) XFree(data);
+        return None;
+    }
+    Window found = None;
+    auto* windows = reinterpret_cast<Window*>(data);
+    for (unsigned long i = 0; i < count && found == None; ++i) {
+        XClassHint hint{};
+        if (XGetClassHint(display, windows[i], &hint)) {
+            const bool match = hint.res_class && g_strcmp0(hint.res_class, "xmq-tray-console") == 0;
+            if (hint.res_name) XFree(hint.res_name);
+            if (hint.res_class) XFree(hint.res_class);
+            if (match) found = windows[i];
+        }
+    }
+    XFree(data);
+    return found;
+}
+
+gboolean locateWindow(gpointer data) {
+    auto* app = static_cast<App*>(data);
+    XSync(app->display, False);
+    app->window = findConsoleWindow(app->display);
+    if (app->window != None) {
+        app->launching = false;
+        app->visible = true;
+        return G_SOURCE_REMOVE;
+    }
+    if (++app->launchChecks >= 100) {
+        app->launching = false;
+        g_printerr("Could not find the Chromium console window.\n");
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+void openConsole(App* app, bool toggle = true) {
+    if (app->launching) return;
+    if (app->window != None) {
+        // Hidden windows may leave _NET_CLIENT_LIST; keep the window ID to restore them.
+        if (app->visible) app->window = findConsoleWindow(app->display);
+        if (app->window != None) {
+            if (app->visible && toggle) XUnmapWindow(app->display, app->window);
+            else XMapRaised(app->display, app->window);
+            XFlush(app->display);
+            app->visible = !app->visible || !toggle;
+            return;
+        }
+    }
     const std::string arg = "--app=" + app->url;
-    gchar* argv[] = {const_cast<gchar*>(app->browser.c_str()), const_cast<gchar*>(arg.c_str()), nullptr};
+    const std::string profile = std::string(g_get_user_cache_dir()) + "/xmq-tray-chromium";
+    const std::string profileArg = "--user-data-dir=" + profile;
+    gchar* argv[] = {const_cast<gchar*>(app->browser.c_str()), const_cast<gchar*>(arg.c_str()),
+                     const_cast<gchar*>("--class=xmq-tray-console"),
+                     const_cast<gchar*>("--ozone-platform=x11"),
+                     const_cast<gchar*>(profileArg.c_str()), nullptr};
     GError* error = nullptr;
     if (!g_spawn_async(nullptr, argv, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr, &error)) {
         g_printerr("Cannot launch browser: %s\n", error->message);
         g_clear_error(&error);
+    } else {
+        app->launching = true;
+        app->launchChecks = 0;
+        g_timeout_add(100, locateWindow, app);
     }
 }
 
@@ -102,7 +177,9 @@ GVariant* itemProperty(const char* name) {
     if (g_str_equal(name, "Id")) return g_variant_new_string("xmq-tray");
     if (g_str_equal(name, "Title")) return g_variant_new_string("XMQ Console");
     if (g_str_equal(name, "Status")) return g_variant_new_string("Active");
-    if (g_str_equal(name, "IconName")) return g_variant_new_string("xmq-tray");
+    // Use the embedded pixmap for the tray. A named icon may resolve to an
+    // outdated theme icon or to the desktop's missing-icon placeholder.
+    if (g_str_equal(name, "IconName")) return g_variant_new_string("");
     if (g_str_equal(name, "IconPixmap")) return iconPixmap();
     if (g_str_equal(name, "Menu")) return g_variant_new_object_path(menuPath);
     if (g_str_equal(name, "ItemIsMenu")) return g_variant_new_boolean(FALSE);
@@ -155,7 +232,7 @@ void methodCall(GDBusConnection*, const char*, const char*, const char* interfac
         g_variant_get(parameters, "(isvu)", &id, &event, &unused, &timestamp);
         g_variant_unref(unused);
         if (g_str_equal(event, "clicked")) {
-            if (id == 1) openConsole(app);
+            if (id == 1) openConsole(app, false);
             if (id == 2) g_main_loop_quit(app->loop);
         }
         g_dbus_method_invocation_return_value(invocation, nullptr);
@@ -189,6 +266,11 @@ int main(int argc, char** argv) {
             gchar* path = g_find_program_in_path(candidate);
             if (path) { app.browser = path; g_free(path); break; }
         }
+    }
+    app.display = XOpenDisplay(nullptr);
+    if (!app.display) {
+        g_printerr("An X11 or XWayland display is required to toggle the console window.\n");
+        return 1;
     }
     if (app.browser.empty()) {
         g_printerr("No Chromium-based browser found; use --browser to specify one.\n");
@@ -233,12 +315,12 @@ int main(int argc, char** argv) {
     }
     g_variant_unref(result);
     app.loop = g_main_loop_new(nullptr, FALSE);
-    openConsole(&app);
     g_main_loop_run(app.loop);
     g_main_loop_unref(app.loop);
     g_dbus_connection_unregister_object(bus, menuRegistration);
     g_dbus_connection_unregister_object(bus, itemRegistration);
     g_dbus_node_info_unref(info);
     g_object_unref(bus);
+    XCloseDisplay(app.display);
     return 0;
 }

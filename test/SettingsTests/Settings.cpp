@@ -664,6 +664,50 @@ TEST(XMQ_Settings, initialSetupOffersNoRedisWhenPersistenceIsOff)
     EXPECT_EQ(6390, offeredWithRedis.m_redis_port.asInteger());
 }
 
+/**
+ * @brief Database accounts keep their IDs and anonymous access setting after restart.
+ */
+TEST(XMQ_Settings, databaseAccountsKeepTheirIdsAndAnonymousSettingAfterRestart)
+{
+    const auto directory = emptyTestDirectory("xmq_users_after_restart");
+    const auto configurationFile = directory / "xmq_server.conf";
+    Settings::createConfiguration(configurationFile, directory / "no_such.conf.template");
+
+    {
+        Settings first;
+        first.loadConfiguration(configurationFile);
+        CUser temporary;
+        temporary.m_username = "temporary";
+        temporary.m_password = "Secret#1";
+        first.userManager().addUser(temporary);
+        first.userManager().removeUser(first.userManager().findUser("temporary"));
+    }
+
+    Settings restarted;
+    restarted.loadConfiguration(configurationFile);
+    const auto adminId = restarted.userManager().findUser("admin").m_id.asInt64();
+
+    CUser added;
+    added.m_username = "user";
+    added.m_password = "Secret#1";
+    restarted.userManager().addUser(added);
+
+    EXPECT_EQ(adminId, restarted.userManager().findUser("admin").m_id.asInt64());
+    EXPECT_TRUE(restarted.userManager().isAdministrator("admin"));
+    EXPECT_TRUE(restarted.userManager().authenticate("user", "Secret#1"));
+    EXPECT_NE(adminId, restarted.userManager().findUser("user").m_id.asInt64());
+    const auto groups = restarted.userManager().groupsOf("user");
+    EXPECT_NE(groups.end(), ranges::find(groups, "Default"));
+
+    restarted.userManager().allowAnonymous(true);
+    Settings reloaded;
+    reloaded.loadConfiguration(configurationFile);
+    EXPECT_TRUE(reloaded.userManager().isAllowAnonymous());
+    EXPECT_EQ(adminId, reloaded.userManager().findUser("admin").m_id.asInt64());
+    EXPECT_EQ(restarted.userManager().findUser("user").m_id.asInt64(),
+              reloaded.userManager().findUser("user").m_id.asInt64());
+}
+
 TEST(XMQ_Settings, initialSetupGivesTheAdministratorAPassword)
 {
     const auto directory = emptyTestDirectory("xmq_first_setup");

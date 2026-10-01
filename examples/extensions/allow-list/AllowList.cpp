@@ -49,6 +49,7 @@
 
 #include "extension/XmqExtension.h"
 
+#include <atomic>
 #include <chrono>
 #include <set>
 #include <sstream>
@@ -110,8 +111,8 @@ public:
 
     bool stop() override
     {
-        log(XMQ_LOG_INFO, "admitted " + std::to_string(m_admitted) + " connection(s), abstained on " +
-                              std::to_string(m_abstained));
+        log(XMQ_LOG_INFO, "admitted " + std::to_string(m_admitted.load()) + " connection(s), abstained on " +
+                              std::to_string(m_abstained.load()));
         return true;
     }
 
@@ -149,8 +150,9 @@ private:
     std::set<std::string>     m_allowed;
     bool                      m_unreachable {false};
     std::chrono::milliseconds m_lookup {0};
-    uint64_t                  m_admitted {0};
-    uint64_t                  m_abstained {0};
+    // Atomic: authenticate() runs on every one of the broker's authentication threads at once.
+    std::atomic<uint64_t> m_admitted {0};
+    std::atomic<uint64_t> m_abstained {0};
 };
 
 } // namespace

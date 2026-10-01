@@ -233,6 +233,16 @@ public:
     }
 
     /**
+     * @brief Count the session's subscriptions.
+     * @return Number of subscriptions.
+     */
+    [[nodiscard]] size_t subscriptionCount() const
+    {
+        const std::shared_lock lock(m_mutex);
+        return m_subscribedTo.size();
+    }
+
+    /**
      * @brief Add the subscription to the client.
      * @param subscription          Subscription.
      * @param qos                   Subscription QOS.

@@ -31,6 +31,7 @@
 namespace xmq {
 
 class Server;
+class SystemStatistics;
 
 /**
  * @brief Client session on the server.
@@ -144,6 +145,22 @@ public:
      *         teardown of its own can skip it too.
      */
     bool closeSession(const std::shared_ptr<ServerConnectionExt>& expectedConnection);
+
+    /**
+     * @brief Count a successful MQTT CONNECT once, paired with the close of this connection.
+     * @param statistics               Server statistics to update.
+     * @param existingSessionIsClean   Whether the existing session is clean.
+     */
+    void registerConnectedClient(SystemStatistics& statistics, bool existingSessionIsClean);
+
+    /**
+     * @brief Get the time of the most recent successful CONNECT.
+     * @return Unix seconds, or zero for a restored offline session.
+     */
+    [[nodiscard]] std::time_t connectedAt() const
+    {
+        return m_connectedAt.load(std::memory_order_relaxed);
+    }
 
     /**
      * @brief Whether the close that last took this session's socket away named a connection.
@@ -493,6 +510,11 @@ protected:
     void autoAck(const Message* message) override;
 
 private:
+    // Serializes connection accounting across CONNECT completion and concurrent close.
+    std::mutex m_accountingMutex;
+    // Protected by m_mutex. Accepted TCP sockets and refused CONNECTs never set this.
+    bool m_statisticsRegistered {false};
+    std::atomic<std::time_t> m_connectedAt {0};
     /// Set on the path that removes the socket: whether that close named the connection it was
     /// closing. Relaxed and never read by the server itself - only the reconnect tests ask.
     std::atomic_bool m_lastCloseNamedItsConnection {true};

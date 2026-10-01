@@ -39,6 +39,8 @@ export default class UsersScreen extends React.Component {
         ],
         rows: [],
         allow_anonymous: false,
+        allowAnonymousLoaded: false,
+        allowAnonymousBusy: false,
         dataVersion: 0
     }
 
@@ -48,7 +50,7 @@ export default class UsersScreen extends React.Component {
         // nothing - which is the honest showing of a broker that cannot have groups yet.
             ControlAPI.asyncMakeAPICall("UserGroupControl", {action: "list"})
             .then(data => {
-                if (ControlAPI.apiError(data) || !data || !data.list) {
+                if (!data || ControlAPI.apiError(data) || !data.list) {
                     // A refusal, or a refresh that did not arrive, says nothing about what the
                     // groups are, and the ones already on screen are still the last thing the
                     // server actually said. Replacing them with an empty list is how a save could
@@ -76,9 +78,14 @@ export default class UsersScreen extends React.Component {
                 });
             });
 
-        ControlAPI.asyncMakeAPICall("UserControl", {action: "list"})
+        this.readUsers();
+    }
+
+    readUsers() {
+        const request = this.usersReadRequest = (this.usersReadRequest || 0) + 1;
+        return ControlAPI.asyncMakeAPICall("UserControl", {action: "list"})
             .then(data => {
-                if (ControlAPI.apiError(data) || !data || !data.list) {
+                if (request !== this.usersReadRequest || !data || ControlAPI.apiError(data) || !data.list) {
                     // Same rule as for the groups: a refused answer is not an answer. This one can
                     // arrive half-filled - the accounts gathered and their groups not - and taking
                     // it at face value puts accounts on screen that appear to be in no group.
@@ -94,26 +101,31 @@ export default class UsersScreen extends React.Component {
                         // editor and the formatter both want a list either way.
                         groups: Array.isArray(user.groups) ? user.groups : []
                     })),
-                    allow_anonymous: data.allow_anonymous === true
+                    allow_anonymous: data.allow_anonymous === true,
+                    allowAnonymousLoaded: true
                 });
+                return data.allow_anonymous === true;
             });
     }
 
-    setAllowAnonymous(allowAnonymous) {
-        this.setState({allow_anonymous: allowAnonymous});
-        ControlAPI.asyncMakeAPICall("UserControl",
-                                    {action: "modify", allow_anonymous: allowAnonymous})
-            .then(result => {
-                if (result === null) {
-                    return;
-                }
-                const error = ControlAPI.apiError(result);
-                if (error) {
-                    errorWindow("Can't change anonymous access: " + error);
-                    // Put the checkbox back to what the server still holds.
-                    this.setState({allow_anonymous: !allowAnonymous});
-                }
-            });
+    async setAllowAnonymous(allowAnonymous) {
+        // A pending list from page load must not put an older value over this edit.
+        this.usersReadRequest = (this.usersReadRequest || 0) + 1;
+        this.setState({allowAnonymousBusy: true});
+        const result = await ControlAPI.asyncMakeAPICall("UserControl",
+            {action: "modify", allow_anonymous: allowAnonymous});
+        const error = result && ControlAPI.apiError(result);
+        if (error) {
+            errorWindow("Can't change anonymous access: " + error);
+        }
+        const saved = await this.readUsers();
+        if (saved === undefined) {
+            this.setState({allowAnonymousLoaded: false});
+            errorWindow("Can't confirm the anonymous access setting. Reload the page and try again.");
+        } else if (!error && result && saved !== allowAnonymous) {
+            errorWindow("The server did not save the anonymous access setting.");
+        }
+        this.setState({allowAnonymousBusy: false});
     }
 
     render() {
@@ -146,6 +158,7 @@ export default class UsersScreen extends React.Component {
                 <label htmlFor="allow_anonymous" className="inputScreenLabel">Allow anonymous:</label>
                 <input id="allow_anonymous" name="allow_anonymous" type="checkbox"
                        checked={this.state.allow_anonymous}
+                       disabled={!this.state.allowAnonymousLoaded || this.state.allowAnonymousBusy}
                        onChange={(e) => this.setAllowAnonymous(e.target.checked)}/>
                 <HelpButton helpKey="authentication.allow_anonymous"/>
             </div>

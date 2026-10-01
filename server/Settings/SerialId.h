@@ -48,6 +48,15 @@ public:
         return m_recordIdGenerator.nextRecordId();
     }
 
+    /**
+     * @brief Advance the serial id generator past an existing database id.
+     * @param id                Existing serial id.
+     */
+    void observeSerialId(const uint64_t id)
+    {
+        m_recordIdGenerator.advanceLastRecordId(id);
+    }
+
 private:
     RecordIdGenerator m_recordIdGenerator; ///< Next id generator
 };

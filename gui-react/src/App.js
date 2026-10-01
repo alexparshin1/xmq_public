@@ -5,6 +5,7 @@ import './screen/LoginScreen.jsx'
 import {Route, Routes} from 'react-router-dom';
 import HomeScreen from "./screen/Home";
 import DashboardScreen from "./screen/DashboardScreen";
+import SessionsScreen from "./screen/SessionsScreen";
 import RequireAuth from "./components/RequireAuth";
 import ControlAPI from "./ControlAPI";
 import MainMenu from "./components/MainMenu";
@@ -73,6 +74,7 @@ class App extends React.Component {
                                         checked inside each screen, so a page cannot stay on
                                         display after the session behind it has expired. */}
                                     <Route path="/dashboard" element={<RequireAuth><DashboardScreen/></RequireAuth>}/>
+                                    <Route path="/sessions" element={<RequireAuth><SessionsScreen/></RequireAuth>}/>
                                     <Route path="/users" element={<RequireAuth><UsersScreen/></RequireAuth>}/>
                                     <Route path="/usergroups" element={<RequireAuth><UserGroupsScreen/></RequireAuth>}/>
                                     <Route path="/listeners" element={<RequireAuth><ListenersScreen/></RequireAuth>}/>

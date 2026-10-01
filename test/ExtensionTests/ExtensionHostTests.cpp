@@ -1175,6 +1175,48 @@ TEST_F(XMQ_ExtensionHostTests, authorizesByGroupRatherThanByClient)
     host.stop();
 }
 
+/**
+ * @brief Refuse a client when its group name exceeds the broker's buffer.
+ * A truncated group name could give two different groups the same permissions.
+ */
+TEST_F(XMQ_ExtensionHostTests, aGroupNameTooLongToHoldRefusesTheClient)
+{
+    ExtensionHost host(m_logEngine, "test");
+    host.start({slowAuthorizer("0")}); // its group is the username
+
+    promise<pair<ExtensionHost::AuthDecision, shared_ptr<AclGroup>>> answered;
+    host.authenticate({.m_clientId = "c", .m_username = string(200, 'g')},
+                      [&answered](const ExtensionHost::AuthDecision decision, shared_ptr<AclGroup> group)
+                      {
+                          answered.set_value({decision, std::move(group)});
+                      });
+    auto answer = answered.get_future();
+    ASSERT_EQ(future_status::ready, answer.wait_for(chrono::seconds(5)));
+    const auto [decision, group] = answer.get();
+    EXPECT_EQ(ExtensionHost::AuthDecision::Deny, decision);
+    EXPECT_FALSE(group) << "a client refused for its group name must not be given a group";
+
+    // A name that fits is still a group.
+    EXPECT_TRUE(groupOf(host, "short"));
+    host.stop();
+}
+
+/**
+ * @brief Read a setting in full when it exceeds the wrapper's initial buffer.
+ */
+TEST_F(XMQ_ExtensionHostTests, aLongSettingIsReadWhole)
+{
+    const string root(300, 'r');
+    ExtensionHost host(m_logEngine, "test");
+    host.start({authorizer(root)});
+
+    const auto alice = groupOf(host, "ops-alice");
+    ASSERT_TRUE(alice);
+    EXPECT_EQ(AclDecision::Allow, alice->authorize(root + "/ops/alarm", XMQ_ACL_PUBLISH))
+        << "the rule was built from a root cut short";
+    host.stop();
+}
+
 TEST_F(XMQ_ExtensionHostTests, aGroupDoesNotInheritTheDecisionsOfOneThatHeldItsAddress)
 {
     // The per-thread decision cache identified a group by its address, and every group starts at

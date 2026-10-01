@@ -37,6 +37,7 @@
 
 #include "xmq_extension.h"
 
+#include <algorithm>
 #include <cstring>
 #include <exception>
 #include <string>
@@ -80,8 +81,9 @@ public:
      * @brief The settings changed; read them again with setting().
      *
      * Called on a running broker, so that a long-lived installation need not be restarted to change
-     * a setting. Nothing else is called into this extension while it runs, and everything it holds
-     * open stays open - that is what makes this different from being stopped and started.
+     * a setting, and everything it holds open stays open - that is what makes this different from
+     * being stopped and started. The other calls keep running meanwhile, on their own threads, and
+     * read the settings this replaces: swap them atomically, or guard them.
      *
      * Returning false leaves it running with what it had. An extension that cannot apply a change
      * says so rather than half-applying it: half a configuration is the state nobody can reason
@@ -157,15 +159,18 @@ protected:
         {
             return fallback;
         }
-        const auto value = m_host.setting(m_host.context, key);
-        return value.data == nullptr ? fallback : std::string(value.data, value.length);
+        std::string value;
+        return copied([this, key](char* buffer, size_t size) { return m_host.setting(m_host.context, key, buffer, size); },
+                      value)
+                   ? value
+                   : fallback;
     }
 
     /**
      * @brief Where the broker keeps its own accounts, as a database URI.
      *
      * For an authenticator that answers out of those accounts - the ones the Users screen edits.
-     * Empty on a broker that keeps them elsewhere, and on one older than ABI 1.8.
+     * Empty on a broker that keeps them elsewhere.
      *
      * Not a setting of this extension's own, deliberately: the interface writes to the broker's
      * address, and an extension carrying a second copy of it can be pointed somewhere else and
@@ -177,8 +182,10 @@ protected:
         {
             return {};
         }
-        const auto value = m_host.user_database_uri(m_host.context);
-        return value.data == nullptr ? std::string {} : std::string(value.data, value.length);
+        std::string value;
+        copied([this](char* buffer, size_t size) { return m_host.user_database_uri(m_host.context, buffer, size); },
+               value);
+        return value;
     }
 
     [[nodiscard]] std::string brokerVersion() const
@@ -239,6 +246,31 @@ protected:
     }
 
 private:
+    /**
+     * @brief Read a string copied out by the host, retrying with a larger buffer if needed.
+     * @param read     Host function that copies the string.
+     * @param value    Receives the complete string when one is available.
+     * @return False when the host has no value.
+     */
+    template<typename Read>
+    static bool copied(const Read& read, std::string& value)
+    {
+        std::string buffer(256, '\0');
+        auto        length = read(buffer.data(), buffer.size());
+        if (length >= 0 && static_cast<size_t>(length) >= buffer.size())
+        {
+            buffer.assign(static_cast<size_t>(length) + 1, '\0');
+            length = read(buffer.data(), buffer.size());
+        }
+        if (length < 0)
+        {
+            return false;
+        }
+        buffer.resize(std::min(static_cast<size_t>(length), buffer.size() - 1));
+        value = std::move(buffer);
+        return true;
+    }
+
     xmq_host m_host;
 };
 
@@ -246,6 +278,16 @@ private:
 inline std::string_view view(const xmq_str& text)
 {
     return text.data == nullptr ? std::string_view {} : std::string_view(text.data, text.length);
+}
+
+/**
+ * @brief Get the event type as an enum from its fixed-width representation.
+ * @param event    Event to inspect.
+ * @return Event type.
+ */
+inline xmq_event_type eventType(const xmq_event& event)
+{
+    return static_cast<xmq_event_type>(event.type);
 }
 
 } // namespace xmq
@@ -365,26 +407,29 @@ inline std::string_view view(const xmq_str& text)
             return XMQ_AUTH_DENY;                                                                   \
         }                                                                                           \
     }                                                                                               \
-    void xmqExtensionResolveGroup(void* instance, const xmq_auth_request* request, char* group,     \
-                                  size_t groupSize)                                                 \
+    size_t xmqExtensionResolveGroup(void* instance, const xmq_auth_request* request, char* group,   \
+                                    size_t groupSize)                                               \
     {                                                                                               \
-        if (groupSize == 0)                                                                         \
+        if (groupSize > 0)                                                                          \
         {                                                                                           \
-            return;                                                                                 \
+            group[0] = '\0';                                                                        \
         }                                                                                           \
-        group[0] = '\0';                                                                            \
         try                                                                                         \
         {                                                                                           \
             const auto name = static_cast<ExtensionClass*>(instance)->resolveGroup(*request);       \
-            if (!name.empty() && name.size() < groupSize)                                           \
+            /* A name that does not fit is reported at its full length, never cut to fit: the */    \
+            /* broker then refuses the client rather than put it in a group it does not belong to. */ \
+            if (name.size() < groupSize)                                                            \
             {                                                                                       \
                 std::memcpy(group, name.data(), name.size() + 1);                                   \
             }                                                                                       \
+            return name.size();                                                                     \
         }                                                                                           \
         catch (...)                                                                                 \
         {                                                                                           \
             /* No group, which is not the same as a group with no rights: authorize() is still */   \
             /* asked, and answers for a client whose group could not be established. */             \
+            return 0;                                                                               \
         }                                                                                           \
     }                                                                                               \
     xmq_acl_decision xmqExtensionAuthorize(void* instance, const xmq_str* group,                    \
@@ -409,23 +454,23 @@ inline std::string_view view(const xmq_str& text)
         .struct_size = sizeof(xmq_extension),                                                       \
         .name = ExtensionName,                                                                      \
         .version = ExtensionVersion,                                                                \
+        .description = (ExtensionDescription),                                                      \
         .create = xmqExtensionCreate,                                                               \
         .destroy = xmqExtensionDestroy,                                                             \
         .start = xmqExtensionStart,                                                                 \
         .stop = xmqExtensionStop,                                                                   \
-        .observer = ((ExtensionCapabilities) &XMQ_CAP_OBSERVER) != 0 ? &xmqExtensionObserver : nullptr, \
+        .reload = xmqExtensionReload,                                                               \
+        .accounts_changed = xmqExtensionAccountsChanged,                                            \
         .capabilities = (ExtensionCapabilities),                                                    \
+        .observer = ((ExtensionCapabilities) &XMQ_CAP_OBSERVER) != 0 ? &xmqExtensionObserver : nullptr, \
         .authenticator =                                                                            \
             ((ExtensionCapabilities) &XMQ_CAP_AUTHENTICATOR) != 0 ? &xmqExtensionAuthenticator      \
                                                                   : nullptr,                        \
         .authorizer =                                                                               \
             ((ExtensionCapabilities) &XMQ_CAP_AUTHORIZER) != 0 ? &xmqExtensionAuthorizer            \
                                                                : nullptr,                           \
-        .reload = xmqExtensionReload,                                                               \
-        .description = (ExtensionDescription),                                                      \
         .settings = (ExtensionSettings),                                                            \
-        .setting_count = (ExtensionSettingCount),                                                   \
-        .accounts_changed = xmqExtensionAccountsChanged};                                           \
+        .setting_count = (ExtensionSettingCount)};                                                  \
     }                                                                                               \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
