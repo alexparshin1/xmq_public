@@ -54,14 +54,14 @@ ClientSession::ClientSession(Server*                          server,
     int64_t maxInflightMessages = 32768;
     if (connectMessageProperties)
     {
-        connectMessageProperties->getProperty(Property::ReceiveMaximum, maxInflightMessages);
+        (void) connectMessageProperties->getProperty(Property::ReceiveMaximum, maxInflightMessages);
     }
     setInflightLimit(static_cast<uint16_t>(maxInflightMessages));
 
     if (connectMessageProperties)
     {
         int64_t maxPacketSize = 0;
-        connectMessageProperties->getProperty(Property::MaximumPacketSize, maxPacketSize);
+        (void) connectMessageProperties->getProperty(Property::MaximumPacketSize, maxPacketSize);
         setMaximumPacketSize(maxPacketSize);
     }
 }
