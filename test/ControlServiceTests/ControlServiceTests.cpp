@@ -107,6 +107,7 @@ TEST_F(XMQ_ControlServiceTests, adminWithoutAPasswordIsAdmittedByTheInterfaceOnl
     // token carries, and would refuse them for the same reason authenticate() does.
     HttpAuthentication         authentication("bearer " + response.m_token.asString());
     CGetClientSessions         request;
+    request.m_limit = 100;
     CGetClientSessionsResponse sessions;
     m_controlService->GetClientSessions(request, sessions, &authentication);
     verifyResult(sessions.m_result);
@@ -533,16 +534,22 @@ TEST_F(XMQ_ControlServiceTests, setupStateAnswersWithoutASignIn)
     // Put back by a destructor rather than at the end of the test: every other test in this suite
     // begins by signing in as this account, and leaving it without a password would fail all of
     // them for a reason that has nothing to do with what they measure.
-    const struct RestoreThePassword
+    struct RestoreThePassword
     {
         UserManager& m_users;
         CUser        m_administrator {m_users.findUser("admin")};
+
+        explicit RestoreThePassword(UserManager& users)
+            : m_users(users)
+        {}
 
         ~RestoreThePassword()
         {
             m_users.modifyUser(m_administrator);
         }
-    } restore {server()->getSettings()->userManager()};
+    };
+
+    RestoreThePassword restore {server()->getSettings()->userManager()};
 
     CUser withoutAPassword(restore.m_administrator);
     withoutAPassword.m_password = "";
