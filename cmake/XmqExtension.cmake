@@ -110,4 +110,9 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN ON
             POSITION_INDEPENDENT_CODE ON)
+    # These modules are loaded with dlopen(), so coverage runtime symbols must be resolved
+    # by each module rather than relying on the executable's dynamic symbol table.
+    IF (BUILD_WITH_COVERAGE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        TARGET_LINK_LIBRARIES(${extensionName} PRIVATE gcov)
+    ENDIF ()
 ENDFUNCTION()

@@ -114,7 +114,8 @@ public:
      */
     void subscribe(const std::string& topic)
     {
-        m_mqttClient.subscribe(topic);
+        m_mqttClient.subscribe(Destination(client::MqttClient::getTopic(topic),
+                                           SubscriptionOptions(Qos::Qos1, SubscribeRetainHandling::RetainAlways, true)));
     }
 
     /**

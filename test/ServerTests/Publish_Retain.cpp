@@ -141,8 +141,9 @@ void XMQ_ServerTests::testRetainMessages(ProtocolVersion protocolVersion, Retain
     // Send a message with the empty payload and isRetain flag
     publisher->publish(topic, string(), Qos::Qos0, true);
 
-    // Wait for the retained message to be cleared.
-    this_thread::sleep_for(10ms);
+    // MQTT also delivers the clearing publication to current subscribers.
+    ASSERT_TRUE(publishReceived.wait_for(SmallTimeout));
+    EXPECT_TRUE(publishPayload.empty());
 
     subscriber->hangup();
     this_thread::sleep_for(100ms);

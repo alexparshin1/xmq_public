@@ -46,8 +46,6 @@ Subscription::~Subscription()
     {
         topic->setSubscription({});
     }
-
-    //PersistentObject::removeRecord();
 }
 
 void Subscription::addSubscriptionClient(const std::shared_ptr<ISubscriptionClient>& subscriptionClient,
@@ -134,14 +132,8 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessag
         dynamicRoute = true;
     }
 
-    // Storing the retained payload is SubscriptionManager's job now - it belongs to the topic, not
-    // to this subscription, which may well be a wildcard matching many topics. What remains here is
-    // the delivery decision: a retain publication carrying no payload only clears the stored
-    // message and is not passed on to the current subscribers.
-    if (publishMessage.isRetain() && publishMessage.payloadSize() == 0)
-    {
-        return;
-    }
+    // A retained publication with an empty payload clears the stored value, but it is still a
+    // publication. In particular, cluster subscribers must receive it to clear their own copy.
 
     auto addToDeliverToSessions = [&publishMessage, &deliverToSessions, &dynamicRoute](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
     {

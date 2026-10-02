@@ -45,10 +45,9 @@ SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t
                                      const bool         cleanStart, const vector<LogSubject>& logSubjects)
 {
     using enum LogPriority;
-    // The cluster is built out of the bridges in the test configuration, so this suite asks for
-    // them; the last two arguments are persistence, left at its default, and that request.
+    // Cluster tests exercise cluster links, not the separately configured legacy bridges.
     SServer server = createServer(portNumber, 0, 0, cleanStart, nodeName, "cluster",
-                                  "cluster", Debug, true, true);
+                                  "cluster", Debug, true, false);
 
     server->getSettings()->setLogSubjectsPriority({}, Info);
     server->getSettings()->setLogSubjectsPriority(logSubjects, Debug);
