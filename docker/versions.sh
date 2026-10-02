@@ -6,5 +6,5 @@
 DOCKER_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 XMQ_VERSION=$(< "$DOCKER_DIR/../VERSION.txt")
-SPTK_VERSION=$(< "$DOCKER_DIR/../../sptk5/code/VERSION.txt")
+SPTK_VERSION=$(< "$DOCKER_DIR/../VERSION.SPTK.txt")
 export XMQ_VERSION SPTK_VERSION

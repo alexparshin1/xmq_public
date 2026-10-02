@@ -23,6 +23,63 @@ Or install the package for your distribution from the
 [downloads page](https://xmq.sptk.net/downloads) — `.deb` and `.rpm` are built for
 Debian, Ubuntu, Fedora and Oracle Linux.
 
+## Build from source
+
+The broker uses C++20 and CMake 3.15 or newer. Install a C++20 compiler, CMake,
+Node.js with npm, OpenSSL, PCRE2, zlib, and GoogleTest development headers and
+libraries. On Windows, use a C++20-capable Visual Studio toolchain and the Windows
+SDK. Brotli is optional. The build needs network access the first time `npm ci`
+installs the web interface dependencies.
+
+Install [SPTK](https://github.com/alexparshin1/sptk5) **5.6.x** first. The versions of
+XMQ and SPTK are tied:
+
+| XMQ version | Required SPTK version |
+|---|---|
+| 0.9.18            | 5.6.12                      |
+| 0.9.19            | 5.6.13                      |
+| 0.9.20            | 5.6.14                      |
+
+XMQ requires that exact version and links against SPTK's shared libraries. If you aren't
+sure about which SPTK version you need - CMake will ask for the exact version anyway.
+Build SPTK from the `code/` directory of its repository and install it into a prefix
+CMake can search; the SPTK source tree and XMQ source tree
+do not need to be siblings. Ensure `wsdl2cxx` is on `PATH`. On Linux or FreeBSD, a
+user-local installation is searched at `~/.local` by default:
+
+```bash
+cmake -S sptk5/code -B sptk5-build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build sptk5-build --parallel
+cmake --install sptk5-build
+```
+
+From the parent directory of an XMQ checkout, configure and build in a separate
+directory. If SPTK is installed elsewhere, add
+`-DCMAKE_PREFIX_PATH=/path/to/sptk/prefix` and put that prefix's `bin` directory
+on `PATH`:
+
+```bash
+cmake -S xmq_public -B xmq-build -DCMAKE_BUILD_TYPE=Release -DBUILD_WITH_COVERAGE=OFF -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build xmq-build --parallel
+cmake --build xmq-build --target xmq_unit_tests --parallel
+xmq-build/test/xmq_unit_tests --gtest_filter='DisconnectMessageTests.*:SubscribeMessageTests.*:MessagePropertyTests.*:XMQ_VariableLength.*'
+```
+
+`xmq_server` is in `xmq-build/`; the command-line clients are in
+`xmq-build/utilities/`. On Windows, add `--config Release` to build commands for a
+multi-configuration generator and run the test executable from the generator's
+output directory. `cmake --install xmq-build` installs the broker and clients;
+the test binary is deliberately excluded from a normal install.
+
+The focused command above is the same GoogleTest selection run by public CI; it
+needs no external service. The full suite also opens local network sockets and
+includes integration cases that expect Redis, Mosquitto, and PostgreSQL. Some
+cases use fixed host names or ports; check their fixtures before running the
+whole binary. Set `XMQ_TEST_REDIS` to a Redis instance reserved for the suite:
+tests clear that database between cases. The build generates files under
+`service/` from `xmq.wsdl`, so the source checkout must be writable while
+configuring and building.
+
 ## Performance
 
 The numbers below are median end-to-end latency from runs on AWS `c5n.4xlarge`
@@ -44,7 +101,7 @@ The load generator is part of the release, so the runs can be reproduced.
 | Broker | Median latency | CPU (mean) | Peak RAM |
 |---|---:|---:|---:|
 | FlashMQ | 2.13 ms | 384 % | 29 MB |
-| **XMQ** | **2.48 ms** | **329 %** | **22 MB** |
+| **XMQ** | **1.32 ms** | **329 %** | **22 MB** |
 | EMQX | 4.15 ms | 870 % | 430 MB |
 | Mosquitto | 87 s | 74 % | 2.52 GB |
 
@@ -102,9 +159,10 @@ free to use.
 The MPL is a file-level copyleft: changes to XMQ's own source files stay open,
 while a work that merely combines them with other files — the licence calls it a
 Larger Work — may be released under other terms, including proprietary ones.
-That is deliberate. Extensions that use XMQ's published extension API and ship as
-separate binaries are not derivative works of the broker, and may be licensed
-however their author chooses.
+That is deliberate. An extension written in separate files against XMQ's published
+extension API can generally be licensed separately, including under proprietary
+terms. Copying or modifying MPL-covered XMQ source files carries the MPL's
+requirements for those files.
 
 Files under `service/` are generated during the build by `wsdl2cxx` from
 `xmq.wsdl` and carry no banner of their own; they are covered by the `LICENSE`
@@ -117,8 +175,12 @@ networking, threading and database layers XMQ runs on are all there to read.
 ## Changes
 
 [CHANGELOG.md](CHANGELOG.md) records what changed in each release, and what an upgrade asks of you.
+The remaining public-project work is tracked in [OPEN_SOURCE_TASKS.md](OPEN_SOURCE_TASKS.md).
 
 ## Issues
 
 Bug reports and questions are welcome in this repository's issue tracker, or by
 email to <alexeyp@gmail.com>.
+
+For vulnerabilities, follow the private reporting instructions in
+[SECURITY.md](SECURITY.md).

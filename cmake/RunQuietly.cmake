@@ -11,8 +11,8 @@
 #                    -P cmake/RunQuietly.cmake
 #
 # QUIET_COMMAND is one command line for the platform's shell, which is how it was run before this
-# script existed: the shell is what finds node on PATH, and a login shell is what reads the profile
-# that puts it there.
+# script existed. Keep the caller's PATH: CI adds Node through setup-node, and a login shell can
+# replace that PATH before npm is found.
 
 IF (NOT DEFINED QUIET_COMMAND OR NOT DEFINED QUIET_DIR)
     MESSAGE(FATAL_ERROR "RunQuietly.cmake needs QUIET_COMMAND and QUIET_DIR")
@@ -31,8 +31,7 @@ ENDIF ()
 IF (WIN32)
     SET(shell cmd /C "${QUIET_COMMAND}")
 ELSE ()
-    # Login shell, so that ~/.profile has put node on PATH.
-    SET(shell bash -l -c "${QUIET_COMMAND}")
+    SET(shell bash -c "${QUIET_COMMAND}")
 ENDIF ()
 
 EXECUTE_PROCESS(

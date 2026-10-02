@@ -1,0 +1,58 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: gui-react/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++ libssl-dev libpcre2-dev zlib1g-dev libbrotli-dev libsqlite3-dev libgtest-dev
+
+      - name: Build and install SPTK 5.6.14
+        run: |
+          git clone --branch 5.6.14 --depth 1 https://github.com/alexparshin1/sptk5.git "$RUNNER_TEMP/sptk5"
+          test "$(cat "$RUNNER_TEMP/sptk5/code/VERSION.txt")" = 5.6.14
+          cmake -S "$RUNNER_TEMP/sptk5/code" -B "$RUNNER_TEMP/sptk-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/sptk-install" \
+            -DUSE_FLTK=OFF -DUSE_MYSQL=OFF -DUSE_ODBC=OFF -DUSE_ORACLE=OFF \
+            -DUSE_POSTGRESQL=OFF -DUSE_GTEST=OFF -DUSE_SQLITE3=ON \
+            -DBUILD_EXAMPLES=OFF -DBUILD_PACKAGE=OFF
+          cmake --build "$RUNNER_TEMP/sptk-build" --parallel 2
+          cmake --install "$RUNNER_TEMP/sptk-build"
+          echo "$RUNNER_TEMP/sptk-install/bin" >> "$GITHUB_PATH"
+
+      - name: Configure XMQ without private extensions
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/sptk-install" \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/xmq-install" \
+            -DBUILD_WITH_COVERAGE=OFF -DBUILD_PACKAGE=OFF
+
+      - name: Build broker and tests
+        run: |
+          cmake --build build --parallel 2
+          cmake --build build --target xmq_unit_tests --parallel 2
+
+      - name: Run service-free GoogleTest suites
+        run: |
+          build/test/xmq_unit_tests \
+            --gtest_filter='DisconnectMessageTests.*:SubscribeMessageTests.*:MessagePropertyTests.*:XMQ_VariableLength.*'
