@@ -39,7 +39,8 @@ public:
 
     /**
      * @brief Redraw the bar to reflect current/total progress.
-     * A redraw at less than 100% is skipped if the last one happened too recently.
+     * A redraw at less than 100% is skipped until at least 100 more units have
+     * completed and the minimum redraw interval has elapsed.
      * The 100%-complete redraw is never skipped, so the bar always ends up showing completion.
      * @param current   Completed unit count so far.
      * @param total     Total expected unit count. A total of 0 means nothing to show; skipped.
@@ -55,6 +56,7 @@ private:
     std::string                           m_label;
     bool                                  m_enabled;
     bool                                  m_printed {false};
+    size_t                                m_lastPrintedCount {0};
     std::chrono::steady_clock::time_point m_lastPrint {};
 
     /**

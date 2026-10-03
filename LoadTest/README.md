@@ -124,9 +124,22 @@ load-test failure.
   hypervisor doesn't drop their traffic.
 - `emqx/`, `mosquitto/`, `nanomq/` — install and config files for running the same scenarios
   against these brokers for comparison.
-- `Scenario-Set-Bench.txt` / `Scenario-Set-AWS.txt` — which scenarios belong to which standing
-  set, in run order, and which of the files here are deliberately not in either. The bench set
-  feeds the per-version record in `results/versions/`; the AWS set feeds the published
-  cross-broker comparison in `results/AWS/`. Every line that is not a comment or blank is one
-  scenario file name, so a runner can read them directly.
+- `Scenario-Set.txt` — the common, ordered scenario set for all four brokers on both the home
+  bench and AWS. `Scenario-Set-Bench.txt` and `Scenario-Set-AWS.txt` are links to this one file,
+  so the two environments cannot silently select different tests. Bench results remain private
+  in `results/versions/`; AWS results for publication go in `results/AWS/`.
 - `results/` — recorded output from prior test runs.
+
+## Repeatable comparison runs
+
+Run every broker against the same `Scenario-Set.txt` and scenario JSON files. Record the broker
+and `xmq_scn` versions; the exact client flags; the broker's effective listener, thread, queue,
+authentication and persistence settings; the Redis settings used by the persistent scenario;
+the host OS and kernel; CPU affinity; the client source address range; and NIC drops. Restart
+the selected broker before each scenario, with the other brokers stopped. Start the persistent
+scenario with empty storage and all other scenarios with persistence disabled. The run record
+should contain each scenario's result and duration, plus the total set execution time.
+
+Compare runs on the same host with matching settings. Use the home bench to detect regressions
+before spending time on AWS; publish only AWS measurements. A failure or an incomplete scenario
+is a result to investigate, not a latency value to include in a comparison.

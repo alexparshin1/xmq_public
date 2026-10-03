@@ -28,6 +28,7 @@ using namespace xmq;
 namespace {
 constexpr int          barWidth = 30;
 constexpr milliseconds minRedrawInterval {100};
+constexpr size_t       minRedrawProgress {100};
 } // namespace
 
 ProgressBar::ProgressBar(string label, const bool enabled)
@@ -69,11 +70,13 @@ void ProgressBar::update(const size_t current, const size_t total)
     const auto isDone = current_ == total;
 
     const auto now = steady_clock::now();
-    if (m_printed && !isDone && now - m_lastPrint < minRedrawInterval)
+    if (m_printed && !isDone && current_ >= m_lastPrintedCount &&
+        (current_ - m_lastPrintedCount < minRedrawProgress || now - m_lastPrint < minRedrawInterval))
     {
         return;
     }
     m_lastPrint = now;
+    m_lastPrintedCount = current_;
     m_printed = true;
 
     const auto fraction = static_cast<double>(current_) / static_cast<double>(total);

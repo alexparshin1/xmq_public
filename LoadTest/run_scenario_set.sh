@@ -31,6 +31,7 @@ out_dir=""
 record=""
 nic=""
 version=""
+broker="XMQ"
 server_note=""
 client_note=""
 declare -a notes=()
@@ -81,6 +82,7 @@ Writing the record:
   --version V               Broker version for the record's header. Required with --record: a
                             recorded latency without the version that produced it cannot be
                             reproduced, and none of the broker install scripts pin one.
+  --broker NAME             Broker name for the record's Server: line (default: XMQ).
   --server-note TEXT        The record's Host: line - what the broker ran on. A file is only
                             comparable with another whose Host: line is the same, so this is
                             the CPU, the RAM and the kernel, not just a name.
@@ -110,6 +112,7 @@ while [[ $# -gt 0 ]]; do
     --out)         out_dir="$2"; shift 2 ;;
     --record)      record="$2"; shift 2 ;;
     --version)     version="$2"; shift 2 ;;
+    --broker)      broker="$2"; shift 2 ;;
     --server-note) server_note="$2"; shift 2 ;;
     --client-note) client_note="$2"; shift 2 ;;
     --note)        notes+=("$2"); shift 2 ;;
@@ -158,6 +161,14 @@ if [[ -z "$out_dir" ]]; then
   out_dir="$SCRIPT_DIR/results/runs/$(date +%Y-%m-%d-%H%M)"
 fi
 mkdir -p "$out_dir" || exit 1
+
+set_started_epoch=$(date +%s)
+set_started_at=$(date '+%Y-%m-%d %H:%M:%S %Z')
+set_finished=0
+format_elapsed() {
+  local seconds=$1
+  printf '%02d:%02d:%02d' "$((seconds / 3600))" "$(((seconds % 3600) / 60))" "$((seconds % 60))"
+}
 
 [[ -z "$restart_cmd" ]] && echo "WARNING: no --restart-cmd, so every scenario after the first" \
                                 "runs against whatever state the one before it left." >&2
@@ -243,11 +254,17 @@ extract_block() {
 write_record() {
   [[ -z "$record" ]] && return 0
   {
-    echo "Server:   XMQ"
+    echo "Server:   $broker"
     echo "Version:  $version"
     echo "Host:     ${server_note:-${wait_host:-unknown}}"
     echo "Client:   ${client_note:-$(hostname), xmq_scn $(xmq_scn --version 2>/dev/null | head -1)}"
     echo "Date:     $(date +%Y-%m-%d)"
+    echo "Started:  $set_started_at"
+    if (( set_finished )); then
+      echo "Total execution time: $(format_elapsed "$((set_finished_epoch - set_started_epoch))")"
+    else
+      echo "Elapsed so far: $(format_elapsed "$(($(date +%s) - set_started_epoch))")"
+    fi
     if (( ${#notes[@]} )); then
       echo
       printf '%s\n' "${notes[@]}"
@@ -278,6 +295,14 @@ write_record() {
         printf "  %-36s %8s %9s\n" "$name" "$median" "$samples"
       fi
     done
+    if (( ${#scenario_times[@]} )); then
+      echo
+      echo "Scenario execution time (including setup and restart):"
+      for line in "${scenario_times[@]}"; do
+        IFS='|' read -r name seconds <<<"$line"
+        printf '  %-36s %s\n' "$name" "$(format_elapsed "$seconds")"
+      done
+    fi
     # Three blank lines after the summary, one between scenarios: the spacing the files in
     # results/versions/ already use.
     local block first=1
@@ -343,9 +368,11 @@ READER
 
 declare -a summary
 declare -a blocks
+declare -a scenario_times
 failed=0
 
 for scenario in "${scenarios[@]}"; do
+  scenario_started_epoch=$(date +%s)
   name="${scenario%.json}"
   log="$out_dir/$name.log"
 
@@ -354,6 +381,7 @@ for scenario in "${scenarios[@]}"; do
     if ! XMQ_SCENARIO="$scenario" eval "$setup_cmd"; then
       echo "    setup failed, skipping $name" >&2
       summary+=("$name|setup failed")
+      scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
       write_record
       failed=1
       continue
@@ -365,6 +393,7 @@ for scenario in "${scenarios[@]}"; do
     if ! eval "$restart_cmd"; then
       echo "    restart failed, skipping $name" >&2
       summary+=("$name|restart failed")
+      scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
       write_record
       failed=1
       continue
@@ -373,10 +402,12 @@ for scenario in "${scenarios[@]}"; do
       up=0
       for _ in $(seq 1 60); do
         if timeout 2 bash -c ": >/dev/tcp/$wait_host/$wait_port" 2>/dev/null; then up=1; break; fi
+        sleep 1
       done
       if [[ "$up" -eq 0 ]]; then
         echo "    $wait_host:$wait_port never accepted, skipping $name" >&2
         summary+=("$name|broker did not come back")
+        scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
         write_record
         failed=1
         continue
@@ -388,7 +419,7 @@ for scenario in "${scenarios[@]}"; do
   run_started="$(date '+%Y-%m-%d %H:%M:%S')"
   read -r nic_rx_before nic_tx_before <<<"$(nic_counters)"
   start_broker_stats
-  bash "$SCRIPT_DIR/run_load_test.sh" "${passthrough[@]}" -s "${scenario_path[$scenario]}" > "$log" 2>&1
+  bash "$SCRIPT_DIR/run_load_test.sh" "${passthrough[@]}" "${scenario_path[$scenario]}" > "$log" 2>&1
   rc=$?
   broker_stats="$(read_broker_stats)"
 
@@ -397,6 +428,7 @@ for scenario in "${scenarios[@]}"; do
   if journalctl -k --since "$run_started" --no-pager 2>/dev/null | grep -q "PM: suspend entry"; then
     echo "=== $(date +%H:%M:%S) $name: INVALID - this machine suspended during the run"
     summary+=("$name|invalid: client suspended")
+    scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
     continue
@@ -409,6 +441,7 @@ for scenario in "${scenarios[@]}"; do
     echo "=== $(date +%H:%M:%S) $name: FAILED (exit $rc), see $log"
     tr '\r' '\n' < "$log" | grep -viE 'connecting|publishing|^$' | tail -3 | sed 's/^/    /'
     summary+=("$name|failed (exit $rc)")
+    scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
     continue
@@ -417,6 +450,7 @@ for scenario in "${scenarios[@]}"; do
   if short="$(progress_shortfall "$log")"; [[ -n "$short" ]]; then
     echo "=== $(date +%H:%M:%S) $name: INCOMPLETE - stopped at $short, see $log"
     summary+=("$name|incomplete: $short")
+    scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
     continue
@@ -427,6 +461,7 @@ for scenario in "${scenarios[@]}"; do
     echo "=== $(date +%H:%M:%S) $name: NO RESULT LINE (exit $rc), see $log"
     tr '\r' '\n' < "$log" | grep -viE 'connecting|publishing|^$' | tail -3 | sed 's/^/    /'
     summary+=("$name|no result (exit $rc)")
+    scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
     continue
@@ -462,8 +497,13 @@ for scenario in "${scenarios[@]}"; do
     [[ -n "$nic_line" ]] && echo "$nic_line"
   } > "$out_dir/$name.block"
   blocks+=("$out_dir/$name.block")
+  scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
   write_record
 done
+
+set_finished_epoch=$(date +%s)
+set_finished=1
+write_record
 
 echo
 echo "  Scenario                              Median   Samples"
@@ -475,4 +515,5 @@ done
 echo
 echo "Logs: $out_dir"
 [[ -n "$record" ]] && echo "Record: $record"
+echo "Total execution time: $(format_elapsed "$((set_finished_epoch - set_started_epoch))")"
 exit $failed
