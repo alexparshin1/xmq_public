@@ -21,6 +21,8 @@
 #include "SubscriptionClient.h"
 #include "base/xmq.h"
 
+#include <set>
+
 namespace xmq {
 class SubscriptionManager;
 
@@ -52,10 +54,6 @@ public:
     sptk::DateTime getClusterTime() const;
 
     /**
-     * @brief Join the cluster using a specified node.
-     * @param clusterNodeHost One of the cluster nodes.
-     */
-    /**
      * @brief Attach this node to the cluster another node belongs to.
      * @param clusterNodeHost   Address of a node already in the cluster.
      * @param encrypted         True when that address is served over TLS, in which case this
@@ -86,7 +84,7 @@ public:
     /**
      * @brief Log a message
      * @param logPriority Log priority
-     * @param output Calback returning log message
+     * @param output Callback returning log message
      */
     void logMessage(sptk::LogPriority logPriority, const sptk::Logger::OutputString& output) const;
 
@@ -96,15 +94,40 @@ public:
      * @return Number of matched nodes.
      */
     size_t   getConnectedNodeCount(const std::string& nodeNameFilter = {}) const;
-    /// Whether any node is connected; takes no lock.
+
+    /**
+     * @brief Check whether the node registry contains any nodes without taking a lock.
+     * @return True when the node registry is not empty.
+     */
     bool hasNodes() const noexcept
     {
         return m_connectedNodes.anyNodes();
     }
+    /**
+     * @brief Count registered cluster nodes matching the node name filter.
+     * @param nodeNameFilter    Regular expression for node names, or empty to match all nodes.
+     * @return Number of matching nodes in the node registry.
+     */
     size_t   getClusterNodeCount(const std::string& nodeNameFilter = {}) const;
+
+    /**
+     * @brief Get a copy of the cluster configuration.
+     * @return Cluster settings, including this node and its known peers.
+     */
     CCluster getClusterSettings() const;
 
+    /**
+     * @brief Request a connection to a named cluster node.
+     * @param nodeName          Name of the node to connect.
+     * @note This method is not implemented yet.
+     */
     void connectClusterNode(std::string_view nodeName);
+
+    /**
+     * @brief Request disconnection from a named cluster node.
+     * @param nodeName          Name of the node to disconnect.
+     * @note This method is not implemented yet.
+     */
     void disconnectClusterNode(std::string_view nodeName);
 
     /**
@@ -137,11 +160,36 @@ public:
      */
     void acceptClusterMessage(const SPublishMessage& publishMessage, const std::string& sender);
 
+    /**
+     * @brief Update a local effective topic filter and advertise the change to connected peers.
+     * @param topicFilter       MQTT topic filter used by local client sessions.
+     * @param subscribed        True to add the filter, false to remove it.
+     */
+    void updateLocalSubscription(std::string_view topicFilter, bool subscribed);
+
+    /**
+     * @brief Get a copy of a node's effective subscription filters.
+     * @param nodeName          Name of the local node or a peer.
+     * @return Local filters or the latest peer snapshot; an empty set for an unknown node.
+     */
+    [[nodiscard]] std::set<std::string> getNodeSubscriptions(std::string_view nodeName) const;
+
+    /**
+     * @brief Get the names of nodes in the cluster node registry.
+     * @return Registered node names.
+     */
     [[nodiscard]] sptk::Strings getClusterNodesNames() const;
+    /**
+     * @brief Get the server that owns this cluster instance.
+     * @return Owning server.
+     */
     [[nodiscard]] Server*       getServer() const;
 
 private:
     mutable std::shared_mutex            m_mutex;                  ///< Mutex that protects access to internal data
+    mutable std::mutex                   m_subscriptionMutex;      ///< Protects effective subscription snapshots.
+    std::map<std::string, std::set<std::string>> m_nodeSubscriptions; ///< Effective filters advertised by each node.
+    std::set<std::string>                m_localSubscriptions;      ///< Effective local client filters.
     Server*                              m_server;                 ///< Server.
     std::shared_ptr<Settings>            m_settings;               ///< Server settings.
     std::shared_ptr<SubscriptionManager> m_subscriptionManager;    ///< Subscription manager.
@@ -157,13 +205,49 @@ private:
      */
     void mqttConnectAllNodes();
 
+    /**
+     * @brief Establish a peer connection and send the local subscription snapshot.
+     * @param nodeSettings      Configuration of the peer to connect.
+     * @return Connected peer, or null for this node or a failed connection.
+     */
     SNode connectNode(const CServerNode& nodeSettings);
+    /**
+     * @brief Find a node in the cluster node registry.
+     * @param nodeName          Name of the node to find.
+     * @return Registered node, or null when no node matches.
+     */
     SNode findClusterNode(const std::string& nodeName) const;
+    /**
+     * @brief Update cluster settings from the current node registry.
+     * @note The caller must protect the registry with m_mutex.
+     */
     void  updateClusterInfo() const;
+    /**
+     * @brief Register a connected peer and update the cluster settings.
+     * @param node              Peer to register; disconnected peers are ignored.
+     */
     void  registerConnectedNode(const SNode& node);
+    /**
+     * @brief Mark a registered peer offline and update the cluster settings.
+     * @param node              Peer that is no longer connected.
+     */
     void  deregisterConnectedNode(const SNode& node);
+    /**
+     * @brief Disconnect a peer and discard its advertised subscription snapshot.
+     * @param node              Peer to disconnect and mark offline.
+     */
     void  disconnectNode(const SNode& node);
+    /**
+     * @brief Subscribe to local effective filters on a peer and send their full snapshot.
+     * @param node              Connected peer receiving the filters and snapshot.
+     */
+    void publishSubscriptionSnapshot(const SNode& node) const;
 
+    /**
+     * @brief Subscribe to a list of topic filters on a connected peer.
+     * @param node              Peer receiving the subscriptions.
+     * @param topics            MQTT topic filters to subscribe to.
+     */
     static void subscribeToConnectedNode(const SNode& node, const sptk::Strings& topics);
 
     /**
@@ -203,8 +287,21 @@ private:
      * @param sender            Sender of the message.
      */
     void   processClusterMessage(const SPublishMessage& message, const std::string& sender);
+    /**
+     * @brief Count nodes matching a name filter without acquiring the cluster mutex.
+     * @param nodes             Node registry to filter.
+     * @param nodeNameFilter    Regular expression for node names, or empty to count the cluster registry.
+     * @return Number of matching nodes.
+     * @note The caller must protect the registry with m_mutex.
+     */
     size_t getNodeCountUnlocked(const ServerNodes& nodes, const std::string& nodeNameFilter) const;
 
+    /**
+     * @brief Deserialize a cluster message payload into a configuration object.
+     * @tparam T                Object type providing a load method for a document root.
+     * @param message           Message containing the serialized object.
+     * @return Object loaded from the message payload.
+     */
     template<typename T>
     T deserializeMessage(const SPublishMessage& message)
     {

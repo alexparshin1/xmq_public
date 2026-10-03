@@ -200,6 +200,7 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
                         {
                             acceptClusterMessage(message, node->getName());
                         });
+        publishSubscriptionSnapshot(node);
 
         return node;
     }
@@ -216,6 +217,10 @@ void Cluster::disconnectNode(const SNode& node)
 {
     node->disconnect();
     deregisterConnectedNode(node);
+    {
+        const scoped_lock lock(m_subscriptionMutex);
+        m_nodeSubscriptions.erase(node->getName());
+    }
     logMessage(LogPriority::Debug, [&node]
                {
                    return "Disconnected node '" + node->getName() + "'.";
@@ -403,6 +408,76 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
     }
 }
 
+void Cluster::updateLocalSubscription(const string_view topicFilter, const bool subscribed)
+{
+    const scoped_lock subscriptionLock(m_subscriptionMutex);
+    if (subscribed)
+    {
+        m_localSubscriptions.emplace(topicFilter);
+    }
+    else
+    {
+        m_localSubscriptions.erase(string(topicFilter));
+    }
+
+    string payload;
+    for (const auto& filter: m_localSubscriptions)
+    {
+        payload.append(filter);
+        payload.push_back('\n');
+    }
+
+    const scoped_lock nodesLock(m_mutex);
+    for (const auto& node: m_connectedNodes.nodes())
+    {
+        if (!node->isConnected() || node->getName() == m_server->getNodeName())
+        {
+            continue;
+        }
+        if (subscribed)
+        {
+            node->subscribe(string(topicFilter));
+        }
+        else
+        {
+            node->unsubscribe(string(topicFilter));
+        }
+        auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionSnapshot), payload);
+        message->setQos(Qos::Qos1);
+        node->publish(message);
+    }
+}
+
+void Cluster::publishSubscriptionSnapshot(const SNode& node) const
+{
+    const scoped_lock lock(m_subscriptionMutex);
+    string payload;
+    for (const auto& filter: m_localSubscriptions)
+    {
+        node->subscribe(filter);
+        payload.append(filter);
+        payload.push_back('\n');
+    }
+    auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionSnapshot), payload);
+    message->setQos(Qos::Qos1);
+    node->publish(message);
+}
+
+set<string> Cluster::getNodeSubscriptions(const string_view nodeName) const
+{
+    const scoped_lock lock(m_subscriptionMutex);
+    if (nodeName == m_server->getNodeName())
+    {
+        return m_localSubscriptions;
+    }
+    if (const auto it = m_nodeSubscriptions.find(string(nodeName));
+        it != m_nodeSubscriptions.end())
+    {
+        return it->second;
+    }
+    return {};
+}
+
 Strings Cluster::getClusterNodesNames() const
 {
     const scoped_lock lock(m_mutex);
@@ -441,6 +516,28 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
         case DisconnectClient:
             onDisconnectClientRequest(message, sender);
             break;
+        case SubscriptionSnapshot:
+        {
+            set<string> filters;
+            string_view payload = message->payload();
+            while (!payload.empty())
+            {
+                const auto separator = payload.find('\n');
+                const auto filter = payload.substr(0, separator);
+                if (!filter.empty())
+                {
+                    filters.emplace(filter);
+                }
+                if (separator == string_view::npos)
+                {
+                    break;
+                }
+                payload.remove_prefix(separator + 1);
+            }
+            const scoped_lock lock(m_subscriptionMutex);
+            m_nodeSubscriptions[sender] = std::move(filters);
+            break;
+        }
         case Unknown:
             logMessage(LogPriority::Error, [&message]
                        {

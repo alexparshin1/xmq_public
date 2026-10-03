@@ -123,6 +123,58 @@ TEST_F(XMQ_ScenarioTests, BasicFanInScenario)
     }
 }
 
+/**
+ * Verify that Fan-In resolves publisher topic placeholders separately for each publisher.
+ * Create three publishers and one shared subscriber, plus an independent wildcard observer.
+ * Send six QoS1 messages and check that the observer receives all three indexed topic names.
+ * The old single-topic send loop delivered every message to index zero and fails this check.
+ */
+TEST_F(XMQ_ScenarioTests, FanInPublishesToEachPublisherTopic)
+{
+    ScenarioEngine engine;
+    engine.load(path(XMQ_TEST_SCENARIO_DIRECTORY) / "Basic" / "Fan-In-1K-5-1K-1K.json");
+    auto& scenario = engine.scenario();
+    const auto [publisherId, observerId, topicRoot] = makeTestNames();
+    scenario.m_publishers.m_client_count = 3;
+    scenario.m_publishers.m_id_prefix = publisherId;
+    scenario.m_publishers.m_topics = topicRoot + "/$clientindex";
+    scenario.m_subscribers.m_client_count = 1;
+    scenario.m_subscribers.m_topics = "$share/fanin-topic-test/" + topicRoot + "/#";
+    scenario.m_parameters.m_duration_sec = 0;
+    scenario.m_parameters.m_message_count = 6;
+    scenario.m_parameters.m_publish_rate = 10;
+
+    mutex receivedMutex;
+    set<string> receivedTopics;
+    size_t receivedCount = 0;
+    Semaphore allReceived;
+    client::MqttClient observer;
+    observer.onMessage([&](const SPublishMessage& message)
+                       {
+                           const scoped_lock lock(receivedMutex);
+                           receivedTopics.emplace(message->destination()->toString());
+                           if (++receivedCount == 6)
+                           {
+                               allReceived.post();
+                           }
+                       });
+    ASSERT_EQ(ReasonCode::Success,
+              observer.connect(Host(scenario.m_server.m_hostname.asString(), scenario.m_server.m_port.asInteger()),
+                               ConnectCredentials(observerId, "user", "secret"),
+                               {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    observer.subscribe(topicRoot + "/#");
+
+    vector<RoundTripLatency> latencies;
+    engine.connectClients(latencies, engine.name());
+    engine.publish(latencies, engine.name());
+    EXPECT_TRUE(allReceived.wait_for(1s));
+    engine.disconnectClients();
+    observer.disconnect();
+
+    const scoped_lock lock(receivedMutex);
+    EXPECT_EQ((set<string> {topicRoot + "/0", topicRoot + "/1", topicRoot + "/2"}), receivedTopics);
+}
+
 TEST_F(XMQ_ScenarioTests, BasicFanOutScenario)
 {
     try
@@ -161,7 +213,6 @@ TEST_F(XMQ_ScenarioTests, BasicPointToPointScenario)
 // single external-client publish and nothing else, which is how a broker that stopped reading a
 // TLS socket while data was still in it - see Connection_SSL.cpp - went unnoticed until
 // 2026-09-08. Traffic, not a handshake, is what finds those.
-
 TEST_F(XMQ_ScenarioTests, EncryptedConnectionsScenario)
 {
     try

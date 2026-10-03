@@ -14,7 +14,7 @@
 
 #include "SessionSubscriptions.h"
 
-#include <ranges>
+#include <algorithm>
 
 using namespace std;
 using namespace sptk;
@@ -115,6 +115,16 @@ size_t SessionSubscriptions::size() const
 {
     shared_lock lock(m_mutex);
     return m_clientIndex.size();
+}
+
+bool SessionSubscriptions::any_of(const Predicate& predicate) const
+{
+    const shared_lock lock(m_mutex);
+    return ranges::any_of(m_clientSessionSubscriptions,
+                          [&predicate](const auto& entry)
+                          {
+                              return predicate(entry.client, entry.subscription);
+                          });
 }
 
 void SessionSubscriptions::for_each(const Visitor& callback) const

@@ -13,8 +13,8 @@
 */
 
 #include "Subscription.h"
-#include "ClientSession.h"
 #include "Server.h"
+#include "Cluster/Cluster.h"
 #include "SessionSubscription.h"
 
 #include <ranges>
@@ -23,6 +23,18 @@
 using namespace std;
 using namespace sptk;
 using namespace xmq;
+
+namespace {
+bool hasEffectiveClients(const SessionSubscriptions& clients)
+{
+    return clients.any_of([](ISubscriptionClient* client, const SSessionSubscription&)
+                          {
+                              // Cluster links are not customer interest; both ends use the
+                              // reserved cluster username on their subscription clients.
+                              return client->getUsername() != "cluster";
+                          });
+}
+}
 
 atomic_uint32_t Subscription::m_serial;
 
@@ -55,11 +67,24 @@ void Subscription::addSubscriptionClient(const std::shared_ptr<ISubscriptionClie
 {
     if (subscriptionClient != nullptr)
     {
-        const unique_lock lock(m_mutex);
+        bool wasEffective = false;
+        bool isEffective = false;
+        {
+            const unique_lock lock(m_mutex);
+            wasEffective = hasEffectiveClients(m_clients);
 
-        const SSubscription self = dynamic_pointer_cast<Subscription>(shared_from_this());
-        const auto          sessionSubscription = SessionSubscription::create(subscriptionClient, self, qos, subscriptionOptions, subscriptionId);
-        m_clients.addClient(subscriptionClient.get(), sessionSubscription);
+            const SSubscription self = dynamic_pointer_cast<Subscription>(shared_from_this());
+            const auto          sessionSubscription = SessionSubscription::create(subscriptionClient, self, qos, subscriptionOptions, subscriptionId);
+            m_clients.addClient(subscriptionClient.get(), sessionSubscription);
+            isEffective = hasEffectiveClients(m_clients);
+        }
+        if (wasEffective != isEffective && !m_server->isStopping())
+        {
+            if (const auto cluster = m_server->getCluster())
+            {
+                cluster->updateLocalSubscription(fullName(), isEffective);
+            }
+        }
     }
 }
 
@@ -67,8 +92,21 @@ void Subscription::addSubscriptionClient(const SSessionSubscription& sessionSubs
 {
     if (subscriptionClient != nullptr)
     {
-        const unique_lock lock(m_mutex);
-        m_clients.addClient(subscriptionClient.get(), sessionSubscription);
+        bool wasEffective = false;
+        bool isEffective = false;
+        {
+            const unique_lock lock(m_mutex);
+            wasEffective = hasEffectiveClients(m_clients);
+            m_clients.addClient(subscriptionClient.get(), sessionSubscription);
+            isEffective = hasEffectiveClients(m_clients);
+        }
+        if (wasEffective != isEffective && !m_server->isStopping())
+        {
+            if (const auto cluster = m_server->getCluster())
+            {
+                cluster->updateLocalSubscription(fullName(), isEffective);
+            }
+        }
     }
 }
 
@@ -76,14 +114,39 @@ void Subscription::removeSubscriptionClient(ISubscriptionClient* subscriptionCli
 {
     if (subscriptionClient)
     {
-        m_clients.removeClient(subscriptionClient);
+        bool wasEffective = false;
+        bool isEffective = false;
+        {
+            const unique_lock lock(m_mutex);
+            wasEffective = hasEffectiveClients(m_clients);
+            m_clients.removeClient(subscriptionClient);
+            isEffective = hasEffectiveClients(m_clients);
+        }
+        if (wasEffective != isEffective && !m_server->isStopping())
+        {
+            if (const auto cluster = m_server->getCluster())
+            {
+                cluster->updateLocalSubscription(fullName(), isEffective);
+            }
+        }
     }
 }
 
 void Subscription::removeSubscriptionClients()
 {
-    const unique_lock lock(m_mutex);
-    m_clients.clear();
+    bool wasEffective;
+    {
+        const unique_lock lock(m_mutex);
+        wasEffective = hasEffectiveClients(m_clients);
+        m_clients.clear();
+    }
+    if (wasEffective && !m_server->isStopping())
+    {
+        if (const auto cluster = m_server->getCluster())
+        {
+            cluster->updateLocalSubscription(fullName(), false);
+        }
+    }
 }
 
 vector<shared_ptr<ISubscriptionClient>> Subscription::getClientSessions(const std::string& matchClientSessions) const

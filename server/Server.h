@@ -42,6 +42,10 @@ class RedisStorage;
 
 class Bridge;
 
+/**
+ * @brief XMQ server class.
+ * @remarks Several servers may be created simultaneously, i.e. in the unit tests.
+ */
 class XMQ_EXPORT Server final : public ServerData
 {
     friend class ClientSessionThread;
@@ -76,6 +80,14 @@ public:
      * @return true if the server is stopped.
      */
     bool isStopped(std::chrono::milliseconds timeout);
+
+    /**
+     * @returns True after shutdown starts. Internal teardown must not publish cluster state.
+     */
+    [[nodiscard]] bool isStopping() const noexcept
+    {
+        return static_cast<bool>(m_isStopped);
+    }
 
     /**
      * @return Bridge connections.
@@ -366,7 +378,8 @@ public:
      */
     void acceptClusterMessage(const SPublishMessage& message) const
     {
-        m_cluster.load()->acceptClusterMessage(message, "incoming");
+        const auto& sender = message->getSourceNode();
+        m_cluster.load()->acceptClusterMessage(message, sender.empty() ? "incoming" : sender);
     }
 
     /**

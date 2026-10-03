@@ -119,6 +119,15 @@ public:
     }
 
     /**
+     * @brief Unsubscribes from a specific topic on the node.
+     * @param topic The topic to unsubscribe from.
+     */
+    void unsubscribe(const std::string& topic)
+    {
+        m_mqttClient.unsubscribe(Destination(client::MqttClient::getTopic(topic)));
+    }
+
+    /**
      * @brief Publishes a message to the node.
      * @param message The message to be published.
      */

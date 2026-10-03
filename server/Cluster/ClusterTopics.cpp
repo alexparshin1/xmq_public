@@ -26,6 +26,7 @@ constexpr string_view DetachNodeRequest = "$CLUSTER/request/detach_request";
 constexpr string_view DetachNodeResponse = "$CLUSTER/request/detach_response";
 constexpr string_view DisconnectClient = "$CLUSTER/request/disconnect_client";
 constexpr string_view NodeDetached = "$CLUSTER/request/node_detached";
+constexpr string_view SubscriptionSnapshot = "$CLUSTER/request/subscription_snapshot";
 } // namespace
 
 Topics::Topics(const STopicManager& topicManager)
@@ -36,6 +37,7 @@ Topics::Topics(const STopicManager& topicManager)
           {DetachNodeResponse, Command::DetachNodeResponse},
           {DisconnectClient, Command::DisconnectClient},
           {NodeDetached, Command::NodeDetached},
+          {SubscriptionSnapshot, Command::SubscriptionSnapshot},
       }
     , m_commandTopic {
           {Command::AttachNodeRequest, topicManager->getTopic(AttachNodeRequest)},
@@ -44,6 +46,7 @@ Topics::Topics(const STopicManager& topicManager)
           {Command::DetachNodeResponse, topicManager->getTopic(DetachNodeResponse)},
           {Command::DisconnectClient, topicManager->getTopic(DisconnectClient)},
           {Command::NodeDetached, topicManager->getTopic(NodeDetached)},
+          {Command::SubscriptionSnapshot, topicManager->getTopic(SubscriptionSnapshot)},
       }
 {
 }

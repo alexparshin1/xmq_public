@@ -47,6 +47,18 @@ public:
     /// per-message visit does not allocate a std::function for its three captured references.
     using Visitor = FunctionRef<void(ISubscriptionClient*, const SSessionSubscription&)>;
 
+    /**
+     * @brief Predicate called while the container lock is held and never retained.
+     */
+    using Predicate = FunctionRef<bool(ISubscriptionClient*, const SSessionSubscription&)>;
+
+    /**
+     * @brief Check whether any client subscription matches a predicate.
+     * @param predicate         Predicate applied to each client and its subscription.
+     * @return True at the first match, or false when no subscription matches.
+     */
+    bool any_of(const Predicate& predicate) const;
+
     void for_each(const Visitor& callback) const;
     void for_next(const Visitor& callback);
 

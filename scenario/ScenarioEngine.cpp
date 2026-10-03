@@ -820,7 +820,9 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     {
         using enum Type;
         case FanIn:
-            topicCount = 1;
+            // Resolve the topic template for each publisher. A literal template still gives
+            // one logical topic; $clientindex/$clientid must produce distinct publisher topics.
+            topicCount = publisherCount;
             break;
         case FanOut:
         case PointToPoint:
