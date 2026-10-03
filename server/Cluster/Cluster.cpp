@@ -420,6 +420,14 @@ void Cluster::updateLocalSubscription(const string_view topicFilter, const bool 
         m_localSubscriptions.erase(string(topicFilter));
     }
 
+    // The saved set is sent in full when a peer joins. With no registered peers, avoid rebuilding
+    // this growing snapshot once for every new local filter; doing so makes topic-heavy CONNECT
+    // bursts quadratic even when clustering is disabled.
+    if (!m_connectedNodes.anyNodes())
+    {
+        return;
+    }
+
     string payload;
     for (const auto& filter: m_localSubscriptions)
     {
