@@ -16,6 +16,7 @@
 #include "test/ServerTests/ExternalClient/ExternalClient.h"
 #include "test/ServerTests/ServerTests.h"
 #include "test/TestMqttClient.h"
+#include "test/SubscribeAndWait.h"
 
 using namespace std;
 using namespace sptk;
@@ -29,44 +30,53 @@ void XMQ_ServerTests::testSessionReconnect(bool cleanSession)
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
 
     // Subscribe a client to the topic and exit
-    auto subscriber = make_shared<TestMqttClient>(logEngine(), subscriberClientId, cleanSession, false, protocolVersion);
+    shared_ptr<client::MqttClient> subscriber = make_shared<TestMqttClient>(logEngine(), subscriberClientId, cleanSession, false, protocolVersion);
     ASSERT_TRUE(subscriber->isConnected());
-    subscriber->subscribe(Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(qos)), {});
-
-    // Receive any messages that may have been sent before the subscriber was connected
-    this_thread::sleep_for(100ms);
+    ASSERT_TRUE(test::subscribeAndWait(subscriber, Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(qos))));
     subscriber->disconnect();
 
     // Publish one message while the subscriber is not connected
     const auto publisher = make_shared<TestMqttClient>(logEngine(), publisherClientId, true, false, protocolVersion);
     ASSERT_TRUE(publisher->isConnected());
+    const auto published = make_shared<Semaphore>();
+    publisher->onAck([published](const SMessage& message)
+                     {
+                         if (message->is(Message::Type::PublishAck))
+                         {
+                             published->post();
+                         }
+                     });
     publisher->publish(topicName, "Test Data", qos);
+    ASSERT_TRUE(published->wait_for(2s));
 
-    this_thread::sleep_for(50ms);
-
-    // Connect and subscribe again, and try receiving the second message.
+    // Install the receiver before reconnecting: queued messages may arrive with CONNACK.
     // For a persistent session, don't re-subscribe to the same topic as we expect subscriptions to be preserved.
-    subscriber = make_shared<TestMqttClient>(logEngine(), subscriberClientId, cleanSession, false, protocolVersion);
-    ASSERT_TRUE(subscriber->isConnected());
-    size_t messageCount = 0;
-    subscriber->onMessage([&messageCount](const SPublishMessage&)
+    subscriber = make_shared<client::MqttClient>(logEngine());
+    const auto messageCount = make_shared<atomic_size_t>(0);
+    const auto received = make_shared<Semaphore>();
+    subscriber->onMessage([messageCount, received](const SPublishMessage&)
                           {
-                              ++messageCount;
+                              ++*messageCount;
+                              received->post();
                           });
+    ASSERT_EQ(ReasonCode::Success,
+              subscriber->connect(Host("localhost", TestTcpPortNumber), {subscriberClientId, "user", "secret"},
+                                  {.m_cleanSession = cleanSession}, protocolVersion));
     if (cleanSession)
     {
-        subscriber->subscribe(Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(qos)), {});
+        ASSERT_TRUE(test::subscribeAndWait(subscriber, Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(qos))));
     }
-    this_thread::sleep_for(100ms);
 
     if (cleanSession)
     {
-        EXPECT_EQ(0U, messageCount);
+        EXPECT_FALSE(received->wait_for(100ms));
     }
     else
     {
-        EXPECT_EQ(1U, messageCount);
+        EXPECT_TRUE(received->wait_for(2s));
     }
+    subscriber->onMessage({});
+    EXPECT_EQ(cleanSession ? 0U : 1U, messageCount->load());
 }
 
 TEST_P(XMQ_ServerTests, Session_Clean)

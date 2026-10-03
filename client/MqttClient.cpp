@@ -44,7 +44,14 @@ MqttClient::MqttClient(const std::shared_ptr<LogEngine>& logEngine,
 
 MqttClient::~MqttClient()
 {
+    m_messageCallbackState->closing = true;
     disconnect();
+    // Receivers retain the guard independently of this object. New calls see closing;
+    // calls already in previewMessage must return before the members are destroyed.
+    while (m_messageCallbackState->active.load() != 0)
+    {
+        this_thread::sleep_for(1ms);
+    }
 }
 
 ReasonCode MqttClient::connectInternal(const Host&                host,
@@ -71,9 +78,18 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
     }
 
     auto session = make_shared<Session>(
-        [this](const SMessage& message)
+        [this, callbackState = m_messageCallbackState](const SMessage& message)
         {
-            previewMessage(message);
+            ++callbackState->active;
+            const struct CallbackCompleted
+            {
+                MessageCallbackState& state;
+                ~CallbackCompleted() { --state.active; }
+            } completed {*callbackState};
+            if (!callbackState->closing.load())
+            {
+                previewMessage(message);
+            }
         },
         logger, m_bindAddress);
 

@@ -462,14 +462,16 @@ SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const ui
 
         // Create default cluster settings:
         settings->m_cluster.m_this_node.m_node_name = nodeName;
-        settings->m_cluster.m_this_node.m_host_port = "localhost:" + to_string(listenerPortTcp);
+        settings->m_cluster.m_this_node.m_host_port = "localhost:" + to_string(listenerPortSsl ? listenerPortSsl : listenerPortTcp);
+        settings->m_cluster.m_this_node.m_encrypted = listenerPortSsl != 0;
         settings->m_cluster.m_nodes.clear();
 
         CServerNode thisNode;
         thisNode.m_node_name = nodeName;
         stringstream str;
-        str << "localhost:" << listenerPortTcp;
+        str << "localhost:" << (listenerPortSsl ? listenerPortSsl : listenerPortTcp);
         thisNode.m_host_port = str.str();
+        thisNode.m_encrypted = listenerPortSsl != 0;
         settings->m_cluster.m_nodes.push_back(thisNode);
 
         settings->setLogPriority(minLogLevel);

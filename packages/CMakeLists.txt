@@ -38,6 +38,9 @@ CONFIGURE_FILE("${CMAKE_CURRENT_LIST_DIR}/PostInstall.sh.in"
 
 IF (OS_FLAVOUR STREQUAL "ol" OR OS_FLAVOUR STREQUAL "fedora" OR OS_FLAVOUR STREQUAL "redhat")
     SET(CPACK_GENERATOR "RPM")
+    # Bundled SPTK libraries also belong to the standalone SPTK packages. Their
+    # identical build IDs would create conflicting /usr/lib/.build-id links.
+    SET(CPACK_RPM_SPEC_MORE_DEFINE "%define _build_id_links none")
     SET(CPACK_RPM_PACKAGE_SHLIBDEPS TRUE)
     SET(CPACK_RPM_PACKAGE_GENERATE_SHLIBS ON)
     SET(CPACK_RPM_PACKAGE_MAINTAINER "alexeyp@gmail.com")

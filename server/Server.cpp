@@ -1188,6 +1188,16 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
     auto reasonCode = connectMessage->getReasonCode();
     auto existingClientSession = getClientSession(clientId);
 
+    if (reasonCode == ReasonCode::Success && connectMessage->getUsername() == "cluster")
+    {
+        const auto connection = newClientSession->getConnection();
+        if (!connection || !dynamic_pointer_cast<SSLSocket>(connection->getSocket()))
+        {
+            // Reject before authentication or takeover: a plain socket cannot own a cluster link.
+            reasonCode = ReasonCode::ErrorNotAuthorized;
+        }
+    }
+
     if (reasonCode == ReasonCode::Success)
     {
         // Asked of the socket, because a refusal is worth nothing to whoever reads it without

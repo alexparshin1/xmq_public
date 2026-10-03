@@ -46,7 +46,7 @@ SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t
 {
     using enum LogPriority;
     // Cluster tests exercise cluster links, not the separately configured legacy bridges.
-    SServer server = createServer(portNumber, 0, 0, cleanStart, nodeName, "cluster",
+    SServer server = createServer(portNumber, static_cast<uint16_t>(portNumber + 7000), 0, cleanStart, nodeName, "cluster",
                                   "cluster", Debug, true, false);
 
     server->getSettings()->setLogSubjectsPriority({}, Info);
@@ -92,7 +92,7 @@ tuple<SServer, SServer> XMQ_ClusterTests::makeClusterOfTwoNodes()
     const auto primaryNode = createNode("primary", 1880, true, logSubjects);
     const auto secondaryNode = createNode("secondary", 1886, false, logSubjects);
 
-    secondaryNode->attachToCluster(Host("localhost", 1880));
+    secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
     this_thread::sleep_for(500ms);
     return {primaryNode, secondaryNode};
 }
@@ -124,7 +124,7 @@ vector<SServer> XMQ_ClusterTests::makeTestCluster(const size_t nodeCount, const 
             // The joining nodes have to dial this address, so it must be a connectable one.
             // listenerHosts() reports the bind address instead - 0.0.0.0 - which Linux accepts as
             // a connect target (it falls back to the local host) but Windows rejects outright.
-            primaryHost = make_unique<Host>("localhost", portNumber);
+            primaryHost = make_unique<Host>("localhost", static_cast<uint16_t>(portNumber + 7000));
         }
         else
         {

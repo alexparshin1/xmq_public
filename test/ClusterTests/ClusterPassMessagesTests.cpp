@@ -29,7 +29,7 @@ TEST_F(XMQ_ClusterTests, passMessages_twoNodes)
     COUT("──────────────────────────[Cluster nodes started]───────────────────────────────────────────");
 
     auto [publisher, subscriber, topicName] =
-        createTestSubscriberAndPublisher(primaryNode->getCluster()->getNodeHost(), primaryNode->getCluster()->getNodeHost());
+        createTestSubscriberAndPublisher(m_primaryServerHost, m_primaryServerHost);
 
     ASSERT_TRUE(publisher->isConnected());
     subscriber->disconnect();
@@ -46,7 +46,7 @@ TEST_F(XMQ_ClusterTests, passMessages_twoNodes)
 
     ConnectCredentials        subscriberCredentials(subscriber->getClientId(), "user", "secret");
     client::ConnectParameters connectParameters {.m_cleanSession = false};
-    subscriber->connect(secondaryNode->getCluster()->getNodeHost(), subscriberCredentials, connectParameters);
+    subscriber->connect(m_secondaryServerHost, subscriberCredentials, connectParameters);
     ASSERT_TRUE(subscriber->isConnected());
     this_thread::sleep_for(500ms);
 

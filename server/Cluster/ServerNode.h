@@ -47,6 +47,7 @@ public:
      * and optionally subscribe to the node topics.
      * @param cluster True to connect in cluster mode, false otherwise.
      * @return MQTT connection result(reason) code.
+     * @throws sptk::Exception  When a cluster connection is requested without TLS.
      */
     ReasonCode connect(bool cluster = false);
 

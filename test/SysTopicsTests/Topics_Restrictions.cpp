@@ -45,7 +45,8 @@ TEST_F(XMQ_SysTopicsTests, Topics_PublishIgnored)
                               if (const auto topic = publishMessage->destination()->fullName();
                                   topic == "$SYS/broker/clients/total")
                               {
-                                  if (const auto totalClients = String(reinterpret_cast<const char*>(publishMessage->payloadData())).toInt();
+                                  const auto payload = publishMessage->payload();
+                                  if (const auto totalClients = String(payload.data(), payload.size()).toInt();
                                       maxTotalClients < totalClients)
                                   {
                                       maxTotalClients = totalClients;
@@ -59,6 +60,7 @@ TEST_F(XMQ_SysTopicsTests, Topics_PublishIgnored)
 
     // Wait till system topics are updated
     this_thread::sleep_for(1100ms);
+    subscriber->onMessage({});
     EXPECT_GE(100, maxTotalClients);
 
     publisher->disconnect();

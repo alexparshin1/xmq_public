@@ -34,6 +34,7 @@ Cluster::Cluster(Server* server)
 {
     auto& thisNodeSettings = m_settings->m_cluster.m_this_node;
     thisNodeSettings.m_xmq_version = Server::getVersion();
+    thisNodeSettings.m_encrypted = true;
     thisNodeSettings.m_node_state = static_cast<int>(ServerNodeState::Standalone);
     m_thisNode = make_shared<ServerNode>(m_server, m_settings->m_cluster.m_this_node, m_clusterTopics);
     m_connectedNodes.storeNodeRecord(m_thisNode);
@@ -56,23 +57,24 @@ DateTime Cluster::getClusterTime() const
 
 void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
 {
-    // Cluster node settings
+    if (!encrypted)
+    {
+        throw Exception("Cluster connections require MQTT+SSL.");
+    }
+
+    // The address is the peer's TLS listener. Keys and trust settings belong to the local node.
     CServerNode nodeSettings;
     nodeSettings.m_node_name = format("{}_{}", clusterNodeHost.hostname(), clusterNodeHost.port());
     nodeSettings.m_host_port = clusterNodeHost.toString();
-
-    // Told rather than assumed, as it used to be: whether the address given speaks TLS is known
-    // to whoever gave it and to nobody here. The keys are this node's own - the pair that
-    // identifies it to the rest of the cluster - and the trust settings come with them.
-    nodeSettings.m_encrypted = encrypted;
-    if (encrypted)
-    {
-        nodeSettings.m_ssl_keys = m_settings->m_connections.m_ssl_keys;
-    }
+    nodeSettings.m_encrypted = true;
+    nodeSettings.m_ssl_keys = m_settings->m_connections.m_ssl_keys;
     const auto serverNode = make_shared<ServerNode>(m_server, nodeSettings, m_clusterTopics);
 
-    serverNode->connect(true);
-    m_attachResponseReceived = false; // should be set by the incoming message.
+    m_attachResponseReceived = false;
+    if (serverNode->connect(true) != ReasonCode::Success)
+    {
+        throw Exception("Cannot connect to the cluster TLS listener.");
+    }
     serverNode->sendAttachNodeRequest();
     if (!m_attachResponseReceived.wait_for(true, 1000ms))
     {

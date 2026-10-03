@@ -187,9 +187,9 @@ public:
 
     void executeMessageCallback(const SMessage& message) const
     {
-        if (m_messageCallback)
+        if (const auto callback = m_messageCallback.load())
         {
-            m_messageCallback(message);
+            (*callback)(message);
         }
     }
 
@@ -248,7 +248,7 @@ private:
     const GenericProtocol*                  m_protocol {nullptr};              ///< Session protocol
     sptk::Buffer                            m_writeBuffer {128};               ///< Session write buffer.
     std::atomic_size_t                      m_maximumPacketSize {0xFFFFFFFFU}; ///< Maximum MQTT packet size in the session.
-    MessageCallback                         m_messageCallback;                 ///< Message callback.
+    AtomicSharedPtr<const MessageCallback>  m_messageCallback {nullptr};       ///< Message callback retained by an executing receiver.
     SessionType                             m_sessionType;                     ///< If true then this is Session.
 };
 

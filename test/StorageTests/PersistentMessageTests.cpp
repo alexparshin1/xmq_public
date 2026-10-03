@@ -92,14 +92,14 @@ TEST_F(XMQ_StorageTests, messagePackUnpackPreservesDeliveryId)
     const auto* topic = server()->getTopic("test/topic");
     auto        publish = make_shared<mqtt::PublishMessage>(topic, string_view("delivery id round trip"));
 
-    sptk::Semaphore completed;
-    const auto      messageDelivery = MessageDelivery::create(testStorage->session(), std::move(publish), Qos::Qos1,
-                                                              originalDeliveryId, SubscriptionIdSet {}, false, 0,
-                                                              [&completed](const shared_ptr<MessageDelivery>&)
-                                                              {
-                                                             completed.post();
+    const auto completed = make_shared<sptk::Semaphore>();
+    const auto messageDelivery = MessageDelivery::create(testStorage->session(), std::move(publish), Qos::Qos1,
+                                                         originalDeliveryId, SubscriptionIdSet {}, false, 0,
+                                                         [completed](const shared_ptr<MessageDelivery>&)
+                                                         {
+                                                             completed->post();
                                                          });
-    completed.wait();
+    ASSERT_TRUE(completed->wait_for(10s)) << "Message persistence did not complete within 10 seconds";
     ASSERT_EQ(originalDeliveryId, messageDelivery->m_deliveryId);
 
     const auto sessionKeyId = "session_" + testStorage->session()->getClientId() + "_messages";

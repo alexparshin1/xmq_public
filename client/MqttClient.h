@@ -260,6 +260,17 @@ public:
     static const Topic* getTopic(std::string_view topic);
 
 private:
+    /**
+     * @brief Keeps callbacks from accessing a client after its destruction begins.
+     * @details Sessions retain this state even when they outlive the client or are replaced.
+     */
+    struct MessageCallbackState
+    {
+        std::atomic_bool   closing {false}; ///< Destruction has disabled access to the client.
+        std::atomic_size_t active {0};      ///< Callbacks that may still access the client.
+    };
+
+    std::shared_ptr<MessageCallbackState>                      m_messageCallbackState = std::make_shared<MessageCallbackState>(); ///< Lifetime guard shared with every session.
     std::shared_ptr<sptk::LogEngine>                           m_logEngine;               ///< Log engine.
     bool                                                       m_hasCallerLogPrefix {false}; ///< Caller named this client; connect() must not relabel it.
     std::shared_ptr<sptk::Logger>                              m_logger;                  ///< Logger (set once in the constructor, then read-only).

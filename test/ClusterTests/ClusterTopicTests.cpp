@@ -45,7 +45,8 @@ void publishTopicRestrictions(const Host&   server, const ConnectCredentials&   
         }
     });
 
-    const auto rc = publisher->connect(server, credentials, {.m_cleanSession = true}, ProtocolVersion::MqttV5);
+    const auto sslKeys = credentials.getUsername() == "cluster" ? make_shared<SSLKeys>() : nullptr;
+    const auto rc = publisher->connect(server, credentials, {.m_cleanSession = true}, ProtocolVersion::MqttV5, {}, sslKeys);
     ASSERT_EQ(ReasonCode::Success, rc);
 
     // Any user can publish to regular topics
@@ -81,7 +82,8 @@ void subscribeTopicRestrictions(const ProtocolVersion  protocolVersion, const Ho
         }
     });
 
-    const auto rc = subscriber->connect(server, credentials, {.m_cleanSession = true}, protocolVersion);
+    const auto sslKeys = credentials.getUsername() == "cluster" ? make_shared<SSLKeys>() : nullptr;
+    const auto rc = subscriber->connect(server, credentials, {.m_cleanSession = true}, protocolVersion, {}, sslKeys);
     ASSERT_EQ(ReasonCode::Success, rc);
 
     // Any user can subscribe to regular topics
@@ -113,11 +115,11 @@ void subscribeWildcardRestrictions(const Host&   server, const XMQ_ServerTests::
     });
 
     ConnectCredentials credentials{testNames.m_subscriberClientId, "cluster", "cluster"};
-    auto               rc = subscriber->connect(server, credentials, {.m_cleanSession = true});
+    auto               rc = subscriber->connect(server, credentials, {.m_cleanSession = true}, ProtocolVersion::MqttV5, {}, make_shared<SSLKeys>());
     ASSERT_EQ(ReasonCode::Success, rc);
 
     ConnectCredentials credentials2(testNames.m_publisherClientId, "cluster", "cluster");
-    rc = publisher->connect(server, credentials2, {.m_cleanSession = true});
+    rc = publisher->connect(server, credentials2, {.m_cleanSession = true}, ProtocolVersion::MqttV5, {}, make_shared<SSLKeys>());
     ASSERT_EQ(ReasonCode::Success, rc);
 
     // Subscribe to a wildcard
@@ -165,7 +167,7 @@ TEST_F(XMQ_ClusterTests, publishClusterUserAccess)
     const ConnectCredentials credentials{subscriberClientId, "cluster", "cluster"};
 
     // Not testing for MQTT3* as PubAck only has reason code in MQTT5.
-    publishTopicRestrictions(m_primaryServerHost, credentials, 0, logEngine());
+    publishTopicRestrictions(Host("localhost", 8880), credentials, 0, logEngine());
 }
 
 /**
@@ -189,7 +191,7 @@ TEST_F(XMQ_ClusterTests, subscribeUserAccess)
 }
 
 /**
- * Verify that the client with the username 'cluster' can't subscribe to the regular topic
+ * Verify that the client with the username 'cluster' can subscribe to the regular topic
  * but can subscribe to "$CLUSTER/" topics.
  */
 TEST_F(XMQ_ClusterTests, subscribeClusterUserAccess)
@@ -201,9 +203,9 @@ TEST_F(XMQ_ClusterTests, subscribeClusterUserAccess)
 
     const ConnectCredentials credentials{subscriberClientId, "cluster", "cluster"};
 
-    subscribeTopicRestrictions(ProtocolVersion::MqttV31, m_primaryServerHost, credentials,
+    subscribeTopicRestrictions(ProtocolVersion::MqttV31, Host("localhost", 8880), credentials,
                                static_cast<uint8_t>(ReasonCode::UnspecifiedError), 1, logEngine());
-    subscribeTopicRestrictions(ProtocolVersion::MqttV5, m_primaryServerHost, credentials,
+    subscribeTopicRestrictions(ProtocolVersion::MqttV5, Host("localhost", 8880), credentials,
                                static_cast<uint8_t>(ReasonCode::NotAuthorized), 1, logEngine());
 }
 
@@ -214,5 +216,5 @@ TEST_F(XMQ_ClusterTests, subscribeWildcardRestrictions)
 
     const auto testNames = makeTestNames();
 
-    subscribeWildcardRestrictions(m_primaryServerHost, testNames, "#", logEngine());
+    subscribeWildcardRestrictions(Host("localhost", 8880), testNames, "#", logEngine());
 }

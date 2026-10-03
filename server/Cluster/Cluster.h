@@ -56,10 +56,11 @@ public:
     /**
      * @brief Attach this node to the cluster another node belongs to.
      * @param clusterNodeHost   Address of a node already in the cluster.
-     * @param encrypted         True when that address is served over TLS, in which case this
-     *                          node's own keys and trust settings are used for the link.
+     * @param encrypted         Must be true: cluster links require TLS and use this node's
+     *                          own keys and trust settings. False is rejected.
+     * @throws sptk::Exception  When TLS is disabled or the initial connection fails.
      */
-    void joinCluster(const sptk::Host& clusterNodeHost, bool encrypted = false);
+    void joinCluster(const sptk::Host& clusterNodeHost, bool encrypted = true);
 
     /**
      * @brief Initiates the connection of this server to the cluster.

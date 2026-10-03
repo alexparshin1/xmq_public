@@ -109,7 +109,7 @@ TEST_F(XMQ_ClusterTests, joiningNodeReceivesRetainedMessagesWithoutSubscribers)
     ASSERT_TRUE(storedOnPrimary);
 
     auto third = createNode("third", 1881, false);
-    third->attachToCluster(m_primaryServerHost);
+    third->attachToCluster(primary->getCluster()->getNodeHost());
 
     bool storedOnThird = false;
     for (auto i = 0; i < 100 && !storedOnThird; ++i)

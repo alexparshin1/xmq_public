@@ -14,6 +14,10 @@ Requires SPTK 5.6.14.
 
 ### Changed
 
+- **Cluster links require MQTT+SSL.** The reserved `cluster` account is refused on plain MQTT
+  connections. A node advertises its TLS endpoint, and outgoing links use the local node's keys
+  and certificate verification settings. Existing experimental cluster configurations must set
+  `cluster.this_node.host_port` to the reachable TLS listener before joining.
 - **Persistent clients connect without any thread waiting for Redis.** The broker looked a
   connecting client's stored session up with a synchronous request, one at a time per connection,
   and with Redis syncing every write to disk (`appendfsync always`) each answer waited for a flush.
@@ -40,6 +44,14 @@ Requires SPTK 5.6.14.
   `docker exec -it <container> xmq_server --set-password admin`, then `docker restart`.
   **A container started with `XMQ_ADMIN_PASSWORD` and no volume** has no administrator
   password after the upgrade.
+
+### Fixed
+
+- **MQTT client shutdown retains callbacks still executing.** Concurrent receive and
+  disconnect could clear a callback while it was running, or destroy the client before
+  its receiver returned. This could crash during reconnects and bridge rebuilds.
+- **RPM installation alongside SPTK.** Bundled SPTK libraries no longer create duplicate
+  `/usr/lib/.build-id` links that conflict with the standalone SPTK packages.
 
 ## 0.9.19 — 2026-09-30
 

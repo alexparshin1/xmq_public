@@ -168,7 +168,7 @@ void BaseClientSession::closeSession()
 
 void BaseClientSession::onMessage(MessageCallback messageCallback)
 {
-    m_messageCallback = std::move(messageCallback);
+    m_messageCallback.store(messageCallback ? make_shared<const MessageCallback>(std::move(messageCallback)) : nullptr);
 }
 
 string BaseClientSession::bridgeOrigin() const

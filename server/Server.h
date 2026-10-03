@@ -178,15 +178,11 @@ public:
     std::string getClusterPassword() const;
 
     /**
-     * @brief Attach to cluster.
-     * @param host              Any of the cluster nodes host and port.
-     */
-    /**
      * @brief Attach this server to the cluster another node belongs to.
      * @param host              Address of a node already in the cluster.
-     * @param encrypted         True when that address is served over TLS.
+     * @param encrypted         Must be true; unencrypted cluster connections are rejected.
      */
-    void attachToCluster(const sptk::Host& host, bool encrypted = false) const;
+    void attachToCluster(const sptk::Host& host, bool encrypted = true) const;
 
     /**
      * @brief Detach from the cluster.

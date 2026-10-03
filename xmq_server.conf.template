@@ -71,7 +71,8 @@
   "cluster": {
     "this_node": {
       "node_name": "primary",
-      "host_port": "localhost:1883"
+      "host_port": "localhost:8883",
+      "encrypted": true
     },
     "nodes": []
   }

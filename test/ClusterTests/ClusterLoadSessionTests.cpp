@@ -30,7 +30,7 @@ TEST_F(XMQ_ClusterTests, loadSession)
         COUT("──────────────────────────[Cluster nodes started]───────────────────────────────────────────");
 
         auto [publisher, subscriber, topicName] =
-            createTestSubscriberAndPublisher(primaryNode->getCluster()->getNodeHost(), primaryNode->getCluster()->getNodeHost());
+            createTestSubscriberAndPublisher(m_primaryServerHost, m_primaryServerHost);
 
         ASSERT_TRUE(publisher->isConnected());
         ASSERT_TRUE(subscriber->isConnected());
@@ -59,7 +59,7 @@ TEST_F(XMQ_ClusterTests, loadSession)
 
         // Re-connect the subscriber to the secondary node, expecting the received message:
         client::ConnectParameters connectParameters {.m_cleanSession = false};
-        subscriber->connect(secondaryNode->getCluster()->getNodeHost(), subscriberCredentials, connectParameters);
+        subscriber->connect(m_secondaryServerHost, subscriberCredentials, connectParameters);
         ASSERT_TRUE(subscriber->isConnected());
         this_thread::sleep_for(500ms);
 
@@ -72,7 +72,7 @@ TEST_F(XMQ_ClusterTests, loadSession)
         }
 
         // Expect the subscription to continue working after reconnection.
-        publisher->connect(secondaryNode->getCluster()->getNodeHost(), publisherCredentials, connectParameters);
+        publisher->connect(m_secondaryServerHost, publisherCredentials, connectParameters);
         publisher->publish(topicName, "message 2");
         if (!receivedMessage.wait_for(100ms))
         {

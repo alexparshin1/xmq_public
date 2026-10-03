@@ -206,7 +206,8 @@ const char* defaultConfigurationText()
   "cluster": {
     "this_node": {
       "node_name": "primary",
-      "host_port": "localhost:1883"
+      "host_port": "localhost:8883",
+      "encrypted": true
     },
     "nodes": []
   }
@@ -1270,14 +1271,15 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
 
     section(root, "web_service")->set("listener_port", setup.m_web_service_port.asInteger());
 
-    // The node's own cluster entry has to agree with both the port MQTT is now served on and the
+    // The node's own cluster entry has to agree with both the TLS listener port and the
     // address other nodes are told to reach this one at. Taken from the setup rather than from the
     // template, which only ever says "localhost" - an address that resolves on every machine and
     // reaches the wrong server on all but one of them.
     const auto thisNode = section(section(root, "cluster"), "this_node");
     thisNode->set("node_name", setup.m_node_name.asString());
     const auto nodeHost = nodeHostOf(setup);
-    thisNode->set("host_port", nodeHost + ":" + to_string(setup.m_mqtt_port.asInteger()));
+    thisNode->set("host_port", nodeHost + ":" + to_string(setup.m_mqtt_ssl_port.asInteger()));
+    thisNode->set("encrypted", true);
 
     // No Redis address means no Redis: the server is set up to keep its state in memory, which
     // is a working configuration rather than a broken one.

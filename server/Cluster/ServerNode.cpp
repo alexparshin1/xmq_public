@@ -47,6 +47,11 @@ ReasonCode ServerNode::connect(const bool cluster)
 {
     const unique_lock lock(m_mutex);
 
+    if (cluster && !m_nodeSettings.m_encrypted.asBool())
+    {
+        throw Exception("Cluster connections require MQTT+SSL.");
+    }
+
     m_isClusterNode = cluster;
     m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Offline);
 
@@ -54,7 +59,7 @@ ReasonCode ServerNode::connect(const bool cluster)
 
     if (destinationHost->port() == 0)
     {
-        destinationHost = make_unique<Host>(m_nodeSettings.m_host_port, static_cast<uint16_t>(1883));
+        destinationHost = make_unique<Host>(m_nodeSettings.m_host_port, static_cast<uint16_t>(m_nodeSettings.m_encrypted.asBool() ? 8883 : 1883));
     }
 
     const client::ConnectParameters connectParameters;
@@ -65,7 +70,9 @@ ReasonCode ServerNode::connect(const bool cluster)
     shared_ptr<SSLKeys> sslKeys;
     if (m_nodeSettings.m_encrypted.asBool())
     {
-        const auto& keysData = m_nodeSettings.m_ssl_keys;
+        // Advertised peer paths refer to another machine. Cluster connections always use this
+        // node's certificate and trust store, including connections opened during mesh discovery.
+        const auto& keysData = cluster ? m_server->getSettings()->m_connections.m_ssl_keys : m_nodeSettings.m_ssl_keys;
 
         // Verification follows the configured depth, as it does for bridges and listeners. At
         // zero the link is encrypted and the peer unverified, which between brokers means any

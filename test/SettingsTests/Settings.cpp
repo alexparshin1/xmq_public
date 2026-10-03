@@ -331,11 +331,12 @@ TEST(XMQ_Settings, applyInitialSetup)
     settings.applyInitialSetup(testInitialSetup(), templateFile);
 
     EXPECT_STREQ("xmq-1884", settings.m_cluster.m_this_node.m_node_name.asString().c_str());
-    // The node's own address follows the port MQTT is now served on. The setup named no address,
+    // The node's own address follows the port MQTT+SSL is now served on. The setup named no address,
     // so it is this machine's - never the template's "localhost", which resolves on every machine
     // and reaches the wrong server on all but one of them.
-    EXPECT_EQ(thisHostName() + ":1884", settings.m_cluster.m_this_node.m_host_port.asString());
+    EXPECT_EQ(thisHostName() + ":8884", settings.m_cluster.m_this_node.m_host_port.asString());
 
+    EXPECT_TRUE(settings.m_cluster.m_this_node.m_encrypted.asBool());
     EXPECT_EQ(1884, listenerPort(settings, "MQTT"));
     EXPECT_EQ(8884, listenerPort(settings, "MQTT+SSL"));
     // Replaced rather than added to: the listeners the template defines are the only ones left.
@@ -375,7 +376,7 @@ TEST(XMQ_Settings, applyInitialSetupUsesTheAddressItWasGiven)
 
     // The address other nodes are told to connect to. Nothing else in the configuration records
     // how this server is reached rather than how it listens.
-    EXPECT_EQ("mqtt-1.example.net:1884", settings.m_cluster.m_this_node.m_host_port.asString());
+    EXPECT_EQ("mqtt-1.example.net:8884", settings.m_cluster.m_this_node.m_host_port.asString());
 }
 
 TEST(XMQ_Settings, applyInitialSetupIssuesTheNodeCertificate)

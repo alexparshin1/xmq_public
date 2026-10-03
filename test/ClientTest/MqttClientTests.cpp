@@ -65,6 +65,90 @@ void XMQ_MqttClientTests::SetUp()
     m_mqttSslHost = make_shared<Host>("mosquitto_server", MqttSslPortNumber);
 }
 
+/**
+ * @brief Clearing a session callback must retain the callback already executing.
+ * @details A receiver pauses inside a callback owning a sentinel. The test clears the
+ *          callback, verifies the sentinel remains alive, then releases the receiver
+ *          and verifies the sentinel is destroyed. No network connection is needed.
+ */
+TEST(XMQ_ClientCallbackTests, clearingCallbackRetainsAnExecutingCallback)
+{
+    auto sentinel = make_shared<int>(1);
+    const weak_ptr<int> observed = sentinel;
+    const auto entered = make_shared<Semaphore>();
+    const auto resume = make_shared<Semaphore>();
+    client::Session session({}, {}, "");
+    session.onMessage([sentinel, entered, resume](const SMessage&)
+                      {
+                          entered->post();
+                          (void) resume->wait_for(5s);
+                      });
+    sentinel.reset();
+
+    thread receiver([&session] { session.executeMessageCallback({}); });
+    const auto executing = entered->wait_for(2s);
+    session.onMessage({});
+    EXPECT_TRUE(executing);
+    if (executing)
+    {
+        EXPECT_FALSE(observed.expired());
+    }
+    resume->post();
+    receiver.join();
+    EXPECT_TRUE(observed.expired());
+}
+
+/**
+ * @brief Client destruction must wait for a callback already executing after hangup.
+ * @details Two clients connect to the fixture's Mosquitto broker. A publication pauses
+ *          the subscriber's callback; another thread hangs up and destroys that client.
+ *          Destruction must finish only after the test releases the callback.
+ */
+TEST_F(XMQ_MqttClientTests, destructionWaitsForAnExecutingCallbackAfterHangup)
+{
+    auto mqttClient = make_unique<client::MqttClient>();
+    const ConnectCredentials credentials {"destroyed-client-callback", "user", "secret"};
+    ASSERT_EQ(ReasonCode::Success, mqttClient->connect(*m_mqttHost, credentials, {}));
+    const auto entered = make_shared<Semaphore>();
+    const auto resume = make_shared<Semaphore>();
+    const auto subscribed = make_shared<Semaphore>();
+    mqttClient->onMessage([entered, resume](const SPublishMessage&)
+                          {
+                              entered->post();
+                              (void) resume->wait_for(5s);
+                          });
+    mqttClient->onAck([subscribed](const SMessage& message)
+                      {
+                          if (message->is(Message::Type::SubscribeAck))
+                          {
+                              subscribed->post();
+                          }
+                      });
+    const auto* topic = client::MqttClient::getTopic("test/client-callback-destruction");
+    mqttClient->subscribe(Destination(topic, SubscriptionOptions {Qos::Qos1}));
+    ASSERT_TRUE(subscribed->wait_for(2s));
+
+    client::MqttClient publisher;
+    ASSERT_EQ(ReasonCode::Success, publisher.connect(*m_mqttHost, {"callback-test-publisher", "user", "secret"}, {}));
+    publisher.publish(topic, Buffer("callback"), Qos::Qos1);
+    ASSERT_TRUE(entered->wait_for(2s));
+
+    Semaphore destroying;
+    Semaphore destroyed;
+    thread destroyer([client = std::move(mqttClient), &destroying, &destroyed]() mutable
+                     {
+                         client->hangup();
+                         destroying.post();
+                         client.reset();
+                         destroyed.post();
+                     });
+    EXPECT_TRUE(destroying.wait_for(2s));
+    EXPECT_FALSE(destroyed.wait_for(25ms));
+    resume->post();
+    destroyer.join();
+    EXPECT_TRUE(destroyed.wait_for(2s));
+}
+
 TEST_F(XMQ_MqttClientTests, mosquittoReconnect)
 {
     const auto logEngine = createLogEngine(LogPriority::Debug, "stream");
