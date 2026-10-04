@@ -3,7 +3,7 @@
 # one scenario at a time, and prints the interval median for each plus a summary at the end.
 #
 # The set files say WHICH scenarios and in WHAT order; this says HOW a set is run. Two rules from
-# results/versions/README.txt are enforced here rather than left to whoever is running it:
+# results/README.md are enforced here rather than left to whoever is running it:
 #
 #   - the broker is restarted before every scenario (--restart-cmd). A broker still holding the
 #     previous scenario's sessions is not the clean broker a record claims to have measured.
@@ -72,10 +72,10 @@ Options:
                             guessed - guessing it from the default route is how 50 bench addresses
                             once ended up on a VPN interface.
   --out DIR                 Where per-scenario logs go (default: a dated directory under
-                            results/runs/).
+                            results/raw/, which is not kept in git).
 
 Writing the record:
-  --record FILE             Also write the run up in the form results/versions/ holds: a header,
+  --record FILE             Also write the run up as a record: a header,
                             a summary of interval medians, then every scenario's own table. The
                             file is rewritten after each scenario, so a series that dies at hour
                             two still leaves the hours before it.
@@ -158,7 +158,7 @@ if pgrep -x xmq_scn > /dev/null; then
 fi
 
 if [[ -z "$out_dir" ]]; then
-  out_dir="$SCRIPT_DIR/results/runs/$(date +%Y-%m-%d-%H%M)"
+  out_dir="$SCRIPT_DIR/results/raw/$(date +%Y-%m-%d-%H%M)"
 fi
 mkdir -p "$out_dir" || exit 1
 
@@ -283,7 +283,7 @@ write_record() {
     fi
     echo
     # The header is copied rather than computed: it has to match the files already in
-    # results/versions/ character for character, and those were laid out by hand.
+    # the earlier hand-written records character for character, and those were laid out by hand.
     echo "  Scenario                              Median   Samples"
     printf "  %s\n" "──────────────────────────────────────────────────────"
     local line name median samples
@@ -304,7 +304,7 @@ write_record() {
       done
     fi
     # Three blank lines after the summary, one between scenarios: the spacing the files in
-    # results/versions/ already use.
+    # the records already use.
     local block first=1
     for block in "${blocks[@]}"; do
       if (( first )); then echo; echo; echo; first=0; else echo; fi

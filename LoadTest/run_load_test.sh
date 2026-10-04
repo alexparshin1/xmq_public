@@ -165,6 +165,19 @@ if [[ "$skip_ip_setup" -eq 0 ]]; then
   [[ -n "$iface" ]] && ip_args+=(-i "$iface")
   [[ "$verbose" -eq 1 ]] && ip_args+=(-v)
   "$SCRIPT_DIR/make_ip_addresses.sh" "${ip_args[@]}"
+else
+  # Skipped, so they had better be there already. Without them xmq_scn binds what is left - one
+  # address, about 28,000 ports - and every run past that many connections fails with "Server not
+  # available", which reads like the broker's fault. Two whole bench sets were lost that way.
+  missing=0
+  for ((n = first; n < first + count; ++n)); do
+    ip -4 -o addr show | grep -q " ${subnet}.${n}/" || missing=$((missing + 1))
+  done
+  if [[ "$missing" -gt 0 ]]; then
+    echo "$missing of the $count source addresses ${subnet}.${first}-$((first + count - 1)) are not configured;" \
+         "drop --skip-ip-setup or run make_ip_addresses.sh first" >&2
+    exit 1
+  fi
 fi
 
 bind_mask="${subnet}.${first}/${prefix_len}"

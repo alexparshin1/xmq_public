@@ -62,8 +62,11 @@ run "sudo -n systemctl start $service" || exit 1
 
 target="${host:-localhost}"
 up=0
+# A refused connection returns at once, so without the pause the 60 tries took well under a second
+# and a broker restoring persistent state was declared down while it was still starting.
 for _ in $(seq 1 60); do
   if timeout 2 bash -c ": >/dev/tcp/$target/$port" 2>/dev/null; then up=1; break; fi
+  sleep 1
 done
 [[ "$up" -eq 0 ]] && { echo "$target:$port never accepted after the restart" >&2; exit 1; }
 
