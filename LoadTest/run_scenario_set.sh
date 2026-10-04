@@ -128,6 +128,9 @@ passthrough=("$@")
 [[ -n "$record" && -z "$version" ]] && {
   echo "--record needs --version: a recorded figure without the version that produced it" \
        "cannot be reproduced later." >&2; exit 1; }
+[[ -n "$record" && -z "$stats_host" ]] && {
+  echo "--record needs --stats-host: every recorded test shows the broker's CPU and memory, and" \
+       "a record without them is one the site would show with dashes." >&2; exit 1; }
 [[ -r "$set_file" ]] || { echo "Cannot read set file: $set_file" >&2; exit 1; }
 
 set_dir="$(cd "$(dirname "$set_file")" && pwd)"
@@ -249,6 +252,31 @@ extract_block() {
     END { for (i = 0; i < count; i++) print block[i] }'
 }
 
+# The broker's memory over the measurement, one row per interval of the latency table: the most it
+# held during that interval. xmq_scn prints no times, so the intervals are placed by the end of the
+# run - the measurement is the last table, and it ends as the run does - which puts them within the
+# few seconds the clients take to disconnect. Nothing is printed without samples or a table.
+memory_block() {
+  local block_file="$1" samples_file="$2" ended="$3"
+  [[ -s "$samples_file" && -s "$block_file" ]] || return 0
+  awk -v ended="$ended" '
+    FNR == NR { if (NF >= 3) { rss[++n] = $2; at[n] = $3 } next }
+    /^[0-9]+ms[ \t]/ { sub(/ms$/, "", $1); row[++rows] = $1 + 0 }
+    END {
+      if (rows < 2 || n == 0) exit
+      step = row[2] - row[1]
+      start = ended - (row[rows] + step) / 1000
+      print ""
+      print "Memory"
+      print "Interval            RSS"
+      for (r = 1; r <= rows; r++) {
+        from = start + row[r] / 1000; to = from + step / 1000; peak = 0
+        for (i = 1; i <= n; i++) if (at[i] >= from && at[i] < to && rss[i] > peak) peak = rss[i]
+        if (peak > 0) printf "%-12s %10d Mb\n", row[r] "ms", peak / 1024
+      }
+    }' "$samples_file" "$block_file"
+}
+
 # Rewritten from scratch after every scenario, so that a series interrupted at hour two still
 # leaves a record of the hours before it.
 write_record() {
@@ -337,7 +365,7 @@ start_broker_stats() {
         now=$(awk "{print \$14 + \$15}" "/proc/$pid/stat" 2>/dev/null) || break
         [ -n "$now" ] || break
         rss=$(awk "/VmRSS/{print \$2}" "/proc/$pid/status" 2>/dev/null)
-        echo "$(( (now - prev) * 100 / hz / 2 )) ${rss:-0}" >> "$dir/samples"
+        echo "$(( (now - prev) * 100 / hz / 2 )) ${rss:-0} $(date +%s)" >> "$dir/samples"
         prev=$now
       done
     ' _ "$pid" "$hz" "$DIR" >/dev/null 2>&1 &
@@ -346,9 +374,11 @@ SAMPLER
 }
 
 # Prints "server CPU" and "server RSS" lines for the scenario's block, or nothing when not sampling.
+# The samples themselves - CPU, RSS in kB, time - are kept in $1 for the memory block.
 read_broker_stats() {
+  local samples_file="$1"
   [[ -z "$stats_host" ]] && return 0
-  ssh "$stats_host" "DIR='$stats_dir' bash -s" <<'READER' 2>/dev/null |
+  ssh "$stats_host" "DIR='$stats_dir' bash -s" <<'READER' 2>/dev/null > "$samples_file"
     [ -f "$DIR/pid" ] && kill "$(cat "$DIR/pid")" 2>/dev/null
     [ -f "$DIR/samples" ] && cat "$DIR/samples"
     rm -rf "$DIR"
@@ -363,7 +393,7 @@ READER
           printf "  server CPU   mean %d%%, peak %d%%\n", total / n, peakCpu
           printf "  server RSS   %d Mb peak\n", peakRss / 1024
         }
-      }'
+      }' "$samples_file"
 }
 
 declare -a summary
@@ -421,7 +451,8 @@ for scenario in "${scenarios[@]}"; do
   start_broker_stats
   bash "$SCRIPT_DIR/run_load_test.sh" "${passthrough[@]}" "${scenario_path[$scenario]}" > "$log" 2>&1
   rc=$?
-  broker_stats="$(read_broker_stats)"
+  run_ended_epoch=$(date +%s)
+  broker_stats="$(read_broker_stats "$out_dir/$name.samples")"
 
   # A machine that slept through part of a run produces a plausible-looking log and a wrong
   # number - or a failure that looks like the broker's. Ask the kernel, not the log.
@@ -496,6 +527,7 @@ for scenario in "${scenarios[@]}"; do
     [[ -n "$broker_stats" ]] && echo "$broker_stats"
     [[ -n "$nic_line" ]] && echo "$nic_line"
   } > "$out_dir/$name.block"
+  memory_block "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch" >> "$out_dir/$name.block"
   blocks+=("$out_dir/$name.block")
   scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
   write_record
