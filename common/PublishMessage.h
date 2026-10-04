@@ -108,8 +108,28 @@ public:
         return trace->m_signature == 0x5115 ? const_cast<LatencyTrace*>(trace) : nullptr;
     }
 
+    /**
+     * @brief Was the message forwarded by another node of this broker's cluster?
+     *
+     * Such a message is delivered to this node's subscribers, but its retained part is not taken
+     * from it: the originating node sends that separately, with the time it was made.
+     */
+    [[nodiscard]] bool isFromCluster() const
+    {
+        return m_fromCluster;
+    }
+
+    /**
+     * @brief Mark the message as forwarded by another cluster node.
+     */
+    void setFromCluster()
+    {
+        m_fromCluster = true;
+    }
+
 private:
-    std::string m_sender; ///< Message sender.
+    std::string m_sender;              ///< Message sender.
+    bool        m_fromCluster {false}; ///< Forwarded by another cluster node.
 };
 
 using SPublishMessage = std::shared_ptr<PublishMessage>;

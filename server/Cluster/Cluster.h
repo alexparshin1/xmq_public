@@ -14,6 +14,7 @@
 #pragma once
 
 #include "../Settings/Settings.h"
+#include "../Subscription/RetainedMessages.h"
 #include "../Subscription/Subscription.h"
 
 #include "ClusterTopics.h"
@@ -81,6 +82,14 @@ public:
      * nodes accordingly.
      */
     void detachCluster();
+
+    /**
+     * @brief Leave the cluster and close every link to the other nodes, before the server stops.
+     *
+     * The links this node opened keep receiving what the other nodes publish for as long as they
+     * are open. Once the server has stopped delivering, a message arriving on one has nowhere to go.
+     */
+    void stop();
 
     /**
      * @brief Log a message
@@ -169,6 +178,17 @@ public:
     void updateLocalSubscription(std::string_view topicFilter, bool subscribed);
 
     /**
+     * @brief Send a retained message change made on this node to every other node.
+     *
+     * Every node holds every retained message, whether or not anyone there is subscribed, so this
+     * goes to all of them, apart from the subscriptions that route ordinary publications.
+     *
+     * @param topicName         Topic that changed.
+     * @param record            The change, with its time; a tombstone clears.
+     */
+    void publishRetained(const std::string& topicName, const RetainedMessages::Record& record) const;
+
+    /**
      * @brief Get a copy of a node's effective subscription filters.
      * @param nodeName          Name of the local node or a peer.
      * @return Local filters or the latest peer snapshot; an empty set for an unknown node.
@@ -243,6 +263,19 @@ private:
      * @param node              Connected peer receiving the filters and snapshot.
      */
     void publishSubscriptionSnapshot(const SNode& node) const;
+
+    /**
+     * @brief Send a node that has just been connected every retained record, tombstones included.
+     * @param node              Connected node.
+     */
+    void publishRetainedSnapshot(const SNode& node) const;
+
+    /**
+     * @brief A cluster message carrying encoded retained records.
+     * @param payload           Records, as RetainedMessages::encode() writes them.
+     * @return the message.
+     */
+    [[nodiscard]] SPublishMessage retainedMessage(const sptk::Buffer& payload) const;
 
     /**
      * @brief Subscribe to a list of topic filters on a connected peer.

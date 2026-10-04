@@ -5,121 +5,217 @@
  */
 
 #include "test/ClusterTests/ClusterTests.h"
+#include "test/ClusterTests/TestCluster.h"
 
 using namespace std;
 using namespace sptk;
 using namespace xmq;
 
+namespace {
+
+/// Publish a retained value, or clear it with an empty one.
+void publishRetained(const client::SMqttClient& publisher, const string& topic, const string& payload)
+{
+    publisher->publish(topic, payload, Qos::Qos1, true);
+}
+
+/// Wait until every running node holds the payload for the topic; nothing means cleared.
+bool allNodesHold(const TestCluster& cluster, const string& topic, const optional<string>& payload)
+{
+    return TestCluster::waitFor([&]
+                                {
+                                    for (size_t i = 0; i < cluster.size(); ++i)
+                                    {
+                                        if (cluster[i] && cluster.retained(i, topic) != payload)
+                                        {
+                                            return false;
+                                        }
+                                    }
+                                    return true;
+                                });
+}
+
+} // namespace
+
 /**
- * Confirm that a retained publication and its later deletion reach another cluster node even
- * when that node has no subscriber for the topic.
+ * Confirm that a retained value, its replacement and its clearing reach every node, wherever
+ * they are published, without any subscriber on the other nodes.
  *
- * Setup: Join two nodes. Publish a retained value on the primary before subscribing on the
- * secondary; disconnect that subscriber before publishing the empty retained value.
+ * Setup: Three nodes, no subscribers. Publish a value on node 0, replace it from node 1, clear it
+ * from node 2.
  *
- * Verification: Poll the secondary's retained store for the value, subscribe there and check
- * that the retained payload is delivered, then poll the store until the clearing publication
- * removes the value while no client on the secondary is subscribed.
+ * Verification: After each step every node holds the same thing. A subscriber arriving on node 2
+ * while the replacement is held is given the replacement.
  */
 TEST_F(XMQ_ClusterTests, retainedMessageReplicatesWithoutSubscribers)
 {
-    auto [primary, secondary] = makeClusterOfTwoNodes();
+    const TestCluster cluster(3);
     const auto [publisherId, subscriberId, topic] = makeTestNames();
 
-    auto publisher = make_shared<client::MqttClient>(logEngine());
-    ASSERT_EQ(ReasonCode::Success,
-              publisher->connect(m_primaryServerHost, ConnectCredentials(publisherId, "user", "secret"),
-                                 {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    publishRetained(cluster.connect(0, publisherId + "_0"), topic, "first");
+    EXPECT_TRUE(allNodesHold(cluster, topic, "first")) << "A node did not store the retained publication";
 
-    publisher->publish(client::MqttClient::getTopic(topic), Buffer("retained value"), Qos::Qos1, {}, true);
+    publishRetained(cluster.connect(1, publisherId + "_1"), topic, "second");
+    EXPECT_TRUE(allNodesHold(cluster, topic, "second")) << "A node did not take the replacement";
 
-    const auto replicated = [&]
-    {
-        bool found = false;
-        secondary->getSubscriptionManager()->retainedMessages().forEachMatching(
-            topic, [&found](const string&, const RetainedMessages::Record& record)
-            {
-                found = record.m_payload == "retained value";
-            });
-        return found;
-    };
-    for (auto i = 0; i < 100 && !replicated(); ++i) this_thread::sleep_for(20ms);
-    ASSERT_TRUE(replicated()) << "A node without subscribers did not store the retained publication";
-
-    Semaphore received;
-    string payload;
-    auto subscriber = make_shared<client::MqttClient>(logEngine());
+    Semaphore  received;
+    string     payload;
+    const auto subscriber = cluster.connect(2, subscriberId);
     subscriber->onMessage([&payload, &received](const SPublishMessage& message)
                           {
-                              payload.assign(reinterpret_cast<const char*>(message->payloadData()), message->payloadSize());
+                              payload.assign(message->payload());
                               received.post();
                           });
-    ASSERT_EQ(ReasonCode::Success,
-              subscriber->connect(m_secondaryServerHost, ConnectCredentials(subscriberId, "user", "secret"),
-                                  {.m_cleanSession = true}, ProtocolVersion::MqttV5));
     subscriber->subscribe(topic);
     ASSERT_TRUE(received.wait_for(1s));
-    EXPECT_EQ("retained value", payload);
-
+    EXPECT_EQ("second", payload);
     subscriber->disconnect();
-    publisher->publish(client::MqttClient::getTopic(topic), Buffer(""), Qos::Qos1, {}, true);
 
-    const auto cleared = [&]
-    {
-        bool found = false;
-        secondary->getSubscriptionManager()->retainedMessages().forEachMatching(
-            topic, [&found](const string&, const RetainedMessages::Record&) { found = true; });
-        return !found;
-    };
-    for (auto i = 0; i < 100 && !cleared(); ++i) this_thread::sleep_for(20ms);
-    EXPECT_TRUE(cleared()) << "A node did not clear its copy of the retained message";
+    publishRetained(cluster.connect(2, publisherId + "_2"), topic, "");
+    EXPECT_TRUE(allNodesHold(cluster, topic, nullopt)) << "A node did not clear its copy of the retained message";
 }
 
 /**
  * Confirm that a node joining an existing cluster receives retained state published earlier,
  * without requiring any client subscription on the joining node.
  *
- * Setup: Join two nodes, publish a retained value on the primary, and wait until the primary
- * has stored it. Only then start a third node and attach it to the cluster.
+ * Setup: Two nodes; publish a retained value and wait until both hold it. Then add a third node.
  *
- * Verification: Poll the third node's retained store for the topic and compare its payload
- * with the value published before that node joined.
+ * Verification: The third node holds the value published before it joined.
  */
 TEST_F(XMQ_ClusterTests, joiningNodeReceivesRetainedMessagesWithoutSubscribers)
 {
-    auto [primary, secondary] = makeClusterOfTwoNodes();
+    TestCluster cluster(2);
     const auto [publisherId, subscriberId, topic] = makeTestNames();
 
-    auto publisher = make_shared<client::MqttClient>(logEngine());
-    ASSERT_EQ(ReasonCode::Success,
-              publisher->connect(m_primaryServerHost, ConnectCredentials(publisherId, "user", "secret"),
-                                 {.m_cleanSession = true}, ProtocolVersion::MqttV5));
-    publisher->publish(client::MqttClient::getTopic(topic), Buffer("before joining"), Qos::Qos1, {}, true);
+    publishRetained(cluster.connect(0, publisherId), topic, "before joining");
+    ASSERT_TRUE(allNodesHold(cluster, topic, "before joining"));
 
-    bool storedOnPrimary = false;
-    for (auto i = 0; i < 100 && !storedOnPrimary; ++i)
+    const auto third = cluster.addNode();
+    EXPECT_TRUE(TestCluster::waitFor([&] { return cluster.retained(third, topic) == "before joining"; }))
+        << "Joining node did not synchronize retained messages";
+}
+
+/**
+ * Confirm that a retained message cleared while a node was down does not come back with it.
+ *
+ * Setup: Three nodes hold a retained value. Stop node 2, clear the value on node 0, then start
+ * node 2 again with the copy it kept in storage.
+ *
+ * Verification: Node 2 drops its old copy, and the other nodes stay cleared - the old copy is
+ * not handed back to them.
+ */
+TEST_F(XMQ_ClusterTests, retainedClearedWhileNodeWasDownStaysCleared)
+{
+    TestCluster cluster(3);
+    const auto [publisherId, subscriberId, topic] = makeTestNames();
+
+    const auto publisher = cluster.connect(0, publisherId);
+    publishRetained(publisher, topic, "stale");
+    ASSERT_TRUE(allNodesHold(cluster, topic, "stale"));
+
+    cluster.stopNode(2);
+    publishRetained(publisher, topic, "");
+    ASSERT_TRUE(allNodesHold(cluster, topic, nullopt));
+
+    cluster.startNode(2);
+    EXPECT_TRUE(allNodesHold(cluster, topic, nullopt)) << "The restarted node kept a cleared message";
+
+    // Long enough for a resurrected copy to have travelled; it must not appear anywhere.
+    this_thread::sleep_for(500ms);
+    for (size_t i = 0; i < cluster.size(); ++i)
     {
-        primary->getSubscriptionManager()->retainedMessages().forEachMatching(
-            topic, [&storedOnPrimary](const string&, const RetainedMessages::Record& record)
-            {
-                storedOnPrimary = record.m_payload == "before joining";
-            });
-        if (!storedOnPrimary) this_thread::sleep_for(20ms);
+        EXPECT_EQ(nullopt, cluster.retained(i, topic)) << TestCluster::nodeName(i) << " brought a cleared message back";
     }
-    ASSERT_TRUE(storedOnPrimary);
+}
 
-    auto third = createNode("third", 1881, false);
-    third->attachToCluster(primary->getCluster()->getNodeHost());
+/**
+ * Confirm that a node down while a retained message was replaced takes the replacement back up.
+ *
+ * Setup: Three nodes hold a value. Stop node 2, replace the value on node 1, start node 2 again.
+ *
+ * Verification: Every node holds the replacement; node 2's older copy wins nowhere.
+ */
+TEST_F(XMQ_ClusterTests, retainedReplacedWhileNodeWasDownIsTakenOnRejoin)
+{
+    TestCluster cluster(3);
+    const auto [publisherId, subscriberId, topic] = makeTestNames();
 
-    bool storedOnThird = false;
-    for (auto i = 0; i < 100 && !storedOnThird; ++i)
+    publishRetained(cluster.connect(0, publisherId + "_0"), topic, "old");
+    ASSERT_TRUE(allNodesHold(cluster, topic, "old"));
+
+    cluster.stopNode(2);
+    publishRetained(cluster.connect(1, publisherId + "_1"), topic, "new");
+    ASSERT_TRUE(allNodesHold(cluster, topic, "new"));
+
+    cluster.startNode(2);
+    EXPECT_TRUE(allNodesHold(cluster, topic, "new")) << "The older copy of a rejoining node won";
+}
+
+/**
+ * Confirm that changes made to one topic on different nodes at the same time end in one value.
+ *
+ * Setup: Three nodes. Publish different values to the same topic from every node at once,
+ * several rounds.
+ *
+ * Verification: After each round all nodes hold the same value.
+ */
+TEST_F(XMQ_ClusterTests, concurrentRetainedChangesConverge)
+{
+    const TestCluster cluster(3);
+    const auto [publisherId, subscriberId, topic] = makeTestNames();
+
+    vector<client::SMqttClient> publishers;
+    for (size_t i = 0; i < cluster.size(); ++i)
     {
-        third->getSubscriptionManager()->retainedMessages().forEachMatching(
-            topic, [&storedOnThird](const string&, const RetainedMessages::Record& record)
-            {
-                storedOnThird = record.m_payload == "before joining";
-            });
-        if (!storedOnThird) this_thread::sleep_for(20ms);
+        publishers.push_back(cluster.connect(i, format("{}_{}", publisherId, i)));
     }
-    EXPECT_TRUE(storedOnThird) << "Joining node did not synchronize retained messages";
+
+    for (auto round = 0; round < 5; ++round)
+    {
+        for (size_t i = 0; i < publishers.size(); ++i)
+        {
+            publishRetained(publishers[i], topic, format("round {} from {}", round, i));
+        }
+
+        const auto converged = TestCluster::waitFor([&]
+                                                    {
+                                                        const auto first = cluster.retained(0, topic);
+                                                        return first && cluster.retained(1, topic) == first &&
+                                                               cluster.retained(2, topic) == first;
+                                                    });
+        EXPECT_TRUE(converged) << "Nodes disagree after round " << round << ": '"
+                               << cluster.retained(0, topic).value_or("-") << "', '"
+                               << cluster.retained(1, topic).value_or("-") << "', '"
+                               << cluster.retained(2, topic).value_or("-") << "'";
+    }
+}
+
+/**
+ * Confirm that a node joining does not replay retained messages to subscribers already served.
+ *
+ * Setup: Two nodes hold a retained value; a subscriber on node 0 receives it on subscribing.
+ * Then a third node joins.
+ *
+ * Verification: The subscriber receives nothing more - the joining node's synchronisation is not
+ * a publication.
+ */
+TEST_F(XMQ_ClusterTests, joiningNodeDoesNotReplayRetainedToSubscribers)
+{
+    TestCluster cluster(2);
+    const auto [publisherId, subscriberId, topic] = makeTestNames();
+
+    publishRetained(cluster.connect(1, publisherId), topic, "held");
+    ASSERT_TRUE(allNodesHold(cluster, topic, "held"));
+
+    atomic_int deliveries {0};
+    const auto subscriber = cluster.connect(0, subscriberId);
+    subscriber->onMessage([&deliveries](const SPublishMessage&) { ++deliveries; });
+    subscriber->subscribe(topic);
+    ASSERT_TRUE(TestCluster::waitFor([&deliveries] { return deliveries == 1; }));
+
+    const auto third = cluster.addNode();
+    ASSERT_TRUE(TestCluster::waitFor([&] { return cluster.retained(third, topic) == "held"; }));
+    this_thread::sleep_for(300ms);
+    EXPECT_EQ(1, deliveries) << "The retained message was delivered again when a node joined";
 }

@@ -112,6 +112,24 @@ void Cluster::detachCluster()
     notifyAllNodes(Command::DetachNodeRequest);
 }
 
+void Cluster::stop()
+{
+    detachCluster();
+
+    vector<SNode> nodes;
+    {
+        const scoped_lock lock(m_mutex);
+        nodes = m_connectedNodes.nodes();
+    }
+    for (const auto& node: nodes)
+    {
+        if (node->getName() != m_server->getNodeName() && node->isConnected())
+        {
+            node->disconnect();
+        }
+    }
+}
+
 SNode Cluster::findClusterNode(const std::string& nodeName) const
 {
     return m_connectedNodes.findNode(nodeName);
@@ -218,6 +236,7 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
                             acceptClusterMessage(message, node->getName());
                         });
         publishSubscriptionSnapshot(node);
+        publishRetainedSnapshot(node);
 
         return node;
     }
@@ -421,6 +440,7 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
         // Bridged message
         publishMessage->setSender(sender);
         publishMessage->setSourceNode(sender);
+        publishMessage->setFromCluster();
         m_server->publishMessage(publishMessage);
     }
 }
@@ -471,6 +491,72 @@ void Cluster::updateLocalSubscription(const string_view topicFilter, const bool 
         message->setQos(Qos::Qos1);
         node->publish(message);
     }
+}
+
+void Cluster::publishRetained(const string& topicName, const RetainedMessages::Record& record) const
+{
+    if (!m_connectedNodes.anyNodes())
+    {
+        return;
+    }
+
+    Buffer payload;
+    RetainedMessages::encode(payload, topicName, record);
+
+    const scoped_lock nodesLock(m_mutex);
+    for (const auto& node: m_connectedNodes.nodes())
+    {
+        if (!node->isConnected() || node->getName() == m_server->getNodeName())
+        {
+            continue;
+        }
+        node->publish(retainedMessage(payload));
+    }
+}
+
+SPublishMessage Cluster::retainedMessage(const Buffer& payload) const
+{
+    auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::RetainedUpdate),
+                                                     string_view(payload.c_str(), payload.bytes()));
+    message->setQos(Qos::Qos1);
+    return message;
+}
+
+void Cluster::publishRetainedSnapshot(const SNode& node) const
+{
+    // Messages and tombstones alike: the peer has to learn what was cleared as well as what is
+    // held, or a copy it kept from before would outlive the clearing. In pieces, so that a large
+    // retained store is not one message the size of the store.
+    constexpr size_t maxPayloadSize = 64 * 1024;
+
+    Buffer payload;
+    size_t records = 0;
+    m_subscriptionManager->retainedMessages().forEachRecord(
+        [this, &node, &payload, &records](const string& topicName, const RetainedMessages::Record& record)
+        {
+            // $SYS is each node's own: sent along, it would overwrite the peer's own metrics.
+            if (topicName.starts_with('$'))
+            {
+                return;
+            }
+            ++records;
+            RetainedMessages::encode(payload, topicName, record);
+            if (payload.bytes() >= maxPayloadSize)
+            {
+                node->publish(retainedMessage(payload));
+                payload.reset();
+            }
+        });
+
+    if (payload.bytes() > 0)
+    {
+        node->publish(retainedMessage(payload));
+    }
+
+    logMessage(LogPriority::Debug, [&node, records]
+               {
+                   return format("Sent {} retained record(s) to node '{}'.", records, node->getName());
+               });
 }
 
 void Cluster::publishSubscriptionSnapshot(const SNode& node) const
@@ -563,6 +649,19 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
             m_nodeSubscriptions[sender] = std::move(filters);
             break;
         }
+        case RetainedUpdate:
+            if (!RetainedMessages::decode(message->payload(),
+                                          [this](const string& topicName, const RetainedMessages::Record& record)
+                                          {
+                                              m_subscriptionManager->applyClusterRetained(topicName, record);
+                                          }))
+            {
+                logMessage(LogPriority::Error, [&sender]
+                           {
+                               return format("Damaged retained messages from node '{}'.", sender);
+                           });
+            }
+            break;
         case Unknown:
             logMessage(LogPriority::Error, [&message]
                        {

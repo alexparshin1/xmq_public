@@ -106,12 +106,17 @@ public:
 
     /**
      * @brief Subscribes to a specific topic on the node.
+     *
+     * Retained messages are not asked for: they reach every node through their own cluster
+     * messages, stamped with when they changed. Sent again here, at every subscription, they would
+     * reach this node's subscribers as fresh publications.
+     *
      * @param topic The topic to subscribe to.
      */
     void subscribe(const std::string& topic)
     {
         m_mqttClient.subscribe(Destination(client::MqttClient::getTopic(topic),
-                                           SubscriptionOptions(Qos::Qos1, SubscribeRetainHandling::RetainAlways, true)));
+                                           SubscriptionOptions(Qos::Qos1, SubscribeRetainHandling::DoNotRetain, true)));
     }
 
     /**

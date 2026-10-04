@@ -16,6 +16,8 @@
 #include "RetainedMessages.h"
 #include "Subscriptions.h"
 
+#include <atomic>
+
 namespace xmq {
 
 class XMQ_EXPORT SubscriptionManager final
@@ -102,12 +104,44 @@ public:
         return m_retainedMessages;
     }
 
+    /**
+     * @brief Apply a retained message change sent by another cluster node.
+     *
+     * Taken only if it is newer than what this node holds, so the order the changes arrive in
+     * does not matter.
+     *
+     * @param topicName         Concrete topic.
+     * @param record            The change; a tombstone clears the topic.
+     */
+    void applyClusterRetained(const std::string& topicName, const RetainedMessages::Record& record);
+
     void                          unsubscribe(const Topic* topic, ClientSession* clientSession);
     void                          clear();
 
     std::map<const Topic*, std::weak_ptr<Subscription>, std::less<>> getSubscriptions(const std::string& topicName);
 
 private:
+    /**
+     * @brief Persist a retained message change and count it.
+     * @param topicName         Topic that changed.
+     * @param applied           What changed.
+     * @param systemTopic       $SYS is never persisted.
+     * @param counted           Whether the change moves the retained-message counter.
+     */
+    void recordRetainedChange(const std::string& topicName, const RetainedMessages::Applied& applied,
+                              bool systemTopic, bool counted);
+
+    /**
+     * @brief Drop the expired tombstones, from memory and storage, at most once an hour.
+     * @param now               Current cluster time, in milliseconds.
+     */
+    void purgeTombstones(int64_t now);
+
+    /**
+     * @return Current cluster time in milliseconds, which retained message changes are stamped with.
+     */
+    [[nodiscard]] int64_t retainedClock() const;
+
     mutable std::mutex                    m_mutex;
     STopicManager                         m_topicManager;
     sptk::Logger                          m_logger;
@@ -115,6 +149,7 @@ private:
     Subscriptions                         m_wildcards;
     XMQ_MAP_TYPE<RecordId, SSubscription> m_subscriptionIndex;
     RetainedMessages                      m_retainedMessages;
+    std::atomic<int64_t>                  m_lastTombstonePurge {0}; ///< When expired tombstones were last dropped.
     Server*                               m_server;
 };
 

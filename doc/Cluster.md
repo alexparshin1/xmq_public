@@ -222,6 +222,18 @@ hold the certificates of the others there. With nothing to verify against, no li
 `verify_depth` 0 is read as 1, since a cluster link is never left unverified. Only the chain is
 checked, not the host name.
 
+## Retained messages
+
+Every node holds every retained message, whether or not anyone there subscribes. A change made on
+a node - set, replaced or cleared - is sent to all the other nodes in its own cluster message
+(`$CLUSTER/request/retained`), stamped with the cluster time (the storage clock), and a node takes
+it only if it is newer than what it holds; changes made in the same millisecond are ordered by
+content, so every node picks the same one. A cleared topic leaves a tombstone for 24 hours. A node
+that connects to another sends it all its records, tombstones included, so a node that was down or
+cut off neither misses a change nor brings a cleared message back. `$SYS` stays each node's own.
+Publications forwarded between nodes carry no retained state, and the links subscribe without
+retained replay, so a joining node does not re-deliver retained messages to subscribers.
+
 ## Release plan
 
 - **0.9.20:** Introduce the cluster functionality.

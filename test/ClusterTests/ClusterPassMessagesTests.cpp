@@ -13,6 +13,7 @@
 */
 
 #include "test/ClusterTests/ClusterTests.h"
+#include "test/ClusterTests/TestCluster.h"
 #include "TestOptions.h"
 
 using namespace std;
@@ -64,12 +65,8 @@ TEST_F(XMQ_ClusterTests, passMessages_twoNodes)
  */
 TEST_F(XMQ_ClusterTests, passMessages_multipleNodes)
 {
-    constexpr auto nodeCount = 4u;
-    // 189x, in the same family as the other test listeners (1880, 1884, 1886), rather than 180x:
-    // 1803 is the port JetBrains Toolbox listens on, so the fourth node could not bind.
-    constexpr auto firstPort = 1890;
-
-    makeTestCluster(nodeCount, firstPort);
+    constexpr auto    nodeCount = 4u;
+    const TestCluster cluster(nodeCount);
 
     COUT("──────────────────────────[Cluster nodes started]───────────────────────────────────────────");
 
@@ -77,7 +74,7 @@ TEST_F(XMQ_ClusterTests, passMessages_multipleNodes)
     client::ConnectParameters connectParameters {.m_cleanSession = true};
 
     client::MqttClient publisher(logEngine());
-    publisher.connect(Host("localhost", firstPort), credentials, connectParameters);
+    publisher.connect(TestCluster::host(0), credentials, connectParameters);
     ASSERT_TRUE(publisher.isConnected());
 
     vector<client::SMqttClient> subscribers;
@@ -93,7 +90,7 @@ TEST_F(XMQ_ClusterTests, passMessages_multipleNodes)
         ConnectCredentials credentials2(clientId, "user", "secret");
 
         auto subscriber = make_shared<client::MqttClient>();
-        subscriber->connect(Host("localhost", firstPort + static_cast<uint16_t>(nodeIndex)), credentials2, connectParameters);
+        subscriber->connect(TestCluster::host(nodeIndex), credentials2, connectParameters);
         ASSERT_TRUE(subscriber->isConnected());
 
         subscriber->onMessage([clientId, &receivedMessageMutex, &receivedMessageCounts, &receivedAllMessages](const SPublishMessage& message)

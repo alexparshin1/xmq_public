@@ -523,6 +523,15 @@ void ServerTests_Suite::checkPortIsFree(const uint16_t port)
                            port));
 }
 
+void ServerTests_Suite::stopServer(const std::string& nodeName)
+{
+    if (const auto server = m_servers.find(nodeName); server != m_servers.end())
+    {
+        server->second->stopServer();
+        m_servers.erase(server);
+    }
+}
+
 void ServerTests_Suite::stopServers()
 {
     for (auto& server: m_servers | views::values)

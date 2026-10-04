@@ -116,6 +116,12 @@ protected:
     static void stopServers();
 
     /**
+     * @brief Stop and destroy one server instance, leaving the others running.
+     * @param nodeName          Node name the server was created with.
+     */
+    static void stopServer(const std::string& nodeName);
+
+    /**
      * @brief Verify that a test listener port is not already in use.
      * Throws an exception if another process (usually a leftover xmq_unit_tests instance)
      * is already listening on the port. Because the server listeners use SO_REUSEPORT,

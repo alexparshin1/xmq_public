@@ -653,11 +653,13 @@ void Server::stopServer()
 
         m_sessionTimer.reset();
 
+        // First, while delivery still runs: the links to the other nodes bring in messages until
+        // they are closed, and one arriving after delivery has stopped crashed the server.
+        m_cluster.load()->stop();
+
         m_messageDeliveryThreads.terminateThreads();
 
         m_clientSessionThreads.stop();
-
-        m_cluster.load()->detachCluster();
 
         FastTCPServer::stop();
 

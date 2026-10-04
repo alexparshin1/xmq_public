@@ -27,9 +27,22 @@ public:
     void SetUp() override;
     void TearDown() override;
 
-protected:
+    /**
+     * @brief Start a cluster node: MQTT on portNumber, MQTT+SSL on portNumber + 7000.
+     *
+     * Most tests want a TestCluster instead, which starts and joins the nodes as well.
+     */
     static SServer createNode(const std::string& nodeName, uint16_t                         portNumber,
                               bool               cleanStart, const std::vector<LogSubject>& logSubjects = {});
+
+    /**
+     * @brief Stop one node started with createNode(), leaving the others running.
+     * @param nodeName          Node name.
+     */
+    static void stopNode(const std::string& nodeName)
+    {
+        stopServer(nodeName);
+    }
 
     /**
      * @brief Trust the certificate a node serves, as a cluster link requires.
@@ -42,11 +55,11 @@ protected:
      */
     static void distrustNodeCertificates();
 
+protected:
     static std::tuple<client::SMqttClient, client::SMqttClient, std::string>
     createTestSubscriberAndPublisher(const sptk::Host& publishToHost, const sptk::Host& subscribeToHost);
 
     static std::tuple<SServer, SServer> makeClusterOfTwoNodes();
-    static std::vector<SServer>         makeTestCluster(size_t nodeCount, uint16_t firstPortNumber);
 
     static int linkClusterTests();
 };

@@ -27,7 +27,8 @@ enum class Command
     DetachNodeResponse,
     DisconnectClient,
     NodeDetached,
-    SubscriptionSnapshot
+    SubscriptionSnapshot,
+    RetainedUpdate
 };
 
 /**
