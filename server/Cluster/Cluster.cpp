@@ -71,7 +71,7 @@ void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
     const auto serverNode = make_shared<ServerNode>(m_server, nodeSettings, m_clusterTopics);
 
     m_attachResponseReceived = false;
-    if (serverNode->connect(true) != ReasonCode::Success)
+    if (serverNode->connect() != ReasonCode::Success)
     {
         throw Exception("Cannot connect to the cluster TLS listener.");
     }
@@ -194,7 +194,22 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
         return node;
     }
 
-    auto rc = node->connect(true);
+    ReasonCode rc;
+    try
+    {
+        rc = node->connect();
+    }
+    catch (const Exception& e)
+    {
+        // A record that is not encrypted, or a node there is nothing to verify against. Neither
+        // is cured by retrying, and neither should take the discovery of the other nodes with it.
+        logMessage(LogPriority::Error, [&node, &e]
+                   {
+                       return "Couldn't connect to node '" + node->getName() + "': " + e.what();
+                   });
+        return nullptr;
+    }
+
     if (rc == ReasonCode::Success)
     {
         registerConnectedNode(node);

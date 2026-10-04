@@ -14,6 +14,8 @@
 
 #include "TestOptions.h"
 #include "server/Cluster/ServerNode.h"
+#include "server/SelfSignedCertificate.h"
+#include "server/Settings/Settings.h"
 #include <sptk5/net/SSLSocket.h>
 #include "test/ClusterTests/ClusterTests.h"
 
@@ -218,7 +220,7 @@ TEST_F(XMQ_ClusterTests, unencryptedPeerRecordIsRejected)
     settings.m_host_port = m_primaryServerHost.toString();
     settings.m_encrypted = false;
     cluster::ServerNode peer(primary.get(), settings, primary->cluster()->getClusterTopics());
-    EXPECT_THROW(peer.connect(true), Exception);
+    EXPECT_THROW(peer.connect(), Exception);
     EXPECT_FALSE(peer.isConnected());
 }
 
@@ -244,10 +246,141 @@ TEST_F(XMQ_ClusterTests, peerTlsUsesLocalKeys)
     settings.m_ssl_keys.m_verify_depth = 5;
 
     cluster::ServerNode peer(secondary.get(), settings, secondary->cluster()->getClusterTopics());
-    ASSERT_EQ(ReasonCode::Success, peer.connect(true));
+    ASSERT_EQ(ReasonCode::Success, peer.connect());
     const auto session = primary->getClientSession("node_secondary_primary");
     ASSERT_NE(nullptr, session);
     ASSERT_NE(nullptr, session->getConnection());
     EXPECT_NE(nullptr, dynamic_pointer_cast<SSLSocket>(session->getConnection()->getSocket()));
     peer.disconnect();
+}
+
+/**
+ * Confirm that a cluster link and an ordinary client cannot take over each other's session.
+ *
+ * Setup: Start a node and open a cluster session to it over TLS; connect an ordinary client too.
+ * Verification: An ordinary client naming the cluster session's Client ID - over plain MQTT and
+ * over TLS - is refused, and the link stays connected and flagged as a cluster session. A cluster
+ * connection naming the ordinary client's Client ID is refused, and that client stays connected.
+ */
+TEST_F(XMQ_ClusterTests, clusterAndOrdinarySessionsCannotTakeOverEachOther)
+{
+    const auto primary = createNode("primary", 1880, true);
+
+    const ConnectCredentials clusterCredentials("node_intruder_target", "cluster", "cluster");
+    client::MqttClient       link;
+    ASSERT_EQ(ReasonCode::Success,
+              link.connect(primary->cluster()->getNodeHost(), clusterCredentials, {},
+                           ProtocolVersion::MqttV5, {}, make_shared<SSLKeys>()));
+
+    const ConnectCredentials impostor(clusterCredentials.getClientId(), "user", "secret");
+    client::MqttClient       plainImpostor;
+    EXPECT_NE(ReasonCode::Success, plainImpostor.connect(m_primaryServerHost, impostor, {}, ProtocolVersion::MqttV5));
+    client::MqttClient tlsImpostor;
+    EXPECT_NE(ReasonCode::Success,
+              tlsImpostor.connect(primary->cluster()->getNodeHost(), impostor, {},
+                                  ProtocolVersion::MqttV5, {}, make_shared<SSLKeys>()));
+
+    this_thread::sleep_for(200ms);
+    EXPECT_TRUE(link.isConnected()) << "an ordinary client closed a cluster link";
+    const auto linkSession = primary->getClientSession(clusterCredentials.getClientId());
+    ASSERT_NE(nullptr, linkSession);
+    EXPECT_TRUE(linkSession->isClusterSession());
+    ASSERT_NE(nullptr, linkSession->getConnection());
+    EXPECT_NE(nullptr, dynamic_pointer_cast<SSLSocket>(linkSession->getConnection()->getSocket()));
+
+    const ConnectCredentials ordinaryCredentials("ordinary-client", "user", "secret");
+    client::MqttClient       ordinary;
+    ASSERT_EQ(ReasonCode::Success, ordinary.connect(m_primaryServerHost, ordinaryCredentials, {}, ProtocolVersion::MqttV5));
+
+    const ConnectCredentials clusterImpostor(ordinaryCredentials.getClientId(), "cluster", "cluster");
+    client::MqttClient       clusterOverOrdinary;
+    EXPECT_NE(ReasonCode::Success,
+              clusterOverOrdinary.connect(primary->cluster()->getNodeHost(), clusterImpostor, {},
+                                          ProtocolVersion::MqttV5, {}, make_shared<SSLKeys>()));
+
+    this_thread::sleep_for(200ms);
+    EXPECT_TRUE(ordinary.isConnected()) << "a cluster connection closed an ordinary client";
+    const auto ordinarySession = primary->getClientSession(ordinaryCredentials.getClientId());
+    ASSERT_NE(nullptr, ordinarySession);
+    EXPECT_FALSE(ordinarySession->isClusterSession());
+}
+
+namespace {
+
+/**
+ * @brief Try a cluster link to a node.
+ * @return true if the link connected; a refused handshake, thrown or returned, is false.
+ */
+bool clusterLinkConnects(cluster::ServerNode& peer)
+{
+    try
+    {
+        return peer.connect() == ReasonCode::Success && peer.isConnected();
+    }
+    catch (const Exception&)
+    {
+        return false;
+    }
+}
+
+} // namespace
+
+/**
+ * Confirm that a cluster link is never opened to a node that nothing vouches for.
+ *
+ * Setup: Start two nodes, then empty the peers directory and name no certificate authority.
+ * Verification: The link is refused before a connection is made, so the receiving node never
+ * sees a cluster session and the cluster password never leaves the node. Once the node's
+ * certificate is trusted again, the same link connects.
+ */
+TEST_F(XMQ_ClusterTests, clusterLinkRequiresTrustedCertificate)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto secondary = createNode("secondary", 1886, true);
+    distrustNodeCertificates();
+
+    CServerNode settings;
+    settings.m_node_name = primary->getNodeName();
+    settings.m_host_port = primary->cluster()->getNodeHost().toString();
+    settings.m_encrypted = true;
+
+    cluster::ServerNode untrusted(secondary.get(), settings, secondary->cluster()->getClusterTopics());
+    EXPECT_THROW(untrusted.connect(), Exception);
+    EXPECT_FALSE(untrusted.isConnected());
+    EXPECT_EQ(nullptr, primary->getClientSession("node_secondary_primary"));
+
+    trustNodeCertificate(primary);
+    cluster::ServerNode trusted(secondary.get(), settings, secondary->cluster()->getClusterTopics());
+    EXPECT_TRUE(clusterLinkConnects(trusted));
+    trusted.disconnect();
+}
+
+/**
+ * Confirm that a node presenting a certificate other than a trusted one is refused.
+ *
+ * Setup: Start two nodes and trust only a certificate generated for some other machine.
+ * Verification: The TLS handshake fails, so the receiving node never sees a cluster session -
+ * what answers in a node's place is not handed the cluster password.
+ */
+TEST_F(XMQ_ClusterTests, clusterLinkRefusesUntrustedCertificate)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto secondary = createNode("secondary", 1886, true);
+    distrustNodeCertificates();
+
+    const auto peers = Settings::peerCertificatesDirectory();
+    filesystem::create_directories(peers);
+    String description;
+    ASSERT_TRUE(SelfSignedCertificate::create(peers / "stranger.crt", peers / "stranger.key", "stranger", description));
+    filesystem::remove(peers / "stranger.key");
+
+    CServerNode settings;
+    settings.m_node_name = primary->getNodeName();
+    settings.m_host_port = primary->cluster()->getNodeHost().toString();
+    settings.m_encrypted = true;
+
+    cluster::ServerNode peer(secondary.get(), settings, secondary->cluster()->getClusterTopics());
+    EXPECT_FALSE(clusterLinkConnects(peer));
+    this_thread::sleep_for(200ms);
+    EXPECT_EQ(nullptr, primary->getClientSession("node_secondary_primary"));
 }

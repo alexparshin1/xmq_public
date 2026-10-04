@@ -42,14 +42,16 @@ public:
     ServerNode(Server* server, CServerNode nodeSettings, const Topics& clusterTopics);
 
     /**
-     * @brief Connect to the node.
-     * Connect to the MQTT node and introduce this node to the cluster (in cluster mode)
-     * and optionally subscribe to the node topics.
-     * @param cluster True to connect in cluster mode, false otherwise.
+     * @brief Connect to the node over MQTT+SSL and subscribe to its cluster topics.
+     *
+     * The node must present a certificate this node trusts: one in the certificates' peers
+     * directory, or one issued by the configured certificate authority.
+     *
      * @return MQTT connection result(reason) code.
-     * @throws sptk::Exception  When a cluster connection is requested without TLS.
+     * @throws sptk::Exception  When the node record is not encrypted, or nothing is trusted to
+     *                          verify the node against.
      */
-    ReasonCode connect(bool cluster = false);
+    ReasonCode connect();
 
     /**
      * @brief Begin joining the cluster.
@@ -90,13 +92,6 @@ public:
      * @param state             The state of the node.
      */
     void setState(ServerNodeState state);
-
-    /**
-     * @brief Checks if the node operates in cluster mode.
-     * Determines if the current node is configured to function as part of a cluster.
-     * @return True if the node is operating in cluster mode. False otherwise.
-     */
-    bool isClusterNode() const;
 
     /**
      * @brief Register a callback for incoming messages.
@@ -165,13 +160,23 @@ public:
     void setRecordId(RecordId recordId);
 
 private:
+    /**
+     * @brief The keys a cluster link is opened with.
+     *
+     * This node's own certificate, and the certificates it trusts: the configured certificate
+     * authority, or the peers directory. Verification is not optional on a cluster link.
+     *
+     * @return the keys.
+     * @throws sptk::Exception  When nothing is trusted to verify a node against.
+     */
+    std::shared_ptr<sptk::SSLKeys> clusterLinkKeys() const;
+
     mutable std::shared_mutex           m_mutex;                           ///< Shared mutex.
     client::MqttClient                  m_mqttClient;                      ///< MQTT client.
     Server*                             m_server;                          ///< Owning server instance.
     std::shared_ptr<ConnectCredentials> m_credentials;                     ///< Bridge MQTT client credentials (ID, username, password).
     CServerNode                         m_nodeSettings;                    ///< Bridge configuration.
     sptk::DateTime                      m_created {sptk::DateTime::Now()}; ///< Node creation date.
-    bool                                m_isClusterNode {false};           ///< True for cluster nodes.
     const Topics&                       m_clusterTopics;                   ///< Cluster topics.
 };
 

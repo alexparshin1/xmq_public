@@ -15,6 +15,8 @@
 #include "test/ClusterTests/ClusterTests.h"
 
 #include "TestOptions.h"
+#include "common/DirectoryNames.h"
+#include "server/Settings/Settings.h"
 
 #include <ranges>
 
@@ -38,6 +40,7 @@ void XMQ_ClusterTests::SetUp()
 void XMQ_ClusterTests::TearDown()
 {
     stopServers();
+    distrustNodeCertificates();
     XMQ_ServerTests::TearDown();
 }
 
@@ -51,9 +54,31 @@ SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t
 
     server->getSettings()->setLogSubjectsPriority({}, Info);
     server->getSettings()->setLogSubjectsPriority(logSubjects, Debug);
+    trustNodeCertificate(server);
 
     this_thread::sleep_for(100ms);
     return server;
+}
+
+void XMQ_ClusterTests::trustNodeCertificate(const SServer& server)
+{
+    // Every node in this process serves the same certificate, so trusting it once lets each of
+    // them verify the others - which a cluster link always does.
+    const filesystem::path served = server->getSettings()->m_connections.m_ssl_keys.m_certfile.asString().c_str();
+    const auto             peers = Settings::peerCertificatesDirectory();
+    error_code             errorCode;
+    filesystem::create_directories(peers, errorCode);
+    filesystem::copy_file(served, peers / "cluster-test-node.crt", filesystem::copy_options::overwrite_existing, errorCode);
+    ASSERT_FALSE(errorCode) << "Can't trust " << served.string() << ": " << errorCode.message();
+}
+
+void XMQ_ClusterTests::distrustNodeCertificates()
+{
+    // The peers directory belongs to the whole run; left behind, it would have the bridge tests
+    // verify links they expect to open unverified.
+    error_code errorCode;
+    filesystem::remove_all(Settings::peerCertificatesDirectory(), errorCode);
+    filesystem::remove(DirectoryNames::certsDirectory() / "peers.crt", errorCode);
 }
 
 tuple<client::SMqttClient, client::SMqttClient, std::string>

@@ -209,12 +209,18 @@ Existing configurations that advertise the plain MQTT port must be updated befor
 An explicit request for an unencrypted join, or a discovered peer record with `encrypted: false`,
 is rejected. The reserved `cluster` account is admitted only over TLS; ordinary MQTT clients
 can continue using the plain listener, including taking over their previous TLS connection
-with the same Client ID. The transport requirement applies to internode links.
+with the same Client ID. A cluster session and an ordinary session never take over each other:
+an ordinary client that names a cluster link's Client ID is refused, and so is a cluster
+connection that names an ordinary client's. The transport requirement applies to internode links.
 
-Outgoing links use the local node's `connections.ssl_keys`, including its certificate and trust
-store, rather than certificate paths advertised by another machine. Certificate verification
-follows `verify_depth`: zero encrypts the connection without verifying the peer certificate;
-a positive value enables verification against the configured CA. Encryption is mandatory.
+Outgoing links use the local node's certificate and key (`connections.ssl_keys`, or the node's
+own pair when none is named), never certificate paths advertised by another machine. The peer
+is always verified: against `connections.ssl_keys.cafile` when it is set, otherwise against the
+certificates in the `peers` directory next to the node's own certificate - the same trusted
+peers bridges use. Each node normally has its own self-signed certificate, so every node must
+hold the certificates of the others there. With nothing to verify against, no link is opened;
+`verify_depth` 0 is read as 1, since a cluster link is never left unverified. Only the chain is
+checked, not the host name.
 
 ## Release plan
 

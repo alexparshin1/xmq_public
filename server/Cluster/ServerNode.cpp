@@ -14,6 +14,7 @@
 
 #include "ServerNode.h"
 #include "Server.h"
+#include "server/Settings/Settings.h"
 #include "common/mqtt/PublishMessage.h"
 
 using namespace std;
@@ -43,23 +44,22 @@ ServerNode::ServerNode(Server* server, CServerNode nodeSettings, const Topics& c
     }
 }
 
-ReasonCode ServerNode::connect(const bool cluster)
+ReasonCode ServerNode::connect()
 {
     const unique_lock lock(m_mutex);
 
-    if (cluster && !m_nodeSettings.m_encrypted.asBool())
+    if (!m_nodeSettings.m_encrypted.asBool())
     {
         throw Exception("Cluster connections require MQTT+SSL.");
     }
 
-    m_isClusterNode = cluster;
     m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Offline);
 
     auto destinationHost = make_unique<Host>(m_nodeSettings.m_host_port);
 
     if (destinationHost->port() == 0)
     {
-        destinationHost = make_unique<Host>(m_nodeSettings.m_host_port, static_cast<uint16_t>(m_nodeSettings.m_encrypted.asBool() ? 8883 : 1883));
+        destinationHost = make_unique<Host>(m_nodeSettings.m_host_port, static_cast<uint16_t>(8883));
     }
 
     const client::ConnectParameters connectParameters;
@@ -67,27 +67,7 @@ ReasonCode ServerNode::connect(const bool cluster)
     const auto messageProperties = make_shared<MessageProperties>();
     messageProperties->setUserProperty("origin-node", m_server->getNodeName());
 
-    shared_ptr<SSLKeys> sslKeys;
-    if (m_nodeSettings.m_encrypted.asBool())
-    {
-        // Advertised peer paths refer to another machine. Cluster connections always use this
-        // node's certificate and trust store, including connections opened during mesh discovery.
-        const auto& keysData = cluster ? m_server->getSettings()->m_connections.m_ssl_keys : m_nodeSettings.m_ssl_keys;
-
-        // Verification follows the configured depth, as it does for bridges and listeners. At
-        // zero the link is encrypted and the peer unverified, which between brokers means any
-        // machine that can answer on the address is accepted as the node.
-        const auto verifyDepth = keysData.m_verify_depth.asInteger();
-        const auto verifyMode = verifyDepth ? SSL_VERIFY_PEER : SSL_VERIFY_NONE;
-
-        sslKeys = make_shared<SSLKeys>(
-            keysData.m_keyfile.asString().c_str(),
-            keysData.m_certfile.asString().c_str(),
-            "",
-            keysData.m_cafile.asString().c_str(),
-            verifyMode,
-            verifyDepth);
-    }
+    const auto sslKeys = clusterLinkKeys();
 
     const auto rc = m_mqttClient.connect(*destinationHost, *m_credentials, connectParameters, ProtocolVersion::MqttV5, messageProperties, sslKeys);
 
@@ -98,6 +78,44 @@ ReasonCode ServerNode::connect(const bool cluster)
     }
 
     return rc;
+}
+
+shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
+{
+    // Advertised peer paths refer to another machine. Cluster connections always use this node's
+    // certificate and trust store, including connections opened during mesh discovery.
+    const auto& keysData = m_server->getSettings()->m_connections.m_ssl_keys;
+
+    const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
+    const auto certificateFile = keysData.m_certfile.asString().empty()
+                                     ? nodeCertificate.string()
+                                     : keysData.m_certfile.asString();
+    const auto privateKeyFile = keysData.m_keyfile.asString().empty()
+                                    ? nodeKey.string()
+                                    : keysData.m_keyfile.asString();
+
+    // Between brokers there is usually no certificate authority: each node holds the others'
+    // certificates in the peers directory, and a self-signed certificate vouches for itself.
+    auto authorityFile = keysData.m_cafile.asString();
+    if (authorityFile.empty())
+    {
+        authorityFile = Settings::buildPeerCertificateBundle().string();
+    }
+
+    // Unlike a bridge, a cluster link is never left unverified. It carries the cluster password
+    // and the storage address, and whatever answers in a node's place is handed both.
+    if (authorityFile.empty())
+    {
+        throw Exception(format("Cannot verify node '{}': no trusted certificates. Add its "
+                               "certificate to {}.",
+                               m_nodeSettings.m_node_name.asString().c_str(),
+                               Settings::peerCertificatesDirectory().string()));
+    }
+
+    const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
+
+    return make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
+                                authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth));
 }
 
 void ServerNode::sendAttachNodeRequest()
@@ -140,12 +158,6 @@ void ServerNode::setState(const ServerNodeState state)
 {
     const unique_lock lock(m_mutex);
     m_nodeSettings.m_node_state = static_cast<int>(state);
-}
-
-bool ServerNode::isClusterNode() const
-{
-    const shared_lock lock(m_mutex);
-    return m_isClusterNode;
 }
 
 MessageId ServerNode::publish(const Command command, const WSComplexType& message)

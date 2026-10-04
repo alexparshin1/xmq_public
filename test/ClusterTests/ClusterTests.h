@@ -31,6 +31,17 @@ protected:
     static SServer createNode(const std::string& nodeName, uint16_t                         portNumber,
                               bool               cleanStart, const std::vector<LogSubject>& logSubjects = {});
 
+    /**
+     * @brief Trust the certificate a node serves, as a cluster link requires.
+     * @param server            Node whose certificate the other nodes are to trust.
+     */
+    static void trustNodeCertificate(const SServer& server);
+
+    /**
+     * @brief Trust no node: empty the peers directory.
+     */
+    static void distrustNodeCertificates();
+
     static std::tuple<client::SMqttClient, client::SMqttClient, std::string>
     createTestSubscriberAndPublisher(const sptk::Host& publishToHost, const sptk::Host& subscribeToHost);
 

@@ -1198,6 +1198,17 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
         }
     }
 
+    if (reasonCode == ReasonCode::Success && existingClientSession &&
+        existingClientSession->isClusterSession() != (connectMessage->getUsername() == "cluster"))
+    {
+        // A takeover hands over the existing session, cluster flag and all. An ordinary client
+        // naming a cluster link's client id would come away with a session that skips the topic
+        // rules and may publish to $CLUSTER, and the link would be closed under its node. The
+        // other way round, a node would close an ordinary client and inherit its session. Checked
+        // before authentication, because a successful authentication closes the existing session.
+        reasonCode = ReasonCode::ErrorNotAuthorized;
+    }
+
     if (reasonCode == ReasonCode::Success)
     {
         // Asked of the socket, because a refusal is worth nothing to whoever reads it without
