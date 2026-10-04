@@ -126,9 +126,10 @@ load-test failure.
   against these brokers for comparison.
 - `Scenario-Set.txt` — the common, ordered scenario set for all four brokers on both the home
   bench and AWS. `Scenario-Set-Bench.txt` and `Scenario-Set-AWS.txt` are links to this one file,
-  so the two environments cannot silently select different tests. Bench results remain private
-  in `results/versions/`; AWS results for publication go in `results/AWS/`.
-- `results/` — recorded output from prior test runs.
+  so the two environments cannot silently select different tests.
+- `results/` — `AWS/<version>/` and `Bench/<version>/`, one file per test; see
+  `results/README.md`. Every version needs both before it is released.
+- `file_results.py` — files a scenario-set record into `results/`.
 
 ## Repeatable comparison runs
 

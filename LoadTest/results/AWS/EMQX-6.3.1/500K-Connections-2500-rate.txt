@@ -1,0 +1,31 @@
+Server:   EMQX
+Version:  6.3.1
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1010-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LoadTest/emqx/emqx.conf, durable_sessions disabled, LimitNOFILE 2000000; each scenario gated on a pub/sub round-trip
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.18
+Date:     2026-09-28
+
+Rerun: the first EMQX run failed every scenario because 6.x durable sessions were on and the shards were not ready within the restart window. Durable sessions off here, so the persistent scenario is in-memory for EMQX.
+
+Broker restarted before each scenario.
+
+Scenario: 500K-Connections-2500-rate
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             49999      604us         2499
+20000ms         49999      615us         2499
+40000ms         50001      625us         2500
+60000ms         50000      629us         2500
+80000ms         49999      651us         2499
+100000ms        50001      680us         2500
+120000ms        50000      678us         2500
+140000ms        50000      860us         2500
+160000ms        49999      754us         2499
+180000ms        50001      773us         2500
+200000ms            1      592us            0
+─────────────────────────────────────────────
+Average        500000      687us         2272
+Median                     651us
+  interval median 651us over 11 samples (as xmq_scn reports it), range 592-860us
+  server CPU   mean 212%, peak 771%
+  server RSS   9627 Mb peak
+  client NIC ens5: no dropped packets during the run

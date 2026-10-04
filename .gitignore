@@ -39,7 +39,7 @@ CPackSourceConfig.cmake
 .idea/
 .externalToolBuilders/
 *.log
-LoadTest/results/runs/
+LoadTest/results/raw/
 
 # The AWS campaign driver and the bench's own environment: they name our instances, hosts and
 # addresses, so they live on the disk of the machines that run them and in neither git nor a package.

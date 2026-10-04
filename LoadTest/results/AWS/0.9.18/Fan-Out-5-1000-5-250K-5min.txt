@@ -1,0 +1,30 @@
+Server:   XMQ
+Version:  0.9.18
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1010-aws, CONFIG_HZ=1000, no IOMMU, no CPU affinity, apt timers disabled; XMQ on port 1884 as systemd service, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, clean_start) only for Point-To-Point-30K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.18, no CPU affinity
+Date:     2026-09-28
+
+Rerun of the XMQ set of the same day: the first one was restarted mid-scenario by unattended upgrades and ran with delivery_threads=16.
+
+Broker restarted before each scenario.
+
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7500000     1277us       250000
+30000ms       7500000     1275us       250000
+60000ms       7500000     1290us       250000
+90000ms       7500000     1276us       250000
+120000ms      7500000     1289us       250000
+150000ms      7500000     1290us       250000
+180000ms      7500000     1285us       250000
+210000ms      7500000     1286us       250000
+240000ms      7500000     1285us       250000
+270000ms      7498001     1288us       249933
+─────────────────────────────────────────────
+Average      74998001     1284us       249993
+Median                    1286us
+  interval median 1286us over 10 samples (as xmq_scn reports it), range 1275-1290us
+  server CPU   mean 347%, peak 367%
+  server RSS   52 Mb peak
+  client NIC ens5: no dropped packets during the run

@@ -1,6 +1,0 @@
-10:42:33 XMQ rerun: the campaign is over, checking the server
-10:42:34 XMQ rerun: server_limits {"send_threads":"3","receive_threads":"4","delivery_threads":"2","max_topic_alias":128,"max_packet_size":268435456}; apt timers: disabled disabled 
-10:42:35 XMQ-0.9.18-rerun: set started
-12:27:18 XMQ-0.9.18-rerun: set finished, exit 0
-12:27:22 XMQ-0.9.18-rerun: xmq_server stopped
-12:27:22 XMQ rerun finished

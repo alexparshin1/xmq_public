@@ -1,6 +1,0 @@
-12:27:49 EMQX-6.3.1-rerun: XMQ rerun is over, preparing EMQX
-    durable_sessions:     enable = false
-12:27:51 EMQX-6.3.1-rerun: set started
-14:13:00 EMQX-6.3.1-rerun: set finished, exit 0
-14:13:05 EMQX-6.3.1-rerun: emqx stopped
-14:13:05 EMQX rerun finished
