@@ -6,7 +6,7 @@ Date:     2026-10-04
 Started:  2026-10-04 14:59:31 AEDT
 Total execution time: 01:40:27
 
-Bench baseline of 0.9.19: origin/0.9.19, SPTK 5.6.13 (1aa6010), Release; MQTT5, QoS1; 30 source addresses; persistence only for 60K with clean storage.
+Bench baseline of 0.9.19: origin/0.9.19, SPTK 5.6.13 (1aa6010), Release; QoS1, MQTT 5 for Fan-In and MQTT 3.1 (protocol_version 3) for the other tests; 30 source addresses; persistence only for 60K with clean storage.
 
 Broker restarted before each scenario.
 
