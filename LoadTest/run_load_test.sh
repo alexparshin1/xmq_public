@@ -37,8 +37,18 @@ if [[ -z "${XMQ_SLEEP_INHIBITED:-}" ]] && command -v systemd-inhibit > /dev/null
     exec systemd-inhibit --what=sleep:idle --who="MQTT load test" \
          --why="a run in progress must not be suspended" --mode=block bash "$self" "$@"
   fi
-  echo "   warning: no sleep inhibitor could be taken, so nothing here stops this machine" \
-       "suspending mid-run - run_scenario_set.sh checks afterwards whether it did" >&2
+  # Detached, the inhibitor is still to be had from root - and is needed most there: a run left to
+  # itself is the one nobody is at the desk to keep awake. KDE suspended thinker10 eighteen minutes
+  # into such a run on 2026-10-05. Held for as long as this script runs, and released with it.
+  if sudo -n systemd-inhibit --what=sleep:idle --who="probe" --why="probe" --mode=block true > /dev/null 2>&1; then
+    sudo -n systemd-inhibit --what=sleep:idle --who="MQTT load test" \
+         --why="a run in progress must not be suspended" --mode=block sleep infinity > /dev/null 2>&1 &
+    sleep_inhibitor=$!
+    trap 'kill "$sleep_inhibitor" 2> /dev/null' EXIT
+  else
+    echo "   warning: no sleep inhibitor could be taken, so nothing here stops this machine" \
+         "suspending mid-run - run_scenario_set.sh checks afterwards whether it did" >&2
+  fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
