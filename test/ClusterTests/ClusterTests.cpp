@@ -78,7 +78,13 @@ void XMQ_ClusterTests::distrustNodeCertificates()
     // verify links they expect to open unverified.
     error_code errorCode;
     filesystem::remove_all(Settings::peerCertificatesDirectory(), errorCode);
-    filesystem::remove(DirectoryNames::certsDirectory() / "peers.crt", errorCode);
+    for (const auto& entry: filesystem::directory_iterator(DirectoryNames::certsDirectory(), errorCode))
+    {
+        if (entry.path().filename().string().starts_with("peers-") && entry.path().extension() == ".crt")
+        {
+            filesystem::remove(entry.path(), errorCode);
+        }
+    }
 }
 
 tuple<client::SMqttClient, client::SMqttClient, std::string>
@@ -111,8 +117,6 @@ tuple<SServer, SServer> XMQ_ClusterTests::makeClusterOfTwoNodes()
         Disconnect,
         ClusterConnections,
         ClusterEvents};
-
-    string databaseUri = "postgresql://localhost/xmq_test";
 
     const auto primaryNode = createNode("primary", 1880, true, logSubjects);
     const auto secondaryNode = createNode("secondary", 1886, false, logSubjects);

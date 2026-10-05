@@ -142,7 +142,6 @@ void subscribeWildcardRestrictions(const Host&   server, const XMQ_ServerTests::
  */
 TEST_F(XMQ_ClusterTests, publishUserAccess)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     createNode("primary", 1880, true);
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
@@ -159,7 +158,6 @@ TEST_F(XMQ_ClusterTests, publishUserAccess)
  */
 TEST_F(XMQ_ClusterTests, publishClusterUserAccess)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     createNode("primary", 1880, true);
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
@@ -176,7 +174,6 @@ TEST_F(XMQ_ClusterTests, publishClusterUserAccess)
  */
 TEST_F(XMQ_ClusterTests, subscribeUserAccess)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     createNode("primary", 1880, true);
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
@@ -196,7 +193,6 @@ TEST_F(XMQ_ClusterTests, subscribeUserAccess)
  */
 TEST_F(XMQ_ClusterTests, subscribeClusterUserAccess)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     createNode("primary", 1880, true);
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
@@ -211,7 +207,6 @@ TEST_F(XMQ_ClusterTests, subscribeClusterUserAccess)
 
 TEST_F(XMQ_ClusterTests, subscribeWildcardRestrictions)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     createNode("primary", 1880, true);
 
     const auto testNames = makeTestNames();

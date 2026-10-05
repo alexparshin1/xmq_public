@@ -23,8 +23,6 @@ class XMQ_EXPORT XMQ_PersistenceTests : public XMQ_ServerTests
 public:
     void SetUp() override;
 
-    sptk::String m_databaseUri{TestServers::dbConnectString(TestServers::StorageType::PostgreSQL)};
-
     static SClientSession createClientSession(const std::string& clientId, const std::vector<std::string>& topicNames = {}, const std::vector<std::string>& messagePayloadsPerTopic = {});
 
     static bool areClientSessionMessagesInRedis(const SClientSession& clientSession, size_t expectedMessageCount);

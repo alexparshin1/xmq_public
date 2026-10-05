@@ -1179,8 +1179,28 @@ filesystem::path Settings::buildPeerCertificateBundle()
         return {};
     }
 
-    const auto bundleFile = DirectoryNames::certsDirectory() / "peers.crt";
-    bundle.saveToFile(bundleFile);
+    // Named after what it holds. SPTK caches an SSL context by the names of its files and looks
+    // at the files again only once a second, so a bundle rewritten under the same name could
+    // still be checked against the certificates it held before - a peer just removed from the
+    // trusted ones trusted a while longer. A new name is a new context, at once.
+    const auto contentHash = std::hash<string_view> {}(string_view(bundle.c_str(), bundle.size()));
+    const auto bundleName = format("peers-{:016x}.crt", contentHash);
+    const auto bundleFile = DirectoryNames::certsDirectory() / bundleName;
+    if (!filesystem::exists(bundleFile, errorCode))
+    {
+        bundle.saveToFile(bundleFile);
+    }
+
+    // Bundles of earlier trust sets are of no further use: a context already made from one has
+    // read it.
+    for (const auto& entry: filesystem::directory_iterator(DirectoryNames::certsDirectory(), errorCode))
+    {
+        const auto name = entry.path().filename().string();
+        if (name != bundleName && name.starts_with("peers") && entry.path().extension() == ".crt")
+        {
+            filesystem::remove(entry.path(), errorCode);
+        }
+    }
     return bundleFile;
 }
 

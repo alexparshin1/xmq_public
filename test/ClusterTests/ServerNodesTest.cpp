@@ -22,7 +22,6 @@ using namespace xmq;
 using namespace xmq::cluster;
 
 namespace {
-const string databaseUri = "postgresql://gtest@localhost/xmq_test";
 }
 
 TEST_F(XMQ_ClusterTests, AddServerNode)

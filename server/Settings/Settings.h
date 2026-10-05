@@ -119,7 +119,8 @@ public:
      * @brief The trusted peers, gathered into the single file OpenSSL is given.
      *
      * Rebuilt from the directory rather than edited: a bundle assembled every time cannot drift
-     * from the certificates it is supposed to contain.
+     * from the certificates it is supposed to contain. Its name follows its content, so a change
+     * of the trusted peers is a new file - and a new SSL context - at once.
      *
      * @return the bundle path, or empty when no peer is trusted.
      */

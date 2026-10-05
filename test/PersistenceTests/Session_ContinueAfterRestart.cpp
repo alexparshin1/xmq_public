@@ -27,8 +27,6 @@ namespace {
 // client disconnects. Only used where there is no acknowledgement to wait on.
 constexpr auto settleTime = 100ms;
 
-const auto storageUri = TestServers::dbConnectString(TestServers::StorageType::PostgreSQL);
-
 shared_ptr<client::MqttClient> connectClient(const string&                 clientId,
                                              const bool                    cleanSession = false,
                                              const PublishMessageCallback& messageCallback = nullptr)

@@ -28,7 +28,6 @@ using namespace xmq;
  */
 TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     const auto   primaryNode = createNode("primary", 1880, true);
     const auto   secondaryNode = createNode("secondary", 1886, false);
     const auto   thirdNode = createNode("third", 1881, false);
@@ -91,7 +90,6 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
  */
 TEST_F(XMQ_ClusterTests, enforceUniqueClientId)
 {
-    const string databaseUri = "postgresql://gtest@localhost/xmq_test";
     const auto   primaryNode = createNode("primary", 1880, true);
     const auto   secondaryNode = createNode("secondary", 1886, false);
 

@@ -40,8 +40,9 @@ void MessageDeliveryThread::threadFunction()
     while (!terminated())
     {
         DeliveryTask task;
-        if (!m_taskQueue.pop_front(task, 500ms))
+        if (!m_taskQueue.pop_front(task, 500ms) || !task.m_message)
         {
+            // No message: the wake-up terminateThreads() queues.
             continue;
         }
 
@@ -98,6 +99,9 @@ void MessageDeliveryThreads::terminateThreads() const
     for (const auto& thread: m_threads)
     {
         thread->terminate();
+        // An empty task wakes the thread at once, where it otherwise noticed only when its wait
+        // timed out - up to half a second of every server stop.
+        thread->enqueue(DeliveryTask {});
     }
 }
 

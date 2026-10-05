@@ -139,8 +139,12 @@ void ClientSessionThread::terminate()
     // then busy-spins forever in `while (!try_dequeue(item)) continue;` because no item ever
     // materialises. At shutdown that trapped every session worker in a 100% CPU spin, saturating
     // the machine and starving the join()s of the other thread pools (delivery, Web GUI), so the
-    // server never finished stopping. The worker instead observes m_terminated when its pop_front()
-    // times out (<= 1s), which is prompt enough for shutdown.
+    // server never finished stopping.
+    //
+    // An empty session instead: a real item, so the waiting pop_front() returns at once, sees
+    // m_terminated and leaves without processing it. Waiting out the 1-second timeout instead cost
+    // up to a second per server stop - a second of nearly every test that starts a server.
+    m_sessionQueue.push_back(SClientSession {});
 }
 
 void ClientSessionThread::log(const LogPriority priority, const String& message) const

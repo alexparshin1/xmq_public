@@ -33,7 +33,7 @@ constexpr auto settleTime = 100ms;
 // which is what makes the "still there" assertion meaningful.
 constexpr uint32_t messageExpirySeconds = 2;
 
-// Waited after the interval has passed. Generous rather than tight: the assertion that matters
+// Allowed after the interval has passed. Generous rather than tight: the assertion that matters
 // is that the message is eventually gone, and a marginal wait would make the test flaky on a
 // loaded build host rather than catch anything extra.
 constexpr auto expiryOverrun = 3s;
@@ -111,7 +111,13 @@ TEST_F(XMQ_PersistenceTests, Message_ExpiredMessageRemovedFromStorage)
     expectSessionInRedis(redis, subscriberClientId, 1);
     expectRestoredSession(subscriberClientId, {topicName}, 1);
 
-    this_thread::sleep_for(chrono::seconds(messageExpirySeconds) + expiryOverrun);
+    // The overrun is a limit, not a wait: the test goes on as soon as the message is gone.
+    this_thread::sleep_for(chrono::seconds(messageExpirySeconds));
+    const auto deadline = chrono::steady_clock::now() + expiryOverrun;
+    while (queuedMessagesInRedis(redis, subscriberClientId) > 0 && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(50ms);
+    }
 
     // Past it, the message is undeliverable and must be gone - while the session itself, whose
     // own expiry is an hour away, stays.

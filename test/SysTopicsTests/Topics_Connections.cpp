@@ -54,22 +54,45 @@ TEST_F(XMQ_SysTopicsTests, Topics_Publish)
 {
     using enum SystemStatistics::SysTopicKind;
 
+    const auto receivedTopic = SystemStatistics::sysTopicKindToTopic(BrokerMessagesPublishReceived);
+    const auto sentTopic = SystemStatistics::sysTopicKindToTopic(BrokerMessagesPublishSent);
+
+    mutex               receivedMutex;
+    map<string, string> receivedValues;
+
     const auto [subscriber, publisher, topicName] = createTestSubscriberAndPublisher();
     const Destinations destinations {
         Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions {Qos::Qos1}),
-        Destination(client::MqttClient::getTopic(SystemStatistics::sysTopicKindToTopic(BrokerMessagesPublishReceived)), SubscriptionOptions {Qos::Qos1}),
-        Destination(client::MqttClient::getTopic(SystemStatistics::sysTopicKindToTopic(BrokerMessagesPublishSent)), SubscriptionOptions {Qos::Qos1})};
+        Destination(client::MqttClient::getTopic(receivedTopic), SubscriptionOptions {Qos::Qos1}),
+        Destination(client::MqttClient::getTopic(sentTopic), SubscriptionOptions {Qos::Qos1})};
     ASSERT_TRUE(test::subscribeAndWait(subscriber, destinations))
         << "The broker did not acknowledge the subscription";
-    subscriber->onMessage([](const SPublishMessage& message)
+    subscriber->onMessage([&](const SPublishMessage& message)
                           {
-                              COUT("Received message: " << message->toString());
+                              const scoped_lock lock(receivedMutex);
+                              receivedValues[string(message->destination()->fullName())] = message->payload();
                           });
 
-    COUT("Sleep for 3s..");
-    this_thread::sleep_for(3s);
-
-    COUT("Publish..");
     publisher->publish(topicName, "test", Qos::Qos1);
-    this_thread::sleep_for(3s);
+
+    // The counters come once a second; waiting for them, rather than for a fixed time, is what
+    // keeps this test from taking six seconds.
+    const auto counted = [&](const string& topic)
+    {
+        const auto it = receivedValues.find(topic);
+        return it != receivedValues.end() && string2int(it->second) > 0;
+    };
+    const auto deadline = chrono::steady_clock::now() + 5s;
+    auto       arrived = false;
+    while (!arrived && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(20ms);
+        const scoped_lock lock(receivedMutex);
+        arrived = receivedValues.contains(topicName) && counted(receivedTopic) && counted(sentTopic);
+    }
+
+    const scoped_lock lock(receivedMutex);
+    EXPECT_EQ("test", receivedValues[topicName]);
+    EXPECT_TRUE(counted(receivedTopic)) << receivedTopic << " never reported a publication";
+    EXPECT_TRUE(counted(sentTopic)) << sentTopic << " never reported a publication";
 }

@@ -66,12 +66,6 @@ String TestServers::dbConnectString(const StorageType type)
     String connectString;
     switch (type)
     {
-        case StorageType::PostgreSQL: {
-            constexpr auto defaultPostgreSqlPort = 5432;
-            const auto&    host = getServerHost(defaultPostgreSqlPort);
-            connectString = "postgresql://gtest:test#123@" + host->hostname() + "/xmq_test";
-            break;
-        }
         case StorageType::SQLite3:
             connectString = DirectoryNames::sqliteUri(DirectoryNames::tempDirectory() / "xmq_test.db");
             break;

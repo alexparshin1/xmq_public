@@ -24,7 +24,6 @@ public:
     enum class StorageType
     {
         Dummy,
-        PostgreSQL,
         SQLite3
     };
 

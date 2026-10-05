@@ -790,8 +790,10 @@ TEST(XMQ_Settings, aConfiguredDatabaseIsUsedInsteadOfTheDefault)
     Buffer configuration;
     configuration.loadFromFile(configurationFile);
     String edited(configuration.c_str());
+    // Loading the configuration opens the database, so the host is one under .invalid, which a
+    // resolver refuses at once: a made-up plain name waited out the resolver's timeout - seconds.
     edited = edited.replace(R"("allow_anonymous")",
-                            R"("database_uri": "postgresql://someone:secret@dbhost/accounts",
+                            R"("database_uri": "postgresql://someone:secret@dbhost.invalid/accounts",
             "password_iterations": 25000,
             "allow_anonymous")");
     Buffer(edited).saveToFile(configurationFile);
@@ -799,7 +801,7 @@ TEST(XMQ_Settings, aConfiguredDatabaseIsUsedInsteadOfTheDefault)
     Settings settings;
     settings.loadConfiguration(configurationFile);
 
-    EXPECT_STREQ("postgresql://someone:secret@dbhost/accounts", settings.userDatabaseUri().c_str());
+    EXPECT_STREQ("postgresql://someone:secret@dbhost.invalid/accounts", settings.userDatabaseUri().c_str());
     EXPECT_EQ(25000, settings.passwordIterations());
 }
 

@@ -143,8 +143,9 @@ TEST_F(XMQ_PersistenceTests, Retained_NotResentToRestoredSubscription)
 
     server = restartServer();
 
+    // No waiting for nothing to arrive: a re-sent retained message would reach the session before
+    // the live one published after it connected, and the payloads checked below would show it.
     const auto subscriber = connectPersistent();
-    EXPECT_FALSE(received.wait_for(deliveryTimeout)) << "The retained message was re-sent to a restored subscription";
 
     {
         const auto publisher = connectRetainClient(publisherClientId + "-live");
@@ -308,15 +309,34 @@ TEST_F(XMQ_PersistenceTests, Retained_ClearedAfterRestartStaysCleared)
 
     server = restartServer();
 
-    Semaphore received;
-    const auto subscriber = connectRetainClient(subscriberClientId,
-                                                [&received](const SPublishMessage&)
-                                                {
-                                                    received.post();
-                                                });
+    mutex          receivedMutex;
+    vector<string> receivedPayloads;
+    Semaphore      received;
+    const auto     subscriber = connectRetainClient(subscriberClientId,
+                                                    [&](const SPublishMessage& message)
+                                                    {
+                                                        {
+                                                            const scoped_lock lock(receivedMutex);
+                                                            receivedPayloads.emplace_back(bit_cast<const char*>(message->payloadData()),
+                                                                                          message->payloadSize());
+                                                        }
+                                                        received.post();
+                                                    });
     subscriber->subscribe(topicName);
 
-    EXPECT_FALSE(received.wait_for(deliveryTimeout)) << "A cleared retained message came back after a restart";
+    // A marker rather than waiting for nothing to arrive: a retained message comes back on
+    // SUBSCRIBE, ahead of anything published after it, so the marker arriving first shows there
+    // was none.
+    {
+        const auto publisher = connectRetainClient(publisherClientId + "-marker");
+        publisher->publish(topicName, "marker", Qos::Qos1, false);
+        publisher->disconnect();
+    }
+    EXPECT_TRUE(received.wait_for(deliveryTimeout)) << "The subscription delivers nothing";
+    {
+        const scoped_lock lock(receivedMutex);
+        EXPECT_EQ((vector<string> {"marker"}), receivedPayloads) << "A cleared retained message came back after a restart";
+    }
 
     subscriber->disconnect();
     stopServers();
