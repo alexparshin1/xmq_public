@@ -205,14 +205,6 @@ void Cluster::deregisterConnectedNode(const SNode& node)
     updateClusterInfo();
 }
 
-void Cluster::subscribeToConnectedNode(const SNode& node, const Strings& topics)
-{
-    for (const auto& topic: topics)
-    {
-        node->subscribe(topic);
-    }
-}
-
 SNode Cluster::connectNode(const CServerNode& nodeSettings)
 {
     const string nodeName = nodeSettings.m_node_name.asString().c_str();
@@ -294,8 +286,7 @@ void Cluster::mqttConnectAllNodes()
     {
         try
         {
-            auto node = connectNode(nodeSettings);
-            subscribeToConnectedNode(node, {"#"});
+            (void) connectNode(nodeSettings);
         }
         catch (const Exception& e)
         {
@@ -367,7 +358,6 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
         connectedNode->publish(Command::AttachNodeResponse, existingCluster);
         connectedNode->setState(ServerNodeState::ConnectedToCluster);
         m_connectedNodes.addNode(connectedNode, StoreNodeMode::InsertOnly);
-        subscribeToConnectedNode(connectedNode, {"#"});
     }
 
     logMessage(LogPriority::Info, [&attachNodeRequest]
@@ -398,7 +388,6 @@ void Cluster::onAttachNodeResponse(const SPublishMessage& message)
         }
 
         m_connectedNodes.addNode(connectedNode, StoreNodeMode::InsertOnly);
-        subscribeToConnectedNode(connectedNode, {"#"});
     }
 
     m_thisNode->setState(ServerNodeState::ConnectedToCluster);
@@ -461,6 +450,7 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
         publishMessage->setSender(sender);
         publishMessage->setSourceNode(sender);
         publishMessage->setFromCluster();
+        ++m_forwardedMessagesReceived;
         m_server->publishMessage(publishMessage);
     }
 }

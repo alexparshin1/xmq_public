@@ -62,6 +62,18 @@ public:
     void for_each(const Visitor& callback) const;
     void for_next(const Visitor& callback);
 
+    /**
+     * @brief Visit the next subscription, in round-robin order, that the predicate accepts.
+     *
+     * The ones it refuses are passed over rather than handed the turn: a shared subscription whose
+     * next member cannot take this message - a cluster link, for a message another node forwarded
+     * - must give it to another member, not lose it.
+     *
+     * @param callback          Called for the subscription chosen, if any is accepted.
+     * @param eligible          Whether a subscription may take the turn.
+     */
+    void for_next(const Visitor& callback, const Predicate& eligible);
+
 private:
     struct ClientSessionSubscription
     {

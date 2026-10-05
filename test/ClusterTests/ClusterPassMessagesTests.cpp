@@ -105,6 +105,19 @@ TEST_F(XMQ_ClusterTests, passMessages_multipleNodes)
         subscribers.push_back(subscriber);
     }
 
+    // A node is sent only what its clients subscribe to, so the publishing node has to have heard of
+    // every remote subscription first - which a subscribe takes a moment to reach, as in any broker.
+    for (auto nodeIndex = 1u; nodeIndex < nodeCount; ++nodeIndex)
+    {
+        ASSERT_TRUE(TestCluster::waitFor([&cluster, nodeIndex]
+                                         {
+                                             return cluster[0]->getCluster()
+                                                 ->getNodeSubscriptions(TestCluster::nodeName(nodeIndex))
+                                                 .contains("topic1");
+                                         }))
+            << "node 0 did not learn of the subscription on " << TestCluster::nodeName(nodeIndex);
+    }
+
     COUT("──────────────────────────[Publisher and subscribers started]───────────────────────────────");
 
     Stopwatch stopwatch;

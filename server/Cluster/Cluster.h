@@ -22,6 +22,7 @@
 #include "SubscriptionClient.h"
 #include "base/xmq.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <set>
 #include <thread>
@@ -212,6 +213,15 @@ public:
      */
     [[nodiscard]] Server*       getServer() const;
 
+    /**
+     * @return How many publications other nodes have forwarded to this one. A node is sent only
+     *         what its own clients subscribe to, so with no local subscriber this stays put.
+     */
+    [[nodiscard]] uint64_t forwardedMessagesReceived() const
+    {
+        return m_forwardedMessagesReceived.load(std::memory_order_relaxed);
+    }
+
 private:
     mutable std::shared_mutex            m_mutex;                  ///< Mutex that protects access to internal data
     mutable std::mutex                   m_subscriptionMutex;      ///< Protects effective subscription snapshots.
@@ -229,6 +239,7 @@ private:
     std::condition_variable         m_subscriptionWorkAdded;      ///< Wakes the subscription sender.
     bool                            m_stopSubscriptionSender {false}; ///< Guarded by m_subscriptionMutex.
     std::thread                     m_subscriptionSender;         ///< Sends snapshots and changes to the other nodes.
+    std::atomic<uint64_t>           m_forwardedMessagesReceived {0}; ///< Publications other nodes forwarded here.
     Server*                              m_server;                 ///< Server.
     std::shared_ptr<Settings>            m_settings;               ///< Server settings.
     std::shared_ptr<SubscriptionManager> m_subscriptionManager;    ///< Subscription manager.
@@ -309,13 +320,6 @@ private:
      * @return the message.
      */
     [[nodiscard]] SPublishMessage retainedMessage(const sptk::Buffer& payload) const;
-
-    /**
-     * @brief Subscribe to a list of topic filters on a connected peer.
-     * @param node              Peer receiving the subscriptions.
-     * @param topics            MQTT topic filters to subscribe to.
-     */
-    static void subscribeToConnectedNode(const SNode& node, const sptk::Strings& topics);
 
     /**
      * @brief Process the received join request message.

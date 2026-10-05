@@ -42,7 +42,7 @@
   node to the same topic filter must be represented as one internode subscription. Changes must propagate when clients subscribe,
   unsubscribe, or their sessions expire; subscriptions belonging to offline persistent sessions must remain active.
 
-- [ ] for non-shared subscriptions, a node receiving a publication must forward it only to nodes whose subscriptions match
+- [x] for non-shared subscriptions, a node receiving a publication must forward it only to nodes whose subscriptions match
   the topic, and at most once per destination node, even when multiple filters match. This is an internode transport rule;
   it does not determine recipients of shared subscriptions. A joining node must synchronize subscriptions before routing messages.
 
@@ -229,9 +229,16 @@ clients share it, kept while a persistent session is offline and dropped when it
 that connects to another is sent its whole set once; after that only changes travel
 (`$CLUSTER/request/subscription_update`, one `+filter` or `-filter` per line). Changes are sent by
 a thread of their own, a few milliseconds at a time, so a client's SUBSCRIBE never waits for the
-network and a burst of subscriptions goes out as a few messages. Routing still relies on each
-node's `#` subscription to the others; using these sets for it, and naming `$share` filters
-without their group, are the next requirement's work.
+network and a burst of subscriptions goes out as a few messages.
+
+Routing is those subscriptions: a node subscribes on every other node to the filters its own
+clients use, and nothing else, so a publication travels only to the nodes that have a subscriber
+for it, and once to each - a node is one session on the others, and a session gets one copy
+however many of its filters match. A publication forwarded by another node is never handed to a
+cluster link, so nothing travels twice. A `$share` group spread over nodes gets each message once
+in the whole cluster: on each node the links to the others are members of the group, and a member
+that may not take the message - a link, for a message that came over one - is passed over for the
+next, never handed it and then skipped.
 
 ## Retained messages
 

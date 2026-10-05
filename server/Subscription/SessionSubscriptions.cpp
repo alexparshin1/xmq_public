@@ -136,6 +136,29 @@ void SessionSubscriptions::for_each(const Visitor& callback) const
     }
 }
 
+void SessionSubscriptions::for_next(const Visitor& callback, const Predicate& eligible)
+{
+    unique_lock lock(m_mutex);
+
+    for (size_t tried = 0; tried < m_clientSessionSubscriptions.size(); ++tried)
+    {
+        if (m_currentClientSessionSubscription == m_clientSessionSubscriptions.end())
+        {
+            m_currentClientSessionSubscription = m_clientSessionSubscriptions.begin();
+        }
+        const auto chosen = m_currentClientSessionSubscription++;
+        if (eligible(chosen->client, chosen->subscription))
+        {
+            callback(chosen->client, chosen->subscription);
+            break;
+        }
+    }
+    if (m_currentClientSessionSubscription == m_clientSessionSubscriptions.end())
+    {
+        m_currentClientSessionSubscription = m_clientSessionSubscriptions.begin();
+    }
+}
+
 void SessionSubscriptions::for_next(const Visitor& callback)
 {
     unique_lock lock(m_mutex);

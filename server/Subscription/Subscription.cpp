@@ -198,37 +198,46 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessag
     // A retained publication with an empty payload clears the stored value, but it is still a
     // publication. In particular, cluster subscribers must receive it to clear their own copy.
 
-    auto addToDeliverToSessions = [&publishMessage, &deliverToSessions, &dynamicRoute](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+    // Who may be handed this message at all. Shared and not: a shared subscription offers the
+    // message to the next member that passes, rather than to the next member.
+    auto eligible = [&publishMessage, &dynamicRoute](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
     {
-        const auto* clientSubscriptionDetails = subscription.get();
-        const auto  options = clientSubscriptionDetails->options();
-        if (options.m_noLocal)
+        if (subscription->options().m_noLocal)
         {
             // Membership depends on the publisher's client id, so this route can't be memoised.
             dynamicRoute = true;
             if (publishMessage.getSender() == clientSession->getClientId())
             {
-                return;
+                return false;
             }
         }
-        if (!clientSession->bridgeOrigin().empty() && !publishMessage.getSourceNode().empty())
-        {
-            // Don't deliver to bridge subscription if the message came from another node.
-            return;
-        }
+        // Not to a bridge or cluster link if the message came from another node: it goes back
+        // nowhere it came from, and the node it came from has delivered it there already.
+        return clientSession->bridgeOrigin().empty() || publishMessage.getSourceNode().empty();
+    };
 
-        deliverToSessions.add(subscription->clientSession(), clientSubscriptionDetails->qos(), clientSubscriptionDetails->subscriptionId(), options);
+    auto addToDeliverToSessions = [&deliverToSessions](const ISubscriptionClient*, const SSessionSubscription& subscription)
+    {
+        const auto* clientSubscriptionDetails = subscription.get();
+        deliverToSessions.add(subscription->clientSession(), clientSubscriptionDetails->qos(),
+                              clientSubscriptionDetails->subscriptionId(), clientSubscriptionDetails->options());
     };
 
     const shared_lock lock(m_mutex);
 
     if (isShared())
     {
-        m_clients.for_next(addToDeliverToSessions);
+        m_clients.for_next(addToDeliverToSessions, eligible);
     }
     else
     {
-        m_clients.for_each(addToDeliverToSessions);
+        m_clients.for_each([&eligible, &addToDeliverToSessions](ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+                           {
+                               if (eligible(clientSession, subscription))
+                               {
+                                   addToDeliverToSessions(clientSession, subscription);
+                               }
+                           });
     }
 
     if (!m_clusterNodes.empty())
