@@ -88,7 +88,10 @@ String TestServers::redisUri()
     {
         return fromEnvironment;
     }
-    return "redis://redis_server:6379";
+    // Database 2: the developers' runs. The build farm uses database 1 (it sets XMQ_TEST_REDIS),
+    // because every test ends with FLUSHDB - and when both used database 0 on one server, each wiped
+    // the other's sessions in the middle of a test.
+    return "redis://redis_server:6379/2";
 }
 
 void TestServers::flushRedis() noexcept

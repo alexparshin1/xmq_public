@@ -36,11 +36,11 @@ public:
      * @remarks Named here rather than written into each suite's configuration so that the cleanup
      *          after every test and the servers under test cannot drift apart.
      *
-     *          XMQ_TEST_REDIS overrides it. The default is one host shared by both desktops and by
-     *          every build-farm container, and the cleanup after each test empties it - so two
-     *          runs at once destroy each other rather than merely colliding. Pointing one of them
-     *          at a Redis of its own is what makes it possible to debug a test while the farm is
-     *          building.
+     *          XMQ_TEST_REDIS overrides it. The default is database 2 of the Redis shared by both
+     *          desktops and every build-farm container; the farm sets database 1. The cleanup after
+     *          each test is FLUSHDB, so runs in different databases leave each other alone - two
+     *          runs in the same one still destroy each other, so a second local run at once wants
+     *          a database of its own: redis://redis_server:6379/3.
      */
     static sptk::String redisUri();
 
