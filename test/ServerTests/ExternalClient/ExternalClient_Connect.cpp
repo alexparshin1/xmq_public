@@ -92,7 +92,6 @@ void sendAndReceiveTest(const ExternalClient::ClientKind externalClientKind, con
     const auto publisher = client1.startPublisher(topicName, Qos::Qos1,
                                                   totalSendMessageCount, {},
                                                   ExternalClient::OutputMode::Quiet, messageSize);
-    this_thread::sleep_for(1000ms);
 
     EXPECT_EQ(0, publisher->wait());
     EXPECT_EQ(0, subscriber->wait());

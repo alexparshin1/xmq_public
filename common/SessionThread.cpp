@@ -45,8 +45,8 @@ SessionThread::~SessionThread()
     // Waited for here rather than left to member destruction. Members go in reverse declaration
     // order, so the two queues are destroyed before the futures that join these threads - and a
     // thread still inside pop_front() then unlocks a mutex that no longer exists. terminate()
-    // above only asks them to stop; pop_front waits up to 100ms, so there is always a window in
-    // which one of them is still in there.
+    // above only asks them to stop and wakes them, so there is still a window in which one of them
+    // is in there.
     //
     // libstdc++ lets that pass unnoticed, which is why it survived so long. libc++ traps on it,
     // and every process that had ever opened a session - xmq_pub with nothing but --help among
@@ -137,6 +137,11 @@ void SessionThread::terminate()
     m_terminated = true;
     m_sendQueue.clear();
     m_receiveQueue.clear();
+    // An item with no session in each queue wakes its thread at once; it finds nothing to lock and
+    // sees it is to stop. Otherwise each noticed only when its 100 ms wait ran out - on every exit
+    // of xmq_pub and xmq_sub, and on every client a test destroys.
+    m_sendQueue.push_back(SendReceiveItem {});
+    m_receiveQueue.push_back(WBaseClientSession {});
 }
 
 bool SessionThread::terminated() const
