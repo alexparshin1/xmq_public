@@ -13,6 +13,7 @@
 */
 
 #include "test/ClusterTests/ClusterTests.h"
+#include "test/ClusterTests/TestCluster.h"
 
 #include "TestOptions.h"
 #include "common/DirectoryNames.h"
@@ -56,7 +57,6 @@ SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t
     server->getSettings()->setLogSubjectsPriority(logSubjects, Debug);
     trustNodeCertificate(server);
 
-    this_thread::sleep_for(100ms);
     return server;
 }
 
@@ -122,6 +122,18 @@ tuple<SServer, SServer> XMQ_ClusterTests::makeClusterOfTwoNodes()
     const auto secondaryNode = createNode("secondary", 1886, false, logSubjects);
 
     secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
-    this_thread::sleep_for(500ms);
+
+    // Until each node holds the link the other opened to it, rather than a fixed half second.
+    const auto linked = [](const SServer& origin, const SServer& destination)
+    {
+        const auto session = destination->getClientSession(
+            format("node_{}_{}", origin->getNodeName().c_str(), destination->getNodeName().c_str()));
+        return session && session->getConnection();
+    };
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return linked(primaryNode, secondaryNode) && linked(secondaryNode, primaryNode);
+                                     }))
+        << "The two nodes did not link up";
     return {primaryNode, secondaryNode};
 }

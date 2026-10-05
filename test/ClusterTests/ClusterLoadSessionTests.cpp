@@ -61,12 +61,11 @@ TEST_F(XMQ_ClusterTests, loadSession)
         client::ConnectParameters connectParameters {.m_cleanSession = false};
         subscriber->connect(m_secondaryServerHost, subscriberCredentials, connectParameters);
         ASSERT_TRUE(subscriber->isConnected());
-        this_thread::sleep_for(500ms);
 
         COUT("──────────────────────────[Subscriber re-connected]─────────────────────────────────────────");
 
-        // Expect the message to be received after reconnection.
-        if (!receivedMessage.wait_for(200ms))
+        // Expect the message to be received after reconnection: waited for, not slept for.
+        if (!receivedMessage.wait_for(2s))
         {
             FAIL() << "Expected message not received";
         }

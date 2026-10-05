@@ -16,6 +16,7 @@
 #include "common/mqtt/PublishMessage.h"
 #include "test/ServerTests/ExternalClient/ExternalClient.h"
 #include "test/ServerTests/ServerTests.h"
+#include "test/SubscribeAndWait.h"
 #include "test/TestMqttClient.h"
 
 using namespace std;
@@ -232,8 +233,8 @@ TEST_P(XMQ_ServerTests, AbruptTlsCloseAndTheNextConnection)
 
         Semaphore messageReceived;
         subscriber->onMessage([&](const SPublishMessage&) { messageReceived.post(); });
-        subscriber->subscribe(Destination(client::MqttClient::getTopic(topicName)));
-        this_thread::sleep_for(SmallTimeout);
+        ASSERT_TRUE(test::subscribeAndWait(subscriber, Destination(client::MqttClient::getTopic(topicName))))
+            << "round " << round;
 
         const auto publisher = make_shared<TestMqttClient>(logEngine(), publisherClientId, true, false, protocolVersion,
                                                            SMessageProperties {}, TestSslPortNumber, true);

@@ -165,21 +165,30 @@ TEST_P(XMQ_ServerTests, Subscribe_RetainHandling_RetainNever)
 
 void XMQ_ServerTests::testSubscribeRetainHandling(ProtocolVersion protocolVersion, SubscribeRetainHandling retainHandling)
 {
-    Semaphore messageIsReceived;
-
     const auto subscriber = make_shared<client::MqttClient>();
 
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
 
-    SPublishMessage publishMessageReceived;
-    subscriber->onMessage([&publishMessageReceived, &messageIsReceived](const SPublishMessage& message)
+    mutex          receivedMutex;
+    vector<string> receivedPayloads;
+    Semaphore      messageIsReceived;
+    subscriber->onMessage([&](const SPublishMessage& message)
                           {
                               if (message->is(Message::Type::Publish))
                               {
-                                  publishMessageReceived = message;
+                                  {
+                                      const scoped_lock lock(receivedMutex);
+                                      receivedPayloads.emplace_back(bit_cast<const char*>(message->payloadData()),
+                                                                    message->payloadSize());
+                                  }
                                   messageIsReceived.post();
                               }
                           });
+    const auto takeReceived = [&]
+    {
+        const scoped_lock lock(receivedMutex);
+        return exchange(receivedPayloads, {});
+    };
 
     const ConnectCredentials credentials {subscriberClientId, "user", "secret"};
     auto                     rc = subscriber->connect(Host("localhost", TestTcpPortNumber), credentials, {.m_cleanSession = false}, protocolVersion);
@@ -190,7 +199,6 @@ void XMQ_ServerTests::testSubscribeRetainHandling(ProtocolVersion protocolVersio
 
     ASSERT_TRUE(test::subscribeAndWait(subscriber, destination))
         << "The broker did not acknowledge the subscription";
-    this_thread::sleep_for(10ms);
 
     // Send isRetain message: Retain is set to "Test Data".
     const auto               publisher = make_shared<client::MqttClient>();
@@ -200,16 +208,27 @@ void XMQ_ServerTests::testSubscribeRetainHandling(ProtocolVersion protocolVersio
 
     publisher->publish(client::MqttClient::getTopic(topicName), Buffer("Test Data"), Qos::Qos0, {}, true);
 
-    this_thread::sleep_for(100ms);
-
-    publisher->disconnect();
-
-    this_thread::sleep_for(SmallTimeout);
-
     // Receive the message as a regular message
     EXPECT_TRUE(messageIsReceived.wait_for(MediumTimeout));
+    EXPECT_EQ((vector<string> {"Test Data"}), takeReceived());
     subscriber->disconnect();
-    this_thread::sleep_for(SmallTimeout);
+
+    // What should not arrive is checked with a marker rather than by waiting for nothing: a
+    // retained message is queued to the session before anything published after it - on resume, or
+    // right behind the SUBACK - so the marker coming first shows there was none.
+    const auto expectOnly = [&](const string& marker, const vector<string>& expected, const string& what)
+    {
+        publisher->publish(client::MqttClient::getTopic(topicName), Buffer(marker), Qos::Qos0, {}, false);
+        const auto deadline = chrono::steady_clock::now() + MediumTimeout;
+        vector<string> received;
+        while (find(received.begin(), received.end(), marker) == received.end() && chrono::steady_clock::now() < deadline)
+        {
+            messageIsReceived.wait_for(50ms);
+            const auto more = takeReceived();
+            received.insert(received.end(), more.begin(), more.end());
+        }
+        EXPECT_EQ(expected, received) << what;
+    };
 
     rc = subscriber->connect(Host("localhost", TestTcpPortNumber), credentials,
                              {.m_cleanSession = false}, protocolVersion);
@@ -217,25 +236,25 @@ void XMQ_ServerTests::testSubscribeRetainHandling(ProtocolVersion protocolVersio
 
     // The resumed session has its subscription back without a SUBSCRIBE, and MQTT sends retained
     // messages only in answer to one - whatever the retain handling.
-    EXPECT_FALSE(messageIsReceived.wait_for(MediumTimeout)) << "A retained message was re-sent on session resume";
+    expectOnly("after resume", {"after resume"}, "A retained message was re-sent on session resume");
 
     // SUBSCRIBE again, to the subscription the session still holds. Retain handling is about exactly
     // this moment: 0 sends the retained message, 1 sends it only for a subscription that did not
     // exist yet - and this one did - and 2 never sends it.
     ASSERT_TRUE(test::subscribeAndWait(subscriber, destination))
         << "The broker did not acknowledge the repeated subscription";
-    const bool retainedMessageReceived = messageIsReceived.wait_for(MediumTimeout);
 
     if (retainHandling == SubscribeRetainHandling::RetainAlways)
     {
-        EXPECT_TRUE(retainedMessageReceived) << "Retain handling 0: no retained message on SUBSCRIBE";
+        expectOnly("after subscribe", {"Test Data", "after subscribe"}, "Retain handling 0: no retained message on SUBSCRIBE");
     }
     else
     {
-        EXPECT_FALSE(retainedMessageReceived)
-            << "Retain handling " << static_cast<int>(retainHandling)
-            << ": retained message sent for an existing subscription";
+        expectOnly("after subscribe", {"after subscribe"},
+                   "Retain handling " + to_string(static_cast<int>(retainHandling)) +
+                       ": retained message sent for an existing subscription");
     }
 
+    publisher->disconnect();
     subscriber->disconnect();
 }

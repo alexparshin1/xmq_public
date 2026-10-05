@@ -15,6 +15,7 @@
 #include "common/mqtt/FrameTypeTests.h"
 #include "common/mqtt/PublishMessage.h"
 #include "test/ServerTests/ServerTests.h"
+#include "test/SubscribeAndWait.h"
 
 using namespace std;
 using namespace sptk;
@@ -41,9 +42,9 @@ void XMQ_ServerTests::testLastWillAndTestament(ProtocolVersion protocolVersion, 
     auto logger = debugLog(false);
 
     // Client that is subscribed to Last Will notification
-    client::MqttClient notificationClient(logEngine());
+    const auto notificationClient = make_shared<client::MqttClient>(logEngine());
 
-    notificationClient.onMessage(
+    notificationClient->onMessage(
         [&notificationSemaphore, logger](const SPublishMessage& message)
         {
             logger->debug(message->toString());
@@ -54,12 +55,11 @@ void XMQ_ServerTests::testLastWillAndTestament(ProtocolVersion protocolVersion, 
         });
 
     const ConnectCredentials credentials {"notification_client", "user", "secret"};
-    auto                     rc = notificationClient.connect(serverHost, credentials, {.m_cleanSession = true}, protocolVersion);
+    auto                     rc = notificationClient->connect(serverHost, credentials, {.m_cleanSession = true}, protocolVersion);
     EXPECT_EQ(ReasonCode::Success, rc);
 
     const Destination destination(client::MqttClient::getTopic("last_will/notifications"));
-    notificationClient.subscribe(destination);
-    this_thread::sleep_for(100ms);
+    ASSERT_TRUE(test::subscribeAndWait(notificationClient, destination));
 
     // Client that connects and terminates the connection
     client::MqttClient       client(logEngine());
@@ -73,8 +73,6 @@ void XMQ_ServerTests::testLastWillAndTestament(ProtocolVersion protocolVersion, 
                         protocolVersion);
     EXPECT_EQ(ReasonCode::Success, rc);
 
-    this_thread::sleep_for(100ms);
-
     if (gracefulDisconnect)
     {
         client.disconnect();
@@ -83,8 +81,6 @@ void XMQ_ServerTests::testLastWillAndTestament(ProtocolVersion protocolVersion, 
     {
         client.hangup();
     }
-
-    this_thread::sleep_for(100ms);
 
     if (gracefulDisconnect)
     {
@@ -103,7 +99,7 @@ void XMQ_ServerTests::testLastWillAndTestament(ProtocolVersion protocolVersion, 
         }
     }
 
-    notificationClient.disconnect();
+    notificationClient->disconnect();
     client.disconnect();
 }
 

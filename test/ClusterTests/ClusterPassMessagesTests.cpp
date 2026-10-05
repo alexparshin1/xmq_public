@@ -41,15 +41,21 @@ TEST_F(XMQ_ClusterTests, passMessages_twoNodes)
                               receivedMessage.post();
                           });
 
-    this_thread::sleep_for(100ms);
-
     COUT("──────────────────────────[Subscriber re-connecting to secondary]───────────────────────────");
 
     ConnectCredentials        subscriberCredentials(subscriber->getClientId(), "user", "secret");
     client::ConnectParameters connectParameters {.m_cleanSession = false};
     subscriber->connect(m_secondaryServerHost, subscriberCredentials, connectParameters);
     ASSERT_TRUE(subscriber->isConnected());
-    this_thread::sleep_for(500ms);
+
+    // The primary forwards only what a node subscribes to, so the publication waits until it knows.
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return primaryNode->getCluster()
+                                             ->getNodeSubscriptions(secondaryNode->getNodeName().c_str())
+                                             .contains(topicName);
+                                     }))
+        << "The primary never learned of the subscription on the secondary";
 
     COUT("──────────────────────────[Subscriber re-connected]─────────────────────────────────────────");
 
