@@ -38,6 +38,25 @@ Cluster::Cluster(Server* server)
     thisNodeSettings.m_node_state = static_cast<int>(ServerNodeState::Standalone);
     m_thisNode = make_shared<ServerNode>(m_server, m_settings->m_cluster.m_this_node, m_clusterTopics);
     m_connectedNodes.storeNodeRecord(m_thisNode);
+    m_subscriptionSender = thread([this] { sendSubscriptions(); });
+}
+
+Cluster::~Cluster()
+{
+    stopSubscriptionSender();
+}
+
+void Cluster::stopSubscriptionSender()
+{
+    {
+        const scoped_lock lock(m_subscriptionMutex);
+        m_stopSubscriptionSender = true;
+    }
+    m_subscriptionWorkAdded.notify_all();
+    if (m_subscriptionSender.joinable() && m_subscriptionSender.get_id() != this_thread::get_id())
+    {
+        m_subscriptionSender.join();
+    }
 }
 
 DateTime Cluster::getClusterTime() const
@@ -114,6 +133,7 @@ void Cluster::detachCluster()
 
 void Cluster::stop()
 {
+    stopSubscriptionSender();
     detachCluster();
 
     vector<SNode> nodes;
@@ -447,50 +467,29 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
 
 void Cluster::updateLocalSubscription(const string_view topicFilter, const bool subscribed)
 {
-    const scoped_lock subscriptionLock(m_subscriptionMutex);
-    if (subscribed)
     {
-        m_localSubscriptions.emplace(topicFilter);
-    }
-    else
-    {
-        m_localSubscriptions.erase(string(topicFilter));
-    }
-
-    // The saved set is sent in full when a peer joins. With no registered peers, avoid rebuilding
-    // this growing snapshot once for every new local filter; doing so makes topic-heavy CONNECT
-    // bursts quadratic even when clustering is disabled.
-    if (!m_connectedNodes.anyNodes())
-    {
-        return;
-    }
-
-    string payload;
-    for (const auto& filter: m_localSubscriptions)
-    {
-        payload.append(filter);
-        payload.push_back('\n');
-    }
-
-    const scoped_lock nodesLock(m_mutex);
-    for (const auto& node: m_connectedNodes.nodes())
-    {
-        if (!node->isConnected() || node->getName() == m_server->getNodeName())
-        {
-            continue;
-        }
+        const scoped_lock lock(m_subscriptionMutex);
         if (subscribed)
         {
-            node->subscribe(string(topicFilter));
+            m_localSubscriptions.emplace(topicFilter);
         }
         else
         {
-            node->unsubscribe(string(topicFilter));
+            m_localSubscriptions.erase(string(topicFilter));
         }
-        auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionSnapshot), payload);
-        message->setQos(Qos::Qos1);
-        node->publish(message);
+
+        // With no other node there is nobody to tell; a node that joins later is sent the whole set.
+        if (!m_connectedNodes.anyNodes() || m_stopSubscriptionSender)
+        {
+            return;
+        }
+
+        // Only the change, and not from here: this runs in a client's SUBSCRIBE or session expiry,
+        // which must not wait for the network - nor send the node's whole filter set every time,
+        // which for N subscriptions is N snapshots of up to N filters each.
+        m_pendingSubscriptionChanges.push_back({subscribed, string(topicFilter)});
     }
+    m_subscriptionWorkAdded.notify_one();
 }
 
 void Cluster::publishRetained(const string& topicName, const RetainedMessages::Record& record) const
@@ -559,19 +558,114 @@ void Cluster::publishRetainedSnapshot(const SNode& node) const
                });
 }
 
-void Cluster::publishSubscriptionSnapshot(const SNode& node) const
+void Cluster::publishSubscriptionSnapshot(const SNode& node)
 {
-    const scoped_lock lock(m_subscriptionMutex);
-    string payload;
-    for (const auto& filter: m_localSubscriptions)
     {
-        node->subscribe(filter);
-        payload.append(filter);
-        payload.push_back('\n');
+        const scoped_lock lock(m_subscriptionMutex);
+        if (m_stopSubscriptionSender)
+        {
+            return;
+        }
+        m_pendingSnapshots.push_back(node);
     }
-    auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionSnapshot), payload);
-    message->setQos(Qos::Qos1);
-    node->publish(message);
+    m_subscriptionWorkAdded.notify_one();
+}
+
+void Cluster::sendSubscriptions()
+{
+    // How long a change waits for others to share its message. A burst of subscriptions - a client
+    // reconnecting with thousands of them, or thousands of clients - then goes out as a few messages.
+    constexpr auto gatherTime = 5ms;
+
+    while (true)
+    {
+        vector<SubscriptionChange> changes;
+        vector<SNode>              snapshotNodes;
+        set<string>                snapshot;
+        {
+            unique_lock lock(m_subscriptionMutex);
+            m_subscriptionWorkAdded.wait(lock, [this]
+                                         {
+                                             return m_stopSubscriptionSender || !m_pendingSubscriptionChanges.empty() ||
+                                                    !m_pendingSnapshots.empty();
+                                         });
+            if (m_stopSubscriptionSender)
+            {
+                return;
+            }
+            lock.unlock();
+            this_thread::sleep_for(gatherTime);
+            lock.lock();
+
+            changes.swap(m_pendingSubscriptionChanges);
+            snapshotNodes.swap(m_pendingSnapshots);
+            // Taken with the changes, so it already holds every one of them: a node sent this
+            // snapshot and then the same changes ends where the set is.
+            if (!snapshotNodes.empty())
+            {
+                snapshot = m_localSubscriptions;
+            }
+        }
+
+        string snapshotPayload;
+        for (const auto& filter: snapshot)
+        {
+            snapshotPayload.append(filter).push_back('\n');
+        }
+        for (const auto& node: snapshotNodes)
+        {
+            if (!node->isConnected())
+            {
+                continue;
+            }
+            for (const auto& filter: snapshot)
+            {
+                node->subscribe(filter);
+            }
+            auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionSnapshot), snapshotPayload);
+            message->setQos(Qos::Qos1);
+            node->publish(message);
+        }
+
+        if (changes.empty())
+        {
+            continue;
+        }
+
+        string changesPayload;
+        for (const auto& [subscribed, filter]: changes)
+        {
+            changesPayload.push_back(subscribed ? '+' : '-');
+            changesPayload.append(filter).push_back('\n');
+        }
+
+        vector<SNode> nodes;
+        {
+            const shared_lock lock(m_mutex);
+            nodes = m_connectedNodes.nodes();
+        }
+        for (const auto& node: nodes)
+        {
+            if (!node->isConnected() || node->getName() == m_server->getNodeName())
+            {
+                continue;
+            }
+            for (const auto& [subscribed, filter]: changes)
+            {
+                if (subscribed)
+                {
+                    node->subscribe(filter);
+                }
+                else
+                {
+                    node->unsubscribe(filter);
+                }
+            }
+            auto message = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::SubscriptionUpdate), changesPayload);
+            message->setQos(Qos::Qos1);
+            node->publish(message);
+        }
+    }
 }
 
 set<string> Cluster::getNodeSubscriptions(const string_view nodeName) const
@@ -647,6 +741,32 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
             }
             const scoped_lock lock(m_subscriptionMutex);
             m_nodeSubscriptions[sender] = std::move(filters);
+            break;
+        }
+        case SubscriptionUpdate:
+        {
+            // "+filter" or "-filter" per line, in the order the sending node made them.
+            const scoped_lock lock(m_subscriptionMutex);
+            auto&             filters = m_nodeSubscriptions[sender];
+            string_view       payload = message->payload();
+            while (!payload.empty())
+            {
+                const auto separator = payload.find('\n');
+                const auto line = payload.substr(0, separator);
+                if (line.size() > 1 && line[0] == '+')
+                {
+                    filters.emplace(line.substr(1));
+                }
+                else if (line.size() > 1 && line[0] == '-')
+                {
+                    filters.erase(string(line.substr(1)));
+                }
+                if (separator == string_view::npos)
+                {
+                    break;
+                }
+                payload.remove_prefix(separator + 1);
+            }
             break;
         }
         case RetainedUpdate:

@@ -22,7 +22,10 @@
 #include "SubscriptionClient.h"
 #include "base/xmq.h"
 
+#include <condition_variable>
 #include <set>
+#include <thread>
+#include <vector>
 
 namespace xmq {
 class SubscriptionManager;
@@ -44,9 +47,12 @@ public:
     explicit Cluster(Server* server);
 
     /**
-     * @brief Destructor
+     * @brief Destructor: stops the subscription sender.
      */
-    ~Cluster() = default;
+    ~Cluster();
+
+    Cluster(const Cluster&) = delete;
+    Cluster& operator=(const Cluster&) = delete;
 
     /**
      * @brief Get the cluster time.
@@ -211,6 +217,18 @@ private:
     mutable std::mutex                   m_subscriptionMutex;      ///< Protects effective subscription snapshots.
     std::map<std::string, std::set<std::string>> m_nodeSubscriptions; ///< Effective filters advertised by each node.
     std::set<std::string>                m_localSubscriptions;      ///< Effective local client filters.
+
+    /// A change of this node's effective filters, waiting to be sent to the other nodes.
+    struct SubscriptionChange
+    {
+        bool        m_subscribed;
+        std::string m_filter;
+    };
+    std::vector<SubscriptionChange> m_pendingSubscriptionChanges; ///< Guarded by m_subscriptionMutex.
+    std::vector<SNode>              m_pendingSnapshots;           ///< Nodes owed a full snapshot; guarded by m_subscriptionMutex.
+    std::condition_variable         m_subscriptionWorkAdded;      ///< Wakes the subscription sender.
+    bool                            m_stopSubscriptionSender {false}; ///< Guarded by m_subscriptionMutex.
+    std::thread                     m_subscriptionSender;         ///< Sends snapshots and changes to the other nodes.
     Server*                              m_server;                 ///< Server.
     std::shared_ptr<Settings>            m_settings;               ///< Server settings.
     std::shared_ptr<SubscriptionManager> m_subscriptionManager;    ///< Subscription manager.
@@ -262,7 +280,22 @@ private:
      * @brief Subscribe to local effective filters on a peer and send their full snapshot.
      * @param node              Connected peer receiving the filters and snapshot.
      */
-    void publishSubscriptionSnapshot(const SNode& node) const;
+    void publishSubscriptionSnapshot(const SNode& node);
+
+    /**
+     * @brief The subscription sender: sends queued snapshots and changes, in the order they were made.
+     *
+     * One thread for both, so that a snapshot and the changes after it reach a node in that order:
+     * a change sent ahead of an older snapshot would be wiped out by it. It also takes the network
+     * out of the path of a client's SUBSCRIBE, and turns a burst of subscriptions into a few
+     * messages rather than one per filter.
+     */
+    void sendSubscriptions();
+
+    /**
+     * @brief Stop the subscription sender and wait for it.
+     */
+    void stopSubscriptionSender();
 
     /**
      * @brief Send a node that has just been connected every retained record, tombstones included.

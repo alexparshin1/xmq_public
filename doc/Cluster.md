@@ -222,6 +222,17 @@ hold the certificates of the others there. With nothing to verify against, no li
 `verify_depth` 0 is read as 1, since a cluster link is never left unverified. Only the chain is
 checked, not the host name.
 
+## Subscriptions
+
+Each node tells the others which filters its own clients use - one entry per filter however many
+clients share it, kept while a persistent session is offline and dropped when it expires. A node
+that connects to another is sent its whole set once; after that only changes travel
+(`$CLUSTER/request/subscription_update`, one `+filter` or `-filter` per line). Changes are sent by
+a thread of their own, a few milliseconds at a time, so a client's SUBSCRIBE never waits for the
+network and a burst of subscriptions goes out as a few messages. Routing still relies on each
+node's `#` subscription to the others; using these sets for it, and naming `$share` filters
+without their group, are the next requirement's work.
+
 ## Retained messages
 
 Every node holds every retained message, whether or not anyone there subscribes. A change made on

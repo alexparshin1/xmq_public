@@ -28,6 +28,7 @@ enum class Command
     DisconnectClient,
     NodeDetached,
     SubscriptionSnapshot,
+    SubscriptionUpdate,
     RetainedUpdate
 };
 
