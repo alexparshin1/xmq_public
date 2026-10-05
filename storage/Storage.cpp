@@ -88,16 +88,7 @@ Storage::~Storage()
 
 void Storage::connect(const string& redisConnectString)
 {
-    if (m_redis)
-    {
-        m_redis->disconnect();
-        disconnect();
-    }
-
-    if (!redisConnectString.empty())
-    {
-        m_redis->connect("localhost");
-    }
+    // initialize() drops the connection it replaces, and connects to the whole URL.
     initialize(redisConnectString, false);
 }
 
@@ -117,10 +108,11 @@ void Storage::initialize(const string& redisConnectString, const bool reset)
 
     if (!redisConnectString.empty())
     {
-        const URL redisUrl(redisConnectString);
+        // The whole URL, not its host and port: the credentials and the database it names are part
+        // of it. Reduced to host and port, this connection went to database 0 while every other one
+        // went where the configuration said, and it could not log in to a Redis with a password.
         m_redis = make_shared<RedisConnect>();
-        const auto& [redisHost, redisPort] = redisUrl.hostAndPort();
-        m_redis->connect(redisHost, redisPort);
+        m_redis->connect(URL(redisConnectString));
     }
 
     if (reset && m_redis)
