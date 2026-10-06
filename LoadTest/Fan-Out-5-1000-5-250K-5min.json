@@ -20,7 +20,7 @@
   ],
   "publishers": {
     "id_prefix": "test-publisher-",
-    "protocol_version": 3,
+    "protocol_version": 5,
     "client_count": 5,
     "qos": 1,
     "clean_session": true,
@@ -28,7 +28,7 @@
   },
   "subscribers": {
     "id_prefix": "test-subscriber-",
-    "protocol_version": 3,
+    "protocol_version": 5,
     "client_count": 1000,
     "qos": 1,
     "clean_session": true,

@@ -3,7 +3,7 @@
   "type": "Connections",
   "publishers": {
     "id_prefix": "client-",
-    "protocol_version": 3,
+    "protocol_version": 5,
     "client_count": 500000,
     "qos": 1,
     "clean_session": true
@@ -15,7 +15,7 @@
     "password": ""
   },
   "parameters": {
-    "duration_sec": 1800,
+    "duration_sec": 600,
     "payload_size": 16,
     "connection_rate": 2500,
     "keep_alive_sec": 300
