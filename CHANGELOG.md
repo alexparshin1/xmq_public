@@ -47,6 +47,11 @@ Requires SPTK 5.6.14.
 
 ### Fixed
 
+- **On Windows, a client that failed the TLS handshake brought the broker down.** The accepted
+  socket was closed twice, the second time with a C runtime call meant for files, which ends the
+  process. A port scanner on the TLS port was enough. On Linux and FreeBSD the second close was
+  harmless unless another connection had been given the same descriptor in between - then that
+  connection was closed instead. Every accepted socket is now closed exactly once.
 - **MQTT client shutdown retains callbacks still executing.** Concurrent receive and
   disconnect could clear a callback while it was running, or destroy the client before
   its receiver returned. This could crash during reconnects and bridge rebuilds.
