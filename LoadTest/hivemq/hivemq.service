@@ -1,0 +1,19 @@
+[Unit]
+Description=HiveMQ Community Edition (load-test comparison)
+After=network.target
+
+[Service]
+Type=simple
+User=hivemq
+Group=hivemq
+WorkingDirectory=/opt/hivemq-ce-2026.5
+Environment="JAVA_OPTS=-Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g"
+Environment=HIVEMQ_JMX_ENABLED=false
+ExecStart=/opt/hivemq-ce-2026.5/bin/run.sh
+LimitNOFILE=4194304
+TimeoutStopSec=300
+SuccessExitStatus=143
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

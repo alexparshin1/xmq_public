@@ -277,6 +277,23 @@ memory_block() {
     }' "$samples_file" "$block_file"
 }
 
+# A scenario that did not finish is still a result: the intervals it got through, the broker's CPU
+# and memory, and the RSS row by row show where it went wrong - a broker that ran out of memory, or a
+# latency that kept growing. Recorded in the same form as a finished one, under a line that says it
+# did not finish, so that every file reads alike.
+record_unfinished() {
+  local name="$1" status="$2"
+  [[ -z "$record" ]] && return 0
+  {
+    extract_block "$log" "$name" | grep -q . || echo "Scenario: $name"
+    extract_block "$log" "$name"
+    echo "  $status"
+    [[ -n "${broker_stats:-}" ]] && echo "$broker_stats"
+  } > "$out_dir/$name.block"
+  memory_block "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch" >> "$out_dir/$name.block"
+  blocks+=("$out_dir/$name.block")
+}
+
 # Rewritten from scratch after every scenario, so that a series interrupted at hour two still
 # leaves a record of the hours before it.
 write_record() {
@@ -472,6 +489,7 @@ for scenario in "${scenarios[@]}"; do
     echo "=== $(date +%H:%M:%S) $name: FAILED (exit $rc), see $log"
     tr '\r' '\n' < "$log" | grep -viE 'connecting|publishing|^$' | tail -3 | sed 's/^/    /'
     summary+=("$name|failed (exit $rc)")
+    record_unfinished "$name" "FAILED (exit $rc) - the intervals above are those completed before it stopped"
     scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
@@ -481,6 +499,7 @@ for scenario in "${scenarios[@]}"; do
   if short="$(progress_shortfall "$log")"; [[ -n "$short" ]]; then
     echo "=== $(date +%H:%M:%S) $name: INCOMPLETE - stopped at $short, see $log"
     summary+=("$name|incomplete: $short")
+    record_unfinished "$name" "INCOMPLETE - stopped at $short; the intervals above are those completed"
     scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1
@@ -492,6 +511,7 @@ for scenario in "${scenarios[@]}"; do
     echo "=== $(date +%H:%M:%S) $name: NO RESULT LINE (exit $rc), see $log"
     tr '\r' '\n' < "$log" | grep -viE 'connecting|publishing|^$' | tail -3 | sed 's/^/    /'
     summary+=("$name|no result (exit $rc)")
+    record_unfinished "$name" "NO RESULT LINE (exit $rc) - the intervals above are those completed"
     scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
     write_record
     failed=1

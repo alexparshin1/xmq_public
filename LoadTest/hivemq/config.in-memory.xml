@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<hivemq>
+    <listeners>
+        <tcp-listener>
+            <port>1886</port>
+            <bind-address>0.0.0.0</bind-address>
+        </tcp-listener>
+    </listeners>
+    <restrictions>
+        <max-connections>2000000</max-connections>
+    </restrictions>
+    <persistence>
+        <mode>in-memory</mode>
+    </persistence>
+    <anonymous-usage-statistics>
+        <enabled>false</enabled>
+    </anonymous-usage-statistics>
+</hivemq>
