@@ -733,11 +733,10 @@ shared_ptr<ServerConnection> Server::createConnection(const ServerConnection::Ty
                        return exception.what();
                    });
 
-#ifdef _WIN32
-        _close(static_cast<int>(connectionSocket));
-#else
-        close(connectionSocket);
-#endif
+        // The socket is not closed here: createConnectionSocket() closes it when it fails, and
+        // after that the socket objects own it. Closing it here as well was a second close - on
+        // Linux of a number another connection may have been given since, and on Windows a CRT
+        // _close() of a socket, which ended the process at the first refused TLS handshake.
     }
 
     return nullptr;
