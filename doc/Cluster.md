@@ -46,9 +46,13 @@
   the topic, and at most once per destination node, even when multiple filters match. This is an internode transport rule;
   it does not determine recipients of shared subscriptions. A joining node must synchronize subscriptions before routing messages.
 
-- [ ] shared subscriptions (`$share/{ShareName}/{filter}`) must select one recipient session per matching shared subscription
+- [x] shared subscriptions (`$share/{ShareName}/{filter}`) must select one recipient session per matching shared subscription
   across the entire cluster, not one recipient per node. Independent nodes must not assign the same publication to different
-  members of that shared subscription. Recovery and reassignment must follow MQTT 5 QoS rules, as specified below.
+  members of that shared subscription.
+
+- [ ] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
+  below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
+  reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
 
 - [ ] a node without a valid coordinator-issued lease switches to cluster-offline state, disconnects all MQTT clients,
   and stops accepting new client connections and delivering messages. It continues coordinator discovery and reconnection;
