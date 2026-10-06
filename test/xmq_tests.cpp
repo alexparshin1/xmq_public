@@ -20,7 +20,10 @@
 #include "common/DirectoryNames.h"
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
+#include <iostream>
 
 using namespace std;
 using namespace xmq;
@@ -46,6 +49,36 @@ void linkTests()
 
 int main(int argc, char* argv[])
 {
+    // An exception that escapes a thread or a destructor ends the process through std::terminate,
+    // and all that is left of it is an exit code - on Windows 0xC0000409, the same as for a
+    // stack overrun. Said here, with the test it happened in, before the process goes.
+    set_terminate(
+        []
+        {
+            cerr << "\nstd::terminate";
+            if (const auto* test = testing::UnitTest::GetInstance()->current_test_info())
+            {
+                cerr << " in " << test->test_suite_name() << "." << test->name();
+            }
+            if (const auto exception = current_exception())
+            {
+                try
+                {
+                    rethrow_exception(exception);
+                }
+                catch (const std::exception& e)
+                {
+                    cerr << ": " << e.what();
+                }
+                catch (...)
+                {
+                    cerr << ": an exception of an unknown type";
+                }
+            }
+            cerr << endl;
+            abort();
+        });
+
     if (const set<string> args(argv + 1, argv + argc);
         args.contains("--debug"))
     {

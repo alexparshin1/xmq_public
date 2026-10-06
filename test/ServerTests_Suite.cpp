@@ -88,11 +88,28 @@ void writeAuthenticatorConfiguration(const filesystem::path& configurationPath)
 
     const auto database = filesystem::path(configurationPath).replace_filename("xmq_users.db");
 
+    // Escaped as a JSON string: on Windows the database URI carries the path's backslashes, which
+    // unescaped read as escape sequences - the fragment failed to load, no authenticator was
+    // configured, and every test that connects was refused.
+    const auto jsonString = [](const string& text)
+    {
+        string escaped;
+        for (const auto character: text)
+        {
+            if (character == '\\' || character == '"')
+            {
+                escaped += '\\';
+            }
+            escaped += character;
+        }
+        return escaped;
+    };
+
     ofstream file(fragments / "50-user-database.conf");
     file << R"({"extensions":[{"name":"user-database","library":")"
-         << filesystem::path(XMQ_TEST_USER_DATABASE_LIBRARY).generic_string()
+         << jsonString(filesystem::path(XMQ_TEST_USER_DATABASE_LIBRARY).generic_string())
          << R"(","enabled":true,"required":false,"settings":{"database":")"
-         << DirectoryNames::sqliteUri(database) << R"("}}]})";
+         << jsonString(DirectoryNames::sqliteUri(database)) << R"("}}]})";
 #else
     (void) configurationPath;
 #endif
