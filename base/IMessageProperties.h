@@ -191,6 +191,12 @@ public:
     virtual void removeProperty(const Property property, const PropertyType propertyType) = 0;
 
     /**
+     * @brief Remove every user-defined property with this name, and no other.
+     * @param name Property name.
+     */
+    virtual void removeUserProperty(std::string_view name) = 0;
+
+    /**
      * @brief Remove all properties.
      */
     virtual void clear() = 0;

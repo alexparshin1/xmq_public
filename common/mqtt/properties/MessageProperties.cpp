@@ -565,6 +565,25 @@ void MessageProperties::removeProperty(const Property property, const PropertyTy
     }
 }
 
+void MessageProperties::removeUserProperty(const string_view name)
+{
+    for (size_t position = m_index.size(); position > 0; --position)
+    {
+        const auto& entry = m_index[position - 1];
+        if (entry.id != UserProperty)
+        {
+            continue;
+        }
+        string_view propertyName;
+        string_view propertyValue;
+        decodeUserProperty(entry, propertyName, propertyValue);
+        if (propertyName == name)
+        {
+            eraseEntry(position - 1);
+        }
+    }
+}
+
 void MessageProperties::clear()
 {
     m_data.clear();

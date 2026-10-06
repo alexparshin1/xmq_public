@@ -15,6 +15,8 @@
 #include "SubscriptionManager.h"
 #include "ClientSession.h"
 #include "Server.h"
+#include "base/MessageProperties.h"
+#include "common/mqtt/PublishMessage.h"
 #include "server/Cluster/Cluster.h"
 
 #include <ranges>
@@ -23,6 +25,36 @@
 using namespace std;
 using namespace sptk;
 using namespace xmq;
+
+namespace {
+
+/**
+ * @brief The message as it goes to the node behind a cluster link: a copy that names the shared
+ *        subscriptions assigned to that node.
+ *
+ * A copy, properties included: the message is shared by every recipient, and none of the others
+ * is to see what was assigned to this one.
+ */
+SMessage withClusterShares(const xmq::PublishMessage& message, const vector<string>& shares)
+{
+    const auto* published = dynamic_cast<const mqtt::PublishMessage*>(&message);
+    if (published == nullptr)
+    {
+        return {};
+    }
+    auto copy = make_shared<mqtt::PublishMessage>(*published);
+    const auto& original = message.getProperties();
+    auto        properties = original ? make_shared<MessageProperties>(dynamic_cast<const MessageProperties&>(*original))
+                                      : make_shared<MessageProperties>();
+    for (const auto& share: shares)
+    {
+        properties->setUserProperty(xmq::PublishMessage::ClusterShareProperty, share);
+    }
+    copy->setProperties(properties);
+    return copy;
+}
+
+} // namespace
 
 SubscriptionManager::SubscriptionManager(Server* server, STopicManager topicManager, LogEngine& logEngine)
     : m_topicManager(std::move(topicManager))
@@ -192,7 +224,15 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         // subscription as retained, and a bridge then stores each one as the retained message for
         // its topic - so every later subscriber is greeted by the last thing that crossed.
         const auto retain = info.m_options.m_retainAsPublished && message->isRetain();
-        info.m_session->postMessage(message, info.m_qos, info.m_ids, retain);
+        if (!info.m_clusterShares.empty())
+        {
+            const auto assigned = withClusterShares(*message, info.m_clusterShares);
+            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain);
+        }
+        else
+        {
+            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain);
+        }
         ++deliverCount;
     }
 

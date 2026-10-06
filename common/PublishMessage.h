@@ -17,6 +17,10 @@
 #include "base/Message.h"
 #include "base/Topic.h"
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace xmq {
 
 class ClientSession;
@@ -127,9 +131,38 @@ public:
         m_fromCluster = true;
     }
 
+    /**
+     * @brief The shared subscriptions, as "$share/{ShareName}/{filter}", that the node a forwarded
+     *        message came from assigned to this node.
+     *
+     * A shared subscription gets one recipient in the whole cluster, and the node the message
+     * entered through chooses it. When it chooses a member on another node, it says so with the
+     * message; that node then hands the message to one of its members of that subscription, and to
+     * none of its members of any other - those were served where they were chosen.
+     */
+    /// The user property a forwarded message carries its assigned shared subscriptions in, one per
+    /// subscription. Taken off again by the node that receives it, so no client ever sees it.
+    static constexpr std::string_view ClusterShareProperty {"$xmq-cluster-share"};
+
+    [[nodiscard]] const std::vector<std::string>& clusterShares() const
+    {
+        return m_clusterShares;
+    }
+
+    [[nodiscard]] bool isAssignedClusterShare(std::string_view share) const
+    {
+        return std::ranges::find(m_clusterShares, share) != m_clusterShares.end();
+    }
+
+    void setClusterShares(std::vector<std::string> shares)
+    {
+        m_clusterShares = std::move(shares);
+    }
+
 private:
-    std::string m_sender;              ///< Message sender.
-    bool        m_fromCluster {false}; ///< Forwarded by another cluster node.
+    std::string              m_sender;              ///< Message sender.
+    bool                     m_fromCluster {false}; ///< Forwarded by another cluster node.
+    std::vector<std::string> m_clusterShares;       ///< Shared subscriptions assigned to this node, for a forwarded message.
 };
 
 using SPublishMessage = std::shared_ptr<PublishMessage>;

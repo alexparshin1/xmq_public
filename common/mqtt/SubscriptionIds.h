@@ -19,6 +19,8 @@
 #include "common/SubscriptionOptions.h"
 
 #include <set>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -41,6 +43,9 @@ public:
         SubscriptionOptions                  m_options;
         SubscriptionIdSet                    m_ids;
         std::shared_ptr<ISubscriptionClient> m_session; ///< Keeps the session alive until the (possibly deferred) delivery is done.
+        /// For a cluster link: the shared subscriptions this node chose the node behind it for.
+        /// Empty - and allocating nothing - for every other session.
+        std::vector<std::string> m_clusterShares;
     };
 
     /// One entry per session, ordered by session address once finish() has run - the order the map
@@ -57,6 +62,14 @@ public:
      * finish() merges them.
      */
     bool add(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId, SubscriptionOptions options);
+
+    /**
+     * @brief Record that a shared subscription chose a cluster link: the node behind it is to hand
+     *        the message to one of its own members of that subscription.
+     * @param share             The shared subscription, as "$share/{ShareName}/{filter}".
+     */
+    void addClusterShare(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId,
+                         SubscriptionOptions options, std::string_view share);
 
     /**
      * @brief Merge the matches of each session into one entry, and order entries by session.

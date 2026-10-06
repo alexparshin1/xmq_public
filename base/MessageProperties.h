@@ -217,6 +217,12 @@ public:
     void removeProperty(Property property, PropertyType propertyType) override;
 
     /**
+     * @brief Remove every user-defined property with this name, and no other.
+     * @param name Property name.
+     */
+    void removeUserProperty(std::string_view name) override;
+
+    /**
      * @brief Remove all properties.
      */
     void clear() override;

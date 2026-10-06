@@ -450,6 +450,26 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
         publishMessage->setSender(sender);
         publishMessage->setSourceNode(sender);
         publishMessage->setFromCluster();
+
+        // The shared subscriptions the sending node assigned to this one. Taken off the message:
+        // they are for this node, not for the clients it delivers to.
+        if (const auto& properties = publishMessage->getProperties())
+        {
+            vector<string> shares;
+            properties->forEachUserProperty(
+                [&shares](const string_view name, const string_view value)
+                {
+                    if (name == PublishMessage::ClusterShareProperty)
+                    {
+                        shares.emplace_back(value);
+                    }
+                });
+            if (!shares.empty())
+            {
+                properties->removeUserProperty(PublishMessage::ClusterShareProperty);
+                publishMessage->setClusterShares(std::move(shares));
+            }
+        }
         ++m_forwardedMessagesReceived;
         m_server->publishMessage(publishMessage);
     }

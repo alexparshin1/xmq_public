@@ -227,7 +227,34 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessag
 
     if (isShared())
     {
-        m_clients.for_next(addToDeliverToSessions, eligible);
+        // One recipient in the whole cluster, chosen by the node the message entered through.
+        if (publishMessage.isFromCluster())
+        {
+            // Chosen elsewhere: one of this node's members only when the subscription was assigned
+            // here. Otherwise a member was served on the node that chose, or on another one.
+            if (publishMessage.isAssignedClusterShare(fullName()))
+            {
+                m_clients.for_next(addToDeliverToSessions, eligible);
+            }
+        }
+        else
+        {
+            // Chosen here. A cluster link stands for the members on the node behind it; choosing it
+            // assigns the subscription to that node, which is told so with the message.
+            m_clients.for_next(
+                [this, &deliverToSessions, &addToDeliverToSessions](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+                {
+                    if (!clientSession->isClusterLink())
+                    {
+                        addToDeliverToSessions(clientSession, subscription);
+                        return;
+                    }
+                    const auto* details = subscription.get();
+                    deliverToSessions.addClusterShare(subscription->clientSession(), details->qos(), details->subscriptionId(),
+                                                      details->options(), fullName());
+                },
+                eligible);
+        }
     }
     else
     {

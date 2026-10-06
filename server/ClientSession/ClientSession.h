@@ -479,6 +479,11 @@ public:
         m_isClusterSession = isClusterSession;
     }
 
+    [[nodiscard]] bool isClusterLink() const override
+    {
+        return isClusterSession();
+    }
+
     [[nodiscard]] std::string bridgeOrigin() const override
     {
         return m_bridgeOrigin == nullptr ? std::string() : *m_bridgeOrigin;

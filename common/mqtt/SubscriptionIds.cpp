@@ -40,6 +40,17 @@ bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, c
     return false;
 }
 
+void SubscriptionIds::addClusterShare(const std::shared_ptr<ISubscriptionClient>& session, const Qos qos, const uint32_t subscriptionId,
+                                      const SubscriptionOptions options, const std::string_view share)
+{
+    if (!session)
+    {
+        return;
+    }
+    add(session, qos, subscriptionId, options);
+    m_sessions.back().second.m_clusterShares.emplace_back(share);
+}
+
 void SubscriptionIds::finish()
 {
     if (m_sessions.size() < 2)
@@ -59,6 +70,9 @@ void SubscriptionIds::finish()
         {
             auto& ids = kept->second.m_ids;
             ids.insert(ids.end(), next->second.m_ids.begin(), next->second.m_ids.end());
+            // One copy goes to the node behind a link, so it carries every subscription assigned to it.
+            auto& shares = kept->second.m_clusterShares;
+            shares.insert(shares.end(), next->second.m_clusterShares.begin(), next->second.m_clusterShares.end());
         }
         else if (++kept != next)
         {

@@ -92,6 +92,17 @@ public:
 
     [[nodiscard]] virtual std::string bridgeOrigin() const = 0;
 
+    /**
+     * @brief Is this the link another node of this broker's cluster receives publications over?
+     *
+     * A bridge has a bridge origin too, but leads to a broker outside the cluster, which is not to
+     * be told anything about this cluster's shared subscriptions.
+     */
+    [[nodiscard]] virtual bool isClusterLink() const
+    {
+        return false;
+    }
+
     virtual void setBridgeOrigin(const std::string& bridgeOrigin) = 0;
 };
 
