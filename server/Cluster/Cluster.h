@@ -72,6 +72,32 @@ public:
     void joinCluster(const sptk::Host& clusterNodeHost, bool encrypted = true);
 
     /**
+     * @brief Take this node's place in the cluster on start, when it has one.
+     *
+     * Called before the listeners open. A member - by its GUID, in the shared storage - or a node
+     * with cluster.enabled starts taking part. A node that is neither, on a database a cluster uses,
+     * is refused: its sessions would be written over the cluster's.
+     *
+     * @throws sptk::Exception  The node may not start: see above, and Coordinator::start().
+     */
+    void startup();
+
+    /**
+     * @brief Link to the other members that are running, found in the storage, in the background.
+     *
+     * Called once the listeners are open: the members link back to this node.
+     */
+    void rejoinInBackground();
+
+    /**
+     * @return This node's GUID.
+     */
+    [[nodiscard]] const std::string& nodeId() const
+    {
+        return m_nodeId;
+    }
+
+    /**
      * @brief Initiates the connection of this server to the cluster.
      *
      * This method performs the handshake process required to connect this server
@@ -272,6 +298,19 @@ private:
     std::mutex                           m_coordinatorMutex;       ///< Guards creating m_coordinator.
     std::unique_ptr<Coordinator>         m_coordinator;            ///< Created when the node first joins a cluster.
     std::atomic<Coordinator*>            m_coordinatorView {nullptr}; ///< m_coordinator, read without the lock.
+    std::string                          m_nodeId;                 ///< This node's GUID.
+    std::thread                          m_rejoinThread;           ///< Links to the other members after startup().
+    std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
+
+    /**
+     * @brief Link to a member that is running, which links this node to the rest.
+     */
+    void rejoin();
+
+    /**
+     * @return True when the shared storage holds a cluster, with or without this node.
+     */
+    [[nodiscard]] bool clusterExists() const;
 
     /**
      * @brief Create the coordinator if there is none yet: the node has just become part of a cluster.

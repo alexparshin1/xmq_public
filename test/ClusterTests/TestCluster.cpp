@@ -22,7 +22,6 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
-constexpr uint16_t SslPortOffset = 7000; ///< The MQTT+SSL listener's distance from the MQTT one.
 }
 
 TestCluster::TestCluster(const size_t nodeCount, vector<LogSubject> logSubjects)
@@ -105,17 +104,9 @@ void TestCluster::startNode(const size_t index)
 void TestCluster::start(const size_t index, const bool cleanStart)
 {
     const auto port = host(index).port();
-    m_nodes[index] = XMQ_ClusterTests::createNode(nodeName(index), port, cleanStart, m_logSubjects);
-
-    // Joined through any other running node: once the cluster has formed, each one knows them all.
-    for (size_t other = 0; other < m_nodes.size(); ++other)
-    {
-        if (other != index && m_nodes[other])
-        {
-            m_nodes[index]->attachToCluster(Host("localhost", static_cast<uint16_t>(host(other).port() + SslPortOffset)));
-            break;
-        }
-    }
+    // A cluster node: it joins the cluster in the shared storage by itself, finding the members
+    // there - or forms it, the first one - and a node started again rejoins the same way.
+    m_nodes[index] = XMQ_ClusterTests::createNode(nodeName(index), port, cleanStart, m_logSubjects, true);
 
     if (!waitForMesh())
     {

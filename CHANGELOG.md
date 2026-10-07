@@ -20,6 +20,12 @@ Requires SPTK 5.6.14.
   client-service lease there, `cluster.lease_seconds` (10 by default). A node that cannot reach
   Redis for longer than that disconnects its clients and refuses new ones as "server unavailable"
   until it can. A cluster admits at most 10 nodes.
+- **Cluster nodes have a GUID and join through the shared storage.** A node makes its GUID on its
+  first start and keeps it in `xmq_node.id` beside its configuration. With `cluster.enabled`, it
+  joins the cluster in its Redis database by itself - finding the other nodes there - or forms one;
+  a member that starts again rejoins the same way. A node may not take another node's name, a node
+  running elsewhere already does not start again, and a node that is not a cluster node refuses to
+  start on a database a cluster uses.
 - **Cluster links require MQTT+SSL.** The reserved `cluster` account is refused on plain MQTT
   connections. A node advertises its TLS endpoint, and outgoing links use the local node's keys
   and certificate verification settings. Existing experimental cluster configurations must set

@@ -6,6 +6,11 @@
 
 #include "test/ClusterTests/ClusterTests.h"
 #include "test/ClusterTests/TestCluster.h"
+#include "server/Cluster/NodeIdentity.h"
+#include "test/TestServers.h"
+
+#include <sptk5/net/RedisCommand.h>
+
 #include <algorithm>
 
 using namespace std;
@@ -26,6 +31,17 @@ cluster::Coordinator& coordinatorOf(const TestCluster& cluster, const size_t ind
 
 /// Longer than a lease, plus a step for the next coordinator to take over.
 constexpr auto Handover = chrono::seconds(XMQ_ClusterTests::TestLeaseSeconds * 2 + 1);
+
+/// The members' names, in succession order.
+vector<string> memberNames(cluster::Coordinator& coordinator)
+{
+    vector<string> names;
+    for (const auto& member: coordinator.members())
+    {
+        names.push_back(member.m_name);
+    }
+    return names;
+}
 
 } // namespace
 
@@ -51,7 +67,7 @@ TEST_F(XMQ_ClusterTests, firstNodeCoordinatesAndEveryNodeIsOnline)
             << TestCluster::nodeName(i) << " is offline";
     }
     EXPECT_EQ((vector<string> {TestCluster::nodeName(0), TestCluster::nodeName(1), TestCluster::nodeName(2)}),
-              coordinatorOf(cluster, 0).members());
+              memberNames(coordinatorOf(cluster, 0)));
 
     const auto client = cluster.connect(2, "lease-holder-client");
     EXPECT_TRUE(client->isConnected());
@@ -81,7 +97,7 @@ TEST_F(XMQ_ClusterTests, nextNodeInOrderSucceedsTheCoordinator)
     cluster.startNode(0);
     EXPECT_TRUE(TestCluster::waitFor([&] { return coordinatorOf(cluster, 0).coordinatorName() == TestCluster::nodeName(1); }, Handover));
     EXPECT_FALSE(coordinatorOf(cluster, 0).isCoordinator());
-    EXPECT_TRUE(TestCluster::waitFor([&] { return coordinatorOf(cluster, 1).members().back() == TestCluster::nodeName(0); }, Handover))
+    EXPECT_TRUE(TestCluster::waitFor([&] { return memberNames(coordinatorOf(cluster, 1)).back() == TestCluster::nodeName(0); }, Handover))
         << "the former coordinator kept its place in the order";
     EXPECT_TRUE(TestCluster::waitFor([&] { return cluster[0]->getCluster()->isOnline(); }, Handover));
 }
@@ -148,27 +164,25 @@ TEST_F(XMQ_ClusterTests, nodeWithoutStorageServesNoClients)
  * Confirm that a cluster admits at most ten nodes.
  *
  * Setup: Two nodes, and eight more members recorded for nodes that are down - they still count.
- * Start another node and ask it to join.
+ * Start another cluster node.
  *
- * Verification: the join is refused, the node is not a member and has no link.
+ * Verification: the node does not start, is not a member and has no link.
  */
 TEST_F(XMQ_ClusterTests, eleventhNodeIsRefused)
 {
     TestCluster cluster(2);
     for (size_t i = 2; i < cluster::Coordinator::MaxMembers; ++i)
     {
-        ASSERT_TRUE(coordinatorOf(cluster, 0).admit(format("down-node-{}", i)));
+        ASSERT_TRUE(coordinatorOf(cluster, 0).admitAbsentNode(format("down-node-{}", i)));
     }
-    EXPECT_FALSE(coordinatorOf(cluster, 0).admit("one-too-many"));
+    EXPECT_FALSE(coordinatorOf(cluster, 0).admitAbsentNode("one-too-many"));
 
-    const auto extra = createNode("extra-node", static_cast<uint16_t>(TestCluster::FirstPort + 5), true);
-    extra->attachToCluster(Host("localhost", static_cast<uint16_t>(TestCluster::FirstPort + 7000)));
+    EXPECT_THROW(createNode("extra-node", static_cast<uint16_t>(TestCluster::FirstPort + 5), true, {}, true), Exception);
 
-    const auto members = coordinatorOf(cluster, 0).members();
+    const auto members = memberNames(coordinatorOf(cluster, 0));
     EXPECT_EQ(cluster::Coordinator::MaxMembers, members.size());
     EXPECT_EQ(members.end(), ranges::find(members, "extra-node"));
     EXPECT_EQ(0u, cluster[0]->getCluster()->getConnectedNodeCount("extra-node"));
-    stopNode("extra-node");
 }
 
 /**
@@ -183,6 +197,105 @@ TEST_F(XMQ_ClusterTests, nodeThatLeavesFreesItsPlace)
     const TestCluster cluster(2);
     cluster[1]->detachFromCluster();
 
-    EXPECT_EQ(vector<string> {TestCluster::nodeName(0)}, coordinatorOf(cluster, 0).members());
+    EXPECT_EQ(vector<string> {TestCluster::nodeName(0)}, memberNames(coordinatorOf(cluster, 0)));
     EXPECT_TRUE(coordinatorOf(cluster, 0).isCoordinator());
+}
+
+/**
+ * Confirm that a node keeps its GUID when it is started again, and is the same member.
+ *
+ * Setup: Two nodes. Stop node 1 and start it again.
+ *
+ * Verification: the same GUID before and after; still two members, node 1 among them, linked to
+ * node 0 again without being asked to join.
+ */
+TEST_F(XMQ_ClusterTests, restartedNodeKeepsItsIdentityAndRejoins)
+{
+    TestCluster cluster(2);
+    const auto  before = cluster[1]->getCluster()->nodeId();
+    EXPECT_TRUE(cluster::NodeIdentity::isGuid(before));
+    EXPECT_NE(before, cluster[0]->getCluster()->nodeId());
+
+    cluster.stopNode(1);
+    cluster.startNode(1); // returns once the node has linked to node 0 again, by itself
+
+    EXPECT_EQ(before, cluster[1]->getCluster()->nodeId());
+    EXPECT_EQ((vector<string> {TestCluster::nodeName(0), TestCluster::nodeName(1)}), memberNames(coordinatorOf(cluster, 0)));
+}
+
+/**
+ * Confirm that a node may not take the name of another node of the cluster.
+ *
+ * Setup: Two nodes; a member called "taken-name" recorded for a node that is down. A new cluster
+ * node with that name - and a GUID of its own - starts.
+ *
+ * Verification: it does not start, and the name still belongs to the member that had it.
+ */
+TEST_F(XMQ_ClusterTests, nodeMayNotTakeAnotherNodesName)
+{
+    TestCluster cluster(2);
+    ASSERT_TRUE(coordinatorOf(cluster, 0).admitAbsentNode("taken-name"));
+
+    EXPECT_THROW(createNode("taken-name", static_cast<uint16_t>(TestCluster::FirstPort + 5), true, {}, true), Exception);
+    EXPECT_EQ(0u, cluster[0]->getCluster()->getConnectedNodeCount("taken-name"));
+    EXPECT_EQ(3u, memberNames(coordinatorOf(cluster, 0)).size());
+}
+
+/**
+ * Confirm that a node running already, under its GUID, is not started a second time.
+ *
+ * Setup: Two nodes. Stop node 1, and give its lease to another run of it - as a copy of the node,
+ * started from a cloned machine, would hold it.
+ *
+ * Verification: node 1 does not start while the other run holds the lease.
+ */
+TEST_F(XMQ_ClusterTests, nodeRunningElsewhereDoesNotStartAgain)
+{
+    TestCluster cluster(2);
+    const auto  nodeId = cluster[1]->getCluster()->nodeId();
+    cluster.stopNode(1);
+
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    RedisCommand hold("SET", "cluster:alive:" + nodeId);
+    hold.emplace_back("another-run");
+    hold.emplace_back("PX");
+    hold.emplace_back("60000");
+    vector<Variant> results;
+    redis.executeCommand(hold, results);
+
+    EXPECT_THROW(createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false), Exception);
+}
+
+/**
+ * Confirm that a node that is not a cluster node may not use a cluster's database.
+ *
+ * Setup: Two nodes. Start a third node on the same storage, neither a member nor cluster.enabled.
+ *
+ * Verification: it does not start.
+ */
+TEST_F(XMQ_ClusterTests, standaloneNodeMayNotUseAClustersDatabase)
+{
+    const TestCluster cluster(2);
+    EXPECT_THROW(createNode("standalone", static_cast<uint16_t>(TestCluster::FirstPort + 5), true), Exception);
+}
+
+/**
+ * Confirm that a node with cluster.enabled joins the cluster in its storage by itself.
+ *
+ * Setup: Two nodes. Start a third with cluster.enabled, and ask it nothing.
+ *
+ * Verification: it becomes a member and links to both nodes.
+ */
+TEST_F(XMQ_ClusterTests, enabledNodeJoinsByItself)
+{
+    const TestCluster cluster(2);
+    const auto        joiner = createNode("joiner", static_cast<uint16_t>(TestCluster::FirstPort + 5), true, {}, true);
+
+    EXPECT_TRUE(TestCluster::waitFor([&] { return joiner->getCluster()->getConnectedNodeCount() >= 2; }, Handover))
+        << "the node did not link to the cluster";
+    EXPECT_TRUE(TestCluster::waitFor([&] { return cluster[0]->getCluster()->getConnectedNodeCount("joiner") == 1; }, Handover))
+        << "the cluster did not link back to the node";
+    EXPECT_EQ((vector<string> {TestCluster::nodeName(0), TestCluster::nodeName(1), "joiner"}), memberNames(coordinatorOf(cluster, 0)));
+    stopNode("joiner");
 }

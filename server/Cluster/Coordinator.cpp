@@ -12,6 +12,7 @@
 */
 
 #include "Coordinator.h"
+#include "NodeIdentity.h"
 
 #include <sptk5/net/RedisCommand.h>
 
@@ -23,34 +24,70 @@ namespace {
 
 const string MembersKey = "cluster:members";
 const string AdmissionKey = "cluster:admission";
+const string NamesKey = "cluster:names";
+const string NodePrefix = "cluster:node:";
+const string AlivePrefix = "cluster:alive:";
 const string TermKey = "cluster:term";
 const string CoordinatorKey = "cluster:coordinator";
-const string AlivePrefix = "cluster:alive:";
 
-// Admit a node unless the cluster is full. A member is let back in whatever the count, which is
-// how a node that was down rejoins.
-const string AdmitScript = R"(
-if redis.call('ZSCORE', KEYS[1], ARGV[1]) then return 1 end
-if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then return 0 end
-redis.call('ZADD', KEYS[1], redis.call('INCR', KEYS[2]), ARGV[1])
+// What JoinScript answers.
+constexpr int64_t Joined = 1;
+constexpr int64_t ClusterFull = 0;
+constexpr int64_t NameTaken = -1;
+
+// Admit a node, or let a member back in, and take its lease. A member is let back in whatever the
+// count, which is how a node that was down rejoins. Refused: a name another node has (-1), a
+// cluster that is full (0), and a lease another run of this node holds (-2).
+const string JoinScript = R"(
+local owner = redis.call('HGET', KEYS[3], ARGV[2])
+if owner and owner ~= ARGV[1] then return -1 end
+local run = redis.call('GET', KEYS[5])
+if run and run ~= ARGV[5] then return -2 end
+if not redis.call('ZSCORE', KEYS[1], ARGV[1]) then
+  if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then return 0 end
+  redis.call('ZADD', KEYS[1], redis.call('INCR', KEYS[2]), ARGV[1])
+end
+local old = redis.call('HGET', KEYS[4], 'name')
+if old and old ~= ARGV[2] and redis.call('HGET', KEYS[3], old) == ARGV[1] then redis.call('HDEL', KEYS[3], old) end
+redis.call('HSET', KEYS[3], ARGV[2], ARGV[1])
+redis.call('HSET', KEYS[4], 'name', ARGV[2], 'host_port', ARGV[3])
+redis.call('SET', KEYS[5], ARGV[5], 'PX', ARGV[6])
 return 1)";
 
-// Move a member to the end of the succession order: a former coordinator rejoins behind everyone.
+// A member for a node that is not running: a GUID, a name and a place, but no lease.
+const string AdmitAbsentScript = R"(
+if redis.call('HEXISTS', KEYS[3], ARGV[2]) == 1 then return -1 end
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 0 end
+redis.call('ZADD', KEYS[1], redis.call('INCR', KEYS[2]), ARGV[1])
+redis.call('HSET', KEYS[3], ARGV[2], ARGV[1])
+redis.call('HSET', KEYS[4], 'name', ARGV[2], 'host_port', '')
+return 1)";
+
+// Move a member to the end of the succession order.
 const string RequeueScript = R"(
 if not redis.call('ZSCORE', KEYS[1], ARGV[1]) then return 0 end
 redis.call('ZADD', KEYS[1], redis.call('INCR', KEYS[2]), ARGV[1])
 return 1)";
 
-// A step: renew this node's alive key - only while it is a member - and read the coordinator and
-// the places of this node and of the coordinator in the order, all at one moment.
+// A step: renew this node's lease - while it is a member, and unless another run of it holds the
+// lease - and read the coordinator, its name, and the places of this node and of the coordinator in
+// the order, all at one moment.
 const string StatusScript = R"(
 local rank = redis.call('ZRANK', KEYS[2], ARGV[1]) or -1
-if rank >= 0 then redis.call('SET', KEYS[3], '1', 'PX', ARGV[2]) end
+local own = 1
+if rank >= 0 then
+  local run = redis.call('GET', KEYS[3])
+  if run and run ~= ARGV[2] then own = 0 else redis.call('SET', KEYS[3], ARGV[2], 'PX', ARGV[3]) end
+end
 local coordinator = redis.call('GET', KEYS[1]) or ''
+local id = string.match(coordinator, ' (.+)$')
 local coordinatorRank = -1
-local name = string.match(coordinator, ' (.+)$')
-if name then coordinatorRank = redis.call('ZRANK', KEYS[2], name) or -1 end
-return {coordinator, rank, coordinatorRank})";
+local coordinatorName = ''
+if id then
+  coordinatorRank = redis.call('ZRANK', KEYS[2], id) or -1
+  coordinatorName = redis.call('HGET', ARGV[4] .. id, 'name') or ''
+end
+return {coordinator, rank, coordinatorRank, coordinatorName, own})";
 
 // Become coordinator if there is none, in a new term.
 const string AcquireScript = R"(
@@ -65,10 +102,24 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
 return 1)";
 
-// Give the coordinator key up, if it is ours.
-const string ReleaseScript = R"(
-if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]) end
+// Leave: give the coordinator key up if it is ours, and free the place, the name and the lease.
+const string LeaveScript = R"(
+if redis.call('GET', KEYS[1]) == ARGV[3] then redis.call('DEL', KEYS[1]) end
+redis.call('ZREM', KEYS[2], ARGV[1])
+if redis.call('HGET', KEYS[3], ARGV[2]) == ARGV[1] then redis.call('HDEL', KEYS[3], ARGV[2]) end
+redis.call('DEL', KEYS[4], KEYS[5])
 return 1)";
+
+// The members in order: name, TLS address and whether it holds its lease, three values each.
+const string MembersScript = R"(
+local out = {}
+for _, id in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
+  local node = redis.call('HMGET', ARGV[1] .. id, 'name', 'host_port')
+  table.insert(out, node[1] or '')
+  table.insert(out, node[2] or '')
+  table.insert(out, redis.call('EXISTS', ARGV[2] .. id))
+end
+return out)";
 
 int64_t ticks(const chrono::steady_clock::time_point time)
 {
@@ -77,8 +128,12 @@ int64_t ticks(const chrono::steady_clock::time_point time)
 
 } // namespace
 
-Coordinator::Coordinator(string nodeName, URL redisUrl, const chrono::milliseconds lease, StateChanged stateChanged)
-    : m_nodeName(std::move(nodeName))
+Coordinator::Coordinator(string nodeId, string nodeName, string hostPort, URL redisUrl,
+                         const chrono::milliseconds lease, StateChanged stateChanged)
+    : m_nodeId(std::move(nodeId))
+    , m_nodeName(std::move(nodeName))
+    , m_hostPort(std::move(hostPort))
+    , m_runId(NodeIdentity::generate())
     , m_redisUrl(std::move(redisUrl))
     , m_lease(lease)
     // Five steps a lease: a step that is late, or a Redis command that is slow, still leaves four.
@@ -116,13 +171,6 @@ vector<Variant> Coordinator::eval(const string& script, const vector<string>& ke
     return results;
 }
 
-bool Coordinator::admit(const string& nodeName)
-{
-    const scoped_lock lock(m_mutex);
-    const auto        admitted = eval(AdmitScript, {MembersKey, AdmissionKey}, {nodeName, to_string(MaxMembers)});
-    return !admitted.empty() && admitted[0].asInt64() == 1;
-}
-
 void Coordinator::start()
 {
     {
@@ -131,11 +179,38 @@ void Coordinator::start()
         {
             return;
         }
-        if (const auto admitted = eval(AdmitScript, {MembersKey, AdmissionKey}, {m_nodeName, to_string(MaxMembers)});
-            admitted.empty() || admitted[0].asInt64() != 1)
+
+        // A node that crashed and was started again finds the lease of its previous run, which
+        // serves nothing but holds the lease until it expires. Any longer, and another process has
+        // this node's GUID.
+        const auto giveUpAt = Clock::now() + m_lease + m_tick;
+        for (;;)
         {
-            throw Exception(format("The cluster has {} nodes already, the most it supports.", MaxMembers));
+            const auto joined = eval(JoinScript,
+                                     {MembersKey, AdmissionKey, NamesKey, NodePrefix + m_nodeId, AlivePrefix + m_nodeId},
+                                     {m_nodeId, m_nodeName, m_hostPort, to_string(MaxMembers), m_runId,
+                                      to_string(m_lease.count())});
+            const auto answer = joined.empty() ? ClusterFull : joined[0].asInt64();
+            if (answer == Joined)
+            {
+                break;
+            }
+            if (answer == NameTaken)
+            {
+                throw Exception(format("Another node of the cluster is called '{}'.", m_nodeName));
+            }
+            if (answer == ClusterFull)
+            {
+                throw Exception(format("The cluster has {} nodes already, the most it supports.", MaxMembers));
+            }
+            if (Clock::now() > giveUpAt)
+            {
+                throw Exception(format("Node '{}' ({}) is running elsewhere: another process holds its lease.",
+                                       m_nodeName, m_nodeId));
+            }
+            this_thread::sleep_for(m_tick);
         }
+
         m_stopping = false;
         m_participating = true;
         step();
@@ -163,16 +238,8 @@ void Coordinator::leave()
     const scoped_lock lock(m_mutex);
     try
     {
-        if (m_coordinator)
-        {
-            (void) eval(ReleaseScript, {CoordinatorKey}, {format("{} {}", m_term.load(), m_nodeName)});
-        }
-        connectRedis();
-        vector<Variant> results;
-        RedisCommand    removeMember("ZREM", MembersKey);
-        removeMember.emplace_back(m_nodeName);
-        m_redis.executeCommand(removeMember, results);
-        (void) m_redis.deleteKeys({AlivePrefix + m_nodeName});
+        (void) eval(LeaveScript, {CoordinatorKey, MembersKey, NamesKey, NodePrefix + m_nodeId, AlivePrefix + m_nodeId},
+                    {m_nodeId, m_nodeName, format("{} {}", m_term.load(), m_nodeId)});
     }
     catch (const Exception&)
     {
@@ -206,27 +273,61 @@ string Coordinator::coordinatorName() const
     return m_coordinatorName;
 }
 
-vector<string> Coordinator::members()
+vector<Coordinator::Member> Coordinator::members()
+{
+    const scoped_lock lock(m_mutex);
+    const auto        results = eval(MembersScript, {MembersKey}, {NodePrefix, AlivePrefix});
+    vector<Member>    members;
+    for (size_t i = 0; i + 2 < results.size(); i += 3)
+    {
+        members.push_back({results[i].asString().c_str(), results[i + 1].asString().c_str(), results[i + 2].asInt64() == 1});
+    }
+    return members;
+}
+
+bool Coordinator::isMember(const string& nodeName)
 {
     const scoped_lock lock(m_mutex);
     connectRedis();
-    RedisCommand command("ZRANGE", MembersKey);
-    command.emplace_back("0");
-    command.emplace_back("-1");
+    const auto id = m_redis.getHashValue(NamesKey, nodeName);
+    if (id.isNull() || id.asString().empty())
+    {
+        return false;
+    }
+    RedisCommand command("ZSCORE", MembersKey);
+    command.emplace_back(string(id.asString().c_str()));
     vector<Variant> results;
     m_redis.executeCommand(command, results);
-    vector<string> names;
-    for (const auto& result: results)
+    return !results.empty() && !results[0].isNull();
+}
+
+bool Coordinator::admitAbsentNode(const string& nodeName)
+{
+    const scoped_lock lock(m_mutex);
+    const auto        id = NodeIdentity::generate();
+    const auto        admitted = eval(AdmitAbsentScript, {MembersKey, AdmissionKey, NamesKey, NodePrefix + id},
+                                      {id, nodeName, to_string(MaxMembers)});
+    return !admitted.empty() && admitted[0].asInt64() == Joined;
+}
+
+int Coordinator::membership(RedisConnect& redis, const string& nodeId)
+{
+    vector<Variant> results;
+    redis.executeCommand(RedisCommand("ZCARD", MembersKey), results);
+    if (results.empty() || results[0].asInt64() == 0)
     {
-        names.emplace_back(result.asString().c_str());
+        return -1;
     }
-    return names;
+    RedisCommand command("ZSCORE", MembersKey);
+    command.emplace_back(nodeId);
+    results.clear();
+    redis.executeCommand(command, results);
+    return !results.empty() && !results[0].isNull() ? 1 : 0;
 }
 
 void Coordinator::clearClusterState(RedisConnect& redis)
 {
-    auto keys = redis.scan("cluster:*", 1000);
-    if (!keys.empty())
+    if (const auto keys = redis.scan("cluster:*", 1000); !keys.empty())
     {
         (void) redis.deleteKeys(keys);
     }
@@ -251,26 +352,29 @@ void Coordinator::run()
 
 void Coordinator::step()
 {
-    // Taken before Redis is asked: the alive key is counted from a moment no later than Redis's own
+    // Taken before Redis is asked: the lease is counted from a moment no later than Redis's own
     // start of it, so this node stops serving no later than Redis lets it expire - and no later than
     // another node may take over what it serves.
     const auto started = Clock::now();
     try
     {
-        const auto status = eval(StatusScript, {CoordinatorKey, MembersKey, AlivePrefix + m_nodeName},
-                                 {m_nodeName, to_string(m_lease.count())});
-        if (status.size() < 3)
+        const auto status = eval(StatusScript, {CoordinatorKey, MembersKey, AlivePrefix + m_nodeId},
+                                 {m_nodeId, m_runId, to_string(m_lease.count()), NodePrefix});
+        if (status.size() < 5)
         {
             throw Exception("Unexpected cluster status from Redis.");
         }
         auto       coordinator = string(status[0].asString().c_str());
         const auto rank = status[1].asInt64();
         const auto coordinatorRank = status[2].asInt64();
+        auto       coordinatorName = string(status[3].asString().c_str());
+        const auto ownLease = status[4].asInt64() == 1;
 
-        if (rank < 0)
+        if (rank < 0 || !ownLease)
         {
-            // Not a member: its record was removed while it was running, or the storage was
-            // wiped. It serves nothing in the cluster's name until it is admitted again.
+            // Not a member - removed while it was running, or the storage was wiped - or another
+            // process runs this node and holds its lease. Either way it serves nothing in the
+            // cluster's name.
             m_coordinatorName.clear();
             m_coordinator = false;
             m_leaseUntil = 0;
@@ -288,10 +392,11 @@ void Coordinator::step()
             // in the order that is alive wins without the others having to agree on who that is.
             if (started - m_coordinatorAbsentSince >= m_tick * rank)
             {
-                if (const auto acquired = eval(AcquireScript, {CoordinatorKey, TermKey}, {m_nodeName, to_string(m_lease.count())});
+                if (const auto acquired = eval(AcquireScript, {CoordinatorKey, TermKey}, {m_nodeId, to_string(m_lease.count())});
                     !acquired.empty() && acquired[0].asInt64() > 0)
                 {
-                    coordinator = format("{} {}", acquired[0].asInt64(), m_nodeName);
+                    coordinator = format("{} {}", acquired[0].asInt64(), m_nodeId);
+                    coordinatorName = m_nodeName;
                 }
             }
         }
@@ -301,14 +406,14 @@ void Coordinator::step()
         }
 
         int64_t term = 0;
-        string  coordinatorName;
+        string  coordinatorId;
         if (const auto space = coordinator.find(' '); space != string::npos)
         {
             term = stoll(coordinator.substr(0, space));
-            coordinatorName = coordinator.substr(space + 1);
+            coordinatorId = coordinator.substr(space + 1);
         }
 
-        if (coordinatorName == m_nodeName)
+        if (coordinatorId == m_nodeId)
         {
             const auto renewed = eval(RenewScript, {CoordinatorKey}, {coordinator, to_string(m_lease.count())});
             m_coordinator = !renewed.empty() && renewed[0].asInt64() == 1;
@@ -322,7 +427,7 @@ void Coordinator::step()
                 // be, and was passed over while it was down or cut off. It cannot claim that place
                 // back, and goes to the end, behind every node admitted meanwhile. That keeps the
                 // coordinator first in the order, so the next one is always the node after it.
-                (void) eval(RequeueScript, {MembersKey, AdmissionKey}, {m_nodeName});
+                (void) eval(RequeueScript, {MembersKey, AdmissionKey}, {m_nodeId});
             }
         }
 
@@ -332,8 +437,8 @@ void Coordinator::step()
     catch (const Exception&)
     {
         // The connection is dropped, to be opened again next step. The node goes on serving until
-        // its alive key would have expired: until then nobody may take over its sessions, so a
-        // Redis outage shorter than a lease costs its clients nothing.
+        // its lease would have expired: until then nobody may take over its sessions, so a Redis
+        // outage shorter than a lease costs its clients nothing.
         m_redis.disconnect();
         m_coordinator = false;
     }

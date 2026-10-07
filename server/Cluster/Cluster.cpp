@@ -13,6 +13,7 @@
 */
 
 #include "Server.h"
+#include "NodeIdentity.h"
 #include "common/mqtt/PublishMessage.h"
 #include "service/CServerNode.h"
 
@@ -37,6 +38,17 @@ Cluster::Cluster(Server* server)
     thisNodeSettings.m_encrypted = true;
     thisNodeSettings.m_node_state = static_cast<int>(ServerNodeState::Standalone);
     m_thisNode = make_shared<ServerNode>(m_server, m_settings->m_cluster.m_this_node, m_clusterTopics);
+
+    // Kept beside the configuration. Without one there is nowhere to keep it, and the node is a new
+    // one every start - which only a test that never restarts a node does.
+    if (const auto configuration = m_settings->configurationPath(); !configuration.empty())
+    {
+        m_nodeId = NodeIdentity::load(filesystem::path(configuration).replace_filename(NodeIdentity::FileName));
+    }
+    else
+    {
+        m_nodeId = NodeIdentity::generate();
+    }
     m_connectedNodes.storeNodeRecord(m_thisNode);
     m_subscriptionSender = thread([this] { sendSubscriptions(); });
 }
@@ -79,6 +91,15 @@ void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
     if (!encrypted)
     {
         throw Exception("Cluster connections require MQTT+SSL.");
+    }
+
+    // Admitted first, by itself, through the shared storage: a cluster that is full, or has a node
+    // of this name, refuses it before any link is opened. The node it asks then finds it a member.
+    // Not when there is no cluster yet: the node asked forms it, as its first member, and this one
+    // follows when it answers (onAttachNodeResponse) - admitted first, it would be the senior.
+    if (clusterExists())
+    {
+        startCoordinator();
     }
 
     // The address is the peer's TLS listener. Keys and trust settings belong to the local node.
@@ -135,8 +156,120 @@ void Cluster::detachCluster()
     }
 }
 
+void Cluster::startup()
+{
+    const auto storage = m_server->getStorage();
+    if (!storage || !storage->isPersistent() || !storage->getRedis())
+    {
+        return;
+    }
+
+    RedisConnect redis;
+    redis.connect(storage->getRedis()->getRedisUrl());
+    const auto membership = Coordinator::membership(redis, m_nodeId);
+    const auto enabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
+
+    if (membership == 1 || enabled)
+    {
+        startCoordinator();
+        return;
+    }
+
+    if (membership == 0)
+    {
+        throw Exception(format("The Redis database {} belongs to a cluster, and this node is not one of its members. "
+                               "Set cluster.enabled to join it, or give this node a database of its own.",
+                               storage->getRedis()->getRedisUrl().toString()));
+    }
+}
+
+bool Cluster::clusterExists() const
+{
+    const auto storage = m_server->getStorage();
+    if (!storage || !storage->isPersistent() || !storage->getRedis())
+    {
+        return false;
+    }
+    RedisConnect redis;
+    redis.connect(storage->getRedis()->getRedisUrl());
+    return Coordinator::membership(redis, m_nodeId) >= 0;
+}
+
+void Cluster::rejoinInBackground()
+{
+    if (m_coordinatorView.load() != nullptr && !m_rejoinThread.joinable())
+    {
+        m_rejoinThread = thread([this] { rejoin(); });
+    }
+}
+
+void Cluster::rejoin()
+{
+    auto* coordinator = m_coordinatorView.load();
+    if (coordinator == nullptr)
+    {
+        return;
+    }
+
+    // The members that are running know the rest: a link to one of them is answered with all of
+    // them, as a join through it is. Tried in turn, again while none answers.
+    while (!m_stopping)
+    {
+        vector<Coordinator::Member> members;
+        try
+        {
+            members = coordinator->members();
+        }
+        catch (const Exception& e)
+        {
+            logMessage(LogPriority::Warning, [&e] { return format("Can't read the cluster members: {}", e.what()); });
+        }
+
+        bool anyOther = false;
+        for (const auto& member: members)
+        {
+            if (m_stopping || member.m_name == m_server->getNodeName() || !member.m_alive || member.m_hostPort.empty())
+            {
+                continue;
+            }
+            anyOther = true;
+            try
+            {
+                joinCluster(Host(member.m_hostPort));
+                if (getConnectedNodeCount(member.m_name) > 0)
+                {
+                    logMessage(LogPriority::Info, [&member] { return format("Rejoined the cluster through node [{}]", member.m_name); });
+                    return;
+                }
+            }
+            catch (const Exception& e)
+            {
+                logMessage(LogPriority::Warning, [&member, &e]
+                           {
+                               return format("Can't link to cluster node [{}] at {}: {}", member.m_name, member.m_hostPort, e.what());
+                           });
+            }
+        }
+        if (!anyOther)
+        {
+            // The only member running: there is nobody to link to, and the others link to this
+            // node when they start.
+            return;
+        }
+        for (int i = 0; i < 10 && !m_stopping; ++i)
+        {
+            this_thread::sleep_for(100ms);
+        }
+    }
+}
+
 void Cluster::stop()
 {
+    m_stopping = true;
+    if (m_rejoinThread.joinable())
+    {
+        m_rejoinThread.join();
+    }
     stopSubscriptionSender();
     // A node that stops is down, not gone: it keeps its place among the members, to rejoin with.
     if (auto* coordinator = m_coordinatorView.load())
@@ -174,7 +307,8 @@ Coordinator& Cluster::coordinatorForCluster()
         const auto    leaseSeconds = leaseSetting.isNull() || leaseSetting.asInteger() <= 0 ? defaultLeaseSeconds
                                                                                             : leaseSetting.asInteger();
         m_coordinator = make_unique<Coordinator>(
-            m_server->getNodeName(), storage->getRedis()->getRedisUrl(), chrono::seconds(leaseSeconds),
+            m_nodeId, m_server->getNodeName(), m_settings->m_cluster.m_this_node.m_host_port.asString().c_str(),
+            storage->getRedis()->getRedisUrl(), chrono::seconds(leaseSeconds),
             [this](const bool online) { m_server->onClusterStateChanged(online); });
         m_coordinatorView = m_coordinator.get();
     }
@@ -377,15 +511,16 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
     }
 
     // This node is in a cluster from now on, as its first member if it was alone. The joining node
-    // is admitted here, before it is linked back to: a full cluster refuses it without a link.
+    // has admitted itself through the storage before asking - unless this request forms the
+    // cluster - and one that is not a member, refused there, gets no link back.
+    const bool forming = m_coordinatorView.load() == nullptr;
     startCoordinator();
     const string joiningNode = attachNodeRequest.m_this_node.m_node_name.asString().c_str();
-    if (!coordinatorForCluster().admit(joiningNode))
+    if (!forming && !coordinatorForCluster().isMember(joiningNode))
     {
         logMessage(LogPriority::Error, [&joiningNode]
                    {
-                       return format("Node [{}] can't join: the cluster has {} nodes already, the most it supports.",
-                                     joiningNode, Coordinator::MaxMembers);
+                       return format("Node [{}] asked to join, but is not a member of the cluster.", joiningNode);
                    });
         return;
     }
@@ -433,6 +568,12 @@ void Cluster::onAttachNodeResponse(const SPublishMessage& message)
     for (const auto& nodeSettings: clusterSettings.m_nodes)
     {
         const auto connectedNode = connectNode(nodeSettings);
+        if (!connectedNode)
+        {
+            // This node itself, or one the answering node still lists but that is down: the
+            // members link to it when it starts again.
+            continue;
+        }
 
         // Don't send the join request to the server that sent the join response:
         if (clusterSettings.m_this_node.m_node_name.asString() != nodeSettings.m_node_name.asString())

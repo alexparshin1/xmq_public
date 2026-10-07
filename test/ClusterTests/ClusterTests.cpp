@@ -52,20 +52,33 @@ void XMQ_ClusterTests::clearClusterState()
 void XMQ_ClusterTests::TearDown()
 {
     stopServers();
+    // Left behind, the cluster would claim the database for the suites after this one, whose
+    // nodes are not its members and would be refused.
+    clearClusterState();
     distrustNodeCertificates();
     XMQ_ServerTests::TearDown();
 }
 
 SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t              portNumber,
-                                     const bool         cleanStart, const vector<LogSubject>& logSubjects)
+                                     const bool         cleanStart, const vector<LogSubject>& logSubjects,
+                                     const bool         clusterEnabled)
 {
     using enum LogPriority;
     // Cluster tests exercise cluster links, not the separately configured legacy bridges.
     SServer server = createServer(portNumber, static_cast<uint16_t>(portNumber + 7000), 0, cleanStart, nodeName, "cluster",
-                                  "cluster", Debug, true, false);
+                                  "cluster", Debug, true, false,
+                                  [clusterEnabled](Settings& settings)
+                                  {
+                                      // Two seconds instead of ten, so that a test can watch a lease
+                                      // run out. Set before the start, which may take the node's
+                                      // place in a cluster.
+                                      settings.m_cluster.m_lease_seconds = TestLeaseSeconds;
+                                      if (clusterEnabled)
+                                      {
+                                          settings.m_cluster.m_enabled = true;
+                                      }
+                                  });
 
-    // Two seconds instead of ten, so that a test can watch a lease run out.
-    server->getSettings()->m_cluster.m_lease_seconds = TestLeaseSeconds;
     server->getSettings()->setLogSubjectsPriority({}, Info);
     server->getSettings()->setLogSubjectsPriority(logSubjects, Debug);
     trustNodeCertificate(server);

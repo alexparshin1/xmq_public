@@ -17,6 +17,7 @@
 #include "TestServers.h"
 #include "common/DirectoryNames.h"
 #include "server/Extensions/ExtensionHost.h"
+#include "server/Cluster/NodeIdentity.h"
 
 #include <filesystem>
 #include <fstream>
@@ -64,13 +65,26 @@ constexpr const char* testUsers = R"({"users": [
 /// Per node and per process: the suites run one after another in one binary, and two nodes sharing
 /// a configuration directory would share the accounts database with it - which is exactly the kind
 /// of cross-talk that makes one test fail because of what another left behind.
-filesystem::path nodeConfigurationDirectory(const string& nodeName)
+///
+/// A node that is started again, not afresh, keeps its identity file, as a real one restarting
+/// would: a cluster knows a node by the GUID in it.
+filesystem::path nodeConfigurationDirectory(const string& nodeName, const bool cleanStart)
 {
     const auto directory = filesystem::temp_directory_path() /
                            ("xmq_test_node_" + nodeName + "_" + to_string(::getpid()));
+    const auto identityFile = directory / cluster::NodeIdentity::FileName;
+    string     identity;
+    if (ifstream input(identityFile); input && !cleanStart)
+    {
+        getline(input, identity);
+    }
     error_code errorCode;
     filesystem::remove_all(directory, errorCode);
     filesystem::create_directories(directory);
+    if (!identity.empty())
+    {
+        ofstream(identityFile) << identity << "\n";
+    }
     return directory;
 }
 
@@ -278,7 +292,8 @@ void ServerTests_Suite::printTitle(const string_view title)
 SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const uint16_t listenerPortSsl, const uint16_t servicePortTcp,
                                         const bool cleanStart, const std::string& nodeName,
                                         const std::string& userName, const std::string& password,
-                                        const LogPriority minLogLevel, const bool persistence, const bool enableBridges)
+                                        const LogPriority minLogLevel, const bool persistence, const bool enableBridges,
+                                        const std::function<void(Settings&)>& configure)
 {
     static const String testConfig = R"({
         "connections": {
@@ -434,7 +449,7 @@ SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const ui
         // with a path, so the accounts land in a database beside it, and an authenticator
         // configured next to that. Without the path there is no database and nothing to
         // authenticate against, and every test that connects would be refused.
-        const auto nodeDirectory = nodeConfigurationDirectory(nodeName);
+        const auto nodeDirectory = nodeConfigurationDirectory(nodeName, cleanStart);
         const auto configurationPath = nodeDirectory / "xmq_server.conf";
         Buffer(digestedTestConfig).saveToFile(configurationPath);
         writeAuthenticatorConfiguration(configurationPath);
@@ -503,6 +518,11 @@ SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const ui
         logEngine->option(LogEngine::Option::STDOUT, true);
         logEngine->option(LogEngine::Option::MILLISECONDS, true);
         logEngine->minPriority(minLogLevel);
+
+        if (configure)
+        {
+            configure(*settings);
+        }
 
         auto server = make_shared<Server>(settings, logEngine, LogPriority::Debug);
 

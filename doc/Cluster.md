@@ -60,10 +60,13 @@
   Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable").
   Left: stopping cluster routing while offline; a restarted member rejoining by itself (see below).
 
-- [ ] a cluster can be formed and rejoined outside tests. Nodes join only through `Server::attachToCluster()`, which only
-  the tests call; `Cluster::connectToCluster()` is commented out. A restarted member must find the other members (they
-  are in the shared storage) and rejoin before it serves clients; a new node needs a way to join (configuration or the
-  control API).
+- [x] a node is its GUID, made on its first start and kept in `xmq_node.id` beside its configuration; its name is for
+  people and unique in the cluster. A node may not take another node's name, a node already running elsewhere (a
+  cloned machine) does not start again, and a node that is not a cluster node may not use a cluster's database.
+
+- [x] a cluster is formed and rejoined through the shared storage. A node with `cluster.enabled` joins the cluster in
+  its Redis database by itself, or forms it; a member that starts again rejoins whether that is set or not. Either
+  finds the other members, and their TLS addresses, in the storage.
 
 
 ## Retained conflict resolution
@@ -142,6 +145,23 @@ So the cluster's state is kept there, as keys with a TTL, and no node compares c
 - `cluster:coordinator` - `<term> <node>`, set only when absent and kept by renewal.
 
 `cluster.lease_seconds` (10 by default) is the TTL; nodes renew five times per lease.
+
+### Node identity and joining
+
+A node is its GUID, made on its first start and kept in `xmq_node.id` beside its configuration - not in the
+configuration, which is copied to set up the next node and would take the GUID with it. The storage keeps, per node,
+its name and its TLS address (`cluster:node:<guid>`), and which node each name belongs to (`cluster:names`):
+
+- A node whose name another node has is refused.
+- The lease (`cluster:alive:<guid>`) holds the id of the node's current run. A node finding it held by another run
+  waits one lease - its own previous run, if it crashed, serves nothing and lets go - and is then refused: another
+  process runs as this node, a cloned machine say.
+- A node that is neither a member nor `cluster.enabled` does not start on a database that holds a cluster: its
+  sessions would be written over the cluster's.
+
+A node with `cluster.enabled`, or one that is a member already, takes its place on start, before its listeners open:
+it is admitted - or let back in - and gets its lease. Once its listeners are open it links to a running member, found
+in the storage with its TLS address; that member answers with all the others, as for a join through it.
 
 ### Node lease and cluster-offline state
 

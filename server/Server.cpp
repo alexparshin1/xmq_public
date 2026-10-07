@@ -272,7 +272,13 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
 
     cluster::Cluster::connectToCluster();
 
+    // Before the listeners: a node the cluster refuses does not start at all.
+    m_cluster.load()->startup();
+
     FastTCPServer::start();
+
+    // After the listeners, not before: the other members link back to this node as it rejoins.
+    m_cluster.load()->rejoinInBackground();
 
     // After the server is started, not before: a bridge connects out as an MQTT client and
     // immediately sends its SUBSCRIBE. Started earlier, the connection is accepted by the remote

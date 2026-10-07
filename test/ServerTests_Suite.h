@@ -108,7 +108,8 @@ protected:
                                 const std::string& password = "secret",
                                 sptk::LogPriority  minLogLevel = sptk::LogPriority::Info,
                                 bool               persistence = true,
-                                bool               enableBridges = false);
+                                bool               enableBridges = false,
+                                const std::function<void(Settings&)>& configure = {});
 
     /**
      * @brief Stop and destroy the XMQ server instance.

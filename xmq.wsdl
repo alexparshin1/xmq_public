@@ -1307,6 +1307,16 @@
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
+                    <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>True: the node is a cluster node. On start it joins the cluster that
+                                keeps its state in the same Redis database (persistence.redis_uri), finding the
+                                other nodes there - or starts one, if there is none yet. A node that is a member
+                                already rejoins on start whether this is set or not. A node that is neither may
+                                not use a database a cluster uses, and does not start.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
                     <xsd:element name="lease_seconds" type="xsd:int" maxOccurs="1" minOccurs="0">
                         <xsd:annotation>
                             <xsd:documentation>How long the coordinator's authority, and the client-service lease it

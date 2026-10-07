@@ -38,9 +38,11 @@ public:
      * @brief Start a cluster node: MQTT on portNumber, MQTT+SSL on portNumber + 7000.
      *
      * Most tests want a TestCluster instead, which starts and joins the nodes as well.
+     * @param clusterEnabled    Set cluster.enabled: the node joins the cluster in its storage by itself.
      */
     static SServer createNode(const std::string& nodeName, uint16_t                         portNumber,
-                              bool               cleanStart, const std::vector<LogSubject>& logSubjects = {});
+                              bool               cleanStart, const std::vector<LogSubject>& logSubjects = {},
+                              bool               clusterEnabled = false);
 
     /**
      * @brief Stop one node started with createNode(), leaving the others running.
