@@ -1,0 +1,14 @@
+Server:   EMQX
+Version:  6.3.1
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64; limits raised for high-rate QoS 1 subscribers: force_shutdown.max_mailbox_size 100000 (default 1000 closed subscribers), max_mqueue_len 100000 (default 1000 dropped messages), max_inflight 128; shared_subscription_strategy round_robin (default); durable sessions off, except on (empty at start) for Point-To-Point-60K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 15:44:22 AEDT
+Total execution time: 00:33:24
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-60K-persistent
+  FAILED (exit 1) - no persistent session accepted: "Server not available" (durable storage not ready), no intervals
+  server CPU   mean 0%, peak 0%
+  server RSS   507 Mb peak

@@ -1,30 +1,30 @@
 Server:   EMQX
 Version:  6.3.1
-Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1010-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LoadTest/emqx/emqx.conf, durable_sessions disabled, LimitNOFILE 2000000; each scenario gated on a pub/sub round-trip
-Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.18
-Date:     2026-09-28
-
-Rerun: the first EMQX run failed every scenario because 6.x durable sessions were on and the shards were not ready within the restart window. Durable sessions off here, so the persistent scenario is in-memory for EMQX.
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64; limits raised for high-rate QoS 1 subscribers: force_shutdown.max_mailbox_size 100000 (default 1000 closed subscribers), max_mqueue_len 100000 (default 1000 dropped messages), max_inflight 128; shared_subscription_strategy round_robin (default); durable sessions off, except on (empty at start) for Point-To-Point-60K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 15:44:22 AEDT
+Total execution time: 00:33:24
 
 Broker restarted before each scenario.
 
 Scenario: Fan-Out-5-1000-5-250K-5min
-Interval        Count    Latency       Rate/s
-─────────────────────────────────────────────
-0ms           7499295     4201us       249976
-30000ms       7499705     3994us       249990
-60000ms       7500131     4094us       250004
-90000ms       7499869     4117us       249995
-120000ms      7500000     4215us       250000
-150000ms      7500428     4150us       250014
-180000ms      7499572     4268us       249985
-210000ms      7500000     4368us       250000
-240000ms      7500000     4243us       250000
-270000ms      7492001     4206us       249733
-─────────────────────────────────────────────
-Average      74991001     4186us       249970
-Median                    4206us
-  interval median 4206us over 10 samples (as xmq_scn reports it), range 3994-4368us
-  server CPU   mean 1473%, peak 1487%
-  server RSS   600 Mb peak
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           7499000     4909us       249966     638 Mb
+30000ms       7500000     5480us       250000     553 Mb
+60000ms       7500000     5245us       250000     551 Mb
+90000ms       7499960     5315us       249998     549 Mb
+120000ms      7500040     5499us       250001     549 Mb
+150000ms      7499841     5396us       249994     549 Mb
+180000ms      7500120     5504us       250004     549 Mb
+210000ms      7500039     5450us       250001     550 Mb
+240000ms      7500000     5440us       250000     549 Mb
+270000ms      7492607     5445us       249753     550 Mb
+────────────────────────────────────────────────────────
+Average      74991607     5368us       249972
+Median                    5445us
+  interval median 5445us over 10 samples (as xmq_scn reports it), range 4909-5504us
+  server CPU   mean 1491%, peak 1504%
+  server RSS   617 Mb peak
   client NIC ens5: no dropped packets during the run

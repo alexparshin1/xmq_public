@@ -1,0 +1,30 @@
+Server:   Mosquitto
+Version:  2.1.2
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; Mosquitto 2.1.2 on port 1883, LimitNOFILE 1200000 (systemd drop-in), max_queued_messages 0, max_inflight_messages 65534 (0 in Mosquitto 2.1 leaves the incoming quota at zero); persistence false, except persistence true (snapshot on autosave_interval and at stop, empty at start) for Point-To-Point-60K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 15:05:53 AEDT
+Total execution time: 00:38:29
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-60K-persistent
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           3549436   811985us        59157     642 Mb
+60000ms       3601568   835267us        60026     642 Mb
+120000ms      3598395   833756us        59973     633 Mb
+180000ms      3602051   836425us        60034     633 Mb
+240000ms      3590432   842035us        59840     633 Mb
+300000ms      3607750   865172us        60129     633 Mb
+360000ms      3601145   846401us        60019     633 Mb
+420000ms      3599228   853378us        59987     633 Mb
+480000ms      3600081   855013us        60001     633 Mb
+540000ms      3556352   850215us        59272     633 Mb
+────────────────────────────────────────────────────────
+Average      35906438   843004us        59844
+Median                  846401us
+  interval median 846401us over 10 samples (as xmq_scn reports it), range 811985-865172us
+  server CPU   mean 97%, peak 101%
+  server RSS   642 Mb peak
+  client NIC ens5: no dropped packets during the run

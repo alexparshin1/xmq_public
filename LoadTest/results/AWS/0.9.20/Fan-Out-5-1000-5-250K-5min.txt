@@ -1,0 +1,30 @@
+Server:   XMQ
+Version:  0.9.20
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; XMQ 0.9.20 pre-release (0.9.20 dbe0a57, farm package) as systemd service on port 1884, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, appendfsync everysec, max_queued_writes 1000, clean start) only for Point-To-Point-60K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 13:16:13 AEDT
+Total execution time: 00:38:48
+
+Broker restarted before each scenario.
+
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           7500000     1398us       250000      45 Mb
+30000ms       7500000     1396us       250000      45 Mb
+60000ms       7500000     1414us       250000      45 Mb
+90000ms       7500000     1415us       250000      45 Mb
+120000ms      7500000     1414us       250000      45 Mb
+150000ms      7500000     1426us       250000      45 Mb
+180000ms      7500000     1423us       250000      45 Mb
+210000ms      7500000     1427us       250000      45 Mb
+240000ms      7500000     1420us       250000      45 Mb
+270000ms      7498001     1416us       249933      45 Mb
+────────────────────────────────────────────────────────
+Average      74998001     1415us       249993
+Median                    1416us
+  interval median 1416us over 10 samples (as xmq_scn reports it), range 1396-1427us
+  server CPU   mean 376%, peak 395%
+  server RSS   45 Mb peak
+  client NIC ens5: no dropped packets during the run

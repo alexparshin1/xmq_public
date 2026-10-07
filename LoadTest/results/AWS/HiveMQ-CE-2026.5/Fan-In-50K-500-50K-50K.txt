@@ -1,0 +1,30 @@
+Server:   HiveMQ CE
+Version:  2026.5
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; HiveMQ CE 2026.5 on port 1886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M; in-memory persistence except file persistence (empty at start) for Point-To-Point-60K-persistent
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 16:17:50 AEDT
+Total execution time: 00:39:16
+
+Broker restarted before each scenario.
+
+Scenario: Fan-In-50K-500-50K-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           2951405   970612us        49190    1928 Mb
+60000ms       2999988   971939us        49999    1931 Mb
+120000ms      3000016   971934us        50000    1932 Mb
+180000ms      2999996   971940us        49999    1932 Mb
+240000ms      2999991   971940us        49999    1932 Mb
+300000ms      3000001   971943us        50000    1933 Mb
+360000ms      3000001   971942us        50000    1933 Mb
+420000ms      3000003   971946us        50000    1934 Mb
+480000ms      3000005   971944us        50000    1937 Mb
+540000ms      2993780   971943us        49896    1938 Mb
+────────────────────────────────────────────────────────
+Average      29945186   971810us        49908
+Median                  971942us
+  interval median 971942us over 10 samples (as xmq_scn reports it), range 970612-971946us
+  server CPU   mean 185%, peak 1144%
+  server RSS   1952 Mb peak
+  client NIC ens5: no dropped packets during the run

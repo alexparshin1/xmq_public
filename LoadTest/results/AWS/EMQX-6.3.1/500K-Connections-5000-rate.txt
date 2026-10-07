@@ -8,18 +8,24 @@ Total execution time: 00:33:24
 
 Broker restarted before each scenario.
 
-Scenario: Fan-In-50K-500-50K-50K
+Scenario: 500K-Connections-5000-rate
 Interval        Count    Latency       Rate/s        RSS
 ────────────────────────────────────────────────────────
-0ms            212074 16581510us         3534    4827 Mb
-60000ms        106636 83543122us         1777    3009 Mb
-120000ms        85363 141663612us         1422    2795 Mb
-180000ms        70463 199745537us         1174    2780 Mb
-240000ms         9567 236796988us          159    2712 Mb
+0ms             49997      728us         4999    2677 Mb
+10000ms         50000      709us         5000    3512 Mb
+20000ms         50000      698us         5000    4420 Mb
+30000ms         49999      699us         4999    5462 Mb
+40000ms         50001      712us         5000    6188 Mb
+50000ms         49999      759us         4999    7142 Mb
+60000ms         50001      708us         5000    8132 Mb
+70000ms         50000      761us         5000    8895 Mb
+80000ms         49999      704us         4999    9892 Mb
+90000ms         50000      722us         5000   10302 Mb
+100000ms            4      801us            0    9578 Mb
 ────────────────────────────────────────────────────────
-Average        484103 84399702us         1613
-Median                141663612us
-  interval median 141663612us over 5 samples (as xmq_scn reports it), range 16581510-236796988us
-  server CPU   mean 965%, peak 1651%
-  server RSS   13155 Mb peak
+Average        500000      720us         4545
+Median                     712us
+  interval median 712us over 11 samples (as xmq_scn reports it), range 698-801us
+  server CPU   mean 359%, peak 795%
+  server RSS   10302 Mb peak
   client NIC ens5: no dropped packets during the run

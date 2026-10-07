@@ -1,0 +1,120 @@
+Scenario: Point-To-Point 50K - Point-To-Point-50K-50K-50K-100K.json
+          50000 publishers / 50000 subscribers, one topic each, 2 msg/s per publisher =
+          100k/s aggregate, 100000 connections.
+          QoS 1, 16B payload, MQTT 5, 10 minutes per scenario unless stated.
+Date:     2026-10-07
+Server:   AWS: AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+
+Every broker restarted before each scenario, the others stopped. CPU percentages are of one
+hardware thread. A scenario that did not finish shows the intervals it completed.
+
+
+Server:   EMQX
+Version:  6.3.1
+Settings: EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64; limits raised for high-rate QoS 1 subscribers: force_shutdown.max_mailbox_size 100000 (default 1000 closed subscribers), max_mqueue_len 100000 (default 1000 dropped messages), max_inflight 128; shared_subscription_strategy round_robin (default); durable sessions off, except on (empty at start) for Point-To-Point-60K-persistent
+CPU Load: 1503% mean / 1661% peak
+Max RAM:  4.93 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5946599   786221us        99109    5049 Mb
+60000ms       5992372   612455us        99872    4595 Mb
+120000ms      5993068   622828us        99884    4554 Mb
+180000ms      6008393   614266us       100139    4559 Mb
+240000ms      5992048   617568us        99867    4578 Mb
+300000ms      6002905   627341us       100048    4581 Mb
+360000ms      6006068   622559us       100101    4573 Mb
+420000ms      6002112   622124us       100035    4546 Mb
+480000ms      5993004   617347us        99883    4547 Mb
+540000ms      5883956   618014us        98065    4587 Mb
+────────────────────────────────────────────────────────
+Average      59820525   635977us        99700
+Median                  622124us
+
+
+Server:   FlashMQ
+Version:  1.27.2
+Settings: FlashMQ 1.27.2 on port 1885, thread_count 16, rlimit_nofile 1200000; storage_dir as configured (sessions saved periodically and at stop)
+CPU Load: 448% mean / 528% peak
+Max RAM:  493 Mb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5999981      217us        99999     493 Mb
+60000ms       5999996      213us        99999     493 Mb
+120000ms      6000001      214us       100000     493 Mb
+180000ms      5999999      213us        99999     493 Mb
+240000ms      5999999      215us        99999     493 Mb
+300000ms      6000002      214us       100000     493 Mb
+360000ms      5999999      213us        99999     493 Mb
+420000ms      5999999      212us        99999     493 Mb
+480000ms      6000001      213us       100000     493 Mb
+540000ms      5949617      215us        99160     493 Mb
+────────────────────────────────────────────────────────
+Average      59949594      214us        99915
+Median                     214us
+
+
+Server:   HiveMQ
+Version:  2026.5
+Settings: HiveMQ CE 2026.5 on port 1886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M; in-memory persistence except file persistence (empty at start) for Point-To-Point-60K-persistent
+CPU Load: 1046% mean / 1605% peak
+Max RAM:  2.83 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5999972    43677us        99999    2831 Mb
+60000ms       6000000      342us       100000    2831 Mb
+120000ms      6000001      340us       100000    2832 Mb
+180000ms      5999998      341us        99999    2832 Mb
+240000ms      5999997      354us        99999    2832 Mb
+300000ms      6000001      340us       100000    2833 Mb
+360000ms      5999996      346us        99999    2833 Mb
+420000ms      6000004      363us       100000    2842 Mb
+480000ms      6000003      348us       100000    2848 Mb
+540000ms      5917813      344us        98630    2897 Mb
+────────────────────────────────────────────────────────
+Average      59917785     4686us        99862
+Median                     346us
+
+
+Server:   Mosquitto
+Version:  2.1.2
+Settings: Mosquitto 2.1.2 on port 1883, LimitNOFILE 1200000 (systemd drop-in), max_queued_messages 0, max_inflight_messages 65534 (0 in Mosquitto 2.1 leaves the incoming quota at zero); persistence false, except persistence true (snapshot on autosave_interval and at stop, empty at start) for Point-To-Point-60K-persistent
+CPU Load: 97% mean / 101% peak
+Max RAM:  615 Mb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5696106  2489241us        94935     615 Mb
+60000ms       6003114  3079528us       100051     615 Mb
+120000ms      6012083  2885333us       100201     615 Mb
+180000ms      6009649  2796555us       100160     615 Mb
+240000ms      6000673  2730039us       100011     615 Mb
+300000ms      6001913  2828388us       100031     615 Mb
+360000ms      6003314  2720158us       100055     608 Mb
+420000ms      6001931  2685511us       100032     608 Mb
+480000ms      6002186  2684859us       100036     601 Mb
+540000ms      5938948  2684687us        98982     601 Mb
+────────────────────────────────────────────────────────
+Average      59669917  2759920us        99449
+Median                 2730039us
+
+
+Server:   XMQ
+Version:  0.9.20
+Settings: XMQ 0.9.20 pre-release (0.9.20 dbe0a57, farm package) as systemd service on port 1884, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, appendfsync everysec, max_queued_writes 1000, clean start) only for Point-To-Point-60K-persistent
+CPU Load: 429% mean / 465% peak
+Max RAM:  387 Mb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5999974      221us        99999     387 Mb
+60000ms       5999998      220us        99999     387 Mb
+120000ms      6000002      221us       100000     387 Mb
+180000ms      6000002      222us       100000     387 Mb
+240000ms      6000000      224us       100000     387 Mb
+300000ms      6000000      222us       100000     387 Mb
+360000ms      5999995      224us        99999     387 Mb
+420000ms      6000006      223us       100000     387 Mb
+480000ms      5999999      224us        99999     387 Mb
+540000ms      5948166      222us        99136     387 Mb
+────────────────────────────────────────────────────────
+Average      59948142      222us        99913
+Median                     222us

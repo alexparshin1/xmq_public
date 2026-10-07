@@ -1,0 +1,30 @@
+Server:   FlashMQ
+Version:  1.27.2
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; FlashMQ 1.27.2 on port 1885, thread_count 16, rlimit_nofile 1200000; storage_dir as configured (sessions saved periodically and at stop)
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-07
+Started:  2026-10-07 13:55:02 AEDT
+Total execution time: 00:38:25
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-50K-50K-50K-100K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5999981      217us        99999     493 Mb
+60000ms       5999996      213us        99999     493 Mb
+120000ms      6000001      214us       100000     493 Mb
+180000ms      5999999      213us        99999     493 Mb
+240000ms      5999999      215us        99999     493 Mb
+300000ms      6000002      214us       100000     493 Mb
+360000ms      5999999      213us        99999     493 Mb
+420000ms      5999999      212us        99999     493 Mb
+480000ms      6000001      213us       100000     493 Mb
+540000ms      5949617      215us        99160     493 Mb
+────────────────────────────────────────────────────────
+Average      59949594      214us        99915
+Median                     214us
+  interval median 214us over 10 samples (as xmq_scn reports it), range 212-217us
+  server CPU   mean 448%, peak 528%
+  server RSS   493 Mb peak
+  client NIC ens5: no dropped packets during the run
