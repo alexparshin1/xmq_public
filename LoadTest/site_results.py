@@ -11,7 +11,7 @@ measured.
 
 The records are run_scenario_set.sh --record files. Each broker block carries the meta the site
 reads (Version, CPU Load, Max RAM), the broker's settings, a Status line when the scenario did not
-finish, the interval table and the Memory block (RSS per interval).
+finish, and the interval table with the broker's RSS in each interval as its last column.
 """
 
 import argparse
@@ -34,8 +34,8 @@ TESTS = {
     "Point-To-Point-50K-50K-50K-100K": (
         "Point-To-Point.txt",
         "Point-To-Point 50K - Point-To-Point-50K-50K-50K-100K.json\n"
-        "          50000 publishers / 50000 subscribers, one topic each, 50k/s aggregate,\n"
-        "          100000 connections."),
+        "          50000 publishers / 50000 subscribers, one topic each, 2 msg/s per publisher =\n"
+        "          100k/s aggregate, 100000 connections."),
     "Point-To-Point-60K-persistent": (
         "Persistence.txt",
         "Point-To-Point 60K, persistent sessions - Point-To-Point-60K-persistent.json\n"
@@ -118,10 +118,30 @@ def broker_block(header, lines):
         out.append(f"Max RAM:  {ram}")
     if status:
         out.append(f"Status:   {status}")
-    out += table
-    if memory:
-        out += ["", "Memory"] + memory
+    out += with_rss_column(table, memory)
     return "\n".join(out)
+
+
+def with_rss_column(table, memory):
+    """The interval table with the broker's RSS as its fifth column, from a record's Memory block."""
+    rss = {}
+    for line in memory:
+        if m := re.match(r"^(\d+)ms\s+(\d+ (?:Mb|Gb))$", line.strip()):
+            rss[m.group(1)] = m.group(2)
+    if not rss:
+        return table
+    out = []
+    for line in table:
+        stripped = line.rstrip()
+        if stripped.startswith("Interval"):
+            out.append(f"{stripped}{'RSS':>11}")
+        elif m := re.match(r"^(\d+)ms\s", stripped):
+            out.append(f"{stripped}{rss.get(m.group(1), '-'):>11}" if m.group(1) in rss else stripped)
+        elif stripped.startswith("─"):
+            out.append(stripped + "─" * 11)
+        else:
+            out.append(stripped)
+    return out
 
 
 def main():

@@ -277,6 +277,25 @@ memory_block() {
     }' "$samples_file" "$block_file"
 }
 
+# The broker's RSS as the interval table's last column, rather than a table of its own: one row
+# per interval, read alongside the latency it went with.
+add_memory_column() {
+  local block_file="$1" samples_file="$2" ended="$3"
+  local memory
+  memory="$(memory_block "$block_file" "$samples_file" "$ended")"
+  [[ -n "$memory" ]] || return 0
+  awk -v memory="$memory" '
+    BEGIN {
+      n = split(memory, lines, "\n")
+      for (i = 1; i <= n; i++)
+        if (lines[i] ~ /^[0-9]+ms[ \t]/) { split(lines[i], f, /[ \t]+/); rss[f[1]] = f[2] " " f[3] }
+    }
+    /^Interval[ \t]+Count/ { printf "%s%11s\n", $0, "RSS"; next }
+    /^[0-9]+ms[ \t]+[0-9]+[ \t]+[0-9]+us/ { if ($1 in rss) printf "%s%11s\n", $0, rss[$1]; else print; next }
+    /^─+$/ { print $0 "───────────"; next }
+    { print }' "$block_file" > "$block_file.tmp" && mv "$block_file.tmp" "$block_file"
+}
+
 # A scenario that did not finish is still a result: the intervals it got through, the broker's CPU
 # and memory, and the RSS row by row show where it went wrong - a broker that ran out of memory, or a
 # latency that kept growing. Recorded in the same form as a finished one, under a line that says it
@@ -290,7 +309,7 @@ record_unfinished() {
     echo "  $status"
     [[ -n "${broker_stats:-}" ]] && echo "$broker_stats"
   } > "$out_dir/$name.block"
-  memory_block "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch" >> "$out_dir/$name.block"
+  add_memory_column "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch"
   blocks+=("$out_dir/$name.block")
 }
 
@@ -547,7 +566,7 @@ for scenario in "${scenarios[@]}"; do
     [[ -n "$broker_stats" ]] && echo "$broker_stats"
     [[ -n "$nic_line" ]] && echo "$nic_line"
   } > "$out_dir/$name.block"
-  memory_block "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch" >> "$out_dir/$name.block"
+  add_memory_column "$out_dir/$name.block" "$out_dir/$name.samples" "$run_ended_epoch"
   blocks+=("$out_dir/$name.block")
   scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
   write_record
