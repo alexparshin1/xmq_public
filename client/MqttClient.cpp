@@ -260,6 +260,12 @@ void MqttClient::executeOnAck(const SMessage& message) const
     (*callback)(message);
 }
 
+uint16_t MqttClient::inflightLimit() const
+{
+    const auto session = m_session.load();
+    return session ? session->inflightLimit() : 0;
+}
+
 SSession MqttClient::getSession() const
 {
     return m_session.load();

@@ -202,6 +202,15 @@ public:
     SendReceiveResult receiveMessages() override;
 
 protected:
+    /**
+     * @brief Keep to the Receive Maximum the server announced in its CONNACK.
+     *
+     * MQTT 5 section 4.9: a server says how many QoS 1 and 2 publications it accepts
+     * unacknowledged, and sending more is a protocol error it disconnects for. HiveMQ announces 10
+     * and enforces it - every publisher of a load test was dropped within seconds.
+     */
+    void applyServerReceiveMaximum(const SMessage& connectAck);
+
     void autoAck(const Message* message) override;
 
 private:

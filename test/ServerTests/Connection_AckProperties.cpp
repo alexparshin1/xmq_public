@@ -26,6 +26,8 @@
 
 #include "common/ConnectMessage.h"
 #include "common/GenericProtocols.h"
+#include "client/MqttClient.h"
+#include "test/SubscribeAndWait.h"
 #include "test/ServerTests_Suite.h"
 
 #include <gtest/gtest.h>
@@ -163,6 +165,58 @@ TEST_F(XMQ_ConnectAckPropertiesTests, TheAckReportsTheServersLimitsAndNotTheClie
     EXPECT_NE(clientReceiveMaximum, acknowledged.at(ReceiveMaximum)) << "the client's Receive Maximum was echoed";
     EXPECT_NE(clientMaximumPacketSize, acknowledged.at(MaximumPacketSize)) << "the client's Maximum Packet Size was echoed";
     EXPECT_NE(clientTopicAliasMaximum, acknowledged.at(TopicAliasMaximum)) << "the client's Topic Alias Maximum was echoed";
+}
+
+/**
+ * The client keeps to the Receive Maximum the server announces (MQTT 5 section 4.9).
+ *
+ * Setup: The broker announces Receive Maximum 3. A client connects with MQTT 5 and publishes 200
+ * QoS 1 messages back to back to a subscriber.
+ * Verification: The client's in-flight limit is the server's 3, and every message still arrives -
+ * the window is kept, and nothing is left waiting behind it. A broker that enforces the limit, as
+ * HiveMQ does, disconnected every publisher of a load test before this.
+ */
+TEST_F(XMQ_ConnectAckPropertiesTests, TheClientKeepsToTheServersReceiveMaximum)
+{
+    auto&      limit = server()->getSettings()->m_queue_limits.m_max_inflight_messages;
+    const auto previous = limit.asInteger();
+    limit = 3;
+
+    const string publisherId = "receive-maximum-publisher";
+    const string subscriberId = "receive-maximum-subscriber";
+    const string topicName = "test/receive-maximum";
+    constexpr auto count = 200;
+
+    atomic_int received {0};
+    const auto subscriber = make_shared<client::MqttClient>(logEngine());
+    subscriber->onMessage([&received](const SPublishMessage&) { ++received; });
+    ASSERT_EQ(ReasonCode::Success, subscriber->connect(Host("localhost", TestTcpPortNumber),
+                                                       ConnectCredentials(subscriberId, "user", "secret"),
+                                                       {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    ASSERT_TRUE(test::subscribeAndWait(subscriber, Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(Qos::Qos1))));
+
+    const auto publisher = make_shared<client::MqttClient>(logEngine());
+    ASSERT_EQ(ReasonCode::Success, publisher->connect(Host("localhost", TestTcpPortNumber),
+                                                      ConnectCredentials(publisherId, "user", "secret"),
+                                                      {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    limit = previous;
+
+    EXPECT_EQ(3, publisher->inflightLimit()) << "the server's Receive Maximum was not taken";
+
+    for (auto i = 0; i < count; ++i)
+    {
+        publisher->publish(topicName, format("message {}", i), Qos::Qos1);
+    }
+
+    const auto deadline = chrono::steady_clock::now() + 10s;
+    while (received < count && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(10ms);
+    }
+    EXPECT_EQ(count, received.load());
+
+    publisher->disconnect();
+    subscriber->disconnect();
 }
 
 } // namespace

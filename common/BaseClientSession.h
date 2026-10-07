@@ -131,6 +131,14 @@ public:
     std::vector<SMessageDispatch> enqueuedMessages() const;
     void                          setMaxInflightMessages(uint16_t maxInflightMessages) const;
 
+    /**
+     * @brief How many QoS 1 and 2 messages may be unacknowledged at once - 0 asked for the default.
+     */
+    [[nodiscard]] uint16_t inflightLimit() const
+    {
+        return m_maxInflightMessages.load(std::memory_order_relaxed);
+    }
+
     virtual SMessage decodePacket(Packet&&, uint64_t)
     {
         return {};

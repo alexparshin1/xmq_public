@@ -259,6 +259,12 @@ public:
      */
     static const Topic* getTopic(std::string_view topic);
 
+    /**
+     * @brief How many QoS 1 and 2 publications may be unacknowledged at once on this connection -
+     *        the server's Receive Maximum when it announced a lower one.
+     */
+    [[nodiscard]] uint16_t inflightLimit() const;
+
 private:
     /**
      * @brief Keeps callbacks from accessing a client after its destruction begins.

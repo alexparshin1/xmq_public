@@ -238,6 +238,7 @@ ReasonCode Session::receiveConnect()
             reasonCode = connectAckMessage->getReasonCode();
             if (reasonCode == ReasonCode::Success)
             {
+                applyServerReceiveMaximum(message);
                 monitorIncomingDataUnlocked(true);
                 setStateUnlocked(State::Connected);
             }
@@ -254,6 +255,23 @@ ReasonCode Session::receiveConnect()
     }
 
     return reasonCode;
+}
+
+void Session::applyServerReceiveMaximum(const SMessage& connectAck)
+{
+    const auto& properties = connectAck->getProperties();
+    int64_t     receiveMaximum = 0;
+    if (!properties || !properties->getProperty(Property::ReceiveMaximum, receiveMaximum) || receiveMaximum <= 0)
+    {
+        // Not announced: 65535, which is above any limit of ours.
+        return;
+    }
+    constexpr int64_t defaultLimit = 32768; // What a limit of 0 means to the queue.
+    const int64_t     limit = inflightLimit() > 0 ? inflightLimit() : defaultLimit;
+    if (receiveMaximum < limit)
+    {
+        setInflightLimit(static_cast<uint16_t>(receiveMaximum));
+    }
 }
 
 ReasonCode Session::doConnect(const Host& host, const ConnectCredentials& credentials,
@@ -512,6 +530,10 @@ SendReceiveResult Session::receiveMessages()
                         rc != ReasonCode::Success)
                     {
                         hangup(rc);
+                    }
+                    else
+                    {
+                        applyServerReceiveMaximum(message);
                     }
                 }
                 break;
