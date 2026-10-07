@@ -43,6 +43,11 @@ TESTS = {
         "          Each broker with the persistence it offers, empty at the start: XMQ writes every\n"
         "          message to Redis; HiveMQ file persistence; EMQX durable sessions; FlashMQ saves its\n"
         "          sessions to storage_dir periodically and at stop; Mosquitto saves an interval snapshot."),
+    "500K-Connections-5000-rate": (
+        "Connections.txt",
+        "500K Connections - 500K-Connections-5000-rate.json\n"
+        "          500000 clients connecting at 5000/s; latency is the connect time."),
+    # The same test before 2026-10-08, at half the connection rate.
     "500K-Connections-2500-rate": (
         "Connections.txt",
         "500K Connections - 500K-Connections-2500-rate.json\n"
