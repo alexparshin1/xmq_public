@@ -1,0 +1,2062 @@
+{
+  "Connections": {
+    "EMQX": {
+      "version": "6.3.1",
+      "cpu_mean_pct": 359,
+      "cpu_peak_pct": 795,
+      "ram_peak_reported": 10.06,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 49997,
+          "latency_us": 728,
+          "rate_s": 4999,
+          "rss_reported_mb": 2677
+        },
+        {
+          "time_ms": 10000,
+          "count": 50000,
+          "latency_us": 709,
+          "rate_s": 5000,
+          "rss_reported_mb": 3512
+        },
+        {
+          "time_ms": 20000,
+          "count": 50000,
+          "latency_us": 698,
+          "rate_s": 5000,
+          "rss_reported_mb": 4420
+        },
+        {
+          "time_ms": 30000,
+          "count": 49999,
+          "latency_us": 699,
+          "rate_s": 4999,
+          "rss_reported_mb": 5462
+        },
+        {
+          "time_ms": 40000,
+          "count": 50001,
+          "latency_us": 712,
+          "rate_s": 5000,
+          "rss_reported_mb": 6188
+        },
+        {
+          "time_ms": 50000,
+          "count": 49999,
+          "latency_us": 759,
+          "rate_s": 4999,
+          "rss_reported_mb": 7142
+        },
+        {
+          "time_ms": 60000,
+          "count": 50001,
+          "latency_us": 708,
+          "rate_s": 5000,
+          "rss_reported_mb": 8132
+        },
+        {
+          "time_ms": 70000,
+          "count": 50000,
+          "latency_us": 761,
+          "rate_s": 5000,
+          "rss_reported_mb": 8895
+        },
+        {
+          "time_ms": 80000,
+          "count": 49999,
+          "latency_us": 704,
+          "rate_s": 4999,
+          "rss_reported_mb": 9892
+        },
+        {
+          "time_ms": 90000,
+          "count": 50000,
+          "latency_us": 722,
+          "rate_s": 5000,
+          "rss_reported_mb": 10302
+        },
+        {
+          "time_ms": 100000,
+          "count": 4,
+          "latency_us": 801,
+          "rate_s": 0,
+          "rss_reported_mb": 9578
+        }
+      ],
+      "count": 500000,
+      "average_latency_us": 720,
+      "reported_rate_s": 4545
+    },
+    "FlashMQ": {
+      "version": "1.27.2",
+      "cpu_mean_pct": 33,
+      "cpu_peak_pct": 89,
+      "ram_peak_reported": 2.13,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 49999,
+          "latency_us": 358,
+          "rate_s": 4999,
+          "rss_reported_mb": 366
+        },
+        {
+          "time_ms": 10000,
+          "count": 50000,
+          "latency_us": 327,
+          "rate_s": 5000,
+          "rss_reported_mb": 584
+        },
+        {
+          "time_ms": 20000,
+          "count": 49999,
+          "latency_us": 335,
+          "rate_s": 4999,
+          "rss_reported_mb": 804
+        },
+        {
+          "time_ms": 30000,
+          "count": 50000,
+          "latency_us": 364,
+          "rate_s": 5000,
+          "rss_reported_mb": 1020
+        },
+        {
+          "time_ms": 40000,
+          "count": 50001,
+          "latency_us": 321,
+          "rate_s": 5000,
+          "rss_reported_mb": 1193
+        },
+        {
+          "time_ms": 50000,
+          "count": 50000,
+          "latency_us": 329,
+          "rate_s": 5000,
+          "rss_reported_mb": 1409
+        },
+        {
+          "time_ms": 60000,
+          "count": 49999,
+          "latency_us": 323,
+          "rate_s": 4999,
+          "rss_reported_mb": 1630
+        },
+        {
+          "time_ms": 70000,
+          "count": 50001,
+          "latency_us": 490,
+          "rate_s": 5000,
+          "rss_reported_mb": 1846
+        },
+        {
+          "time_ms": 80000,
+          "count": 50000,
+          "latency_us": 311,
+          "rate_s": 5000,
+          "rss_reported_mb": 2063
+        },
+        {
+          "time_ms": 90000,
+          "count": 50000,
+          "latency_us": 317,
+          "rate_s": 5000,
+          "rss_reported_mb": 2184
+        },
+        {
+          "time_ms": 100000,
+          "count": 1,
+          "latency_us": 221,
+          "rate_s": 0,
+          "rss_reported_mb": 2184
+        }
+      ],
+      "count": 500000,
+      "average_latency_us": 347,
+      "reported_rate_s": 4545
+    },
+    "HiveMQ": {
+      "version": "2026.5",
+      "cpu_mean_pct": 107,
+      "cpu_peak_pct": 426,
+      "ram_peak_reported": 4.06,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 49998,
+          "latency_us": 719,
+          "rate_s": 4999,
+          "rss_reported_mb": 1108
+        },
+        {
+          "time_ms": 10000,
+          "count": 50000,
+          "latency_us": 1047,
+          "rate_s": 5000,
+          "rss_reported_mb": 1405
+        },
+        {
+          "time_ms": 20000,
+          "count": 50000,
+          "latency_us": 3974,
+          "rate_s": 5000,
+          "rss_reported_mb": 1792
+        },
+        {
+          "time_ms": 30000,
+          "count": 44924,
+          "latency_us": 3415,
+          "rate_s": 4492,
+          "rss_reported_mb": 2023
+        },
+        {
+          "time_ms": 40000,
+          "count": 45105,
+          "latency_us": 3477,
+          "rate_s": 4510,
+          "rss_reported_mb": 2158
+        },
+        {
+          "time_ms": 50000,
+          "count": 39821,
+          "latency_us": 14809,
+          "rate_s": 3982,
+          "rss_reported_mb": 2368
+        },
+        {
+          "time_ms": 60000,
+          "count": 44968,
+          "latency_us": 3498,
+          "rate_s": 4496,
+          "rss_reported_mb": 2853
+        },
+        {
+          "time_ms": 70000,
+          "count": 50000,
+          "latency_us": 3027,
+          "rate_s": 5000,
+          "rss_reported_mb": 3042
+        },
+        {
+          "time_ms": 80000,
+          "count": 45964,
+          "latency_us": 3340,
+          "rate_s": 4596,
+          "rss_reported_mb": 3466
+        },
+        {
+          "time_ms": 90000,
+          "count": 48923,
+          "latency_us": 4995,
+          "rate_s": 4892,
+          "rss_reported_mb": 3679
+        },
+        {
+          "time_ms": 100000,
+          "count": 30297,
+          "latency_us": 4968,
+          "rate_s": 3029,
+          "rss_reported_mb": 4155
+        }
+      ],
+      "count": 500000,
+      "average_latency_us": 4088,
+      "reported_rate_s": 4545
+    },
+    "Mosquitto": {
+      "version": "2.1.2",
+      "cpu_mean_pct": 18,
+      "cpu_peak_pct": 41,
+      "ram_peak_reported": 2.41,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 49999,
+          "latency_us": 334,
+          "rate_s": 4999,
+          "rss_reported_mb": 399
+        },
+        {
+          "time_ms": 10000,
+          "count": 50000,
+          "latency_us": 319,
+          "rate_s": 5000,
+          "rss_reported_mb": 647
+        },
+        {
+          "time_ms": 20000,
+          "count": 50000,
+          "latency_us": 316,
+          "rate_s": 5000,
+          "rss_reported_mb": 894
+        },
+        {
+          "time_ms": 30000,
+          "count": 50000,
+          "latency_us": 1700,
+          "rate_s": 5000,
+          "rss_reported_mb": 1142
+        },
+        {
+          "time_ms": 40000,
+          "count": 50000,
+          "latency_us": 299,
+          "rate_s": 5000,
+          "rss_reported_mb": 1388
+        },
+        {
+          "time_ms": 50000,
+          "count": 50000,
+          "latency_us": 318,
+          "rate_s": 5000,
+          "rss_reported_mb": 1611
+        },
+        {
+          "time_ms": 60000,
+          "count": 39932,
+          "latency_us": 7227,
+          "rate_s": 3993,
+          "rss_reported_mb": 1836
+        },
+        {
+          "time_ms": 70000,
+          "count": 49999,
+          "latency_us": 310,
+          "rate_s": 4999,
+          "rss_reported_mb": 2082
+        },
+        {
+          "time_ms": 80000,
+          "count": 49999,
+          "latency_us": 314,
+          "rate_s": 4999,
+          "rss_reported_mb": 2329
+        },
+        {
+          "time_ms": 90000,
+          "count": 50002,
+          "latency_us": 294,
+          "rate_s": 5000,
+          "rss_reported_mb": 2467
+        },
+        {
+          "time_ms": 100000,
+          "count": 10069,
+          "latency_us": 297,
+          "rate_s": 1006,
+          "rss_reported_mb": 2467
+        }
+      ],
+      "count": 500000,
+      "average_latency_us": 1004,
+      "reported_rate_s": 4545
+    },
+    "XMQ": {
+      "version": "0.9.20",
+      "cpu_mean_pct": 52,
+      "cpu_peak_pct": 96,
+      "ram_peak_reported": 1.27,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 49999,
+          "latency_us": 362,
+          "rate_s": 4999,
+          "rss_reported_mb": 248
+        },
+        {
+          "time_ms": 10000,
+          "count": 50000,
+          "latency_us": 338,
+          "rate_s": 5000,
+          "rss_reported_mb": 381
+        },
+        {
+          "time_ms": 20000,
+          "count": 50000,
+          "latency_us": 325,
+          "rate_s": 5000,
+          "rss_reported_mb": 508
+        },
+        {
+          "time_ms": 30000,
+          "count": 50000,
+          "latency_us": 334,
+          "rate_s": 5000,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 40000,
+          "count": 49999,
+          "latency_us": 348,
+          "rate_s": 4999,
+          "rss_reported_mb": 758
+        },
+        {
+          "time_ms": 50000,
+          "count": 50001,
+          "latency_us": 346,
+          "rate_s": 5000,
+          "rss_reported_mb": 880
+        },
+        {
+          "time_ms": 60000,
+          "count": 49998,
+          "latency_us": 343,
+          "rate_s": 4999,
+          "rss_reported_mb": 1007
+        },
+        {
+          "time_ms": 70000,
+          "count": 50001,
+          "latency_us": 337,
+          "rate_s": 5000,
+          "rss_reported_mb": 1131
+        },
+        {
+          "time_ms": 80000,
+          "count": 50001,
+          "latency_us": 333,
+          "rate_s": 5000,
+          "rss_reported_mb": 1256
+        },
+        {
+          "time_ms": 90000,
+          "count": 49999,
+          "latency_us": 330,
+          "rate_s": 4999,
+          "rss_reported_mb": 1300
+        },
+        {
+          "time_ms": 100000,
+          "count": 2,
+          "latency_us": 382,
+          "rate_s": 0,
+          "rss_reported_mb": 1300
+        }
+      ],
+      "count": 500000,
+      "average_latency_us": 340,
+      "reported_rate_s": 4545
+    }
+  },
+  "Fan-In": {
+    "EMQX": {
+      "version": "6.3.1",
+      "cpu_mean_pct": 965,
+      "cpu_peak_pct": 1651,
+      "ram_peak_reported": 12.85,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 212074,
+          "latency_us": 16581510,
+          "rate_s": 3534,
+          "rss_reported_mb": 4827
+        },
+        {
+          "time_ms": 60000,
+          "count": 106636,
+          "latency_us": 83543122,
+          "rate_s": 1777,
+          "rss_reported_mb": 3009
+        },
+        {
+          "time_ms": 120000,
+          "count": 85363,
+          "latency_us": 141663612,
+          "rate_s": 1422,
+          "rss_reported_mb": 2795
+        },
+        {
+          "time_ms": 180000,
+          "count": 70463,
+          "latency_us": 199745537,
+          "rate_s": 1174,
+          "rss_reported_mb": 2780
+        },
+        {
+          "time_ms": 240000,
+          "count": 9567,
+          "latency_us": 236796988,
+          "rate_s": 159,
+          "rss_reported_mb": 2712
+        }
+      ],
+      "count": 484103,
+      "average_latency_us": 84399702,
+      "reported_rate_s": 1613
+    },
+    "FlashMQ": {
+      "version": "1.27.2",
+      "cpu_mean_pct": 221,
+      "cpu_peak_pct": 229,
+      "ram_peak_reported": 246.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 2999987,
+          "latency_us": 205,
+          "rate_s": 49999,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 60000,
+          "count": 3000001,
+          "latency_us": 206,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 120000,
+          "count": 3000000,
+          "latency_us": 206,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 180000,
+          "count": 2999995,
+          "latency_us": 207,
+          "rate_s": 49999,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 240000,
+          "count": 3000004,
+          "latency_us": 207,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 300000,
+          "count": 3000000,
+          "latency_us": 206,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 360000,
+          "count": 3000001,
+          "latency_us": 207,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 420000,
+          "count": 3000001,
+          "latency_us": 207,
+          "rate_s": 50000,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 480000,
+          "count": 2999997,
+          "latency_us": 209,
+          "rate_s": 49999,
+          "rss_reported_mb": 246
+        },
+        {
+          "time_ms": 540000,
+          "count": 2995798,
+          "latency_us": 208,
+          "rate_s": 49929,
+          "rss_reported_mb": 246
+        }
+      ],
+      "count": 29995784,
+      "average_latency_us": 207,
+      "reported_rate_s": 49992
+    },
+    "HiveMQ": {
+      "version": "2026.5",
+      "cpu_mean_pct": 185,
+      "cpu_peak_pct": 1144,
+      "ram_peak_reported": 1.91,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 2951405,
+          "latency_us": 970612,
+          "rate_s": 49190,
+          "rss_reported_mb": 1928
+        },
+        {
+          "time_ms": 60000,
+          "count": 2999988,
+          "latency_us": 971939,
+          "rate_s": 49999,
+          "rss_reported_mb": 1931
+        },
+        {
+          "time_ms": 120000,
+          "count": 3000016,
+          "latency_us": 971934,
+          "rate_s": 50000,
+          "rss_reported_mb": 1932
+        },
+        {
+          "time_ms": 180000,
+          "count": 2999996,
+          "latency_us": 971940,
+          "rate_s": 49999,
+          "rss_reported_mb": 1932
+        },
+        {
+          "time_ms": 240000,
+          "count": 2999991,
+          "latency_us": 971940,
+          "rate_s": 49999,
+          "rss_reported_mb": 1932
+        },
+        {
+          "time_ms": 300000,
+          "count": 3000001,
+          "latency_us": 971943,
+          "rate_s": 50000,
+          "rss_reported_mb": 1933
+        },
+        {
+          "time_ms": 360000,
+          "count": 3000001,
+          "latency_us": 971942,
+          "rate_s": 50000,
+          "rss_reported_mb": 1933
+        },
+        {
+          "time_ms": 420000,
+          "count": 3000003,
+          "latency_us": 971946,
+          "rate_s": 50000,
+          "rss_reported_mb": 1934
+        },
+        {
+          "time_ms": 480000,
+          "count": 3000005,
+          "latency_us": 971944,
+          "rate_s": 50000,
+          "rss_reported_mb": 1937
+        },
+        {
+          "time_ms": 540000,
+          "count": 2993780,
+          "latency_us": 971943,
+          "rate_s": 49896,
+          "rss_reported_mb": 1938
+        }
+      ],
+      "count": 29945186,
+      "average_latency_us": 971810,
+      "reported_rate_s": 49908
+    },
+    "Mosquitto": {
+      "version": "2.1.2",
+      "cpu_mean_pct": 88,
+      "cpu_peak_pct": 92,
+      "ram_peak_reported": 258.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 2999983,
+          "latency_us": 212,
+          "rate_s": 49999,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 60000,
+          "count": 3000000,
+          "latency_us": 210,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 120000,
+          "count": 3000004,
+          "latency_us": 209,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 180000,
+          "count": 3000000,
+          "latency_us": 209,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 240000,
+          "count": 2999999,
+          "latency_us": 210,
+          "rate_s": 49999,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 300000,
+          "count": 3000001,
+          "latency_us": 211,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 360000,
+          "count": 3000002,
+          "latency_us": 209,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 420000,
+          "count": 2999994,
+          "latency_us": 212,
+          "rate_s": 49999,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 480000,
+          "count": 3000002,
+          "latency_us": 210,
+          "rate_s": 50000,
+          "rss_reported_mb": 258
+        },
+        {
+          "time_ms": 540000,
+          "count": 2995507,
+          "latency_us": 209,
+          "rate_s": 49925,
+          "rss_reported_mb": 258
+        }
+      ],
+      "count": 29995492,
+      "average_latency_us": 210,
+      "reported_rate_s": 49992
+    },
+    "XMQ": {
+      "version": "0.9.20",
+      "cpu_mean_pct": 228,
+      "cpu_peak_pct": 249,
+      "ram_peak_reported": 192.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 2999986,
+          "latency_us": 211,
+          "rate_s": 49999,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 60000,
+          "count": 3000001,
+          "latency_us": 210,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 120000,
+          "count": 2999997,
+          "latency_us": 209,
+          "rate_s": 49999,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 180000,
+          "count": 3000001,
+          "latency_us": 210,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 240000,
+          "count": 3000003,
+          "latency_us": 211,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 300000,
+          "count": 2999998,
+          "latency_us": 211,
+          "rate_s": 49999,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 360000,
+          "count": 3000002,
+          "latency_us": 210,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 420000,
+          "count": 3000001,
+          "latency_us": 211,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 480000,
+          "count": 3000000,
+          "latency_us": 211,
+          "rate_s": 50000,
+          "rss_reported_mb": 192
+        },
+        {
+          "time_ms": 540000,
+          "count": 2995758,
+          "latency_us": 211,
+          "rate_s": 49929,
+          "rss_reported_mb": 192
+        }
+      ],
+      "count": 29995747,
+      "average_latency_us": 211,
+      "reported_rate_s": 49992
+    }
+  },
+  "Fan-Out": {
+    "EMQX": {
+      "version": "6.3.1",
+      "cpu_mean_pct": 1491,
+      "cpu_peak_pct": 1504,
+      "ram_peak_reported": 617.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 7499000,
+          "latency_us": 4909,
+          "rate_s": 249966,
+          "rss_reported_mb": 638
+        },
+        {
+          "time_ms": 30000,
+          "count": 7500000,
+          "latency_us": 5480,
+          "rate_s": 250000,
+          "rss_reported_mb": 553
+        },
+        {
+          "time_ms": 60000,
+          "count": 7500000,
+          "latency_us": 5245,
+          "rate_s": 250000,
+          "rss_reported_mb": 551
+        },
+        {
+          "time_ms": 90000,
+          "count": 7499960,
+          "latency_us": 5315,
+          "rate_s": 249998,
+          "rss_reported_mb": 549
+        },
+        {
+          "time_ms": 120000,
+          "count": 7500040,
+          "latency_us": 5499,
+          "rate_s": 250001,
+          "rss_reported_mb": 549
+        },
+        {
+          "time_ms": 150000,
+          "count": 7499841,
+          "latency_us": 5396,
+          "rate_s": 249994,
+          "rss_reported_mb": 549
+        },
+        {
+          "time_ms": 180000,
+          "count": 7500120,
+          "latency_us": 5504,
+          "rate_s": 250004,
+          "rss_reported_mb": 549
+        },
+        {
+          "time_ms": 210000,
+          "count": 7500039,
+          "latency_us": 5450,
+          "rate_s": 250001,
+          "rss_reported_mb": 550
+        },
+        {
+          "time_ms": 240000,
+          "count": 7500000,
+          "latency_us": 5440,
+          "rate_s": 250000,
+          "rss_reported_mb": 549
+        },
+        {
+          "time_ms": 270000,
+          "count": 7492607,
+          "latency_us": 5445,
+          "rate_s": 249753,
+          "rss_reported_mb": 550
+        }
+      ],
+      "count": 74991607,
+      "average_latency_us": 5368,
+      "reported_rate_s": 249972
+    },
+    "FlashMQ": {
+      "version": "1.27.2",
+      "cpu_mean_pct": 567,
+      "cpu_peak_pct": 577,
+      "ram_peak_reported": 28.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 7499950,
+          "latency_us": 2156,
+          "rate_s": 249998,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 30000,
+          "count": 7499988,
+          "latency_us": 2192,
+          "rate_s": 249999,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 60000,
+          "count": 7500031,
+          "latency_us": 2169,
+          "rate_s": 250001,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 90000,
+          "count": 7499998,
+          "latency_us": 2178,
+          "rate_s": 249999,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 120000,
+          "count": 7500020,
+          "latency_us": 2181,
+          "rate_s": 250000,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 150000,
+          "count": 7499973,
+          "latency_us": 2179,
+          "rate_s": 249999,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 180000,
+          "count": 7500015,
+          "latency_us": 2182,
+          "rate_s": 250000,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 210000,
+          "count": 7499983,
+          "latency_us": 2183,
+          "rate_s": 249999,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 240000,
+          "count": 7499992,
+          "latency_us": 2189,
+          "rate_s": 249999,
+          "rss_reported_mb": 28
+        },
+        {
+          "time_ms": 270000,
+          "count": 7498051,
+          "latency_us": 2187,
+          "rate_s": 249935,
+          "rss_reported_mb": 28
+        }
+      ],
+      "count": 74998001,
+      "average_latency_us": 2180,
+      "reported_rate_s": 249993
+    },
+    "HiveMQ": {
+      "version": "2026.5",
+      "cpu_mean_pct": 1068,
+      "cpu_peak_pct": 1508,
+      "ram_peak_reported": 1.58,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 7499614,
+          "latency_us": 20347,
+          "rate_s": 249987,
+          "rss_reported_mb": 1614
+        },
+        {
+          "time_ms": 30000,
+          "count": 7500032,
+          "latency_us": 3534,
+          "rate_s": 250001,
+          "rss_reported_mb": 1618
+        },
+        {
+          "time_ms": 60000,
+          "count": 7499980,
+          "latency_us": 3538,
+          "rate_s": 249999,
+          "rss_reported_mb": 1618
+        },
+        {
+          "time_ms": 90000,
+          "count": 7499966,
+          "latency_us": 3534,
+          "rate_s": 249998,
+          "rss_reported_mb": 1618
+        },
+        {
+          "time_ms": 120000,
+          "count": 7499932,
+          "latency_us": 3540,
+          "rate_s": 249997,
+          "rss_reported_mb": 1618
+        },
+        {
+          "time_ms": 150000,
+          "count": 7500064,
+          "latency_us": 3548,
+          "rate_s": 250002,
+          "rss_reported_mb": 1619
+        },
+        {
+          "time_ms": 180000,
+          "count": 7499980,
+          "latency_us": 3560,
+          "rate_s": 249999,
+          "rss_reported_mb": 1619
+        },
+        {
+          "time_ms": 210000,
+          "count": 7499935,
+          "latency_us": 3558,
+          "rate_s": 249997,
+          "rss_reported_mb": 1619
+        },
+        {
+          "time_ms": 240000,
+          "count": 7500094,
+          "latency_us": 3563,
+          "rate_s": 250003,
+          "rss_reported_mb": 1619
+        },
+        {
+          "time_ms": 270000,
+          "count": 7467512,
+          "latency_us": 3562,
+          "rate_s": 248917,
+          "rss_reported_mb": 1619
+        }
+      ],
+      "count": 74967109,
+      "average_latency_us": 5229,
+      "reported_rate_s": 249890
+    },
+    "Mosquitto": {
+      "version": "2.1.2",
+      "cpu_mean_pct": 100,
+      "cpu_peak_pct": 101,
+      "ram_peak_reported": 73.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5281235,
+          "latency_us": 4441522,
+          "rate_s": 176041,
+          "rss_reported_mb": 73
+        },
+        {
+          "time_ms": 30000,
+          "count": 5317175,
+          "latency_us": 13255429,
+          "rate_s": 177239,
+          "rss_reported_mb": 73
+        },
+        {
+          "time_ms": 60000,
+          "count": 5275637,
+          "latency_us": 22086994,
+          "rate_s": 175854,
+          "rss_reported_mb": 72
+        },
+        {
+          "time_ms": 90000,
+          "count": 5310890,
+          "latency_us": 30839986,
+          "rate_s": 177029,
+          "rss_reported_mb": 72
+        },
+        {
+          "time_ms": 120000,
+          "count": 5301338,
+          "latency_us": 39683168,
+          "rate_s": 176711,
+          "rss_reported_mb": 72
+        },
+        {
+          "time_ms": 150000,
+          "count": 5298403,
+          "latency_us": 48462474,
+          "rate_s": 176613,
+          "rss_reported_mb": 71
+        },
+        {
+          "time_ms": 180000,
+          "count": 5311344,
+          "latency_us": 57206229,
+          "rate_s": 177044,
+          "rss_reported_mb": 72
+        },
+        {
+          "time_ms": 210000,
+          "count": 5302707,
+          "latency_us": 66019134,
+          "rate_s": 176756,
+          "rss_reported_mb": 72
+        },
+        {
+          "time_ms": 240000,
+          "count": 5282063,
+          "latency_us": 74825284,
+          "rate_s": 176068,
+          "rss_reported_mb": 71
+        },
+        {
+          "time_ms": 270000,
+          "count": 5292495,
+          "latency_us": 83656096,
+          "rate_s": 176416,
+          "rss_reported_mb": 71
+        }
+      ],
+      "count": 52973287,
+      "average_latency_us": 44046727,
+      "reported_rate_s": 176577
+    },
+    "XMQ": {
+      "version": "0.9.20",
+      "cpu_mean_pct": 376,
+      "cpu_peak_pct": 395,
+      "ram_peak_reported": 45.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 7500000,
+          "latency_us": 1398,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 30000,
+          "count": 7500000,
+          "latency_us": 1396,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 60000,
+          "count": 7500000,
+          "latency_us": 1414,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 90000,
+          "count": 7500000,
+          "latency_us": 1415,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 120000,
+          "count": 7500000,
+          "latency_us": 1414,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 150000,
+          "count": 7500000,
+          "latency_us": 1426,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 180000,
+          "count": 7500000,
+          "latency_us": 1423,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 210000,
+          "count": 7500000,
+          "latency_us": 1427,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 240000,
+          "count": 7500000,
+          "latency_us": 1420,
+          "rate_s": 250000,
+          "rss_reported_mb": 45
+        },
+        {
+          "time_ms": 270000,
+          "count": 7498001,
+          "latency_us": 1416,
+          "rate_s": 249933,
+          "rss_reported_mb": 45
+        }
+      ],
+      "count": 74998001,
+      "average_latency_us": 1415,
+      "reported_rate_s": 249993
+    }
+  },
+  "Point-To-Point": {
+    "EMQX": {
+      "version": "6.3.1",
+      "cpu_mean_pct": 1503,
+      "cpu_peak_pct": 1661,
+      "ram_peak_reported": 4.93,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5946599,
+          "latency_us": 786221,
+          "rate_s": 99109,
+          "rss_reported_mb": 5049
+        },
+        {
+          "time_ms": 60000,
+          "count": 5992372,
+          "latency_us": 612455,
+          "rate_s": 99872,
+          "rss_reported_mb": 4595
+        },
+        {
+          "time_ms": 120000,
+          "count": 5993068,
+          "latency_us": 622828,
+          "rate_s": 99884,
+          "rss_reported_mb": 4554
+        },
+        {
+          "time_ms": 180000,
+          "count": 6008393,
+          "latency_us": 614266,
+          "rate_s": 100139,
+          "rss_reported_mb": 4559
+        },
+        {
+          "time_ms": 240000,
+          "count": 5992048,
+          "latency_us": 617568,
+          "rate_s": 99867,
+          "rss_reported_mb": 4578
+        },
+        {
+          "time_ms": 300000,
+          "count": 6002905,
+          "latency_us": 627341,
+          "rate_s": 100048,
+          "rss_reported_mb": 4581
+        },
+        {
+          "time_ms": 360000,
+          "count": 6006068,
+          "latency_us": 622559,
+          "rate_s": 100101,
+          "rss_reported_mb": 4573
+        },
+        {
+          "time_ms": 420000,
+          "count": 6002112,
+          "latency_us": 622124,
+          "rate_s": 100035,
+          "rss_reported_mb": 4546
+        },
+        {
+          "time_ms": 480000,
+          "count": 5993004,
+          "latency_us": 617347,
+          "rate_s": 99883,
+          "rss_reported_mb": 4547
+        },
+        {
+          "time_ms": 540000,
+          "count": 5883956,
+          "latency_us": 618014,
+          "rate_s": 98065,
+          "rss_reported_mb": 4587
+        }
+      ],
+      "count": 59820525,
+      "average_latency_us": 635977,
+      "reported_rate_s": 99700
+    },
+    "FlashMQ": {
+      "version": "1.27.2",
+      "cpu_mean_pct": 448,
+      "cpu_peak_pct": 528,
+      "ram_peak_reported": 493.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5999981,
+          "latency_us": 217,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 60000,
+          "count": 5999996,
+          "latency_us": 213,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 120000,
+          "count": 6000001,
+          "latency_us": 214,
+          "rate_s": 100000,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 180000,
+          "count": 5999999,
+          "latency_us": 213,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 240000,
+          "count": 5999999,
+          "latency_us": 215,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 300000,
+          "count": 6000002,
+          "latency_us": 214,
+          "rate_s": 100000,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 360000,
+          "count": 5999999,
+          "latency_us": 213,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 420000,
+          "count": 5999999,
+          "latency_us": 212,
+          "rate_s": 99999,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 480000,
+          "count": 6000001,
+          "latency_us": 213,
+          "rate_s": 100000,
+          "rss_reported_mb": 493
+        },
+        {
+          "time_ms": 540000,
+          "count": 5949617,
+          "latency_us": 215,
+          "rate_s": 99160,
+          "rss_reported_mb": 493
+        }
+      ],
+      "count": 59949594,
+      "average_latency_us": 214,
+      "reported_rate_s": 99915
+    },
+    "HiveMQ": {
+      "version": "2026.5",
+      "cpu_mean_pct": 1046,
+      "cpu_peak_pct": 1605,
+      "ram_peak_reported": 2.83,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5999972,
+          "latency_us": 43677,
+          "rate_s": 99999,
+          "rss_reported_mb": 2831
+        },
+        {
+          "time_ms": 60000,
+          "count": 6000000,
+          "latency_us": 342,
+          "rate_s": 100000,
+          "rss_reported_mb": 2831
+        },
+        {
+          "time_ms": 120000,
+          "count": 6000001,
+          "latency_us": 340,
+          "rate_s": 100000,
+          "rss_reported_mb": 2832
+        },
+        {
+          "time_ms": 180000,
+          "count": 5999998,
+          "latency_us": 341,
+          "rate_s": 99999,
+          "rss_reported_mb": 2832
+        },
+        {
+          "time_ms": 240000,
+          "count": 5999997,
+          "latency_us": 354,
+          "rate_s": 99999,
+          "rss_reported_mb": 2832
+        },
+        {
+          "time_ms": 300000,
+          "count": 6000001,
+          "latency_us": 340,
+          "rate_s": 100000,
+          "rss_reported_mb": 2833
+        },
+        {
+          "time_ms": 360000,
+          "count": 5999996,
+          "latency_us": 346,
+          "rate_s": 99999,
+          "rss_reported_mb": 2833
+        },
+        {
+          "time_ms": 420000,
+          "count": 6000004,
+          "latency_us": 363,
+          "rate_s": 100000,
+          "rss_reported_mb": 2842
+        },
+        {
+          "time_ms": 480000,
+          "count": 6000003,
+          "latency_us": 348,
+          "rate_s": 100000,
+          "rss_reported_mb": 2848
+        },
+        {
+          "time_ms": 540000,
+          "count": 5917813,
+          "latency_us": 344,
+          "rate_s": 98630,
+          "rss_reported_mb": 2897
+        }
+      ],
+      "count": 59917785,
+      "average_latency_us": 4686,
+      "reported_rate_s": 99862
+    },
+    "Mosquitto": {
+      "version": "2.1.2",
+      "cpu_mean_pct": 97,
+      "cpu_peak_pct": 101,
+      "ram_peak_reported": 615.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5696106,
+          "latency_us": 2489241,
+          "rate_s": 94935,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 60000,
+          "count": 6003114,
+          "latency_us": 3079528,
+          "rate_s": 100051,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 120000,
+          "count": 6012083,
+          "latency_us": 2885333,
+          "rate_s": 100201,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 180000,
+          "count": 6009649,
+          "latency_us": 2796555,
+          "rate_s": 100160,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 240000,
+          "count": 6000673,
+          "latency_us": 2730039,
+          "rate_s": 100011,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 300000,
+          "count": 6001913,
+          "latency_us": 2828388,
+          "rate_s": 100031,
+          "rss_reported_mb": 615
+        },
+        {
+          "time_ms": 360000,
+          "count": 6003314,
+          "latency_us": 2720158,
+          "rate_s": 100055,
+          "rss_reported_mb": 608
+        },
+        {
+          "time_ms": 420000,
+          "count": 6001931,
+          "latency_us": 2685511,
+          "rate_s": 100032,
+          "rss_reported_mb": 608
+        },
+        {
+          "time_ms": 480000,
+          "count": 6002186,
+          "latency_us": 2684859,
+          "rate_s": 100036,
+          "rss_reported_mb": 601
+        },
+        {
+          "time_ms": 540000,
+          "count": 5938948,
+          "latency_us": 2684687,
+          "rate_s": 98982,
+          "rss_reported_mb": 601
+        }
+      ],
+      "count": 59669917,
+      "average_latency_us": 2759920,
+      "reported_rate_s": 99449
+    },
+    "XMQ": {
+      "version": "0.9.20",
+      "cpu_mean_pct": 429,
+      "cpu_peak_pct": 465,
+      "ram_peak_reported": 387.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 5999974,
+          "latency_us": 221,
+          "rate_s": 99999,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 60000,
+          "count": 5999998,
+          "latency_us": 220,
+          "rate_s": 99999,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 120000,
+          "count": 6000002,
+          "latency_us": 221,
+          "rate_s": 100000,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 180000,
+          "count": 6000002,
+          "latency_us": 222,
+          "rate_s": 100000,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 240000,
+          "count": 6000000,
+          "latency_us": 224,
+          "rate_s": 100000,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 300000,
+          "count": 6000000,
+          "latency_us": 222,
+          "rate_s": 100000,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 360000,
+          "count": 5999995,
+          "latency_us": 224,
+          "rate_s": 99999,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 420000,
+          "count": 6000006,
+          "latency_us": 223,
+          "rate_s": 100000,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 480000,
+          "count": 5999999,
+          "latency_us": 224,
+          "rate_s": 99999,
+          "rss_reported_mb": 387
+        },
+        {
+          "time_ms": 540000,
+          "count": 5948166,
+          "latency_us": 222,
+          "rate_s": 99136,
+          "rss_reported_mb": 387
+        }
+      ],
+      "count": 59948142,
+      "average_latency_us": 222,
+      "reported_rate_s": 99913
+    }
+  },
+  "Persistence": {
+    "EMQX": {
+      "version": "6.3.1",
+      "cpu_mean_pct": 1265,
+      "cpu_peak_pct": 1464,
+      "ram_peak_reported": 5.08,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 3600000,
+          "latency_us": 11943,
+          "rate_s": 60000,
+          "rss_reported_mb": 5204
+        },
+        {
+          "time_ms": 60000,
+          "count": 3598006,
+          "latency_us": 13378,
+          "rate_s": 59966,
+          "rss_reported_mb": 4920
+        },
+        {
+          "time_ms": 120000,
+          "count": 3596353,
+          "latency_us": 40293,
+          "rate_s": 59939,
+          "rss_reported_mb": 4924
+        },
+        {
+          "time_ms": 180000,
+          "count": 3605962,
+          "latency_us": 12680,
+          "rate_s": 60099,
+          "rss_reported_mb": 4918
+        },
+        {
+          "time_ms": 240000,
+          "count": 3600139,
+          "latency_us": 19846,
+          "rate_s": 60002,
+          "rss_reported_mb": 4916
+        },
+        {
+          "time_ms": 300000,
+          "count": 3600157,
+          "latency_us": 17312,
+          "rate_s": 60002,
+          "rss_reported_mb": 4893
+        },
+        {
+          "time_ms": 360000,
+          "count": 3600135,
+          "latency_us": 17256,
+          "rate_s": 60002,
+          "rss_reported_mb": 4910
+        },
+        {
+          "time_ms": 420000,
+          "count": 3600152,
+          "latency_us": 29541,
+          "rate_s": 60002,
+          "rss_reported_mb": 4956
+        },
+        {
+          "time_ms": 480000,
+          "count": 3600124,
+          "latency_us": 43213,
+          "rate_s": 60002,
+          "rss_reported_mb": 4917
+        },
+        {
+          "time_ms": 540000,
+          "count": 3392436,
+          "latency_us": 32610,
+          "rate_s": 56540,
+          "rss_reported_mb": 4970
+        }
+      ],
+      "count": 35793464,
+      "average_latency_us": 23753,
+      "reported_rate_s": 59655
+    },
+    "FlashMQ": {
+      "version": "1.27.2",
+      "cpu_mean_pct": 246,
+      "cpu_peak_pct": 297,
+      "ram_peak_reported": 587.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 3600000,
+          "latency_us": 210,
+          "rate_s": 60000,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 60000,
+          "count": 3600046,
+          "latency_us": 209,
+          "rate_s": 60000,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 120000,
+          "count": 3600149,
+          "latency_us": 208,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 180000,
+          "count": 3600140,
+          "latency_us": 207,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 240000,
+          "count": 3600148,
+          "latency_us": 208,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 300000,
+          "count": 3600144,
+          "latency_us": 208,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 360000,
+          "count": 3600144,
+          "latency_us": 207,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 420000,
+          "count": 3600145,
+          "latency_us": 208,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 480000,
+          "count": 3600145,
+          "latency_us": 208,
+          "rate_s": 60002,
+          "rss_reported_mb": 587
+        },
+        {
+          "time_ms": 540000,
+          "count": 3563886,
+          "latency_us": 208,
+          "rate_s": 59398,
+          "rss_reported_mb": 587
+        }
+      ],
+      "count": 35964947,
+      "average_latency_us": 208,
+      "reported_rate_s": 59941
+    },
+    "HiveMQ": {
+      "version": "2026.5",
+      "cpu_mean_pct": 1398,
+      "cpu_peak_pct": 1584,
+      "ram_peak_reported": 22.09,
+      "ram_unit_reported": "Gb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 3294156,
+          "latency_us": 3585174,
+          "rate_s": 54902,
+          "rss_reported_mb": 10797
+        },
+        {
+          "time_ms": 60000,
+          "count": 3540480,
+          "latency_us": 5708030,
+          "rate_s": 59008,
+          "rss_reported_mb": 14876
+        },
+        {
+          "time_ms": 120000,
+          "count": 3576951,
+          "latency_us": 6389742,
+          "rate_s": 59615,
+          "rss_reported_mb": 16818
+        },
+        {
+          "time_ms": 180000,
+          "count": 3534495,
+          "latency_us": 7041574,
+          "rate_s": 58908,
+          "rss_reported_mb": 18227
+        },
+        {
+          "time_ms": 240000,
+          "count": 3522116,
+          "latency_us": 8232058,
+          "rate_s": 58701,
+          "rss_reported_mb": 18592
+        },
+        {
+          "time_ms": 300000,
+          "count": 3510827,
+          "latency_us": 9293511,
+          "rate_s": 58513,
+          "rss_reported_mb": 20313
+        },
+        {
+          "time_ms": 360000,
+          "count": 3528276,
+          "latency_us": 10645084,
+          "rate_s": 58804,
+          "rss_reported_mb": 21746
+        },
+        {
+          "time_ms": 420000,
+          "count": 3534753,
+          "latency_us": 12370501,
+          "rate_s": 58912,
+          "rss_reported_mb": 22370
+        },
+        {
+          "time_ms": 480000,
+          "count": 3481677,
+          "latency_us": 13269291,
+          "rate_s": 58027,
+          "rss_reported_mb": 22602
+        },
+        {
+          "time_ms": 540000,
+          "count": 3497564,
+          "latency_us": 14593446,
+          "rate_s": 58292,
+          "rss_reported_mb": 22618
+        }
+      ],
+      "count": 35021295,
+      "average_latency_us": 9134785,
+      "reported_rate_s": 58368
+    },
+    "Mosquitto": {
+      "version": "2.1.2",
+      "cpu_mean_pct": 97,
+      "cpu_peak_pct": 101,
+      "ram_peak_reported": 642.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 3549436,
+          "latency_us": 811985,
+          "rate_s": 59157,
+          "rss_reported_mb": 642
+        },
+        {
+          "time_ms": 60000,
+          "count": 3601568,
+          "latency_us": 835267,
+          "rate_s": 60026,
+          "rss_reported_mb": 642
+        },
+        {
+          "time_ms": 120000,
+          "count": 3598395,
+          "latency_us": 833756,
+          "rate_s": 59973,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 180000,
+          "count": 3602051,
+          "latency_us": 836425,
+          "rate_s": 60034,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 240000,
+          "count": 3590432,
+          "latency_us": 842035,
+          "rate_s": 59840,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 300000,
+          "count": 3607750,
+          "latency_us": 865172,
+          "rate_s": 60129,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 360000,
+          "count": 3601145,
+          "latency_us": 846401,
+          "rate_s": 60019,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 420000,
+          "count": 3599228,
+          "latency_us": 853378,
+          "rate_s": 59987,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 480000,
+          "count": 3600081,
+          "latency_us": 855013,
+          "rate_s": 60001,
+          "rss_reported_mb": 633
+        },
+        {
+          "time_ms": 540000,
+          "count": 3556352,
+          "latency_us": 850215,
+          "rate_s": 59272,
+          "rss_reported_mb": 633
+        }
+      ],
+      "count": 35906438,
+      "average_latency_us": 843004,
+      "reported_rate_s": 59844
+    },
+    "XMQ": {
+      "version": "0.9.20",
+      "cpu_mean_pct": 284,
+      "cpu_peak_pct": 345,
+      "ram_peak_reported": 460.0,
+      "ram_unit_reported": "Mb",
+      "intervals": [
+        {
+          "time_ms": 0,
+          "count": 3600000,
+          "latency_us": 216,
+          "rate_s": 60000,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 60000,
+          "count": 3600045,
+          "latency_us": 216,
+          "rate_s": 60000,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 120000,
+          "count": 3600148,
+          "latency_us": 215,
+          "rate_s": 60002,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 180000,
+          "count": 3600141,
+          "latency_us": 216,
+          "rate_s": 60002,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 240000,
+          "count": 3600146,
+          "latency_us": 217,
+          "rate_s": 60002,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 300000,
+          "count": 3600147,
+          "latency_us": 216,
+          "rate_s": 60002,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 360000,
+          "count": 3600141,
+          "latency_us": 215,
+          "rate_s": 60002,
+          "rss_reported_mb": 459
+        },
+        {
+          "time_ms": 420000,
+          "count": 3600145,
+          "latency_us": 215,
+          "rate_s": 60002,
+          "rss_reported_mb": 460
+        },
+        {
+          "time_ms": 480000,
+          "count": 3600144,
+          "latency_us": 216,
+          "rate_s": 60002,
+          "rss_reported_mb": 460
+        },
+        {
+          "time_ms": 540000,
+          "count": 3559014,
+          "latency_us": 216,
+          "rate_s": 59316,
+          "rss_reported_mb": 460
+        }
+      ],
+      "count": 35960071,
+      "average_latency_us": 216,
+      "reported_rate_s": 59933
+    }
+  }
+}
