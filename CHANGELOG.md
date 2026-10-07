@@ -14,12 +14,12 @@ Requires SPTK 5.6.14.
 
 ### Changed
 
-- **A cluster has a coordinator, and a node serves clients only with its lease.** The shared Redis
-  storage is the arbiter: the first node of a cluster becomes coordinator, and when it goes the
-  next one in join order takes over in a new term. The coordinator gives every node it has a link to
-  a client-service lease of `cluster.lease_seconds` (10 by default). A node without one - or
-  without Redis - disconnects its clients and refuses new ones as "server unavailable" until it has
-  one again. A cluster admits at most 10 nodes.
+- **A cluster has a coordinator, and a node serves clients while it reaches Redis.** The shared
+  Redis storage is the arbiter: the first node of a cluster becomes coordinator, and when it goes
+  the next one in join order takes over in a new term, unseen by clients. Each node renews its own
+  client-service lease there, `cluster.lease_seconds` (10 by default). A node that cannot reach
+  Redis for longer than that disconnects its clients and refuses new ones as "server unavailable"
+  until it can. A cluster admits at most 10 nodes.
 - **Cluster links require MQTT+SSL.** The reserved `cluster` account is refused on plain MQTT
   connections. A node advertises its TLS endpoint, and outgoing links use the local node's keys
   and certificate verification settings. Existing experimental cluster configurations must set

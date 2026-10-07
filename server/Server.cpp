@@ -1658,7 +1658,7 @@ void Server::onClusterStateChanged(const bool online)
     }
 
     logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
-               "Cluster-offline: no client-service lease. Disconnecting clients until there is one again.");
+               "Cluster-offline: the shared storage cannot be reached. Disconnecting clients until it can.");
     vector<SClientSession> clients;
     getClientSessionManager()->forEach([&clients](const SClientSession& session)
                                        {

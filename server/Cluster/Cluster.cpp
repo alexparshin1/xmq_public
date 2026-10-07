@@ -175,7 +175,6 @@ Coordinator& Cluster::coordinatorForCluster()
                                                                                             : leaseSetting.asInteger();
         m_coordinator = make_unique<Coordinator>(
             m_server->getNodeName(), storage->getRedis()->getRedisUrl(), chrono::seconds(leaseSeconds),
-            [this] { return connectedPeerNames(); },
             [this](const bool online) { m_server->onClusterStateChanged(online); });
         m_coordinatorView = m_coordinator.get();
     }
@@ -185,19 +184,6 @@ Coordinator& Cluster::coordinatorForCluster()
 void Cluster::startCoordinator()
 {
     coordinatorForCluster().start();
-}
-
-vector<string> Cluster::connectedPeerNames() const
-{
-    vector<string> names;
-    for (const auto& node: m_connectedNodes.nodes())
-    {
-        if (node->isConnected() && node->getName() != m_server->getNodeName())
-        {
-            names.push_back(node->getName());
-        }
-    }
-    return names;
 }
 
 SNode Cluster::findClusterNode(const std::string& nodeName) const
@@ -235,13 +221,6 @@ void Cluster::registerConnectedNode(const SNode& node)
                    {
                        return "Connected node '" + node->getName() + "'.";
                    });
-
-        // The coordinator gives a lease to every node it has a link to: this one need not wait
-        // for the next renewal to get its own.
-        if (auto* coordinator = m_coordinatorView.load())
-        {
-            coordinator->nudge();
-        }
     }
     catch (const Exception& e)
     {

@@ -29,29 +29,26 @@
 namespace xmq::cluster {
 
 /**
- * @brief This node's part in choosing the cluster coordinator and in holding a client-service lease.
+ * @brief This node's part in the cluster's membership, coordinator and client-service lease.
  *
  * The shared Redis storage is the arbiter. Every node already depends on it to serve clients, and it
- * has the one clock all of them agree on, so a lease is a key with a TTL and nobody compares
- * clocks:
+ * has the one clock all of them agree on, so a lease is a key with a TTL and nobody compares clocks:
  *
  * - cluster:members - the admitted nodes, scored in the order they were admitted: the succession
  *   order. At most MaxMembers; a node that is down still counts until it leaves.
+ * - cluster:alive:<node> - the node's client-service lease, which the node renews itself every step.
+ *   A node serves clients while it holds it, which is while it can reach Redis. When it expires the
+ *   node is gone as far as the cluster is concerned, and its sessions may be taken over elsewhere;
+ *   the node itself has stopped serving them by then.
  * - cluster:term - the coordinator generation, incremented by every node that becomes coordinator.
- * - cluster:coordinator - "<term> <node>", set only when absent and kept by renewal. A node whose
- *   renewal fails is coordinator no more; another can take the key only once it has expired.
- * - cluster:lease:<node> - "<term>", the client-service lease. Only the coordinator writes them,
- *   in the same step that renews its own key and with the same TTL, so no node lease outlives the
- *   authority that gave it.
+ * - cluster:coordinator - "<term> <node>", set only when absent and kept by renewal.
  *
- * When the coordinator key is gone, the first member in succession order takes it at once and each
- * one after it waits one tick longer, so the most senior node that is alive becomes coordinator. The
- * coordinator is kept first in the order: a node found ahead of it - a former coordinator, or one
- * passed over while it was down - goes to the end.
- *
- * A node without a valid lease is cluster-offline: it serves no clients. So is a node that cannot
- * reach Redis, whatever its lease says. A node that has just joined has one lease period to get
- * its first lease before that applies to it.
+ * The coordinator is not on the clients' path. It looks after membership and recovery - taking over
+ * what a node that is gone served - and changing it is invisible to clients: no node's lease
+ * depends on it. When the coordinator key is gone, the first member in succession order takes it at
+ * once and each one after it waits one tick longer, so the most senior node that is alive becomes
+ * coordinator. The coordinator is kept first in the order: a node found ahead of it - a former
+ * coordinator, or one passed over while it was down - goes to the end.
  */
 class XMQ_EXPORT Coordinator
 {
@@ -61,19 +58,14 @@ public:
     /// Called from the coordinator's thread when this node goes cluster-online or cluster-offline.
     using StateChanged = std::function<void(bool online)>;
 
-    /// The names of the peers this node has a link to. The coordinator gives leases to these.
-    using ConnectedPeers = std::function<std::vector<std::string>()>;
-
     /**
      * @brief Constructor. Nothing happens until start().
      * @param nodeName          This node's name.
      * @param redisUrl          The shared storage, the URL the node's own storage connected to.
      * @param lease             How long a lease lasts without renewal.
-     * @param connectedPeers    Names of the peers this node has a link to.
      * @param stateChanged      Told when the node goes online or offline.
      */
-    Coordinator(std::string nodeName, sptk::URL redisUrl, std::chrono::milliseconds lease,
-                ConnectedPeers connectedPeers, StateChanged stateChanged);
+    Coordinator(std::string nodeName, sptk::URL redisUrl, std::chrono::milliseconds lease, StateChanged stateChanged);
 
     ~Coordinator();
 
@@ -83,8 +75,8 @@ public:
     /**
      * @brief Admit this node to the cluster, if it is not a member yet, and start taking part.
      *
-     * Takes the first step at once, so the first node of a cluster comes out of this as its
-     * coordinator, with a lease.
+     * Takes the first step at once, so the node comes out of this with its lease, and the first
+     * node of a cluster as its coordinator.
      *
      * @throws sptk::Exception  The cluster has MaxMembers members already, or Redis cannot be reached.
      */
@@ -110,14 +102,14 @@ public:
     void leave();
 
     /**
-     * @brief Run a step now instead of at the next tick: a peer has connected, and the coordinator
-     *        can give it a lease without making it wait.
+     * @brief For tests: act as if Redis could not be reached, or could again.
+     * @param lost              True to fail every Redis command.
      */
-    void nudge();
+    void simulateStorageLoss(bool lost);
 
     /**
-     * @return True while this node may serve clients: it holds a lease, or has just joined, or is
-     *         not taking part - never started, or left the cluster.
+     * @return True while this node may serve clients: it holds its lease, or is not taking part -
+     *         never started, or left the cluster.
      */
     [[nodiscard]] bool isOnline() const;
 
@@ -163,20 +155,18 @@ private:
     const sptk::URL                 m_redisUrl;
     const std::chrono::milliseconds m_lease;
     const std::chrono::milliseconds m_tick;
-    ConnectedPeers                  m_connectedPeers;
     StateChanged                    m_stateChanged;
 
     mutable std::mutex      m_mutex;          ///< Guards everything below that is not atomic.
     std::condition_variable m_wake;           ///< Wakes the thread for a step or to stop.
     bool                    m_stopping {false};
-    bool                    m_nudged {false};
     std::thread             m_thread;
     sptk::RedisConnect      m_redis;          ///< The coordinator's own: the storage's is busy with async work.
     std::string             m_coordinatorName;
     Clock::time_point       m_coordinatorAbsentSince {}; ///< Zero while there is a coordinator.
 
     std::atomic<int64_t>           m_leaseUntil {0};   ///< Clock ticks; the lease is valid before it.
-    std::atomic<int64_t>           m_graceUntil {0};   ///< Clock ticks; a joining node's first lease period.
+    std::atomic<bool>              m_storageLost {false}; ///< See simulateStorageLoss().
     std::atomic<bool>              m_coordinator {false};
     std::atomic<int64_t>           m_term {0};
     std::atomic<bool>              m_reportedOnline {true};

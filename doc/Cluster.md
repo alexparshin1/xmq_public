@@ -54,10 +54,10 @@
   below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
   reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
 
-- [ ] a node without a valid coordinator-issued lease switches to cluster-offline state, disconnects all MQTT clients,
-  and stops accepting new client connections and delivering messages. It continues coordinator discovery and reconnection;
-  client service resumes only after cluster connections and state have been restored and a new lease has been granted.
-  Done: leases, cluster-offline (clients disconnected, CONNECT refused as "server unavailable"), offline without Redis.
+- [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
+  all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
+  seen by clients. Client service resumes once the node reaches the storage again.
+  Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable").
   Left: stopping cluster routing while offline; a restarted member rejoining by itself (see below).
 
 - [ ] a cluster can be formed and rejoined outside tests. Nodes join only through `Server::attachToCluster()`, which only
@@ -126,48 +126,51 @@ With healthy connections, one matching shared subscription must produce delivery
 
 ## Coordinator, leases and succession
 
-The coordinator authorizes nodes to serve clients and coordinates recovery, including the distribution of orphaned
-sessions. The role is assigned automatically, not attached to a configured node. Message routing goes over the mesh.
+The coordinator looks after membership and recovery, including the distribution of orphaned sessions. It is not on
+the clients' path: no node needs it to serve clients, and a change of coordinator is invisible to them. The role is
+assigned automatically, not attached to a configured node. Message routing goes over the mesh.
 
 ### The shared storage is the arbiter
 
 Every node needs the shared Redis storage to serve clients anyway, and Redis has the one clock all nodes agree on.
-So authority is kept there, as keys with a TTL, and no node compares clocks with another:
+So the cluster's state is kept there, as keys with a TTL, and no node compares clocks with another:
 
 - `cluster:members` - the admitted nodes, scored by admission order: the succession order. At most 10. A member that
   is down still counts; only leaving the cluster removes it.
+- `cluster:alive:<node>` - the node's client-service lease, renewed by the node itself.
 - `cluster:term` - the coordinator generation; every new coordinator increments it.
 - `cluster:coordinator` - `<term> <node>`, set only when absent and kept by renewal.
-- `cluster:lease:<node>` - `<term>`, a node's client-service lease. Only the coordinator writes leases, in the same
-  atomic step that renews its own key and with the same TTL, so a node lease never outlives the authority that gave it.
 
-`cluster.lease_seconds` (10 by default) is the TTL; nodes renew and check five times per lease.
+`cluster.lease_seconds` (10 by default) is the TTL; nodes renew five times per lease.
+
+### Node lease and cluster-offline state
+
+A node serves clients while it holds its lease, that is while it can reach Redis. It counts the lease from before it
+asked Redis, so it stops serving no later than Redis lets the key expire. Until the key has expired no other node may
+take over what the node serves, so a Redis outage shorter than a lease costs its clients nothing. Once it has expired,
+the node is gone as far as the cluster is concerned: its sessions may be taken over elsewhere, and the node itself
+has stopped serving them.
+
+Losing the coordinator, or other nodes, does not take a node offline. A node that reaches Redis but not the other
+nodes keeps serving its clients, while messages between it and the rest of the cluster stop: a routing failure, not
+two owners of a session, which session ownership in Redis prevents.
+
+In cluster-offline state a node:
+
+- Disconnects all MQTT clients and refuses new ones as "server unavailable". Persistent sessions stay.
+- Keeps its cluster links.
+- Retries Redis, and serves clients again as soon as it renews its lease.
+
+A node that leaves the cluster gives up the coordinator key if it holds it, frees its place among the members and
+serves its own clients as a standalone broker again.
 
 ### Succession
 
 When the coordinator key is gone, the first member in the order takes it at once and each one after it waits one
-check longer, so the most senior node that is alive becomes coordinator, in a new term. Another node can take the key
-only after it has expired, which is when every lease the old coordinator gave has expired too. The coordinator is kept
-first in the order: a node found ahead of it - a former coordinator, or one passed over while it was down or cut off -
-goes to the end, behind every node admitted meanwhile, and cannot claim its old place back.
-
-A partition that cannot reach Redis cannot hold or renew anything. A partition that can, but cannot reach the
-coordinator, gets no leases. Either way its nodes stop serving clients once their leases run out.
-
-### Node leases and cluster-offline state
-
-Each serving node, the coordinator included, needs a valid lease. The coordinator gives one to itself and to every
-node it has a link to. A node counts its lease from before it asked Redis, so it gives it up no later than Redis
-expires it. A node that has just joined has one lease period to get its first lease.
-
-In cluster-offline state - no valid lease, or no access to Redis whatever the lease says - a node:
-
-- Disconnects all MQTT clients and refuses new ones as "server unavailable". Persistent sessions stay.
-- Keeps its cluster links, which it needs to get a lease back.
-- Retries Redis and keeps checking for a lease; it serves clients again as soon as it has one.
-
-A node that leaves the cluster gives up the coordinator key if it holds it, frees its place among the members and
-serves its own clients as a standalone broker again.
+renewal longer, so the most senior node that is alive becomes coordinator, in a new term. Another node can take the
+key only after it has expired. The coordinator is kept first in the order: a node found ahead of it - a former
+coordinator, or one passed over while it was down or cut off - goes to the end, behind every node admitted
+meanwhile, and cannot claim its old place back.
 
 ### Rejoining the cluster
 

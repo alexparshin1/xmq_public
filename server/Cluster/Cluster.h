@@ -216,7 +216,8 @@ public:
 
     /**
      * @return True while this node may serve clients: always for a node that is not in a cluster;
-     *         for a cluster member, while it holds a client-service lease (see Coordinator).
+     *         for a cluster member, while it holds its client-service lease - while it can reach the
+     *         shared storage (see Coordinator).
      */
     [[nodiscard]] bool isOnline() const
     {
@@ -285,11 +286,6 @@ private:
      * Called on both sides of a join, and again by every later one; only the first does anything.
      */
     void startCoordinator();
-
-    /**
-     * @return Names of the peers this node has a link to.
-     */
-    std::vector<std::string> connectedPeerNames() const;
 
     /**
      * @brief Connect to all nodes on the MQTT level

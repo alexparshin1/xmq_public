@@ -192,9 +192,9 @@ public:
     /**
      * @brief This node went cluster-online or cluster-offline (see cluster::Coordinator).
      *
-     * Offline, it disconnects every client - their persistent sessions stay, to be resumed here or
-     * on another node - and refuses new ones until it is online again. Cluster links stay up: the
-     * node needs them to get a lease back.
+     * Offline - it lost the shared storage for longer than its lease - it disconnects every client,
+     * whose persistent sessions may be taken over by another node meanwhile, and refuses new ones
+     * until it is online again. Cluster links stay up.
      *
      * @param online            True when the node may serve clients again.
      */
