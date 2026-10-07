@@ -7,7 +7,8 @@
 #
 # --persistent also waits for a persistent session (MQTT 5, clean start off) to be accepted: EMQX with
 # durable sessions carries a clean-session message long before it accepts a persistent one, and
-# answers "Server not available" to those in between.
+# answers "Server not available" to those in between. It is implied when \$XMQ_SCENARIO, which
+# run_scenario_set.sh sets, names a persistent scenario.
 set -u
 host="" unit="" port="" user="" password="" persistent=0
 while [ $# -gt 0 ]; do
@@ -30,6 +31,7 @@ credentials=()
 [ -n "$user" ] && credentials+=(-u "$user" -P "$password")
 # A persistent session that expires a second after it disconnects, so nothing of it stays behind.
 # The subscriber only: the publisher stays an ordinary client of its own.
+[[ "${XMQ_SCENARIO:-}" == *persistent* ]] && persistent=1
 session=""
 [ "$persistent" = 1 ] && session="-V 5 -c -x 1 -i xmq-ready-persistent"
 for _ in $(seq 1 90); do

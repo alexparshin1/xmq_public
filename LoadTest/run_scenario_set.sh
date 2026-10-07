@@ -50,7 +50,8 @@ Options:
                             configured differently gets it configured: in the standing sets
                             exactly one scenario runs with persistence on, and a set is only
                             worth running unattended if that happens by itself.
-  --restart-cmd CMD         Shell command that restarts the broker; run before every scenario.
+  --restart-cmd CMD         Shell command that restarts the broker; run before every scenario,
+                            with the scenario's file name in \$XMQ_SCENARIO.
                             Omitted, nothing is restarted and each run inherits the state the
                             one before it left - which is not how the recorded sets were measured.
                             Example:
@@ -456,7 +457,7 @@ for scenario in "${scenarios[@]}"; do
 
   if [[ -n "$restart_cmd" ]]; then
     echo "=== $(date +%H:%M:%S) $name: restarting the broker"
-    if ! eval "$restart_cmd"; then
+    if ! XMQ_SCENARIO="$scenario" eval "$restart_cmd"; then
       echo "    restart failed, skipping $name" >&2
       summary+=("$name|restart failed")
       scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")

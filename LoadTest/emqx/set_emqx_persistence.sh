@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Before each scenario, on the client: EMQX durable sessions only for the persistent scenario,
-# starting from empty durable storage; in memory otherwise (6.3's default). Run as the set's
-# --setup-cmd; restart_broker.sh restarts EMQX after it and waits until it carries a message.
+# starting from empty durable storage; in memory otherwise (6.3's default).
+#
+# Empty means the node's whole state: the shard data in data_dir/ds AND mnesia, which records those
+# shards. With the data gone and mnesia kept, EMQX waits for shard replicas that no longer exist and
+# answers every persistent session "Server not available" - the failed AWS run of 2026-10-07.
+# Everything the load tests configure is in emqx.conf, so nothing else is lost with mnesia.
+#
+# Run as the set's --setup-cmd; restart_broker.sh restarts EMQX after it and waits until it carries
+# a message - with --persistent for the persistent scenario, which EMQX accepts only once DS is ready.
 #
 #   ./emqx/set_emqx_persistence.sh --host 172.31.13.230 --for "$XMQ_SCENARIO"
 set -euo pipefail
@@ -24,5 +31,5 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "set -e
     printf '## Load-test durable sessions\ndurable_sessions { enable = $enable }\n## end durable sessions\n' | sudo -n tee -a /etc/emqx/emqx.conf >/dev/null
     data=\$(sed -nE 's/^[[:space:]]*data_dir[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\\1/p' /etc/emqx/emqx.conf | head -1)
     data=\${data:-/var/lib/emqx}
-    sudo -n rm -rf \"\$data/ds\" \"\$data/durable_storage\" \"\$data/data/ds\" 2>/dev/null || true"
+    sudo -n rm -rf \"\$data/ds\" \"\$data/mnesia\" 2>/dev/null || true"
 echo "EMQX: durable sessions $enable, empty durable storage"
