@@ -15,9 +15,23 @@ hardware thread. A scenario that did not finish shows the intervals it completed
 Server:   EMQX
 Version:  6.3.1
 Settings: EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64; limits raised for high-rate QoS 1 subscribers: force_shutdown.max_mailbox_size 100000 (default 1000 closed subscribers), max_mqueue_len 100000 (default 1000 dropped messages), max_inflight 128; shared_subscription_strategy round_robin (default); durable sessions off, except on (empty at start) for Point-To-Point-60K-persistent
-CPU Load: 0% mean / 0% peak
-Max RAM:  507 Mb
-Status:   FAILED (exit 1) - no persistent session accepted: "Server not available" (durable storage not ready), no intervals
+CPU Load: 1265% mean / 1464% peak
+Max RAM:  5.08 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           3600000    11943us        60000    5204 Mb
+60000ms       3598006    13378us        59966    4920 Mb
+120000ms      3596353    40293us        59939    4924 Mb
+180000ms      3605962    12680us        60099    4918 Mb
+240000ms      3600139    19846us        60002    4916 Mb
+300000ms      3600157    17312us        60002    4893 Mb
+360000ms      3600135    17256us        60002    4910 Mb
+420000ms      3600152    29541us        60002    4956 Mb
+480000ms      3600124    43213us        60002    4917 Mb
+540000ms      3392436    32610us        56540    4970 Mb
+────────────────────────────────────────────────────────
+Average      35793464    23753us        59655
+Median                   19846us
 
 
 Server:   FlashMQ
