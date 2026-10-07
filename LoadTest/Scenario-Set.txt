@@ -1,4 +1,4 @@
-# Common comparison set for Mosquitto, FlashMQ, EMQX, and XMQ.
+# Common comparison set for XMQ, FlashMQ, Mosquitto, EMQX and HiveMQ.
 # Run the same scenario JSONs, in this order, on thinker10/thinker11 and on AWS.
 # Restart the selected broker before every scenario, with all other brokers stopped.
 # Enable persistence only for the persistent scenario and start it with empty storage.
