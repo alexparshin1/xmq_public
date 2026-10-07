@@ -28,8 +28,8 @@ Interval        Count    Latency       Rate/s        RSS
 90000ms         50000      722us         5000   10302 Mb
 100000ms            4      801us            0    9578 Mb
 ────────────────────────────────────────────────────────
-Average        500000      720us         4545
-Median                     712us
+Average        500000      720us         4545    6927 Mb
+Median                     712us                 7142 Mb
 
 
 Server:   FlashMQ
@@ -51,8 +51,8 @@ Interval        Count    Latency       Rate/s        RSS
 90000ms         50000      317us         5000    2184 Mb
 100000ms            1      221us            0    2184 Mb
 ────────────────────────────────────────────────────────
-Average        500000      347us         4545
-Median                     327us
+Average        500000      347us         4545    1389 Mb
+Median                     327us                 1409 Mb
 
 
 Server:   HiveMQ
@@ -74,8 +74,8 @@ Interval        Count    Latency       Rate/s        RSS
 90000ms         48923     4995us         4892    3679 Mb
 100000ms        30297     4968us         3029    4155 Mb
 ────────────────────────────────────────────────────────
-Average        500000     4088us         4545
-Median                    3477us
+Average        500000     4088us         4545    2550 Mb
+Median                    3477us                 2368 Mb
 
 
 Server:   Mosquitto
@@ -97,8 +97,8 @@ Interval        Count    Latency       Rate/s        RSS
 90000ms         50002      294us         5000    2467 Mb
 100000ms        10069      297us         1006    2467 Mb
 ────────────────────────────────────────────────────────
-Average        500000     1004us         4545
-Median                     316us
+Average        500000     1004us         4545    1569 Mb
+Median                     316us                 1611 Mb
 
 
 Server:   XMQ
@@ -120,5 +120,5 @@ Interval        Count    Latency       Rate/s        RSS
 90000ms         49999      330us         4999    1300 Mb
 100000ms            2      382us            0    1300 Mb
 ────────────────────────────────────────────────────────
-Average        500000      340us         4545
-Median                     338us
+Average        500000      340us         4545     855 Mb
+Median                     338us                  880 Mb

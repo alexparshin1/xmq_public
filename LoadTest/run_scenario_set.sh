@@ -291,9 +291,22 @@ add_memory_column() {
       for (i = 1; i <= n; i++)
         if (lines[i] ~ /^[0-9]+ms[ \t]/) { split(lines[i], f, /[ \t]+/); rss[f[1]] = f[2] " " f[3] }
     }
-    /^Interval[ \t]+Count/ { printf "%s%11s\n", $0, "RSS"; next }
-    /^[0-9]+ms[ \t]+[0-9]+[ \t]+[0-9]+us/ { if ($1 in rss) printf "%s%11s\n", $0, rss[$1]; else print; next }
+    /^Interval[ \t]+Count/ { width = length($0); printf "%s%11s\n", $0, "RSS"; next }
+    /^[0-9]+ms[ \t]+[0-9]+[ \t]+[0-9]+us/ {
+      if ($1 in rss) { printf "%s%11s\n", $0, rss[$1]; mb[++k] = rss[$1] + 0; sum += rss[$1] + 0 } else print
+      next
+    }
     /^─+$/ { print $0 "───────────"; next }
+    # The Average and Median rows summarise the RSS column too, over the intervals that have it.
+    /^(Average|Median)[ \t]/ && k {
+      if ($1 == "Average") value = sum / k
+      else {
+        for (i = 2; i <= k; i++) for (j = i; j > 1 && mb[j - 1] > mb[j]; j--) { t = mb[j]; mb[j] = mb[j - 1]; mb[j - 1] = t }
+        value = k % 2 ? mb[(k + 1) / 2] : (mb[k / 2] + mb[k / 2 + 1]) / 2
+      }
+      printf "%-*s%11s\n", width, $0, sprintf("%d Mb", value + 0.5)
+      next
+    }
     { print }' "$block_file" > "$block_file.tmp" && mv "$block_file.tmp" "$block_file"
 }
 

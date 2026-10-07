@@ -128,20 +128,46 @@ def with_rss_column(table, memory):
     for line in memory:
         if m := re.match(r"^(\d+)ms\s+(\d+ (?:Mb|Gb))$", line.strip()):
             rss[m.group(1)] = m.group(2)
-    if not rss:
+    rows = [line.rstrip() for line in table]
+    # Newer records carry the RSS in the table already; it is summarised all the same.
+    in_table = {m.group(1): m.group(2) for line in rows
+                if (m := re.match(r"^(\d+)ms\s+\d+\s+\d+us\s+\d+\s+([\d.]+ (?:Mb|Gb))$", line))}
+    if not rss and not in_table:
         return table
+    # Where the RSS column begins: the header's width without it.
+    width = max((len(line) - (11 if line.endswith("RSS") else 0) for line in rows if line.startswith("Interval")),
+                default=0)
+    # The Average and Median rows summarise the column like the others: over the intervals it has.
+    mb = sorted(rss_mb(value) for interval, value in {**in_table, **rss}.items()
+                if any(re.match(rf"^{interval}ms\s", line) for line in rows))
+    summary = {}
+    if mb:
+        middle = len(mb) // 2
+        median = mb[middle] if len(mb) % 2 else (mb[middle - 1] + mb[middle]) / 2
+        summary = {"Average": f"{round(sum(mb) / len(mb))} Mb", "Median": f"{round(median)} Mb"}
     out = []
-    for line in table:
-        stripped = line.rstrip()
-        if stripped.startswith("Interval"):
+    for stripped in rows:
+        if in_table and not rss:
+            if (label := stripped.split(" ", 1)[0]) in summary:
+                stripped = f"{stripped.ljust(width)}{summary[label]:>11}"
+            out.append(stripped)
+        elif stripped.startswith("Interval"):
             out.append(f"{stripped}{'RSS':>11}")
         elif m := re.match(r"^(\d+)ms\s", stripped):
             out.append(f"{stripped}{rss.get(m.group(1), '-'):>11}" if m.group(1) in rss else stripped)
         elif stripped.startswith("─"):
             out.append(stripped + "─" * 11)
+        elif (label := stripped.split(" ", 1)[0]) in summary:
+            out.append(f"{stripped.ljust(width)}{summary[label]:>11}")
         else:
             out.append(stripped)
     return out
+
+
+def rss_mb(value):
+    """'5204 Mb' or '1.2 Gb' in Mb."""
+    number, unit = value.split()
+    return float(number) * (1024 if unit == "Gb" else 1)
 
 
 def main():

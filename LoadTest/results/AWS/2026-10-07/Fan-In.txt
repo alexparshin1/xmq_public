@@ -23,8 +23,8 @@ Interval        Count    Latency       Rate/s        RSS
 180000ms        70463 199745537us         1174    2780 Mb
 240000ms         9567 236796988us          159    2712 Mb
 ────────────────────────────────────────────────────────
-Average        484103 84399702us         1613
-Median                141663612us
+Average        484103 84399702us         1613    3225 Mb
+Median                141663612us                2795 Mb
 
 
 Server:   FlashMQ
@@ -45,8 +45,8 @@ Interval        Count    Latency       Rate/s        RSS
 480000ms      2999997      209us        49999     246 Mb
 540000ms      2995798      208us        49929     246 Mb
 ────────────────────────────────────────────────────────
-Average      29995784      207us        49992
-Median                     207us
+Average      29995784      207us        49992     246 Mb
+Median                     207us                  246 Mb
 
 
 Server:   HiveMQ
@@ -67,8 +67,8 @@ Interval        Count    Latency       Rate/s        RSS
 480000ms      3000005   971944us        50000    1937 Mb
 540000ms      2993780   971943us        49896    1938 Mb
 ────────────────────────────────────────────────────────
-Average      29945186   971810us        49908
-Median                  971942us
+Average      29945186   971810us        49908    1933 Mb
+Median                  971942us                 1932 Mb
 
 
 Server:   Mosquitto
@@ -89,8 +89,8 @@ Interval        Count    Latency       Rate/s        RSS
 480000ms      3000002      210us        50000     258 Mb
 540000ms      2995507      209us        49925     258 Mb
 ────────────────────────────────────────────────────────
-Average      29995492      210us        49992
-Median                     210us
+Average      29995492      210us        49992     258 Mb
+Median                     210us                  258 Mb
 
 
 Server:   XMQ
@@ -111,5 +111,5 @@ Interval        Count    Latency       Rate/s        RSS
 480000ms      3000000      211us        50000     192 Mb
 540000ms      2995758      211us        49929     192 Mb
 ────────────────────────────────────────────────────────
-Average      29995747      211us        49992
-Median                     211us
+Average      29995747      211us        49992     192 Mb
+Median                     211us                  192 Mb
