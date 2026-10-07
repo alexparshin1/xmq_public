@@ -16,6 +16,7 @@
 #include "test/ClusterTests/TestCluster.h"
 
 #include "TestOptions.h"
+#include "test/TestServers.h"
 #include "common/DirectoryNames.h"
 #include "server/Settings/Settings.h"
 
@@ -36,6 +37,16 @@ void XMQ_ServerTestsLink::linkClusterTests()
 void XMQ_ClusterTests::SetUp()
 {
     printTitle(testName());
+    clearClusterState();
+}
+
+void XMQ_ClusterTests::clearClusterState()
+{
+    // The storage outlives each test's cluster: members and a coordinator left by the last one
+    // would be this one's before any of its nodes started.
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    cluster::Coordinator::clearClusterState(redis);
 }
 
 void XMQ_ClusterTests::TearDown()
@@ -53,6 +64,8 @@ SServer XMQ_ClusterTests::createNode(const std::string& nodeName, const uint16_t
     SServer server = createServer(portNumber, static_cast<uint16_t>(portNumber + 7000), 0, cleanStart, nodeName, "cluster",
                                   "cluster", Debug, true, false);
 
+    // Two seconds instead of ten, so that a test can watch a lease run out.
+    server->getSettings()->m_cluster.m_lease_seconds = TestLeaseSeconds;
     server->getSettings()->setLogSubjectsPriority({}, Info);
     server->getSettings()->setLogSubjectsPriority(logSubjects, Debug);
     trustNodeCertificate(server);

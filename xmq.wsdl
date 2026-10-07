@@ -1307,6 +1307,15 @@
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
+                    <xsd:element name="lease_seconds" type="xsd:int" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>How long the coordinator's authority, and the client-service lease it
+                                gives each node, last without renewal; 10 when absent. A node whose lease runs out
+                                stops serving clients until it gets a new one, so this is also how long a cluster
+                                can go without a coordinator before its nodes go cluster-offline.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>
 

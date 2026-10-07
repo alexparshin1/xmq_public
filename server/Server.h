@@ -190,6 +190,17 @@ public:
     void detachFromCluster() const;
 
     /**
+     * @brief This node went cluster-online or cluster-offline (see cluster::Coordinator).
+     *
+     * Offline, it disconnects every client - their persistent sessions stay, to be resumed here or
+     * on another node - and refuses new ones until it is online again. Cluster links stay up: the
+     * node needs them to get a lease back.
+     *
+     * @param online            True when the node may serve clients again.
+     */
+    void onClusterStateChanged(bool online);
+
+    /**
      * @brief Grant topic subscription to a client ID.
      * @param client            Client ID.
      * @param topic             Destination topic.

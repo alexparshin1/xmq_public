@@ -24,8 +24,15 @@ public:
     static const sptk::Host m_primaryServerHost;
     static const sptk::Host m_secondaryServerHost;
 
+    static constexpr int TestLeaseSeconds = 2; ///< cluster.lease_seconds of every test node.
+
     void SetUp() override;
     void TearDown() override;
+
+    /**
+     * @brief Delete what the last test's cluster left in the shared storage.
+     */
+    static void clearClusterState();
 
     /**
      * @brief Start a cluster node: MQTT on portNumber, MQTT+SSL on portNumber + 7000.

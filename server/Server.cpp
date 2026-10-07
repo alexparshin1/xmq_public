@@ -1199,6 +1199,14 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
         }
     }
 
+    if (reasonCode == ReasonCode::Success && connectMessage->getUsername() != "cluster" && !m_cluster.load()->isOnline())
+    {
+        // Cluster-offline: this node may not serve clients, whose sessions may be served by another
+        // node meanwhile. Not the cluster links, which the node needs to get its lease back.
+        reasonCode = protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
+                                                                : ReasonCode::ErrorServerNotAvailable;
+    }
+
     if (reasonCode == ReasonCode::Success && existingClientSession &&
         existingClientSession->isClusterSession() != (connectMessage->getUsername() == "cluster"))
     {
@@ -1639,6 +1647,31 @@ void Server::attachToCluster(const Host& host, const bool encrypted) const
 void Server::detachFromCluster() const
 {
     m_cluster.load()->detachCluster();
+}
+
+void Server::onClusterStateChanged(const bool online)
+{
+    if (online)
+    {
+        logMessage(LogSubject::ClusterEvents, LogPriority::Info, "Cluster-online: serving clients.");
+        return;
+    }
+
+    logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
+               "Cluster-offline: no client-service lease. Disconnecting clients until there is one again.");
+    vector<SClientSession> clients;
+    getClientSessionManager()->forEach([&clients](const SClientSession& session)
+                                       {
+                                           if (!session->isClusterSession() && session->getConnection())
+                                           {
+                                               clients.push_back(session);
+                                           }
+                                       });
+    // Outside forEach(), which holds the manager's lock that closing a session takes too.
+    for (const auto& session: clients)
+    {
+        closeSession(session, false);
+    }
 }
 
 namespace {

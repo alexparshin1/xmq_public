@@ -18,6 +18,7 @@
 #include "../Subscription/Subscription.h"
 
 #include "ClusterTopics.h"
+#include "Coordinator.h"
 #include "ServerNodes.h"
 #include "SubscriptionClient.h"
 #include "base/xmq.h"
@@ -214,6 +215,24 @@ public:
     [[nodiscard]] Server*       getServer() const;
 
     /**
+     * @return True while this node may serve clients: always for a node that is not in a cluster;
+     *         for a cluster member, while it holds a client-service lease (see Coordinator).
+     */
+    [[nodiscard]] bool isOnline() const
+    {
+        const auto* coordinator = m_coordinatorView.load();
+        return coordinator == nullptr || coordinator->isOnline();
+    }
+
+    /**
+     * @return This node's coordinator, or null while the node is not in a cluster.
+     */
+    [[nodiscard]] Coordinator* coordinator() const
+    {
+        return m_coordinatorView.load();
+    }
+
+    /**
      * @return How many publications other nodes have forwarded to this one. A node is sent only
      *         what its own clients subscribe to, so with no local subscriber this stays put.
      */
@@ -249,6 +268,28 @@ private:
     Topics                               m_clusterTopics;          ///< Cluster topics.
     SSubscriptionClient                  m_subscriptionClient;     ///< Cluster subscription client.
     sptk::Flag                           m_attachResponseReceived; ///< Flag: Attach request response received.
+    std::mutex                           m_coordinatorMutex;       ///< Guards creating m_coordinator.
+    std::unique_ptr<Coordinator>         m_coordinator;            ///< Created when the node first joins a cluster.
+    std::atomic<Coordinator*>            m_coordinatorView {nullptr}; ///< m_coordinator, read without the lock.
+
+    /**
+     * @brief Create the coordinator if there is none yet: the node has just become part of a cluster.
+     * @return The coordinator.
+     * @throws sptk::Exception  The node has no shared storage: a cluster is not possible without it.
+     */
+    Coordinator& coordinatorForCluster();
+
+    /**
+     * @brief Start taking part in coordination: admit this node, if it is not a member, and run.
+     *
+     * Called on both sides of a join, and again by every later one; only the first does anything.
+     */
+    void startCoordinator();
+
+    /**
+     * @return Names of the peers this node has a link to.
+     */
+    std::vector<std::string> connectedPeerNames() const;
 
     /**
      * @brief Connect to all nodes on the MQTT level

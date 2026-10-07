@@ -1,5 +1,5 @@
 # XMQ cluster should support:
-- [ ] the cluster is a mesh of at most 10 admitted nodes, including the coordinator. This is the current supported
+- [x] the cluster is a mesh of at most 10 admitted nodes, including the coordinator. This is the current supported
   size limit and the target for cluster validation. Admission of an additional node must be rejected if it would exceed the limit; unreachable
   members still count until their removal is committed through an agreed membership change.
 
@@ -11,9 +11,9 @@
   either one connection survives or both may be disconnected. After conflict resolution, two active owners of the session must not
   remain, and its persistent state must not be corrupted. Clients may retry.
 
-- [ ] the cluster has one active coordinator, selected in cluster join order. Its authority is granted by a lease
-  confirmed by a majority of the agreed voting membership. Coordinator succession must remain safe during network partitions;
-  join order determines the candidate priority, not the authority to act as coordinator.
+- [x] the cluster has one active coordinator, selected in cluster join order. Its authority is a lease held in the
+  shared Redis storage, the arbiter every node already depends on. Coordinator succession must remain safe during network
+  partitions; join order determines the candidate priority, not the authority to act as coordinator.
 
 - [ ] cluster sessions are persistent and must survive the reboot of any node. If a node goes down, the online node(s) should
   take over orphaned sessions. A coordinator node may distribute the orphaned sessions between online nodes.
@@ -57,6 +57,13 @@
 - [ ] a node without a valid coordinator-issued lease switches to cluster-offline state, disconnects all MQTT clients,
   and stops accepting new client connections and delivering messages. It continues coordinator discovery and reconnection;
   client service resumes only after cluster connections and state have been restored and a new lease has been granted.
+  Done: leases, cluster-offline (clients disconnected, CONNECT refused as "server unavailable"), offline without Redis.
+  Left: stopping cluster routing while offline; a restarted member rejoining by itself (see below).
+
+- [ ] a cluster can be formed and rejoined outside tests. Nodes join only through `Server::attachToCluster()`, which only
+  the tests call; `Cluster::connectToCluster()` is commented out. A restarted member must find the other members (they
+  are in the shared storage) and rejoin before it serves clients; a new node needs a way to join (configuration or the
+  control API).
 
 
 ## Retained conflict resolution
@@ -119,69 +126,58 @@ With healthy connections, one matching shared subscription must produce delivery
 
 ## Coordinator, leases and succession
 
-The coordinator maintains the agreed cluster membership and succession order, authorizes nodes to serve clients,
-and coordinates recovery, including the distribution of orphaned sessions. The coordinator role is assigned automatically;
-it is not permanently attached to a configured node. Normal message routing continues over the cluster mesh.
+The coordinator authorizes nodes to serve clients and coordinates recovery, including the distribution of orphaned
+sessions. The role is assigned automatically, not attached to a configured node. Message routing goes over the mesh.
 
-### Succession order and coordinator authority
+### The shared storage is the arbiter
 
-Nodes enter the succession queue in the order in which their admission to the cluster is committed. The first eligible
-node in that order is the preferred coordinator candidate. If it cannot obtain authority, the next eligible candidate
-may be considered. Queue position alone never authorizes a candidate to coordinate the cluster.
+Every node needs the shared Redis storage to serve clients anyway, and Redis has the one clock all nodes agree on.
+So authority is kept there, as keys with a TTL, and no node compares clocks with another:
 
-The coordinator holds a time-limited lease confirmed by a majority of the agreed voting membership. It must renew
-that lease regularly. Loss of a connection is not proof that the coordinator has failed: during a network partition,
-both sides may consider the other side disconnected. A coordinator that cannot renew its lease must stop acting as
-coordinator when the lease expires. A replacement requires majority confirmation and must not become active while
-the previous coordinator's lease can still be valid.
+- `cluster:members` - the admitted nodes, scored by admission order: the succession order. At most 10. A member that
+  is down still counts; only leaving the cluster removes it.
+- `cluster:term` - the coordinator generation; every new coordinator increments it.
+- `cluster:coordinator` - `<term> <node>`, set only when absent and kept by renewal.
+- `cluster:lease:<node>` - `<term>`, a node's client-service lease. Only the coordinator writes leases, in the same
+  atomic step that renews its own key and with the same TTL, so a node lease never outlives the authority that gave it.
 
-Each transfer of coordinator authority establishes a new, monotonically increasing generation (term). Nodes reject
-coordinator commands and lease renewals from older terms; a higher term alone does not prove that its sender has
-majority-backed authority. Votes, terms and committed membership must survive node restarts. The lease protocol must
-account for clock drift and delayed messages so that coordinator authority cannot overlap across terms.
+`cluster.lease_seconds` (10 by default) is the TTL; nodes renew and check five times per lease.
 
-Voting membership and succession order are agreed cluster state. Nodes must not calculate a majority from only the
-peers they can currently reach or independently remove unreachable voters. Membership changes must preserve quorum
-safety across the old and new configurations. A partition without a majority cannot appoint a coordinator or renew
-authority to serve clients. If no partition has a majority, client service stops after the outstanding leases expire.
+### Succession
 
-Once a replacement coordinator has been established, the former coordinator cannot reclaim its old position or
-authority. When it rejoins, it accepts the current term and is admitted as an ordinary node at the end of the succession
-queue through an agreed membership change.
+When the coordinator key is gone, the first member in the order takes it at once and each one after it waits one
+check longer, so the most senior node that is alive becomes coordinator, in a new term. Another node can take the key
+only after it has expired, which is when every lease the old coordinator gave has expired too. The coordinator is kept
+first in the order: a node found ahead of it - a former coordinator, or one passed over while it was down or cut off -
+goes to the end, behind every node admitted meanwhile, and cannot claim its old place back.
+
+A partition that cannot reach Redis cannot hold or renew anything. A partition that can, but cannot reach the
+coordinator, gets no leases. Either way its nodes stop serving clients once their leases run out.
 
 ### Node leases and cluster-offline state
 
-Each serving node, including the coordinator itself, needs a valid lease authorizing client service. Nodes renew their
-leases through the active coordinator. A single failed connection or heartbeat does not immediately revoke an unexpired
-lease, but failure to renew before expiry requires the node to enter cluster-offline state.
+Each serving node, the coordinator included, needs a valid lease. The coordinator gives one to itself and to every
+node it has a link to. A node counts its lease from before it asked Redis, so it gives it up no later than Redis
+expires it. A node that has just joined has one lease period to get its first lease.
 
-Node leases must not outlive the coordinator authority under which they were issued. Coordinator handover must allow
-all previously issued node leases to expire or be safely revoked before the new term begins client service. Losing the
-coordinator lease therefore cannot leave the old partition serving clients under outstanding node leases.
+In cluster-offline state - no valid lease, or no access to Redis whatever the lease says - a node:
 
-In cluster-offline state, a node:
+- Disconnects all MQTT clients and refuses new ones as "server unavailable". Persistent sessions stay.
+- Keeps its cluster links, which it needs to get a lease back.
+- Retries Redis and keeps checking for a lease; it serves clients again as soon as it has one.
 
-- Disconnects all existing MQTT clients and rejects new client connections.
-- Stops client message delivery and normal cluster message routing.
-- Preserves persistent session state for subsequent synchronization and recovery.
-- Continues coordinator discovery, lease/succession control traffic and attempts to reconnect to the coordinator.
-  Client-service shutdown must not prevent quorum participation or coordinator election.
-- Retries access to the shared Redis storage if storage connectivity has been lost.
+A node that leaves the cluster gives up the coordinator key if it holds it, frees its place among the members and
+serves its own clients as a standalone broker again.
 
 ### Rejoining the cluster
 
 Restoring a connection to the coordinator does not immediately restore client service. The node must:
 
-1. Obtain the current coordinator term, agreed membership, succession order and shared Redis configuration from the
-   authorized coordinator.
-2. Confirm access to the configured logical Redis storage and cluster data namespace.
-3. Connect to all active nodes listed by the coordinator and synchronize the cluster state required for service,
-   including subscriptions and session ownership.
-4. Resolve stale ownership and any state conflicts before routing messages or accepting clients.
-5. Obtain a new client-service lease and only then enter cluster-online state.
-
-The transition requires the connections and synchronization needed for correct cluster operations; coordinator
-reachability alone is insufficient. A node that cannot complete recovery remains cluster-offline.
+1. Confirm access to the shared Redis storage.
+2. Connect to the other members and synchronize the cluster state required for service, including subscriptions and
+   session ownership.
+3. Resolve stale ownership and any state conflicts before routing messages or accepting clients.
+4. Obtain a new client-service lease and only then enter cluster-online state.
 
 ## Shared Redis storage
 

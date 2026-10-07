@@ -129,12 +129,21 @@ void Cluster::connectToCluster()
 void Cluster::detachCluster()
 {
     notifyAllNodes(Command::DetachNodeRequest);
+    if (auto* coordinator = m_coordinatorView.load())
+    {
+        coordinator->leave();
+    }
 }
 
 void Cluster::stop()
 {
     stopSubscriptionSender();
-    detachCluster();
+    // A node that stops is down, not gone: it keeps its place among the members, to rejoin with.
+    if (auto* coordinator = m_coordinatorView.load())
+    {
+        coordinator->stop();
+    }
+    notifyAllNodes(Command::DetachNodeRequest);
 
     vector<SNode> nodes;
     {
@@ -148,6 +157,47 @@ void Cluster::stop()
             node->disconnect();
         }
     }
+}
+
+Coordinator& Cluster::coordinatorForCluster()
+{
+    const scoped_lock lock(m_coordinatorMutex);
+    if (!m_coordinator)
+    {
+        const auto storage = m_server->getStorage();
+        if (!storage || !storage->isPersistent() || !storage->getRedis())
+        {
+            throw Exception("A cluster needs the shared Redis storage: persistence.redis_uri is not set.");
+        }
+        const auto& leaseSetting = m_settings->m_cluster.m_lease_seconds;
+        constexpr int defaultLeaseSeconds = 10;
+        const auto    leaseSeconds = leaseSetting.isNull() || leaseSetting.asInteger() <= 0 ? defaultLeaseSeconds
+                                                                                            : leaseSetting.asInteger();
+        m_coordinator = make_unique<Coordinator>(
+            m_server->getNodeName(), storage->getRedis()->getRedisUrl(), chrono::seconds(leaseSeconds),
+            [this] { return connectedPeerNames(); },
+            [this](const bool online) { m_server->onClusterStateChanged(online); });
+        m_coordinatorView = m_coordinator.get();
+    }
+    return *m_coordinator;
+}
+
+void Cluster::startCoordinator()
+{
+    coordinatorForCluster().start();
+}
+
+vector<string> Cluster::connectedPeerNames() const
+{
+    vector<string> names;
+    for (const auto& node: m_connectedNodes.nodes())
+    {
+        if (node->isConnected() && node->getName() != m_server->getNodeName())
+        {
+            names.push_back(node->getName());
+        }
+    }
+    return names;
 }
 
 SNode Cluster::findClusterNode(const std::string& nodeName) const
@@ -185,6 +235,13 @@ void Cluster::registerConnectedNode(const SNode& node)
                    {
                        return "Connected node '" + node->getName() + "'.";
                    });
+
+        // The coordinator gives a lease to every node it has a link to: this one need not wait
+        // for the next renewal to get its own.
+        if (auto* coordinator = m_coordinatorView.load())
+        {
+            coordinator->nudge();
+        }
     }
     catch (const Exception& e)
     {
@@ -340,6 +397,20 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
         throw Exception("Cluster nodes must use the same database.");
     }
 
+    // This node is in a cluster from now on, as its first member if it was alone. The joining node
+    // is admitted here, before it is linked back to: a full cluster refuses it without a link.
+    startCoordinator();
+    const string joiningNode = attachNodeRequest.m_this_node.m_node_name.asString().c_str();
+    if (!coordinatorForCluster().admit(joiningNode))
+    {
+        logMessage(LogPriority::Error, [&joiningNode]
+                   {
+                       return format("Node [{}] can't join: the cluster has {} nodes already, the most it supports.",
+                                     joiningNode, Coordinator::MaxMembers);
+                   });
+        return;
+    }
+
     CCluster existingCluster;
     existingCluster.m_this_node.m_node_name = m_server->getNodeName();
 
@@ -372,6 +443,9 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
 void Cluster::onAttachNodeResponse(const SPublishMessage& message)
 {
     auto clusterSettings = deserializeMessage<CCluster>(message);
+
+    // Admitted by the node it joined through, so this only starts taking part.
+    startCoordinator();
 
     CCluster attachNodeRequest;
     attachNodeRequest.m_this_node = m_settings->m_cluster.m_this_node;
