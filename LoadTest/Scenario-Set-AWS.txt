@@ -1,16 +1,1 @@
-# Common comparison set for Mosquitto, FlashMQ, EMQX, and XMQ.
-# Run the same scenario JSONs, in this order, on thinker10/thinker11 and on AWS.
-# Restart the selected broker before every scenario, with all other brokers stopped.
-# Enable persistence only for the persistent scenario and start it with empty storage.
-# Record broker and client versions, effective configuration, host environment,
-# interval medians, failures, NIC drops, and total set execution time.
-# Environment-specific host, port, credentials, setup, and restart commands belong
-# to the run invocation, not to this set.
-
-Fan-Out-5-1000-5-250K-5min.json
-Fan-In-50K-500-50K-50K.json
-Point-To-Point-50K-50K-50K-100K.json
-Point-To-Point-60K-persistent.json
-
-# Last because the connection run leaves the broker at peak RSS.
-500K-Connections-5000-rate.json
+Scenario-Set.txt
