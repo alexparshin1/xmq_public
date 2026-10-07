@@ -22,5 +22,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" "set -e
     sudo -n systemctl stop emqx 2>/dev/null || true
     sudo -n sed -i '/^## Load-test durable sessions/,/^## end durable sessions/d' /etc/emqx/emqx.conf
     printf '## Load-test durable sessions\ndurable_sessions { enable = $enable }\n## end durable sessions\n' | sudo -n tee -a /etc/emqx/emqx.conf >/dev/null
-    sudo -n rm -rf /var/lib/emqx/data/ds /var/lib/emqx/data/durable_storage 2>/dev/null || true"
+    data=\$(sed -nE 's/^[[:space:]]*data_dir[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\\1/p' /etc/emqx/emqx.conf | head -1)
+    data=\${data:-/var/lib/emqx}
+    sudo -n rm -rf \"\$data/ds\" \"\$data/durable_storage\" \"\$data/data/ds\" 2>/dev/null || true"
 echo "EMQX: durable sessions $enable, empty durable storage"
