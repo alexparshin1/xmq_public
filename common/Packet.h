@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include "base/xmq.h"
 #include <algorithm>
 #include <array>
 #include <sptk5/cnet>
@@ -67,11 +66,11 @@ public:
 
     ~Packet() = default;
 
-    Packet clone() const;
+    [[nodiscard]] Packet clone() const;
 
-    uint8_t* data() { return m_data.data(); }
-    const uint8_t* data() const { return m_data.data(); }
-    size_t bytes() const { return m_data.size(); }
+    [[nodiscard]] uint8_t* data() { return m_data.data(); }
+    [[nodiscard]] const uint8_t* data() const { return m_data.data(); }
+    [[nodiscard]] size_t bytes() const { return m_data.size(); }
     void bytes(const size_t size) { m_data.resize(size); }
 
     /**
@@ -82,7 +81,7 @@ public:
      */
     std::vector<uint8_t> takeData() && { return std::move(m_data); }
 
-    size_t fullSize() const
+    [[nodiscard]] size_t fullSize() const
     {
         return m_headerSize + bytes();
     }
@@ -182,7 +181,7 @@ public:
      */
     uint32_t readVariableLength(unsigned multiplier = 1);
 
-    const std::array<uint8_t, 2>& header() const
+    [[nodiscard]] const std::array<uint8_t, 2>& header() const
     {
         return m_header;
     }

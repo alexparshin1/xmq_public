@@ -14,13 +14,10 @@
 #pragma once
 
 #include "FixedHeader.h"
-#include "VariableLength.h"
 #include "base/ProtocolVersion.h"
 #include "common/Packet.h"
 #include "common/PublishMessage.h"
-#include "base/MessageProperties.h"
 
-#include <cstdint>
 #include <vector>
 
 namespace xmq::mqtt {
@@ -115,7 +112,7 @@ public:
      * @brief Get the source node name.
      * @return Source node name.
      */
-    const std::string& getSourceNode() const override
+    [[nodiscard]] const std::string& getSourceNode() const override
     {
         return m_sourceNode;
     }

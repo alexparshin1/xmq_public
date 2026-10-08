@@ -74,7 +74,7 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, const Fi
 
     if (protocolVersion == ProtocolVersion::MqttV5)
     {
-        if (const auto propertiesLength = VariableLength::read(readPosition, availableBytes))
+        if (const auto propertiesLength = VariableLength::read(readPosition, static_cast<int>(availableBytes)))
         {
             const auto properties = make_shared<MessageProperties>();
             setProperties(properties);
