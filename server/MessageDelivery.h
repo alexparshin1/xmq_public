@@ -137,6 +137,17 @@ public:
      */
     void storeRecordBehind();
 
+    /**
+     * @brief Leave the record in Redis when this delivery is destroyed.
+     *
+     * For a session another cluster node takes over: its messages are that node's to deliver now,
+     * from their records. Queued records must have been sent first (flushPendingWrites()).
+     */
+    void keepRecord()
+    {
+        m_persisted = false;
+    }
+
     /// Send every queued record now. Called on shutdown, before storage disconnects.
     static void flushPendingWrites();
     void removeRecordAsync(const std::function<void(const size_t&)>& callback) override;

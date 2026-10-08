@@ -1079,6 +1079,30 @@ void Server::lookUpSessionThen(const SClientSession& newClientSession, const SCo
     // answer, and it would be Redis work done for somebody nobody admitted.
     using enum ExtensionHost::AuthDecision;
     const auto refused = decision == Deny || decision == Unavailable || decision == SubsystemError;
+
+    // In a cluster the session has to be this node's first: another node may be serving it, and is
+    // asked to let it go. That can take a moment, so it is waited for on a completion thread.
+    if (const auto cluster = m_cluster.load();
+        !refused && cluster && cluster->coordinator() && cluster->coordinator()->isParticipating() &&
+        connectMessage->getUsername() != "cluster" && !newClientSession->isClaimedForCluster())
+    {
+        runConnectCompletion([this, cluster, newClientSession, connectMessage, decision]
+                             {
+                                 newClientSession->setClaimedForCluster();
+                                 if (!cluster->claimSession(connectMessage->getParameters()->getClientId()))
+                                 {
+                                     const auto protocolVersion = connectMessage->getParameters()->m_protocolVersion;
+                                     connectMessage->setReasonCode(protocolVersion == ProtocolVersion::MqttV5
+                                                                       ? ReasonCode::ServerUnavailable
+                                                                       : ReasonCode::ErrorServerNotAvailable);
+                                     completePendingConnect(newClientSession, connectMessage, decision);
+                                     return;
+                                 }
+                                 lookUpSessionThen(newClientSession, connectMessage, decision);
+                             });
+        return;
+    }
+
     const auto redisStorage = getRedisStorage();
     if (refused || !redisStorage || !needsSessionLookup(connectMessage))
     {
@@ -1653,6 +1677,43 @@ void Server::attachToCluster(const Host& host, const bool encrypted) const
 void Server::detachFromCluster() const
 {
     m_cluster.load()->detachCluster();
+}
+
+bool Server::releaseSession(const string& clientId)
+{
+    const auto session = getClientSession(clientId);
+    if (!session)
+    {
+        return true;
+    }
+
+    // From here on nothing of it is written: what is in Redis is the other node's now.
+    session->markReleased();
+    closeSession(session, false);
+    getClientSessionManager()->remove(session);
+    // In memory only: the subscriptions stay in the session's record, for the other node to restore.
+    session->unsubscribeAll();
+
+    // Its queued messages: each record written, if it was still waiting to be, and left in Redis
+    // when the delivery here is dropped - removing it is what dropping a delivery normally does.
+    MessageDelivery::flushPendingWrites();
+    if (const auto queue = session->getInflightQueue())
+    {
+        logMessage(LogSubject::ClusterEvents, LogPriority::Debug,
+                   format("Session {} let go with {} queued message(s).", clientId, queue->size()));
+        queue->forEach([](const SMessageDispatch& dispatch)
+                       {
+                           if (const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch))
+                           {
+                               delivery->keepRecord();
+                           }
+                       });
+        queue->clear();
+    }
+
+    const auto redisStorage = getRedisStorage();
+    constexpr auto writesTimeout = chrono::seconds(2);
+    return !redisStorage || redisStorage->waitForWrites(writesTimeout);
 }
 
 void Server::onClusterStateChanged(const bool online)

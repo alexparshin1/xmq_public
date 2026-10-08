@@ -124,6 +124,14 @@ public:
     [[nodiscard]] bool isOnline() const;
 
     /**
+     * @return True between start() and leave(): the node is in a cluster.
+     */
+    [[nodiscard]] bool isParticipating() const
+    {
+        return m_participating.load();
+    }
+
+    /**
      * @return True while this node holds the coordinator key.
      */
     [[nodiscard]] bool isCoordinator() const
@@ -172,6 +180,34 @@ public:
      * @return False when the cluster is full.
      */
     [[nodiscard]] bool admitAbsentNode(const std::string& nodeName);
+
+    /**
+     * @brief Take a session for this node, if nobody else running holds it.
+     *
+     * session_<clientId>_owner names the node that serves the session. It is taken when it is
+     * free, this node's already, or held by a node whose lease has expired - a node that is gone,
+     * and serves nothing.
+     *
+     * @param clientId          Client id.
+     * @return Empty when the session is this node's now; otherwise the GUID of the node holding it.
+     * @throws sptk::Exception  Redis cannot be reached.
+     */
+    [[nodiscard]] std::string claimSession(const std::string& clientId);
+
+    /**
+     * @brief Hand a session this node holds to another node, which asked for it.
+     * @param clientId          Client id.
+     * @param nodeId            GUID of the node taking it.
+     * @throws sptk::Exception  Redis cannot be reached.
+     */
+    void handOverSession(const std::string& clientId, const std::string& nodeId);
+
+    /**
+     * @param nodeId            A member's GUID.
+     * @return Its name, or empty for an unknown GUID.
+     * @throws sptk::Exception  Redis cannot be reached.
+     */
+    [[nodiscard]] std::string nodeName(const std::string& nodeId);
 
     /**
      * @brief What the shared storage says about a node with this GUID.

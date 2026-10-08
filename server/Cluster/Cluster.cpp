@@ -51,11 +51,115 @@ Cluster::Cluster(Server* server)
     }
     m_connectedNodes.storeNodeRecord(m_thisNode);
     m_subscriptionSender = thread([this] { sendSubscriptions(); });
+    m_releaseWorker = thread([this] { releaseSessions(); });
 }
 
 Cluster::~Cluster()
 {
     stopSubscriptionSender();
+    stopReleaseWorker();
+}
+
+void Cluster::stopReleaseWorker()
+{
+    {
+        const scoped_lock lock(m_releaseMutex);
+        m_stopping = true;
+    }
+    m_releaseAdded.notify_all();
+    if (m_releaseWorker.joinable() && m_releaseWorker.get_id() != this_thread::get_id())
+    {
+        m_releaseWorker.join();
+    }
+}
+
+void Cluster::releaseSessions()
+{
+    unique_lock lock(m_releaseMutex);
+    while (!m_stopping)
+    {
+        m_releaseAdded.wait(lock, [this] { return m_stopping || !m_releaseRequests.empty(); });
+        while (!m_releaseRequests.empty() && !m_stopping)
+        {
+            const auto [clientId, nodeId] = m_releaseRequests.front();
+            m_releaseRequests.pop_front();
+            lock.unlock();
+            try
+            {
+                logMessage(LogPriority::Debug, [&clientId] { return format("Letting session {} go.", clientId); });
+                if (!m_server->releaseSession(clientId))
+                {
+                    logMessage(LogPriority::Warning, [&clientId]
+                               {
+                                   return format("Session {}: Redis did not confirm its writes before the handover.", clientId);
+                               });
+                }
+                if (auto* coordinator = m_coordinatorView.load())
+                {
+                    coordinator->handOverSession(clientId, nodeId);
+                }
+            }
+            catch (const Exception& e)
+            {
+                logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't hand session {} over: {}", clientId, e.what()); });
+            }
+            lock.lock();
+        }
+    }
+}
+
+bool Cluster::claimSession(const string& clientId)
+{
+    auto* coordinator = m_coordinatorView.load();
+    if (coordinator == nullptr || !coordinator->isParticipating())
+    {
+        return true;
+    }
+
+    // Long enough for a node to write out a session with a full queue; short enough to answer the
+    // client while it still waits for its CONNACK.
+    constexpr auto claimTimeout = chrono::seconds(3);
+    constexpr auto askAgainAfter = chrono::milliseconds(500);
+    const auto     giveUpAt = chrono::steady_clock::now() + claimTimeout;
+    auto           askedAt = chrono::steady_clock::time_point {};
+    try
+    {
+        for (;;)
+        {
+            const auto holder = coordinator->claimSession(clientId);
+            if (holder.empty())
+            {
+                logMessage(LogPriority::Debug, [&clientId] { return format("Session {} is this node's.", clientId); });
+                return true;
+            }
+            const auto now = chrono::steady_clock::now();
+            if (now > giveUpAt)
+            {
+                break;
+            }
+            if (now - askedAt >= askAgainAfter)
+            {
+                askedAt = now;
+                if (const auto node = findClusterNode(coordinator->nodeName(holder)); node && node->isConnected())
+                {
+                    node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(Command::ReleaseSession),
+                                                                     string_view(clientId + "\n" + m_nodeId)));
+                }
+            }
+            this_thread::sleep_for(10ms);
+        }
+    }
+    catch (const Exception& e)
+    {
+        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't claim session {}: {}", clientId, e.what()); });
+        return false;
+    }
+
+    logMessage(LogPriority::Warning, [&clientId]
+               {
+                   return format("Session {} is held by another node, which did not let it go in time.", clientId);
+               });
+    return false;
 }
 
 void Cluster::stopSubscriptionSender()
@@ -925,6 +1029,20 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
         case DisconnectClient:
             onDisconnectClientRequest(message, sender);
             break;
+        case ReleaseSession:
+        {
+            // "<client id>\n<asking node's GUID>". Let go of off this thread: it waits for Redis.
+            const string_view payload = message->payload();
+            if (const auto separator = payload.find('\n'); separator != string_view::npos)
+            {
+                {
+                    const scoped_lock lock(m_releaseMutex);
+                    m_releaseRequests.emplace_back(string(payload.substr(0, separator)), string(payload.substr(separator + 1)));
+                }
+                m_releaseAdded.notify_one();
+            }
+            break;
+        }
         case SubscriptionSnapshot:
         {
             set<string> filters;

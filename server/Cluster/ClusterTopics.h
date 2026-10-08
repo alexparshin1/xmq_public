@@ -29,7 +29,8 @@ enum class Command
     NodeDetached,
     SubscriptionSnapshot,
     SubscriptionUpdate,
-    RetainedUpdate
+    RetainedUpdate,
+    ReleaseSession
 };
 
 /**

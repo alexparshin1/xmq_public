@@ -99,6 +99,39 @@ public:
     void persist();
     void unpersist();
 
+    /**
+     * @brief Another cluster node takes this session over: from now on this one writes nothing of it
+     *        to Redis, where its state is the other node's.
+     */
+    void markReleased()
+    {
+        m_released = true;
+    }
+
+    /**
+     * @brief The CONNECT this session carries has claimed the session from the cluster already.
+     */
+    void setClaimedForCluster()
+    {
+        m_claimedForCluster = true;
+    }
+
+    /**
+     * @return True once setClaimedForCluster() has been called.
+     */
+    [[nodiscard]] bool isClaimedForCluster() const
+    {
+        return m_claimedForCluster.load();
+    }
+
+    /**
+     * @return True once markReleased() has been called.
+     */
+    [[nodiscard]] bool isReleased() const
+    {
+        return m_released.load();
+    }
+
     bool initSession(const std::string& clientId, bool cleanSession);
 
     /**
@@ -138,6 +171,8 @@ public:
 private:
     std::shared_ptr<sptk::RedisConnect> m_redisConnection;   ///< Redis connection.
     std::optional<sptk::Variant>        m_prefetchedSession; ///< See setPrefetchedSession(); consumed by the next lookup.
+    std::atomic_bool                    m_released {false};  ///< See markReleased().
+    std::atomic_bool                    m_claimedForCluster {false}; ///< See setClaimedForCluster().
 };
 
 } // namespace xmq

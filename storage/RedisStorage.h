@@ -54,6 +54,13 @@ public:
     void connect() const;
     void disconnect() const;
 
+    /**
+     * @brief Wait until every command queued on the pool's connections so far has been answered.
+     * @param timeout           How long to wait for each connection.
+     * @return False if a connection did not finish in time.
+     */
+    [[nodiscard]] bool waitForWrites(std::chrono::milliseconds timeout) const;
+
     [[nodiscard]] Server* server() const
     {
         return m_server;

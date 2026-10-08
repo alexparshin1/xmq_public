@@ -201,6 +201,19 @@ public:
     void onClusterStateChanged(bool online);
 
     /**
+     * @brief Let another cluster node take a session over: drop it here and leave its state in Redis.
+     *
+     * The client, if connected, is disconnected. The session stops receiving here - its
+     * subscriptions are withdrawn from this node - and nothing more of it is written to Redis. What
+     * it had queued is written first, and kept: those messages are the other node's to deliver now.
+     * Returns once Redis holds all of it, so the other node finds the session whole.
+     *
+     * @param clientId          Client id.
+     * @return False if Redis did not confirm the writes in time.
+     */
+    bool releaseSession(const std::string& clientId);
+
+    /**
      * @brief Grant topic subscription to a client ID.
      * @param client            Client ID.
      * @param topic             Destination topic.

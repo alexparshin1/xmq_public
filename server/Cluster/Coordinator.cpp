@@ -110,6 +110,21 @@ if redis.call('HGET', KEYS[3], ARGV[2]) == ARGV[1] then redis.call('HDEL', KEYS[
 redis.call('DEL', KEYS[4], KEYS[5])
 return 1)";
 
+// Take a session's ownership: free, ours already, or held by a node that is gone. Answers '' when it
+// is ours now, else the holder's GUID.
+const string ClaimSessionScript = R"(
+local owner = redis.call('GET', KEYS[1])
+if (not owner) or owner == ARGV[1] or redis.call('EXISTS', ARGV[2] .. owner) == 0 then
+  redis.call('SET', KEYS[1], ARGV[1])
+  return ''
+end
+return owner)";
+
+// Give a session this node holds to the node that asked for it.
+const string HandOverSessionScript = R"(
+if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2]) end
+return 1)";
+
 // The members in order: name, TLS address and whether it holds its lease, three values each.
 const string MembersScript = R"(
 local out = {}
@@ -308,6 +323,27 @@ bool Coordinator::admitAbsentNode(const string& nodeName)
     const auto        admitted = eval(AdmitAbsentScript, {MembersKey, AdmissionKey, NamesKey, NodePrefix + id},
                                       {id, nodeName, to_string(MaxMembers)});
     return !admitted.empty() && admitted[0].asInt64() == Joined;
+}
+
+string Coordinator::claimSession(const string& clientId)
+{
+    const scoped_lock lock(m_mutex);
+    const auto        result = eval(ClaimSessionScript, {format("session_{}_owner", clientId)}, {m_nodeId, AlivePrefix});
+    return result.empty() ? string() : string(result[0].asString().c_str());
+}
+
+void Coordinator::handOverSession(const string& clientId, const string& nodeId)
+{
+    const scoped_lock lock(m_mutex);
+    (void) eval(HandOverSessionScript, {format("session_{}_owner", clientId)}, {m_nodeId, nodeId});
+}
+
+string Coordinator::nodeName(const string& nodeId)
+{
+    const scoped_lock lock(m_mutex);
+    connectRedis();
+    const auto name = m_redis.getHashValue(NodePrefix + nodeId, "name");
+    return name.isNull() ? string() : string(name.asString().c_str());
 }
 
 int Coordinator::membership(RedisConnect& redis, const string& nodeId)

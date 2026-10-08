@@ -254,6 +254,22 @@ void MessageQueue::sendWaitingMessages(const ForwardMessage& forwardMessage)
     }
 }
 
+void MessageQueue::forEach(const ForwardMessage& action) const
+{
+    const scoped_lock lock(m_mutex);
+    for (const auto& dispatch: views::values(m_inflightMessages))
+    {
+        action(dispatch);
+    }
+    if (m_waitingMessages)
+    {
+        for (const auto& dispatch: *m_waitingMessages)
+        {
+            action(dispatch);
+        }
+    }
+}
+
 vector<SMessageDispatch> MessageQueue::enqueuedMessages() const
 {
     const scoped_lock lock(m_mutex);

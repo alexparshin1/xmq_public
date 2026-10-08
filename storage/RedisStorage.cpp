@@ -61,6 +61,24 @@ void RedisStorage::connect() const
     m_cleanupConnection->connect(m_redisUrl);
 }
 
+bool RedisStorage::waitForWrites(const chrono::milliseconds timeout) const
+{
+    vector<SRedisConnect> connections;
+    {
+        const scoped_lock lock(m_mutex);
+        connections = m_sharedConnections;
+    }
+    bool finished = true;
+    for (const auto& connection: connections)
+    {
+        if (connection && connection->isConnected() && !connection->waitForAsyncCompletion(timeout))
+        {
+            finished = false;
+        }
+    }
+    return finished;
+}
+
 void RedisStorage::disconnect() const
 {
     const scoped_lock lock(m_mutex);

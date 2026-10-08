@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <set>
 #include <thread>
 #include <vector>
@@ -88,6 +89,20 @@ public:
      * Called once the listeners are open: the members link back to this node.
      */
     void rejoinInBackground();
+
+    /**
+     * @brief Make a client's session this node's before its CONNECT is completed here.
+     *
+     * A session is served by one node at a time (see Coordinator::claimSession()). When another node
+     * that is running holds it, that node is asked to let it go - it disconnects the client, writes
+     * out what the session holds and hands it over - and this waits for it. Nothing to do for a node
+     * that is not in a cluster.
+     *
+     * @param clientId          Client id.
+     * @return False when the session could not be had in time: the CONNECT is refused, and the
+     *         client may try again.
+     */
+    [[nodiscard]] bool claimSession(const std::string& clientId);
 
     /**
      * @return This node's GUID.
@@ -301,6 +316,23 @@ private:
     std::string                          m_nodeId;                 ///< This node's GUID.
     std::thread                          m_rejoinThread;           ///< Links to the other members after startup().
     std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
+
+    /// A session another node asked for, to be let go of: client id and the asking node's GUID.
+    using ReleaseRequest = std::pair<std::string, std::string>;
+    std::mutex                           m_releaseMutex;           ///< Guards the release queue.
+    std::condition_variable              m_releaseAdded;           ///< Wakes the release worker.
+    std::deque<ReleaseRequest>           m_releaseRequests;        ///< Guarded by m_releaseMutex.
+    std::thread                          m_releaseWorker;          ///< Lets sessions go, off the link's thread.
+
+    /**
+     * @brief The release worker: lets each requested session go and hands it over.
+     */
+    void releaseSessions();
+
+    /**
+     * @brief Stop the release worker and wait for it.
+     */
+    void stopReleaseWorker();
 
     /**
      * @brief Link to a member that is running, which links this node to the rest.

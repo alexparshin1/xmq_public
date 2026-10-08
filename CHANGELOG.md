@@ -26,6 +26,10 @@ Requires SPTK 5.6.14.
   a member that starts again rejoins the same way. A node may not take another node's name, a node
   running elsewhere already does not start again, and a node that is not a cluster node refuses to
   start on a database a cluster uses.
+- **A session lives on one cluster node, and moves to the node its client connects to.** Redis
+  records which node serves each session. A client connecting to another node takes its persistent
+  session along - subscriptions and queued messages - and the node it leaves disconnects it and
+  lets the session go first. A session whose node is gone is taken over the same way.
 - **Cluster links require MQTT+SSL.** The reserved `cluster` account is refused on plain MQTT
   connections. A node advertises its TLS endpoint, and outgoing links use the local node's keys
   and certificate verification settings. Existing experimental cluster configurations must set

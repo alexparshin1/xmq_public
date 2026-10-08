@@ -87,6 +87,13 @@ public:
 
     std::vector<SMessageDispatch> enqueuedMessages() const;
 
+    /**
+     * @brief Call an action for every message in the queue - the queued objects themselves, where
+     *        enqueuedMessages() hands out copies - in flight first, then waiting. Under the queue's lock.
+     * @param action            Action to call.
+     */
+    void forEach(const ForwardMessage& action) const;
+
 private:
     using MessageDispatchMap = XMQ_MAP_TYPE<MessageId, SMessageDispatch>;
 

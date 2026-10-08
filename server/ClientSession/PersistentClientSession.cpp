@@ -45,7 +45,7 @@ PersistentClientSession::PersistentClientSession(Server*                        
 
 void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreType)
 {
-    if (!m_redisConnection)
+    if (!m_redisConnection || m_released)
     {
         return;
     }
@@ -95,7 +95,7 @@ void PersistentClientSession::redisRemoveSession(const Buffer& sessionData, cons
 
 void PersistentClientSession::redisRemoveSession(const string& clientId, bool removeSessionMessages)
 {
-    if (!m_redisConnection)
+    if (!m_redisConnection || m_released)
     {
         return;
     }
@@ -352,6 +352,10 @@ void PersistentClientSession::unpack(const Buffer& sourceData, std::string& node
 
 void PersistentClientSession::storeRecordAsync(const function<void()>&)
 {
+    if (m_released)
+    {
+        return;
+    }
     Buffer buffer;
     pack(buffer);
     if (const auto redis = getRedis())
@@ -379,6 +383,10 @@ bool PersistentClientSession::load()
 
 void PersistentClientSession::persist()
 {
+    if (m_released)
+    {
+        return;
+    }
     if (isCleanSession())
     {
         redisRemoveSession(getClientId(), true);

@@ -6,7 +6,7 @@
 - [ ] from the outside, cluster behaves as a very large broker. If there is an external load balancer in the front,
   the illusion should be complete.
 
-- [ ] client id is unique within the cluster. For sequential connections using the same Client ID, the later connection takes over the
+- [x] client id is unique within the cluster. For sequential connections using the same Client ID, the later connection takes over the
   session and the previous connection is closed. If connections with the same Client ID arrive concurrently at different nodes,
   either one connection survives or both may be disconnected. After conflict resolution, two active owners of the session must not
   remain, and its persistent state must not be corrupted. Clients may retry.
@@ -17,12 +17,14 @@
 
 - [ ] cluster sessions are persistent and must survive the reboot of any node. If a node goes down, the online node(s) should
   take over orphaned sessions. A coordinator node may distribute the orphaned sessions between online nodes.
+  Done: a session of a node that is gone is taken over by the node its client connects to, with what was queued for it.
+  Left: taking orphaned sessions over before their clients come back, so that they go on receiving meanwhile.
 
 - [ ] every node must use the same logical Redis storage and cluster data namespace as the coordinator. Storage belongs
   to the cluster and remains unchanged on coordinator succession. Access to that storage is required for client service;
   a node must not fall back to an independent Redis instance.
 
-- [ ] any MQTT client can connect to arbitrary node of the cluster. The cluster automatically migrates the session
+- [x] any MQTT client can connect to arbitrary node of the cluster. The cluster automatically migrates the session
   from its previous owner to the node to which the client has connected.
 
 - [x] any connections between cluster nodes are MQTT+SSL (encrypted).
@@ -53,6 +55,8 @@
 - [ ] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
   below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
   reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
+  Known gap: while a live session moves, a message published on the node it leaves, after that node let it go and
+  before it learned the subscription is the other node's (a few milliseconds), reaches nobody.
 
 - [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
@@ -201,6 +205,23 @@ Restoring a connection to the coordinator does not immediately restore client se
    session ownership.
 3. Resolve stale ownership and any state conflicts before routing messages or accepting clients.
 4. Obtain a new client-service lease and only then enter cluster-online state.
+
+## Session ownership
+
+A session is served by one node at a time. `session_<clientId>_owner` holds that node's GUID; a node takes it when it
+is free, its own already, or held by a node whose lease has expired - a node that is gone. Before a CONNECT is
+completed, the node it arrived at takes the session:
+
+1. It claims the owner key. If another running node holds it, that node is asked (`$CLUSTER/request/release_session`)
+   to let the session go, and the claim is repeated until it succeeds - for up to three seconds, after which the
+   CONNECT is refused as "server unavailable" and the client may try again.
+2. The node letting go disconnects the client, if connected, and drops the session from memory without touching its
+   record: its subscriptions are withdrawn on that node only, its queued messages are written if they were still
+   waiting to be and their records kept. Once Redis has confirmed all of it, it hands the owner key to the asking node.
+3. The asking node loads the session from Redis - subscriptions and queued messages - as a node restoring its own
+   sessions does, and advertises its subscriptions to the other nodes.
+
+Two nodes claiming the same session at once end with one owner; the other CONNECT waits or is refused.
 
 ## Shared Redis storage
 
