@@ -43,15 +43,15 @@ mqtt::PublishMessage::PublishMessage(const Topic* destination, const string_view
     memcpy(m_payload, data.data(), m_payloadSize);
     writePosition += m_payloadSize;
 
-    m_messageData.bytes(writePosition - m_messageData.data());
+    m_messageData.resize(writePosition - m_messageData.data());
 
     setRetain(retain);
 }
 
 mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, const FixedHeader& fixedHeader, Packet&& messageData, const ProtocolVersion protocolVersion)
-    : m_messageData(std::move(messageData))
+    : m_messageData(std::move(messageData).takeData())
 {
-    const auto payloadSize = static_cast<uint32_t>(m_messageData.bytes());
+    const auto payloadSize = static_cast<uint32_t>(m_messageData.size());
     auto*      readPosition = m_messageData.data();
     auto       availableBytes = payloadSize;
 
@@ -93,7 +93,7 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, const Fi
 
 mqtt::PublishMessage::PublishMessage(const PublishMessage& other)
     : xmq::PublishMessage(other)
-    , m_messageData(other.m_messageData.clone())
+    , m_messageData(other.m_messageData)
     , m_destination(other.m_destination)
     , m_payloadSize(other.m_payloadSize)
 {

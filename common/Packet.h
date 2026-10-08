@@ -18,6 +18,7 @@
 #include <array>
 #include <sptk5/cnet>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace xmq {
@@ -72,6 +73,14 @@ public:
     const uint8_t* data() const { return m_data.data(); }
     size_t bytes() const { return m_data.size(); }
     void bytes(const size_t size) { m_data.resize(size); }
+
+    /**
+     * @brief Release the packet body, leaving the read state behind.
+     *
+     * PublishMessage keeps only the body once it has been parsed; taking the
+     * vector moves it out without a copy.
+     */
+    std::vector<uint8_t> takeData() && { return std::move(m_data); }
 
     size_t fullSize() const
     {

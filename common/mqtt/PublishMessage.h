@@ -20,6 +20,9 @@
 #include "common/PublishMessage.h"
 #include "base/MessageProperties.h"
 
+#include <cstdint>
+#include <vector>
+
 namespace xmq::mqtt {
 
 /**
@@ -128,11 +131,11 @@ public:
     }
 
 private:
-    Packet       m_messageData;
-    const Topic* m_destination;
-    uint8_t*     m_payload {nullptr};
-    uint32_t     m_payloadSize {0};
-    std::string  m_sourceNode;
+    std::vector<uint8_t> m_messageData;
+    const Topic*         m_destination;
+    uint8_t*             m_payload {nullptr};
+    uint32_t             m_payloadSize {0};
+    std::string          m_sourceNode;
 };
 
 using SPublishMessage = std::shared_ptr<PublishMessage>;
