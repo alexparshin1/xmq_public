@@ -385,11 +385,7 @@ MessageId Session::postMessage(const SMessage& message, Qos qos, const Subscript
     // MQTT wants a ping only when nothing else was sent. The deadline used to move on the ping
     // alone, so a session publishing twice a second still pinged on schedule - a hundred thousand
     // of them, through one serial timer.
-    if (const auto period = m_keepAlivePeriod.load(std::memory_order_relaxed);
-        period > 0s)
-    {
-        m_nextKeepAliveTime.store(DateTime::clock::now() + period, std::memory_order_relaxed);
-    }
+    postponeKeepAlive();
     return messageId;
 }
 
@@ -760,6 +756,14 @@ tuple<DateTime::time_point, bool> Session::nextKeepAlive()
     return {deadline, true};
 }
 
+void Session::postponeKeepAlive() noexcept
+{
+    if (const auto period = m_keepAlivePeriod.load(std::memory_order_relaxed); period > 0s)
+    {
+        m_nextKeepAliveTime.store(DateTime::clock::now() + period, std::memory_order_relaxed);
+    }
+}
+
 void Session::scheduleKeepAlive(const bool init)
 {
     if (auto [nextKeepAliveTime, sendKeepAlive] = nextKeepAlive();
@@ -842,6 +846,9 @@ void Session::autoAck(const Message* message)
 
     const unique_lock lock(m_mutex);
     sendMessageUnlocked(messageDispatch);
+
+    // The acknowledgement just went out, so the ping is not needed yet - see postponeKeepAlive().
+    postponeKeepAlive();
 }
 
 void Session::appendAckBatchUnlocked(const Message& message)
@@ -874,6 +881,11 @@ void Session::flushAckBatchUnlocked()
             m_logger->error(e.what());
             closeSocketUnlocked();
         }
+
+        // A QoS acknowledgement is a control packet, and MQTT wants a ping only when nothing else
+        // was sent. These acks go straight to the socket, so this is the only place a session that
+        // is only receiving can say it is still talking - and it must, or it pings on schedule.
+        postponeKeepAlive();
     }
     m_ackBatchBuffer.bytes(0);
 }

@@ -336,6 +336,19 @@ private:
     void                                         scheduleKeepAlive(bool init = false);
     std::tuple<sptk::DateTime::time_point, bool> nextKeepAlive();
 
+    /**
+     * @brief Push the next keep-alive ping back by one period: said whenever a control packet is
+     * sent.
+     *
+     * MQTT wants a ping only when nothing else was sent, and every send path has to say so here -
+     * not just postMessage(). A QoS acknowledgement is a control packet like any other, and acks
+     * are batched straight to the socket; a subscriber that only receives used to keep its ping
+     * due the whole run. Every subscriber of a scenario subscribes inside the same connect ramp,
+     * so they all pinged together: a latency spike at the keep-alive mark, worse the more
+     * subscribers the scenario had.
+     */
+    void postponeKeepAlive() noexcept;
+
     bool isSendQueueEmpty() const;
 
     ReasonCode doConnect(const sptk::Host& host, const ConnectCredentials& credentials,
