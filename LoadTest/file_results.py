@@ -91,11 +91,24 @@ def main():
     directory = RESULTS / args.env / (version if broker == "XMQ" else f"{broker}-{version}")
     directory.mkdir(parents=True, exist_ok=True)
 
+    # Every target is checked before any is written. Checked one at a time inside the write loop,
+    # the first file that already existed ended the run with the files before it already replaced:
+    # a version filed twice left a directory of tables from two different campaigns, and the
+    # release check cannot see that - it only asks that each file is not empty.
+    targets = []
     for name, table in tests.items():
         target = directory / f"{name}.txt"
         if target.exists() and not args.force:
             sys.exit(f"{target} exists; --force replaces it")
-        target.write_text("\n".join(header) + "\n\n" + "\n".join(table) + "\n")
+        targets.append((target, table))
+
+    for target, table in targets:
+        # Written beside the target and moved onto it, so a filing interrupted partway leaves the
+        # old file or the new one and never half a table - which the release check, asking only
+        # that the file is not empty, would take for a result.
+        staged = target.with_name(target.name + ".tmp")
+        staged.write_text("\n".join(header) + "\n\n" + "\n".join(table) + "\n")
+        staged.replace(target)
         print(target.relative_to(RESULTS.parent))
 
 

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <base/xmq.h>
+
 #include <algorithm>
 #include <array>
 #include <sptk5/cnet>
