@@ -160,10 +160,55 @@ void ServerNode::setState(const ServerNodeState state)
     m_nodeSettings.m_node_state = static_cast<int>(state);
 }
 
+void ServerNode::subscribe(const std::string& topic)
+{
+    try
+    {
+        m_mqttClient.subscribe(Destination(client::MqttClient::getTopic(topic),
+                                           SubscriptionOptions(Qos::Qos1, SubscribeRetainHandling::DoNotRetain, true)));
+    }
+    catch (const Exception& e)
+    {
+        m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
+                             format("Can't subscribe to '{}' on node '{}': {}", topic, getName(), e.what()));
+    }
+}
+
+void ServerNode::unsubscribe(const std::string& topic)
+{
+    try
+    {
+        m_mqttClient.unsubscribe(Destination(client::MqttClient::getTopic(topic)));
+    }
+    catch (const Exception& e)
+    {
+        m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
+                             format("Can't unsubscribe from '{}' on node '{}': {}", topic, getName(), e.what()));
+    }
+}
+
+MessageId ServerNode::publish(const std::shared_ptr<PublishMessage>& message)
+{
+    // A link that breaks under a write - the other node stopped, or the network failed - is the
+    // link's business, and is noticed and reconnected there. It must not reach the caller: the
+    // callers are the cluster's own threads (subscription sender, release worker, the link's
+    // receiver answering a join), and an exception leaving one of them ends the process. FreeBSD
+    // reports a write to a closed TLS connection this way where Linux does not.
+    try
+    {
+        return m_mqttClient.publish(*message);
+    }
+    catch (const Exception& e)
+    {
+        m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
+                             format("Can't send to node '{}': {}", getName(), e.what()));
+    }
+    return 0;
+}
+
 MessageId ServerNode::publish(const Command command, const WSComplexType& message)
 {
-    const auto publishMessage = make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(command), string_view(message.toString()));
-    return m_mqttClient.publish(*publishMessage);
+    return publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(command), string_view(message.toString())));
 }
 
 void ServerNode::setRecordId(const RecordId recordId)

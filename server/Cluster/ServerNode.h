@@ -113,29 +113,24 @@ public:
      *
      * @param topic The topic to subscribe to.
      */
-    void subscribe(const std::string& topic)
-    {
-        m_mqttClient.subscribe(Destination(client::MqttClient::getTopic(topic),
-                                           SubscriptionOptions(Qos::Qos1, SubscribeRetainHandling::DoNotRetain, true)));
-    }
+    void subscribe(const std::string& topic);
 
     /**
      * @brief Unsubscribes from a specific topic on the node.
      * @param topic The topic to unsubscribe from.
      */
-    void unsubscribe(const std::string& topic)
-    {
-        m_mqttClient.unsubscribe(Destination(client::MqttClient::getTopic(topic)));
-    }
+    void unsubscribe(const std::string& topic);
 
     /**
      * @brief Publishes a message to the node.
+     *
+     * Like subscribe() and unsubscribe(), never throws: a link that breaks under a write is logged
+     * and left to its own reconnection.
+     *
      * @param message The message to be published.
+     * @return The message id, or 0 when it could not be sent.
      */
-    MessageId publish(const std::shared_ptr<PublishMessage>& message)
-    {
-        return m_mqttClient.publish(*message);
-    }
+    MessageId publish(const std::shared_ptr<PublishMessage>& message);
 
     /**
      * @brief Publishes a message to the node.
