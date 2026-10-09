@@ -112,6 +112,22 @@ struct CClusterCheck
     std::string          m_topic;
     std::string          m_payload;
     std::chrono::seconds m_timeout {10};
+    /// Seconds to wait after the subscription is acknowledged and before anything is published.
+    ///
+    /// A node learns of a subscription a client of another node takes only when the cluster tells
+    /// it, and a check that publishes the moment it is subscribed asks the cluster about something
+    /// it may not have been told yet: the message then arrives nowhere, and it is not clear whether
+    /// the route or the timing was at fault. Waiting moves that question out of the way.
+    std::chrono::seconds m_settle {0};
+    /// A command that asks the node itself whether the subscription is there - the web service the
+    /// configuration interface uses, or anything else - and the text its answer has to contain.
+    ///
+    /// Carried out between the subscription and the publication, on the machine the test runs on,
+    /// so its answer says whether the node holds the subscription rather than whether a message
+    /// found its way to it: those are different questions, and a delivery that failed answers only
+    /// the second.
+    std::string          m_verifyCommand;
+    std::string          m_verifyContains;
     bool                 m_expectConnected {true};
 };
 

@@ -7,7 +7,17 @@
     "The load is the small point-to-point scenario: publishers on node3 (thinker11), subscribers on",
     "node6 (theater), so every message in it crosses a machine boundary. node6 is taken away at 40s",
     "and brought back at 70s; the checks then ask whether the cluster is whole again, whether every",
-    "machine still serves clients, and whether traffic crosses the hosts."
+    "machine still serves clients, and whether traffic crosses the hosts.",
+    "",
+    "Four messages are carried before anything is done to the cluster, written as the four corners of",
+    "one question: whether a publication reaches a subscriber on another node, and if not, whether it",
+    "is the pair of machines, the direction, or the machine itself. thinker11 to theater; theater to",
+    "thinker10; theater to theater; theater to thinker11. A fifth is carried after node6 comes back.",
+    "One check in a corner is a curiosity; four of them say what the shape of the failure is.",
+    "",
+    "They run early and with short timeouts, so that a corner that does not answer cannot push the",
+    "rest of the timeline: the node has to be taken away at 40s as the load expects, not once the",
+    "checks have run out of patience."
   ],
   "server": {
     "username": "user",
@@ -65,6 +75,10 @@
     }
   ],
   "timeline": [
+    { "at": 10, "action": "check", "check": "publish on thinker11, subscribe on theater" },
+    { "at": 14, "action": "check", "check": "publish on theater, subscribe on thinker10" },
+    { "at": 18, "action": "check", "check": "publish on theater, subscribe on theater" },
+    { "at": 22, "action": "check", "check": "publish on theater, subscribe on thinker11" },
     { "at": 40, "action": "stop", "node": "node6" },
     { "at": 70, "action": "start", "node": "node6" },
     { "at": 100, "action": "check" }
@@ -113,14 +127,59 @@
       "expect": true
     },
     {
-      "name": "a message crosses the machines",
+      "name": "publish on thinker11, subscribe on theater",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node3",
       "subscribe-node": "node6",
-      "topic": "cluster/test/across-machines",
-      "payload": "across",
-      "timeout": 15
+      "topic": "cluster/test/thinker11-to-theater",
+      "payload": "thinker11-to-theater",
+      "timeout": 5,
+      "settle": 3
+    },
+    {
+      "name": "publish on theater, subscribe on thinker10",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node5",
+      "subscribe-node": "node1",
+      "topic": "cluster/test/theater-to-thinker10",
+      "payload": "theater-to-thinker10",
+      "timeout": 5,
+      "settle": 3
+    },
+    {
+      "name": "publish on theater, subscribe on theater",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node5",
+      "subscribe-node": "node6",
+      "topic": "cluster/test/theater-to-theater",
+      "payload": "theater-to-theater",
+      "timeout": 5,
+      "settle": 3
+    },
+    {
+      "name": "publish on theater, subscribe on thinker11",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node6",
+      "subscribe-node": "node3",
+      "topic": "cluster/test/theater-to-thinker11",
+      "payload": "theater-to-thinker11",
+      "timeout": 5,
+      "settle": 3
+    },
+    {
+      "name": "publish on thinker11, subscribe on theater after the restart",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node3",
+      "subscribe-node": "node6",
+      "topic": "cluster/test/after-the-restart",
+      "payload": "after-the-restart",
+      "timeout": 15,
+      "settle": 3
     },
     {
       "name": "a retained message crosses the machines",

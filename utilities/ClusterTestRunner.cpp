@@ -23,6 +23,7 @@
 #include <sptk5/net/URL.h>
 
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <mutex>
@@ -650,6 +651,32 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
     }
     subscriber.subscribe(check.m_topic);
 
+    // The node the subscriber is on knows the subscription at once; the node the publication will
+    // be sent to learns of it when the cluster tells it, and a check that publishes before that has
+    // happened is asking about the timing rather than about the route.
+    if (check.m_settle.count() > 0)
+    {
+        this_thread::sleep_for(check.m_settle);
+    }
+
+    // What the node itself says, before anything is published: whether the subscription is there at
+    // all. A delivery that failed cannot tell these apart, which is the reason this exists.
+    if (!check.m_verifyCommand.empty())
+    {
+        auto answer = captureCommand(check.m_verifyCommand);
+        if (answer.find(check.m_verifyContains) == string::npos)
+        {
+            if (answer.length() > 300)
+            {
+                answer.resize(300);
+            }
+            detail = format("the node does not hold the subscription: '{}' answered '{}'",
+                            check.m_verifyCommand, answer);
+            subscriber.disconnect();
+            return false;
+        }
+    }
+
     if (!retain)
     {
         if (const auto reasonCode = publisher.connect(publishServer, credentials(publisherId),
@@ -766,6 +793,26 @@ string ClusterTestRunner::checkClientId(const string_view checkName) const
     // out of the way of the load's own ids.
     return format("xmq_scn_cluster-{}-{}", string(checkName).substr(0, 24),
                   ++m_checkClientSequence);
+}
+
+string ClusterTestRunner::captureCommand(const string& command) const
+{
+    // popen rather than a pipe of our own: the command is a shell command by design - a curl against
+    // a node's web service, as likely as anything else - and the tool already runs the nodes
+    // themselves through a shell.
+    string output;
+    FILE*  pipe = popen(command.c_str(), "r");
+    if (pipe == nullptr)
+    {
+        return output;
+    }
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+    {
+        output += buffer;
+    }
+    pclose(pipe);
+    return output;
 }
 
 ProtocolVersion ClusterTestRunner::checkProtocolVersion() const

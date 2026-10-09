@@ -147,6 +147,14 @@ private:
     [[nodiscard]] std::string checkClientId(std::string_view checkName) const;
 
     /**
+     * @brief Run a command and take what it printed, for a check that has to be told something.
+     *
+     * A shell command, because what is asked is as likely to be a web service of a node as an ssh
+     * to another machine, and the tool already reaches the nodes that way.
+     */
+    [[nodiscard]] std::string captureCommand(const std::string& command) const;
+
+    /**
      * @brief The protocol the checks speak.
      *
      * MQTT 5 unless the command line asked for another: the cluster is 5 territory - session

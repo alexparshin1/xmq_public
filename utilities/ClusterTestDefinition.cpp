@@ -259,6 +259,15 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
             item.m_topic = text(raw, "topic");
             item.m_payload = text(raw, "payload");
             item.m_timeout = chrono::seconds(integer(raw, "timeout", 10));
+            item.m_settle = chrono::seconds(integer(raw, "settle", 0));
+            item.m_verifyCommand = text(raw, "verify-command");
+            item.m_verifyContains = text(raw, "verify-contains");
+            if (!item.m_verifyCommand.empty() && item.m_verifyContains.empty())
+            {
+                throw Exception(format("Check '{}' runs a verification but says nothing to look for in "
+                                       "its answer: give it 'verify-contains' as well.",
+                                       item.m_name));
+            }
 
             if (action == "connect")
             {
