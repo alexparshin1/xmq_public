@@ -55,8 +55,6 @@
 - [ ] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
   below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
   reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
-  Known gap: while a live session moves, a message published on the node it leaves, after that node let it go and
-  before it learned the subscription is the other node's (a few milliseconds), reaches nobody.
 
 - [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
@@ -186,7 +184,12 @@ In cluster-offline state a node:
 - Retries Redis, and serves clients again as soon as it renews its lease.
 
 A node that leaves the cluster gives up the coordinator key if it holds it, frees its place among the members and
-serves its own clients as a standalone broker again.
+loses the subscriptions it received while it was one - the filters of the others' clients, held on it by their links -
+so that it routes nothing for the cluster any more. The sessions it served are the cluster's, not its own: it gives
+up their ownership keys, so that the cluster takes them over at once, disconnects those clients, and refuses a
+CONNECT naming a client id that has a session in the cluster's storage - serving one would make a second owner of a
+session the cluster holds, and its client would keep a session the cluster no longer serves. It serves clients of
+its own again once it is started on storage of its own.
 
 ### Succession
 
@@ -206,6 +209,42 @@ Restoring a connection to the coordinator does not immediately restore client se
 3. Resolve stale ownership and any state conflicts before routing messages or accepting clients.
 4. Obtain a new client-service lease and only then enter cluster-online state.
 
+### A node that joins while starting must not end the process
+
+`Cluster::startCoordinator()` has four callers: two as the node starts, from the membership it reads in the storage,
+and two from the link's own message handling - `onAttachNodeRequest()` and `onAttachNodeResponse()` - which run on that
+session's receive thread. `Coordinator::start()` asks under its mutex whether the thread is already there, and returns
+if it is, but assigns `m_thread` after the lock is let go (`Coordinator.cpp:189-235`). Two callers arriving together
+therefore both pass the question, and the second assignment lands on a joinable `std::thread`: that is
+`std::terminate`, and with it the process. The node that dies may be the one that was only told about a neighbour; the
+one that asked sees no more than the link it tried failing.
+
+The backtrace ends at that assignment rather than at an exception, which is what tells the two apart - an exception
+leaving the handler would show the throw in between: `std::terminate()` called directly by
+`xmq::cluster::Coordinator::start()`, called by `xmq::cluster::Cluster::onAttachNodeRequest()`, called by
+`ClientSession::handlePublishMessage()`, from `ClientSession::receiveMessages()`.
+
+What it takes is for the node's own startup and an incoming attach to reach that function together. Starting both nodes
+of a stand at the same moment is exactly that: each asks the other, and each handles the asking while still starting
+itself.
+
+1. Two nodes on one host sharing one Redis, which is what the stand arranges (`LoadTest/Cluster/stand.sh up`).
+2. `stand.sh down`, then `up`, so both start together. Watch for a node to go within a second or two of `Server
+   started`: its console log ends with `terminate called without an active exception`, its ports stop listening, and
+   the other logs `Node <name> couldn't connect to node <address>`.
+3. The window is the few microseconds between the lock being released and the thread being assigned, so it does not
+   come out every run: in one session it took three restarts of three, and attempts in a row afterwards did not reach
+   it at all. Repeating `down; up` is what brings it out. The line stays in the node's console log, so the count of
+   them grows across runs and is the more reliable check - the node can go a few seconds after the moment a fixed
+   liveness check looks, and a process that is gone is otherwise easy to mistake for a stand that was never up.
+4. Under a debugger, a node run as `gdb -batch -ex run -ex "thread apply all bt" --args xmq_server -c <node
+   configuration>` while the other is restarted prints the backtrace above when it is the one that aborts. A debugger
+   slows the startup enough to hide a race by itself, so the node that is not under it is the better one to watch.
+
+The question and the assignment belong under the same lock: asking whether the thread is there is worth something only
+if the thread is installed before the lock is let go. Nothing in the storage or in the other node is at fault here, and
+an emptied storage does not prevent it.
+
 ## Session ownership
 
 A session is served by one node at a time. `session_<clientId>_owner` holds that node's GUID; a node takes it when it
@@ -216,10 +255,21 @@ completed, the node it arrived at takes the session:
    to let the session go, and the claim is repeated until it succeeds - for up to three seconds, after which the
    CONNECT is refused as "server unavailable" and the client may try again.
 2. The node letting go disconnects the client, if connected, and drops the session from memory without touching its
-   record: its subscriptions are withdrawn on that node only, its queued messages are written if they were still
-   waiting to be and their records kept. Once Redis has confirmed all of it, it hands the owner key to the asking node.
+   record: its queued messages are written if they were still waiting to be and their records kept. Once Redis has
+   confirmed all of it, it hands the owner key to the asking node. It forwards for a while after that: a publication
+   matching the filters the session had, sent here by a node that still counts this one among the subscribers for
+   them, is sent on to the node the owner key now names. It stops when that node advertises those filters itself,
+   and in any case after one renewal. The forwarding is what keeps a move from losing a publication. The same
+   publication may then reach the session twice - routed to its new node directly, and forwarded to it - so the
+   node that took the session delivers one it has already delivered there only once, matching it by the origin it
+   carries: the node that first took it from a publishing client, and that node's sequence number for it. That
+   window lasts as long as the forwarding may, and it is what keeps a QoS 2 delivery exactly once across a move
+   instead of relying on the latitude QoS 1 gives for duplicates.
 3. The asking node loads the session from Redis - subscriptions and queued messages - as a node restoring its own
-   sessions does, and advertises its subscriptions to the other nodes.
+   sessions does, and advertises its subscriptions to the other nodes. The subscriptions are advertised before they
+   are withdrawn, and withdrawn on the node letting go only after that, so most of what arrives in between is already
+   routed to where the session now is and only the rest needs forwarding: whichever of the two a node saw first, the
+   publication finds the session.
 
 Two nodes claiming the same session at once end with one owner; the other CONNECT waits or is refused.
 
@@ -279,7 +329,9 @@ Routing is those subscriptions: a node subscribes on every other node to the fil
 clients use, and nothing else, so a publication travels only to the nodes that have a subscriber
 for it, and once to each - a node is one session on the others, and a session gets one copy
 however many of its filters match. A publication forwarded by another node is never handed to a
-cluster link, so nothing travels twice. A `$share` group spread over nodes gets each message once
+cluster link, so nothing travels twice - except one sent on for a session that has just moved, to
+the node its owner key names: that node delivers it to the session it holds and, arriving itself
+over a link, forwards it no further. A `$share` group spread over nodes gets each message once
 in the whole cluster: on each node the links to the others are members of the group, and a member
 that may not take the message - a link, for a message that came over one - is passed over for the
 next, never handed it and then skipped.
@@ -287,14 +339,38 @@ next, never handed it and then skipped.
 ## Retained messages
 
 Every node holds every retained message, whether or not anyone there subscribes. A change made on
-a node - set, replaced or cleared - is sent to all the other nodes in its own cluster message
-(`$CLUSTER/request/retained`), stamped with the cluster time (the storage clock), and a node takes
-it only if it is newer than what it holds; changes made in the same millisecond are ordered by
-content, so every node picks the same one. A cleared topic leaves a tombstone for 24 hours. A node
-that connects to another sends it all its records, tombstones included, so a node that was down or
-cut off neither misses a change nor brings a cleared message back. `$SYS` stays each node's own.
-Publications forwarded between nodes carry no retained state, and the links subscribe without
-retained replay, so a joining node does not re-deliver retained messages to subscribers.
+a node - set, replaced or cleared - is committed in the shared storage, which allocates it the next
+revision for its topic, and is then sent to all the other nodes in its own cluster message
+(`$CLUSTER/request/retained`) carrying that revision together with the state the commit left. A node
+takes it only if the revision is greater than the one it has applied - equal revisions are repeats of
+the same commit - and ignores it otherwise. The storage clock does not order retained changes; the
+revision does, and it is allocated by the same atomic commit that writes the state, so no node
+compares clocks with another and no timing can reorder them. The commit is not waited for: the change
+is acknowledged to the publisher as soon as the node has taken it, and the storage write follows
+behind. Writes are issued in the order the changes were taken - one writer, in order - so that two
+changes to the same topic are numbered in the order they were accepted. A node that dies before a
+write lands has lost a retained change whose publisher was already acknowledged. A cleared topic
+leaves a tombstone carrying its revision, so that a node which was away is told of the clear instead
+of being left to keep what it had. Tombstones are not forgotten by a timer: each member writes into the storage, with
+the renewal of its lease and not on every change, the greatest retained revision it has applied in
+each shard (`cluster:retained_watermark:<guid>`), and a record - a value or a tombstone - may be
+forgotten once every member that holds a lease has passed its revision in that shard. A member which
+was away when that happened is not consulted: it synchronizes from the storage rather than offering
+what it kept, so forgetting never waits on a node that is down. Revisions are handed out per shard
+(`cluster:retained_rev:<k>`, `k` the topic's hash modulo the shard count), so that changes to
+different topics do not queue behind one another on a single key, while changes to the same topic
+serialise in the storage in any case - they change one record - and a per-topic revision needs no
+shared key at all. A member advances its counters only over what it has applied, so a counter that
+lags only delays forgetting. Nodes exchange their records on connecting, tombstones included, so a
+node which was down or cut off neither misses a change nor brings a cleared message back; a node
+whose counters are below what the storage still keeps offers none of its own and synchronizes from
+the storage instead, since a change is applied only after the storage has committed it and a node's
+memory is never the authority for a retained message. `$SYS` stays each node's own.
+Publications forwarded between nodes carry no retained state, and carry the origin they were first
+taken from a client at: the node, and its sequence number for that publication. That is what the
+node holding a session that has just moved matches on to deliver a publication once; the links
+subscribe without retained replay, so a joining node does not re-deliver retained messages to
+subscribers.
 
 ## Release plan
 
