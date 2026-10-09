@@ -23,7 +23,15 @@ ADD_EXECUTABLE(xmq_con
 
 ADD_EXECUTABLE(xmq_scn ScenarioMain.cpp)
 
+# The cluster test orchestrator: the same load scenarios, run while the cluster is changed under them.
+ADD_EXECUTABLE(xmq_scn_cluster
+        ClusterTestMain.cpp
+        ClusterTestRunner.cpp ClusterTestRunner.h
+        ClusterTestDefinition.cpp ClusterTestDefinition.h
+        ClusterTestCommandLine.cpp ClusterTestCommandLine.h)
+
 TARGET_LINK_LIBRARIES(xmq_pub xmq_server_core xmq_base xmq_storage xmq_common xmq_utils xmq_client)
 TARGET_LINK_LIBRARIES(xmq_sub xmq_server_core xmq_base xmq_storage xmq_common xmq_utils xmq_client)
 TARGET_LINK_LIBRARIES(xmq_con xmq_server_core xmq_base xmq_storage xmq_common xmq_utils xmq_client)
 TARGET_LINK_LIBRARIES(xmq_scn xmq_server_core xmq_base xmq_storage xmq_common xmq_utils xmq_client xmq_service xmq_scenario)
+TARGET_LINK_LIBRARIES(xmq_scn_cluster xmq_server_core xmq_base xmq_storage xmq_common xmq_utils xmq_client xmq_service xmq_scenario)

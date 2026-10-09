@@ -1,0 +1,55 @@
+{
+  "name": "the load alone, with nothing done to the cluster",
+  "comments": [
+    "The baseline for the tests that change the cluster under the load: the same scenario and the",
+    "same checks with an empty timeline. What it measures is what the cluster does when it is left",
+    "alone, which is what the other tests are read against."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      { "name": "publishers", "node": "node1" },
+      { "name": "subscribers", "node": "node2" }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "node1",
+      "host": "thinker11",
+      "port": 2884,
+      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node2",
+      "host": "thinker11",
+      "port": 2885,
+      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+    }
+  ],
+  "timeline": [],
+  "checks": [
+    {
+      "name": "both nodes are members",
+      "kind": "redis",
+      "uri": "redis://thinker11:6379/4",
+      "command": "ZCARD cluster:members",
+      "expect": "2"
+    },
+    {
+      "name": "a message crosses the cluster",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node1",
+      "subscribe-node": "node2",
+      "topic": "cluster/test/baseline",
+      "payload": "cross-node",
+      "timeout": 15
+    }
+  ]
+}

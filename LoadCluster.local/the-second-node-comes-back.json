@@ -1,0 +1,85 @@
+{
+  "name": "the second node is taken away and brought back under load",
+  "comments": [
+    "Run from the client host: the timeline's commands go to the machine the stand runs on, which is",
+    "why they are 'ssh thinker11 ...'. A test file owns its commands, so a stand on another host, a",
+    "farm service or a container is the same file with different words here and nothing else.",
+    "The nodes carry their own addresses, so the load and the checks name a node instead of repeating",
+    "a port - pointing this file at another stand means editing the nodes and nothing else."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      { "name": "publishers", "node": "node1" },
+      { "name": "subscribers", "node": "node2" }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "node1",
+      "host": "thinker11",
+      "port": 2884,
+      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node2",
+      "host": "thinker11",
+      "port": 2885,
+      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+    }
+  ],
+  "timeline": [
+    { "at": 30, "action": "stop", "node": "node2" },
+    { "at": 60, "action": "start", "node": "node2" },
+    { "at": 100, "action": "check" }
+  ],
+  "checks": [
+    {
+      "name": "both nodes are members",
+      "kind": "redis",
+      "uri": "redis://thinker11:6379/4",
+      "command": "ZCARD cluster:members",
+      "expect": "2"
+    },
+    {
+      "name": "a coordinator is leading",
+      "kind": "redis",
+      "uri": "redis://thinker11:6379/4",
+      "command": "GET cluster:coordinator",
+      "nonempty": true
+    },
+    {
+      "name": "the node that was away serves clients again",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node2",
+      "expect": true
+    },
+    {
+      "name": "a message crosses the cluster",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node1",
+      "subscribe-node": "node2",
+      "topic": "cluster/test/cross",
+      "payload": "cross-node",
+      "timeout": 15
+    },
+    {
+      "name": "a retained message crosses the cluster",
+      "kind": "mqtt",
+      "action": "retained",
+      "publish-node": "node2",
+      "subscribe-node": "node1",
+      "topic": "cluster/test/retained",
+      "payload": "retained-across",
+      "timeout": 15
+    }
+  ]
+}
