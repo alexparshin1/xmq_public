@@ -328,7 +328,12 @@ private:
     mutable std::mutex                       m_connectArgumentsMutex;
     std::shared_ptr<const CConnectArguments> m_connectArguments;
 
-    std::jthread m_reconnectWorker; ///< Bringing the client back, when it was asked to come back.
+    // std::thread and a flag rather than std::jthread: FreeBSD's libc++ has no jthread.
+    std::thread      m_reconnectWorker;           ///< Bringing the client back, when it was asked to come back.
+    std::atomic_bool m_stopReconnect {false};     ///< Asks the worker to stop waiting.
+
+    /// Stop the reconnect worker and wait for it - unless this is the worker, which then just lets go.
+    void stopReconnectWorker();
 
     /**
      * @brief Connect the client to a server host.

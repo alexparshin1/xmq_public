@@ -43,9 +43,26 @@ MqttClient::MqttClient(const std::shared_ptr<LogEngine>& logEngine,
     m_clientIndex = nextClientIndex++;
 }
 
+void MqttClient::stopReconnectWorker()
+{
+    if (!m_reconnectWorker.joinable())
+    {
+        return;
+    }
+    if (m_reconnectWorker.get_id() == this_thread::get_id())
+    {
+        m_reconnectWorker.detach();
+        return;
+    }
+    m_stopReconnect = true;
+    m_reconnectWorker.join();
+    m_stopReconnect = false;
+}
+
 MqttClient::~MqttClient()
 {
     m_messageCallbackState->closing = true;
+    stopReconnectWorker();
     disconnect();
     // Receivers retain the guard independently of this object. New calls see closing;
     // calls already in previewMessage must return before the members are destroyed.
@@ -316,8 +333,9 @@ void MqttClient::startReconnect()
         return;
     }
 
-    m_reconnectWorker = std::jthread(
-        [this, callbackState = m_messageCallbackState, arguments](const std::stop_token& token)
+    stopReconnectWorker();
+    m_reconnectWorker = std::thread(
+        [this, callbackState = m_messageCallbackState, arguments]
         {
             // The waiting grows and is scattered; see ConnectParameters. The scatter is drawn per
             // client, from its own index, so that two clients of a run never share a moment - which
@@ -338,7 +356,7 @@ void MqttClient::startReconnect()
                 // the waiting too.
                 for (int64_t waited = 0; waited < wait.count(); waited += 200)
                 {
-                    if (token.stop_requested() || callbackState->closing.load())
+                    if (m_stopReconnect.load() || callbackState->closing.load())
                     {
                         m_reconnecting.store(false);
                         return;
