@@ -36,13 +36,20 @@ struct CClusterTimelineStep
     {
         StopNode,  ///< Take a node away, the way a crash or a restart takes it.
         StartNode, ///< Bring it back.
-        Checks     ///< Run the named check, or every check that has not run yet.
+        Checks,    ///< Run the named check, or every check that has not run yet.
+        Run        ///< Run a shell command: what a stop or a start cannot say - the network cut, say.
     };
 
     Action               m_action {Action::Checks};
     std::chrono::seconds m_at {0};
-    std::string          m_node;  ///< StopNode and StartNode.
-    std::string          m_check; ///< Checks: by name, or empty for all outstanding ones.
+    std::string          m_node;    ///< StopNode and StartNode.
+    std::string          m_check;   ///< Checks: by name, or empty for all outstanding ones.
+    std::string          m_command; ///< Run: the command; exiting non-zero fails the test.
+    /// Checks of one named check: run it again every this many seconds, up to m_until, and pass only
+    /// if every run passed. What a cluster does in the middle of something - refuse clients while it
+    /// cannot reach its storage - is a span, and a single look at its end says nothing about it.
+    std::chrono::seconds m_every {0};
+    std::chrono::seconds m_until {0};
 };
 
 /**
@@ -170,6 +177,11 @@ public:
     /// Empty where the scenario itself says where its clients go.
     std::map<std::string, std::string> m_loadGroups;
     std::vector<CClusterNode>         m_nodes;
+    /// Commands run before the load starts; one that fails stops the test before anything happens.
+    std::vector<std::string>          m_before;
+    /// Commands run when the test is over, whatever happened in it - undoing what the timeline did to
+    /// the network, reading the nodes' logs. One that fails fails the test.
+    std::vector<std::string>          m_after;
     std::vector<CClusterTimelineStep> m_timeline; ///< In the order it happens, whatever the file says.
     std::vector<CClusterCheck>        m_checks;
 };

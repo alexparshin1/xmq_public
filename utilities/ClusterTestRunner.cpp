@@ -98,6 +98,7 @@ string expectation(const CClusterCheck& check)
 
 ClusterTestRunner::ClusterTestRunner(const vector<string>& args)
     : Utility(make_shared<ClusterTestCommandLine>(args))
+    , m_args(args)
 {
 }
 
@@ -107,6 +108,107 @@ const ClusterTestCommandLine& ClusterTestRunner::arguments() const
 }
 
 int ClusterTestRunner::run()
+{
+    const string suite = commandLine().getOptionValue("suite").c_str();
+    const auto   repeat = max(1, static_cast<int>(commandLine().getOptionValue("repeat").toInt()));
+    if (!suite.empty() || repeat > 1)
+    {
+        return runSuite(suite, repeat);
+    }
+    return runOne();
+}
+
+int ClusterTestRunner::runSuite(const string& suite, const int repeat) const
+{
+    vector<filesystem::path> files;
+    if (suite.empty())
+    {
+        files.emplace_back(commandLine().getOptionValue("scenario").c_str());
+    }
+    else if (filesystem::is_directory(suite))
+    {
+        // A cluster test is a file with a timeline; the load scenarios it names sit beside it.
+        for (const auto& entry : filesystem::directory_iterator(suite))
+        {
+            if (entry.path().extension() != ".json")
+            {
+                continue;
+            }
+            Buffer content;
+            content.loadFromFile(entry.path());
+            if (string_view(content.c_str(), content.size()).find("\"timeline\"") != string_view::npos)
+            {
+                files.push_back(entry.path());
+            }
+        }
+        ranges::sort(files);
+    }
+    else
+    {
+        files.emplace_back(suite);
+    }
+    if (files.empty())
+    {
+        throw Exception(format("No cluster tests in {}.", suite));
+    }
+
+    // Each run gets a runner of its own, made from the same arguments with the file and without the
+    // suite: a run starts from nothing that the one before it left.
+    vector<string> common;
+    for (size_t i = 0; i < m_args.size(); ++i)
+    {
+        const auto& arg = m_args[i];
+        if (arg == "--suite" || arg == "--repeat" || arg == "--scenario" || arg == "-s")
+        {
+            ++i;
+            continue;
+        }
+        common.push_back(arg);
+    }
+
+    struct Run
+    {
+        string name;
+        int    attempt;
+        bool   passed;
+    };
+    vector<Run> runs;
+    for (const auto& file : files)
+    {
+        for (int attempt = 1; attempt <= repeat; ++attempt)
+        {
+            COUT("");
+            COUT(format("=== {} - run {} of {}", file.filename().string(), attempt, repeat));
+            auto args = common;
+            args.emplace_back("--scenario");
+            args.push_back(file.string());
+            bool passed = false;
+            try
+            {
+                ClusterTestRunner runner(args);
+                passed = runner.runOne() == 0;
+            }
+            catch (const exception& e)
+            {
+                CERR(format("{}: {}", file.filename().string(), e.what()));
+            }
+            runs.push_back({file.filename().string(), attempt, passed});
+        }
+    }
+
+    size_t failed = 0;
+    COUT("");
+    COUT("Suite:");
+    for (const auto& run : runs)
+    {
+        failed += run.passed ? 0 : 1;
+        COUT(format("  {}  {} (run {})", run.passed ? "PASS" : "FAIL", run.name, run.attempt));
+    }
+    COUT(format("Suite: {} run(s), {} passed, {} failed.", runs.size(), runs.size() - failed, failed));
+    return failed == 0 ? 0 : 1;
+}
+
+int ClusterTestRunner::runOne()
 {
     const auto scenarioOption = commandLine().getOptionValue("scenario");
     if (scenarioOption.empty())
@@ -127,6 +229,18 @@ int ClusterTestRunner::run()
     if (commandLine().hasOption("dry-run"))
     {
         return 0;
+    }
+
+    // Stamped from here until the load starts, so that what runs before it is timed too.
+    m_loadStarted = chrono::steady_clock::now();
+    for (const auto& command : m_test.m_before)
+    {
+        if (runCommand("before: " + command, command) != 0)
+        {
+            CERR("A command before the test failed: nothing was run.");
+            runAfterCommands();
+            return 1;
+        }
     }
 
     // The load runs on a thread of its own while the timeline changes the cluster under it. What it
@@ -181,6 +295,7 @@ int ClusterTestRunner::run()
         {
             CERR(format("The cluster is not ready after {}s: the test would measure the stand's "
                         "start-up rather than the cluster.", readyTimeout.count()));
+            runAfterCommands();
             return 1;
         }
     }
@@ -216,6 +331,8 @@ int ClusterTestRunner::run()
     }
 
     runChecks();
+    // Whatever happened above, and before the report, which counts what they say.
+    runAfterCommands();
     return report();
 }
 
@@ -311,9 +428,28 @@ void ClusterTestRunner::printPlan() const
                 COUT(format("  {:>6}  start {}", at, step.m_node));
                 break;
             case CClusterTimelineStep::Action::Checks:
-                COUT(format("  {:>6}  check {}", at, step.m_check.empty() ? "all outstanding" : step.m_check));
+                if (step.m_every > 0s)
+                {
+                    COUT(format("  {:>6}  check {}, every {}s until +{}s", at, step.m_check, step.m_every.count(),
+                                step.m_until.count()));
+                }
+                else
+                {
+                    COUT(format("  {:>6}  check {}", at, step.m_check.empty() ? "all outstanding" : step.m_check));
+                }
+                break;
+            case CClusterTimelineStep::Action::Run:
+                COUT(format("  {:>6}  run   {}", at, step.m_command));
                 break;
         }
+    }
+    for (const auto& command : m_test.m_before)
+    {
+        COUT(format("  before  {}", command));
+    }
+    for (const auto& command : m_test.m_after)
+    {
+        COUT(format("  after   {}", command));
     }
 
     COUT("");
@@ -439,7 +575,20 @@ void ClusterTestRunner::runTimeline()
                 stopOrStartNode(step);
                 break;
             case CClusterTimelineStep::Action::Checks:
-                runChecks(step.m_check);
+                if (step.m_every > 0s)
+                {
+                    repeatCheck(step);
+                }
+                else
+                {
+                    runChecks(step.m_check);
+                }
+                break;
+            case CClusterTimelineStep::Action::Run:
+                if (runCommand("run: " + step.m_command, step.m_command) != 0)
+                {
+                    ++m_failedSteps;
+                }
                 break;
         }
     }
@@ -454,44 +603,87 @@ void ClusterTestRunner::waitUntil(const chrono::seconds at) const
     }
 }
 
-void ClusterTestRunner::stopOrStartNode(const CClusterTimelineStep& step)
+int ClusterTestRunner::runCommand(const string& label, string command, const string& node) const
 {
-    const auto& node = m_test.node(step.m_node);
-    const bool  stopping = step.m_action == CClusterTimelineStep::Action::StopNode;
-    string      command = stopping ? node.m_stopCommand : node.m_startCommand;
-
     // {node} stands for the node's name, so a stand whose commands take a node as an argument has the
     // name written once in the test file and not once per node.
     for (auto at = command.find("{node}"); at != string::npos; at = command.find("{node}", at))
     {
-        command.replace(at, 6, node.m_name);
+        command.replace(at, 6, node);
     }
 
     const auto started = chrono::steady_clock::now();
     const int  status = system(command.c_str());
     const auto elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - started).count();
-
-    // The exit code of the command, as a shell would report it: what system() returns is a wait
-    // status, and printing that as a number says nothing to anybody.
 #ifdef _WIN32
     const int exitCode = status;
 #else
     const int exitCode = WEXITSTATUS(status);
 #endif
-
     if (exitCode != 0)
     {
-        // A step that failed is a test that did not happen: the checks that follow would pass against
-        // a cluster nothing was done to, and say so with confidence. So it is a failure of the test,
-        // and the command is printed to say which one.
-        ++m_failedSteps;
-        CERR(format("{}  {} {} FAILED: '{}' exited with {}",
-                    stamp(m_loadStarted), node.m_name, stopping ? "stop" : "start", command, exitCode));
-        return;
+        CERR(format("{}  {} FAILED: '{}' exited with {}", stamp(m_loadStarted), label, command, exitCode));
     }
+    else
+    {
+        COUT(format("{}  {} ({:.1f}s)", stamp(m_loadStarted), label, static_cast<double>(elapsed) / 1000.0));
+    }
+    return exitCode;
+}
 
-    COUT(format("{}  {} {} ({:.1f}s)", stamp(m_loadStarted), node.m_name,
-                stopping ? "stopped" : "started", static_cast<double>(elapsed) / 1000.0));
+void ClusterTestRunner::repeatCheck(const CClusterTimelineStep& step)
+{
+    size_t index = 0;
+    while (m_test.m_checks[index].m_name != step.m_check)
+    {
+        ++index;
+    }
+    m_ran[index] = true;
+    const auto& check = m_test.m_checks[index];
+
+    // Every look has to pass: a span is broken by one moment that was not what it should be.
+    size_t runs = 0;
+    string firstFailure;
+    for (auto at = step.m_at; at <= step.m_until; at += step.m_every)
+    {
+        waitUntil(at);
+        string detail;
+        ++runs;
+        if (!runCheck(check, detail) && firstFailure.empty())
+        {
+            firstFailure = format("{}: {}", stamp(m_loadStarted), detail);
+        }
+    }
+    const bool passed = firstFailure.empty();
+    const auto detail = passed ? format("held from {}s to {}s, {} look(s)", step.m_at.count(), step.m_until.count(), runs)
+                               : format("broke at {}", firstFailure);
+    COUT(format("{}  {}  {}: {}", stamp(m_loadStarted), passed ? "PASS" : "FAIL", check.m_name, detail));
+    m_outcomes.push_back({check.m_name, passed, detail});
+}
+
+void ClusterTestRunner::runAfterCommands()
+{
+    for (const auto& command : m_test.m_after)
+    {
+        if (runCommand("after: " + command, command) != 0)
+        {
+            ++m_failedSteps;
+        }
+    }
+}
+
+void ClusterTestRunner::stopOrStartNode(const CClusterTimelineStep& step)
+{
+    const auto& node = m_test.node(step.m_node);
+    const bool  stopping = step.m_action == CClusterTimelineStep::Action::StopNode;
+
+    // A step that failed is a test that did not happen: the checks that follow would pass against a
+    // cluster nothing was done to, and say so with confidence. So it is a failure of the test.
+    if (runCommand(format("{} {}", node.m_name, stopping ? "stop" : "start"),
+                   stopping ? node.m_stopCommand : node.m_startCommand, node.m_name) != 0)
+    {
+        ++m_failedSteps;
+    }
 }
 
 void ClusterTestRunner::runChecks(const string& only)
@@ -802,8 +994,8 @@ int ClusterTestRunner::report() const
 
     if (m_failedSteps > 0)
     {
-        CERR(format("  ----  {} timeline step(s) failed: the cluster was not changed the way the test "
-                    "says, so the checks above passed against a cluster nothing was done to",
+        CERR(format("  ----  {} step(s) failed - of the timeline, or the commands after it: the cluster was "
+                    "not changed the way the test says, or what was looked at after it was not right",
                     m_failedSteps));
     }
 

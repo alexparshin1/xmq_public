@@ -1,11 +1,10 @@
 {
   "name": "the second node is taken away and brought back under load",
   "comments": [
-    "Run from the client host: the timeline's commands go to the machine the stand runs on, which is",
-    "why they are 'ssh thinker11 ...'. A test file owns its commands, so a stand on another host, a",
-    "farm service or a container is the same file with different words here and nothing else.",
-    "The nodes carry their own addresses, so the load and the checks name a node instead of repeating",
-    "a port - pointing this file at another stand means editing the nodes and nothing else."
+    "A node is taken away under load and brought back: the load's subscribers are on it, so the",
+    "cluster has to take their sessions back when it returns. On the default stand of stand.sh -",
+    "six nodes, two on each of thinker10, thinker11 and theater - run from thinker10, where",
+    "~/cluster/stand.sh reaches every node by itself."
   ],
   "server": {
     "username": "user",
@@ -14,43 +13,60 @@
   "load": {
     "scenario": "cluster-p2p-small.json",
     "groups": [
-      { "name": "publishers", "node": "node1" },
-      { "name": "subscribers", "node": "node2" }
+      {
+        "name": "publishers",
+        "node": "node1"
+      },
+      {
+        "name": "subscribers",
+        "node": "node4"
+      }
     ]
   },
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker11",
+      "host": "thinker10",
       "port": 2884,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
     },
     {
-      "name": "node2",
+      "name": "node4",
       "host": "thinker11",
-      "port": 2885,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "port": 2887,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
     }
   ],
   "timeline": [
-    { "at": 30, "action": "stop", "node": "node2" },
-    { "at": 60, "action": "start", "node": "node2" },
-    { "at": 100, "action": "check" }
+    {
+      "at": 30,
+      "action": "stop",
+      "node": "node4"
+    },
+    {
+      "at": 60,
+      "action": "start",
+      "node": "node4"
+    },
+    {
+      "at": 100,
+      "action": "check"
+    }
   ],
   "checks": [
     {
-      "name": "both nodes are members",
+      "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://theater:6379/4",
       "command": "ZCARD cluster:members",
-      "expect": "2"
+      "expect": "6"
     },
     {
       "name": "a coordinator is leading",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://theater:6379/4",
       "command": "GET cluster:coordinator",
       "nonempty": true
     },
@@ -58,7 +74,7 @@
       "name": "the node that was away serves clients again",
       "kind": "mqtt",
       "action": "connect",
-      "node": "node2",
+      "node": "node4",
       "expect": true
     },
     {
@@ -66,7 +82,7 @@
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node1",
-      "subscribe-node": "node2",
+      "subscribe-node": "node4",
       "topic": "cluster/test/cross",
       "payload": "cross-node",
       "timeout": 15
@@ -75,11 +91,17 @@
       "name": "a retained message crosses the cluster",
       "kind": "mqtt",
       "action": "retained",
-      "publish-node": "node2",
+      "publish-node": "node4",
       "subscribe-node": "node1",
       "topic": "cluster/test/retained",
       "payload": "retained-across",
       "timeout": 15
     }
+  ],
+  "before": [
+    "~/cluster/stand.sh mark"
+  ],
+  "after": [
+    "~/cluster/stand.sh check-logs"
   ]
 }

@@ -1,0 +1,142 @@
+{
+  "name": "the storage goes away from one machine and comes back",
+  "comments": [
+    "thinker11 loses the shared storage for 40 seconds - the network drops what it sends there, as a",
+    "lost route does: nothing refuses, nothing answers. Its two nodes have to stop serving clients",
+    "once their leases run out, and serve again soon after the storage is back; the other machines",
+    "carry on. On the default stand of stand.sh, run from thinker10. The 'after' commands give the",
+    "route back whatever happened, so a failed run does not leave thinker11 without its storage."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      {
+        "name": "publishers",
+        "node": "node1"
+      },
+      {
+        "name": "subscribers",
+        "node": "node2"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "node1",
+      "host": "thinker10",
+      "port": 2884,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node2",
+      "host": "thinker10",
+      "port": 2885,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node3",
+      "host": "thinker11",
+      "port": 2886,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node5",
+      "host": "theater",
+      "port": 2888,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    }
+  ],
+  "before": [
+    "~/cluster/stand.sh mark"
+  ],
+  "timeline": [
+    {
+      "at": 20,
+      "action": "run",
+      "command": "ssh thinker11 sudo -n iptables -I OUTPUT -p tcp -d theater --dport 6379 -j DROP"
+    },
+    {
+      "at": 30,
+      "action": "check",
+      "check": "thinker10 carries on"
+    },
+    {
+      "at": 30,
+      "action": "check",
+      "check": "theater carries on"
+    },
+    {
+      "at": 36,
+      "action": "check",
+      "check": "thinker11 refuses clients without its storage",
+      "every": 4,
+      "until": 56
+    },
+    {
+      "at": 60,
+      "action": "run",
+      "command": "ssh thinker11 'while sudo -n iptables -D OUTPUT -p tcp -d theater --dport 6379 -j DROP 2>/dev/null; do :; done'"
+    },
+    {
+      "at": 75,
+      "action": "check"
+    }
+  ],
+  "after": [
+    "ssh thinker11 'while sudo -n iptables -D OUTPUT -p tcp -d theater --dport 6379 -j DROP 2>/dev/null; do :; done'",
+    "~/cluster/stand.sh check-logs"
+  ],
+  "checks": [
+    {
+      "name": "thinker11 refuses clients without its storage",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node3",
+      "expect": false
+    },
+    {
+      "name": "thinker10 carries on",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node1"
+    },
+    {
+      "name": "theater carries on",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node5"
+    },
+    {
+      "name": "thinker11 serves again",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node3"
+    },
+    {
+      "name": "a message reaches thinker11 again",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "node1",
+      "subscribe-node": "node3",
+      "topic": "cluster/test/storage-back",
+      "payload": "storage-back",
+      "timeout": 15,
+      "settle": 3
+    },
+    {
+      "name": "a coordinator is leading",
+      "kind": "redis",
+      "uri": "redis://theater:6379/4",
+      "command": "GET cluster:coordinator",
+      "nonempty": true
+    }
+  ]
+}

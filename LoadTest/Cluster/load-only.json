@@ -12,44 +12,56 @@
   "load": {
     "scenario": "cluster-p2p-small.json",
     "groups": [
-      { "name": "publishers", "node": "node1" },
-      { "name": "subscribers", "node": "node2" }
+      {
+        "name": "publishers",
+        "node": "node1"
+      },
+      {
+        "name": "subscribers",
+        "node": "node3"
+      }
     ]
   },
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker11",
+      "host": "thinker10",
       "port": 2884,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
     },
     {
-      "name": "node2",
+      "name": "node3",
       "host": "thinker11",
-      "port": 2885,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "port": 2886,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
     }
   ],
   "timeline": [],
   "checks": [
     {
-      "name": "both nodes are members",
+      "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://theater:6379/4",
       "command": "ZCARD cluster:members",
-      "expect": "2"
+      "expect": "6"
     },
     {
       "name": "a message crosses the cluster",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node1",
-      "subscribe-node": "node2",
+      "subscribe-node": "node3",
       "topic": "cluster/test/baseline",
       "payload": "cross-node",
       "timeout": 15
     }
+  ],
+  "before": [
+    "~/cluster/stand.sh mark"
+  ],
+  "after": [
+    "~/cluster/stand.sh check-logs"
   ]
 }

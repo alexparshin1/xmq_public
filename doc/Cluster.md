@@ -90,6 +90,7 @@ broker, for what the cluster must not make worse.
 | client id unique, takeover | unit: `enforceUniqueClientId`, `connectedClientIsTakenOverAcrossNodes`, `sessionMovesToTheNodeItsClientConnectsTo`, `clusterAndOrdinarySessionsCannotTakeOverEachOther` |
 | coordinator, leases, succession | unit: `firstNodeCoordinatesAndEveryNodeIsOnline`, `nextNodeInOrderSucceedsTheCoordinator`, `coordinatorChangeDoesNotDisturbClients`, `clientsNeverSeeTheClusterAssignment` |
 | sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; stand: `the-second-node-comes-back.json` |
+| a node starts while others attach to it | unit: `coordinatorStartedTwiceAtOnceStartsOnce`; stand: `stand.sh up`, every node at once |
 | a client may connect to any node | stand: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
 | encrypted internode links | unit: `clusterCredentialsRequireTls`, `unencryptedClusterJoinIsRejected`, `unencryptedPeerRecordIsRejected`, `clusterLinkRequiresTrustedCertificate`, `clusterLinkRefusesUntrustedCertificate`, `peerTlsUsesLocalKeys` |
 | one logical storage, no fallback | unit: `nodeWithoutStorageServesNoClients`, `standaloneNodeMayNotUseAClustersDatabase` |
@@ -98,7 +99,7 @@ broker, for what the cluster must not make worse.
 | subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |
 | shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
 | retained, including a node that was away | unit: `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
-| cluster-offline, and returning to service | stand: a node stopped and started under load; it does not serve again - `LoadTest/Cluster/README.md`, *Known to be broken* |
+| cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; stand: `the-storage-goes-away-from-one-machine.json` |
 | in-flight shared-subscription deliveries across a failure | not covered |
 | a load balancer in front | not covered |
 | the cluster as one broker in `$SYS` | not decided |
@@ -245,6 +246,9 @@ Restoring a connection to the coordinator does not immediately restore client se
 4. Obtain a new client-service lease and only then enter cluster-online state.
 
 ### A node that joins while starting must not end the process
+
+Fixed: the thread is installed under the lock that asks whether it is there
+(`coordinatorStartedTwiceAtOnceStartsOnce`). What follows is how it was found.
 
 `Cluster::startCoordinator()` has four callers: two as the node starts, from the membership it reads in the storage,
 and two from the link's own message handling - `onAttachNodeRequest()` and `onAttachNodeResponse()` - which run on that
