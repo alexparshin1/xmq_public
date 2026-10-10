@@ -506,13 +506,25 @@ command_deploy() {
     fi
     stamp="commit=$commit sha256=$(sha256sum "$binary" | cut -c1-12) from=$(hostname):$binary"
     libs=$(ldd "$binary" | awk '{print $3}' | grep "^$HOME/" || true)
+    local failed=0
     for host in "$@"; do
+        # Copied beside it and renamed over it: a running node keeps the old file open, and writing
+        # into that fails ("text file busy") - after which the stamp below used to claim a server the
+        # machine did not have.
         if [ "$host" = "$LOCAL_HOST" ]; then
-            [ "$binary" = "$(readlink -f "$SERVER")" ] || cp -f "$binary" "$SERVER"
+            if [ "$binary" != "$(readlink -f "$SERVER")" ]; then
+                cp -f "$binary" "$SERVER.new" && mv -f "$SERVER.new" "$SERVER" || { echo "$host: copy failed" >&2; failed=1; continue; }
+            fi
         else
             ssh -o BatchMode=yes "$host" "mkdir -p \"$(dirname "$SERVER")\" \"$STAND_DIR\" \$HOME/sptk/lib"
-            scp -q "$binary" "$host:$SERVER"
-            for lib in $libs; do scp -q "$lib" "$host:sptk/lib/"; done
+            if ! scp -q "$binary" "$host:$SERVER.new" || ! ssh -o BatchMode=yes "$host" "mv -f \"$SERVER.new\" \"$SERVER\""; then
+                echo "$host: copy failed" >&2; failed=1; continue
+            fi
+            for lib in $libs; do
+                scp -q "$lib" "$host:sptk/lib/$(basename "$lib").new" &&
+                    ssh -o BatchMode=yes "$host" "mv -f sptk/lib/$(basename "$lib").new sptk/lib/$(basename "$lib")" ||
+                    { echo "$host: $lib copy failed" >&2; failed=1; }
+            done
             # The stand's own scripts go along: a timeline step runs them on that machine, and a
             # copy left from an older stand there answers for this one.
             scp -q "$HERE/stand.sh" "$HERE/redis_query.py" "$HERE/redis_proxy.py" "$host:$STAND_DIR/"
@@ -520,6 +532,7 @@ command_deploy() {
         on_host "$host" "echo '$stamp' > \"$SERVER.source\""
         echo "$host: $stamp"
     done
+    return $failed
 }
 
 command_status() {
