@@ -54,6 +54,12 @@ public:
      */
     int run() override;
 
+    /**
+     * @brief Run one test, the one --scenario names.
+     * @return 0 when everything passed.
+     */
+    int runOne();
+
 private:
     /**
      * @brief What a check answered, kept for the summary at the end.
@@ -65,7 +71,16 @@ private:
         std::string m_detail; ///< What was expected and what was there.
     };
 
-    ClusterTestDefinition m_test;
+    std::vector<std::string> m_args; ///< As given, for the runs a suite makes of them.
+    ClusterTestDefinition    m_test;
+
+    /**
+     * @brief Run every test of a suite, each as many times as asked, and sum it up.
+     * @param suite             A directory of test files, a file, or empty for --scenario's.
+     * @param repeat            Runs of each test.
+     * @return 0 when every run passed.
+     */
+    int runSuite(const std::string& suite, int repeat) const;
     std::vector<CCheckOutcome> m_outcomes;
     std::vector<bool>          m_ran; ///< One per check of the test, in its order.
     size_t                     m_failedSteps {0}; ///< Timeline steps whose command exited non-zero.
@@ -87,6 +102,16 @@ private:
     void runTimeline();
     void waitUntil(std::chrono::seconds at) const;
     void stopOrStartNode(const CClusterTimelineStep& step);
+    /**
+     * @brief Run a shell command of the test, and say how it went.
+     * @param label             What the command is for, to print.
+     * @param command           The command; {node} stands for the node's name, if one is given.
+     * @param node              The node the command is about, or empty.
+     * @return The command's exit code.
+     */
+    int  runCommand(const std::string& label, std::string command, const std::string& node = {}) const;
+    void repeatCheck(const CClusterTimelineStep& step);
+    void runAfterCommands();
 
     /**
      * @brief Run the named check, or every check that has not run yet.

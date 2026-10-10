@@ -46,6 +46,13 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
                     "How many rows the connect phase reports, default 10. The publish phase takes a "
                     "width instead (--result-interval); the connect phase cannot, because it ends when "
                     "the last client is connected and its length is not known in advance.");
+    defineParameter("suite", "", "directory or file", "", alwaysVisible, "",
+                    "Run every cluster test in a directory - each JSON file with a 'timeline' - or the "
+                    "one file named, one after another, and exit non-zero if any of them failed. The way "
+                    "to confirm a change on the stand after the unit tests.");
+    defineParameter("repeat", "", "number", R"(^\d+$)", alwaysVisible, "1",
+                    "Run each test this many times. A race shows in some runs and not in others, and a "
+                    "single pass says little about it.");
     defineOption("dry-run", "", alwaysVisible,
                  "Read the test file, print the plan and the checks, and exit without running anything. "
                  "A test takes minutes, and a mistake in it is cheaper to hear about here.");

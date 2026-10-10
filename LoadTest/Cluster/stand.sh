@@ -31,13 +31,33 @@
 #   stand.sh status             processes, ports, and what the cluster has written in Redis
 #   stand.sh wipe               empty this stand's Redis database, and nothing else
 #   stand.sh tail <node>        the node's console log
+#   stand.sh mark               remember where every node's logs end, for check-logs
+#   stand.sh check-logs         what the nodes logged since the mark: a crash, or a node not running,
+#                               fails it; what went cluster-offline is reported
+#   stand.sh deploy <server> <host>...
+#                               lay a server binary down on those machines, with the SPTK it was
+#                               built against, and record which commit it was built from
 #
 # Overrides: STAND_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
-# CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES.
+# CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
+#
+# `up` writes the settings it used to $STAND_DIR/stand.env on every machine of the stand, and every
+# later command reads them from there - a timeline step that runs `stand.sh stop node3` on another
+# machine means the same stand as the `up` did, without repeating the environment. A variable set
+# in the environment still wins.
 
 set -u
 
 STAND_DIR=${STAND_DIR:-$HOME/cluster}
+STAND_ENV="$STAND_DIR/stand.env"
+if [ -f "$STAND_ENV" ]; then
+    while IFS='=' read -r key value; do
+        case $key in '' | \#*) continue ;; esac
+        [ -z "${!key+x}" ] && export "$key=$value"
+    done < "$STAND_ENV"
+fi
+STAND_SETTINGS="NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
+CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
 # the release gates measure, and a test stand has no business replacing them. Laid down on every
 # machine the stand uses, which is why the path is the same everywhere.
@@ -314,13 +334,17 @@ LAUNCHER
 start_node() {
     local node=$1 dir
     dir=$(node_dir "$node")
-    stop_node "$node"
+    stop_node "$node" 2>/dev/null
     # All three streams go to the log, so the ssh that started the node has nothing left open and
     # returns at once.
     on_host "$(node_host_of "$node")" \
         "cd \"$dir\" && setsid --fork \"$dir/start.sh\" >> \"$dir/console.log\" 2>&1 < /dev/null"
-    wait_for_port "$(node_host_of "$node")" "$(client_port "$node")" 20 ||
-        echo "warning: $(node_name "$node") did not open $(client_port "$node")" >&2
+    # A start that opened nothing is a failed start: a timeline step that reported success here
+    # used to leave every check after it testing a cluster that was missing a node.
+    if ! wait_for_port "$(node_host_of "$node")" "$(client_port "$node")" 20; then
+        echo "$(node_name "$node") did not open $(client_port "$node")" >&2
+        return 1
+    fi
 }
 
 stop_node() {
@@ -328,7 +352,10 @@ stop_node() {
     dir=$(node_dir "$node")
     on_host "$(node_host_of "$node")" "
         pid_file=\"$dir/xmq_server.pid\"
-        [ -f \"\$pid_file\" ] || exit 0
+        # Nothing to stop is an answer of its own: a timeline step that stopped nothing must not
+        # pass for one that took a node away.
+        [ -f \"\$pid_file\" ] || { echo \"$(node_name "$node") is not running\" >&2; exit 3; }
+        kill -0 \"\$(cat \"\$pid_file\")\" 2>/dev/null || { rm -f \"\$pid_file\"; echo \"$(node_name "$node") is not running\" >&2; exit 3; }
         kill \"\$(cat \"\$pid_file\")\" 2>/dev/null
         for _ in \$(seq 20); do
             kill -0 \"\$(cat \"\$pid_file\")\" 2>/dev/null || break
@@ -349,7 +376,51 @@ node_state() {
     fi
 }
 
+# The settings this stand runs with, on every machine of it; see the note at the top.
+write_stand_env() {
+    local staging done_hosts=" " host
+    staging=$(mktemp)
+    for key in $STAND_SETTINGS; do
+        printf '%s=%s\n' "$key" "${!key}" >> "$staging"
+    done
+    for node in $NODES; do
+        host=$(node_host "$node")
+        case $done_hosts in *" $host "*) continue ;; esac
+        done_hosts="$done_hosts$host "
+        put_file "$node" "$STAND_ENV" "$staging"
+    done
+    rm -f "$staging"
+}
+
+# The server each machine would run, as deploy recorded it: "commit=... sha256=... from=...".
+server_stamp() {
+    on_host "$1" "cat \"$SERVER.source\" 2>/dev/null || echo 'commit=unknown (not deployed by stand.sh)'"
+}
+
+# Every machine runs a build of the same commit, or the test says nothing about that commit: a node
+# left with yesterday's server once passed for today's fix.
+check_builds() {
+    local done_hosts=" " host stamp commit commits=""
+    for node in $NODES; do
+        host=$(node_host "$node")
+        case $done_hosts in *" $host "*) continue ;; esac
+        done_hosts="$done_hosts$host "
+        stamp=$(server_stamp "$host")
+        commit=$(printf '%s' "$stamp" | sed -n 's/^commit=\([^ ]*\).*/\1/p')
+        echo "  $host: $stamp"
+        case " $commits " in *" $commit "*) ;; *) commits="$commits $commit" ;; esac
+    done
+    if [ "$(echo $commits | wc -w)" -gt 1 ] && [ "${ALLOW_MIXED_BUILDS:-0}" != 1 ]; then
+        echo "the machines run servers built from different commits:$commits - deploy one build" \
+             "everywhere, or set ALLOW_MIXED_BUILDS=1" >&2
+        return 1
+    fi
+}
+
 command_up() {
+    echo "servers:"
+    check_builds || exit 1
+    write_stand_env
     # The authority first: a node's certificate is signed by it, so it has to exist by then.
     make_certificates "$(node_spec "$(node_name "${NODES%% *}")")"
     for node in $NODES; do make_certificates "$node"; done
@@ -358,17 +429,108 @@ command_up() {
     for node in $NODES; do write_launcher "$node"; done
     # Before the nodes start, not after: the accounts are read once, as a server starts.
     set_cluster_password
-    for node in $NODES; do start_node "$node"; done
+    # A run's logs start empty, so that what check-logs finds is this run's and not a crash from
+    # the day before - which is what a log that only grows offers instead.
+    for node in $NODES; do
+        local dir
+        dir=$(node_dir "$node")
+        on_host "$(node_host_of "$node")" "cd \"$dir\" && for f in console.log xmq_server.log; do [ -f \$f ] && mv -f \$f \$f.prev; done; rm -f log.mark; true"
+    done
+    local failed=0
+    for node in $NODES; do start_node "$node" || failed=1; done
     sleep 3
     command_status
+    return $failed
 }
 
 command_down() {
-    for node in $NODES; do stop_node "$node"; done
+    for node in $NODES; do stop_node "$node" 2>/dev/null; done
+    return 0
+}
+
+# Where every node's logs end now; check-logs reads from there.
+command_mark() {
+    for node in $NODES; do
+        on_host "$(node_host_of "$node")" "cd \"$(node_dir "$node")\" && for f in console.log xmq_server.log; do printf '%s %s\\n' \$f \$( [ -f \$f ] && wc -c < \$f || echo 0); done > log.mark"
+    done
+}
+
+# What the nodes logged since the mark (or since `up`): a crash fails it, and so does a node that is
+# not running when a test is over; going cluster-offline is reported, since a test that takes the
+# storage away expects it.
+command_check_logs() {
+    local failed=0 node dir found state
+    for node in $NODES; do
+        dir=$(node_dir "$node")
+        found=$(on_host "$(node_host_of "$node")" "cd \"$dir\" 2>/dev/null || exit 0
+            for f in console.log xmq_server.log; do
+                [ -f \$f ] || continue
+                from=\$(awk -v f=\$f '\$1 == f { print \$2 }' log.mark 2>/dev/null)
+                tail -c +\$(( \${from:-0} + 1 )) \$f | grep -E 'terminate called|Segmentation fault|Aborted|core dumped|AddressSanitizer|ThreadSanitizer|std::terminate|Cluster-offline|Cluster-online' | sed \"s|^|\$f: |\"
+            done")
+        if printf '%s\n' "$found" | grep -qE 'terminate|Segmentation|Aborted|core dumped|Sanitizer'; then
+            echo "$(node_name "$node"): CRASHED"
+            printf '%s\n' "$found" | grep -E 'terminate|Segmentation|Aborted|core dumped|Sanitizer' | head -5 | sed 's/^/    /'
+            failed=1
+        fi
+        state=$(node_state "$node")
+        if [ "$state" = stopped ]; then
+            echo "$(node_name "$node"): not running"
+            failed=1
+        fi
+        # Counted in the server's own log: the console carries the same lines, the node logging to both.
+        if printf '%s\n' "$found" | grep -q '^xmq_server.log: .*Cluster-offline'; then
+            echo "$(node_name "$node"): went cluster-offline $(printf '%s\n' "$found" | grep -c '^xmq_server.log: .*Cluster-offline') time(s), came back $(printf '%s\n' "$found" | grep -c '^xmq_server.log: .*Cluster-online')"
+        fi
+    done
+    [ $failed = 0 ] && echo "node logs: no crash, every node running"
+    return $failed
+}
+
+# Lay a server down on machines of the stand: the binary where SERVER says, the SPTK libraries it
+# resolves from under $HOME into ~/sptk/lib (which every launcher puts on the library path), and a
+# stamp of the commit it was built from, which `up` compares across machines. Run on the machine the
+# build is on; the machines given have to be able to run it - the same distribution.
+command_deploy() {
+    local binary=${1:?server binary} host source_dir commit stamp libs
+    shift
+    [ $# -gt 0 ] || { echo "deploy: name the machines" >&2; exit 2; }
+    binary=$(readlink -f "$binary")
+    source_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$(dirname "$binary")/CMakeCache.txt" 2>/dev/null)
+    commit=unknown
+    if [ -n "$source_dir" ]; then
+        commit=$(git -C "$source_dir" rev-parse --short HEAD 2>/dev/null || echo unknown)
+        # What the server is built from; a change elsewhere - a test, a script - is not the server's.
+        git -C "$source_dir" diff --quiet HEAD -- server storage common base client service extension 2>/dev/null ||
+            commit="$commit-dirty"
+    fi
+    stamp="commit=$commit sha256=$(sha256sum "$binary" | cut -c1-12) from=$(hostname):$binary"
+    libs=$(ldd "$binary" | awk '{print $3}' | grep "^$HOME/" || true)
+    for host in "$@"; do
+        if [ "$host" = "$LOCAL_HOST" ]; then
+            [ "$binary" = "$(readlink -f "$SERVER")" ] || cp -f "$binary" "$SERVER"
+        else
+            ssh -o BatchMode=yes "$host" "mkdir -p \"$(dirname "$SERVER")\" \"$STAND_DIR\" \$HOME/sptk/lib"
+            scp -q "$binary" "$host:$SERVER"
+            for lib in $libs; do scp -q "$lib" "$host:sptk/lib/"; done
+            # The stand's own scripts go along: a timeline step runs them on that machine, and a
+            # copy left from an older stand there answers for this one.
+            scp -q "$HERE/stand.sh" "$HERE/redis_query.py" "$HERE/redis_proxy.py" "$host:$STAND_DIR/"
+        fi
+        on_host "$host" "echo '$stamp' > \"$SERVER.source\""
+        echo "$host: $stamp"
+    done
 }
 
 command_status() {
     echo "server under test: $SERVER (on each machine)"
+    local done_hosts=" " host
+    for node in $NODES; do
+        host=$(node_host "$node")
+        case $done_hosts in *" $host "*) continue ;; esac
+        done_hosts="$done_hosts$host "
+        echo "  $host: $(server_stamp "$host")"
+    done
     echo "redis: $REDIS_URI"
     for node in $NODES; do
         printf '%-6s %s\n' "$(node_name "$node")" "$(node_state "$node")"
@@ -404,6 +566,9 @@ case "${1:-help}" in
     stop)    stop_node "${2:?node}" ;;
     status)  command_status ;;
     wipe)    command_wipe ;;
+    mark)    command_mark ;;
+    check-logs) command_check_logs ;;
+    deploy)  shift; command_deploy "$@" ;;
     tail)    on_host "$(node_host_of "${2:?node}")" "tail -n 40 \"$(node_dir "${2:?node}")/console.log\"" ;;
-    *)       sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *)       sed -n '/^set -u$/q;2,$p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

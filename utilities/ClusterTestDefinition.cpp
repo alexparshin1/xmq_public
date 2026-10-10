@@ -70,6 +70,27 @@ bool boolean(const SNode& parent, const string& name, const bool fallback)
     return found->getBoolean();
 }
 
+/** @brief A list of commands: an array of strings, or a single string. */
+vector<string> strings(const SNode& parent, const string& name)
+{
+    vector<string> result;
+    const auto     found = child(parent, name);
+    if (!found)
+    {
+        return result;
+    }
+    if (const auto items = parent->nodes(String(name.c_str())); !items.empty())
+    {
+        for (const auto& item : items)
+        {
+            result.emplace_back(item->getText().c_str());
+        }
+        return result;
+    }
+    result.emplace_back(found->getText().c_str());
+    return result;
+}
+
 /** @brief A port from the file, refused rather than truncated when it is not one. */
 uint16_t port(const SNode& parent, const string& name, const uint16_t fallback)
 {
@@ -167,6 +188,9 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         m_nodes.push_back(std::move(item));
     }
 
+    m_before = strings(root, "before");
+    m_after = strings(root, "after");
+
     for (const auto& step : root->nodes("timeline"))
     {
         CClusterTimelineStep item;
@@ -184,9 +208,13 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         {
             item.m_action = CClusterTimelineStep::Action::Checks;
         }
+        else if (action == "run")
+        {
+            item.m_action = CClusterTimelineStep::Action::Run;
+        }
         else
         {
-            throw Exception(format("Unknown timeline action '{}': expected stop, start or check.", action));
+            throw Exception(format("Unknown timeline action '{}': expected stop, start, check or run.", action));
         }
 
         item.m_at = chrono::seconds(integer(step, "at", 0));
@@ -197,10 +225,23 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         }
         item.m_node = text(step, "node");
         item.m_check = text(step, "check");
+        item.m_command = text(step, "command");
+        item.m_every = chrono::seconds(integer(step, "every", 0));
+        item.m_until = chrono::seconds(integer(step, "until", 0));
 
-        if (item.m_action != CClusterTimelineStep::Action::Checks && item.m_node.empty())
+        using enum CClusterTimelineStep::Action;
+        if ((item.m_action == StopNode || item.m_action == StartNode) && item.m_node.empty())
         {
             throw Exception(format("The '{}' step at {}s names no node.", action, item.m_at.count()));
+        }
+        if (item.m_action == Run && item.m_command.empty())
+        {
+            throw Exception(format("The 'run' step at {}s has no 'command'.", item.m_at.count()));
+        }
+        if (item.m_every > 0s && (item.m_action != Checks || item.m_check.empty() || item.m_until <= item.m_at))
+        {
+            throw Exception(format("The step at {}s repeats a check: it has to name one, and 'until' has to "
+                                   "come after 'at'.", item.m_at.count()));
         }
         m_timeline.push_back(std::move(item));
     }

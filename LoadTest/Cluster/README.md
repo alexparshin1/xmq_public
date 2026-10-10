@@ -108,14 +108,40 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
    suite with `--gtest_filter=-*Scenario*`, so changes to the scenario engine are covered by the
    scenario tests beside it, run by hand.
 
-## Known to be broken
+## Confirming a change
 
-A node that loses the shared storage under load goes cluster-offline, disconnects its clients, and does
-not come back to serving them when the storage is reachable again. The seed line is
+After the unit tests, on the default stand (six nodes, two on each of thinker10, thinker11 and theater):
 
+```sh
+# lay the build down on every machine, from the machine it was built on - one per distribution
+~/cluster/stand.sh deploy ~/build/xmq_cluster_client/xmq_server thinker10          # on thinker10
+ssh thinker11 ~/cluster/stand.sh deploy ~/build/xmq_stand/xmq_server thinker11 theater
+~/cluster/stand.sh up                     # refuses machines with servers of different commits
+xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if all passed
+xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
 ```
-Cluster-offline: the shared storage cannot be reached. Disconnecting clients until it can.
-```
 
-and `the-second-node-comes-back.json` reproduces it: the node accepting clients is the check that
-fails, while its lease is in the shared storage and the cluster links have recovered.
+`deploy` copies the server, the SPTK it was built against (into `~/sptk/lib`) and the stand's own
+scripts, and records the commit the server was built from in `xmq_server.source`; `up` and `status`
+show it per machine. `up` also writes the stand's settings to `$STAND_DIR/stand.env` on every
+machine, so `stand.sh stop node3` means the same stand wherever it runs, and starts every node's logs
+afresh, so that `check-logs` finds this run's crash and not yesterday's.
+
+A test's `before` and `after` commands run around it - `after` whatever happened, which is where a
+test undoes what it did to the network. The tests here end with `stand.sh check-logs`: a crash in a
+node's log, or a node that is not running, fails the test; going cluster-offline is reported.
+
+The timeline has two more steps: `run` (a shell command; the network cut in
+`the-storage-goes-away-from-one-machine.json`), and a `check` with `every` and `until`, which runs the
+check again and again over a span and passes only if every run did - what a cluster does in the middle
+of something is a span.
+
+## Fixed
+
+A node that lost the shared storage under load went cluster-offline late, kept its clients, and came
+back long after the storage did. Its coordinator's step was waiting on Redis - in a `recv()` with no
+timeout (SPTK's synchronous `RedisConnect`), and in a `connect()` left to the system - and going
+offline and online was reported from that step. Fixed by a read timeout in SPTK, timeouts of one step
+on the coordinator's connection, and a watch thread that reports both from the lease's deadline.
+`the-storage-goes-away-from-one-machine.json` covers it on the stand; `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`
+in the unit tests.
