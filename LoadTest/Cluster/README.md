@@ -113,14 +113,20 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
 After the unit tests, on the default stand (six nodes, two on each of thinker10, thinker11 and theater):
 
 ```sh
-# lay the build down on every machine, from the machine it was built on - one per distribution:
-# thinker10 is Debian, thinker11 and theater are Ubuntu and take the same binary
-~/cluster/stand.sh deploy ~/workspace/xmq_public/cmake-build-debug/xmq_server thinker10    # on thinker10
-ssh thinker11 ~/cluster/stand.sh deploy ~/workspace/xmq_public/xmq_server thinker11 theater
+# build the pushed branch on thinker10 (Debian) and thinker11 (Ubuntu; theater takes its binary)
+# and lay it down on every machine
+~/cluster/stand.sh deploy 2026-10-03-Cluster-development
 ~/cluster/stand.sh up                     # refuses machines with servers of different commits
 xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if all passed
 xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
 ```
+
+`deploy <branch>` builds in `~/workspace/xmq_public_stand` on each build machine - a worktree of
+`~/workspace/xmq_public`, detached at `origin/<branch>`, with its own RelWithDebInfo build in `build/`
+- so the working trees there are left alone; the first build takes a few minutes, later ones only
+what changed. It refuses builds of different commits, and builds against the SPTK installed in
+`~/.local` on each machine. A build of one's own, not pushed, goes the old way:
+`stand.sh deploy <server> <host>...`, run on the machine that built it.
 
 `deploy` copies the server, the SPTK it was built against (into `~/sptk/lib`) and the stand's own
 scripts, and records the commit the server was built from in `xmq_server.source`; `up` and `status`
