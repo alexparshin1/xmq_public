@@ -178,6 +178,10 @@ void Coordinator::connectRedis()
     {
         timeout = min(timeout, chrono::duration_cast<chrono::milliseconds>(chrono::seconds(params.get("connect_timeout").toInt())));
     }
+    // And an answer within a step too: a connection the network lost answers nothing, and a step
+    // waiting on it held this node's mutex until TCP gave up - the node came back that much later
+    // than the storage did.
+    m_redis.setReadTimeout(chrono::duration_cast<chrono::milliseconds>(m_tick));
     const auto& [host, port] = m_redisUrl.hostAndPort();
     m_redis.connect(host, port, m_redisUrl.username(), m_redisUrl.password(), m_redisUrl.path(), timeout);
 }
