@@ -164,7 +164,7 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
                                    "since a test that takes a node away has to bring it back.",
                                    item.m_name));
         }
-        m_nodes.push_back(move(item));
+        m_nodes.push_back(std::move(item));
     }
 
     for (const auto& step : root->nodes("timeline"))
@@ -202,7 +202,7 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         {
             throw Exception(format("The '{}' step at {}s names no node.", action, item.m_at.count()));
         }
-        m_timeline.push_back(move(item));
+        m_timeline.push_back(std::move(item));
     }
 
     // In the order they happen, whatever order the file lists them in: a file is easier to read
@@ -316,7 +316,7 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
                                    kind, item.m_name));
         }
 
-        m_checks.push_back(move(item));
+        m_checks.push_back(std::move(item));
     }
 
     // A step that names a node or a check the test does not have is a test that cannot mean what it
