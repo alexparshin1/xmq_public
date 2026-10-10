@@ -18,6 +18,7 @@
 #include "base/ProtocolException.h"
 #include "common/DisconnectMessage.h"
 #include "common/mqtt/PublishMessage.h"
+#include <random>
 #include <utility>
 
 using namespace std;
@@ -77,6 +78,16 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
         logger->prefix(prefixText);
     }
 
+    // The connection in force, kept so that a reconnect can be the same connection, and the flag
+    // that says whether a disconnection from here on is one somebody asked for.
+    m_disconnectRequested.store(false);
+    {
+        const unique_lock lock(m_connectArgumentsMutex);
+        m_connectArguments = make_shared<const CConnectArguments>(
+            CConnectArguments {host, credentials, connectParameters, protocolVersion,
+                               messageProperties, sslKeys, true});
+    }
+
     auto session = make_shared<Session>(
         [this, callbackState = m_messageCallbackState](const SMessage& message)
         {
@@ -93,10 +104,20 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
         },
         logger, m_bindAddress);
 
-    if (const auto callback = m_onDisconnect.load())
-    {
-        session->onDisconnect(*callback);
-    }
+    // The client's own handler rather than the caller's callback directly: a disconnection the
+    // caller did not ask for is the moment to bring the client back, and this is the one place that
+    // sees every disconnection. executeOnDisconnect reads the caller's callback as it fires, so one
+    // set after this point still receives the event - which is why onDisconnect() no longer writes
+    // to the session.
+    session->onDisconnect([this, callbackState = m_messageCallbackState](const SMessage& message)
+                          {
+                              if (callbackState->closing.load())
+                              {
+                                  return;
+                              }
+                              executeOnDisconnect(message);
+                              onUnexpectedDisconnect(message);
+                          });
 
     ReasonCode result;
     try
@@ -162,6 +183,9 @@ const string& MqttClient::getClientId() const
 
 void MqttClient::disconnect() const
 {
+    // Said here, where the caller is the one disconnecting: a disconnection from anywhere else is
+    // one to bring the client back from, when it was asked to come back.
+    m_disconnectRequested.store(true);
     if (const auto session = m_session.load(); session && session->isConnected())
     {
         const auto disconnectMessage = make_shared<DisconnectMessage>(ReasonCode::Success, Qos::Qos1);
@@ -180,6 +204,7 @@ void MqttClient::disconnect() const
 
 void MqttClient::hangup() const
 {
+    m_disconnectRequested.store(true);
     if (const auto session = m_session.load(); session && session->isConnected())
     {
         session->hangup(ReasonCode::Success);
@@ -237,6 +262,122 @@ void MqttClient::executeOnPublishMessage(const SMessage& message) const
     {
         (*callback)(publishMessage);
     }
+}
+
+void MqttClient::onUnexpectedDisconnect(const SMessage& message)
+{
+    if (m_disconnectRequested.exchange(false))
+    {
+        // Somebody asked for this one, and has been answered.
+        return;
+    }
+
+    std::shared_ptr<const CConnectArguments> arguments;
+    {
+        const unique_lock lock(m_connectArgumentsMutex);
+        arguments = m_connectArguments;
+    }
+
+    if (!arguments || !arguments->m_parameters.m_autoReconnect ||
+        arguments->m_parameters.m_reconnectAttempts <= 0)
+    {
+        return;
+    }
+
+    if (m_logger && m_logger->has(LogPriority::Debug))
+    {
+        const auto disconnectMessage = dynamic_pointer_cast<DisconnectMessage>(message);
+        m_logger->debug(format("Disconnected ({}); reconnecting.",
+                               disconnectMessage ? toString(disconnectMessage->getReasonCode())
+                                                 : "unknown reason"));
+    }
+
+    startReconnect();
+}
+
+void MqttClient::startReconnect()
+{
+    // One attempt at a time: a worker that is already trying is doing this job, and starting another
+    // on top of it - from the disconnection the first one causes, most of all - would have the two
+    // race for the session.
+    if (m_reconnecting.exchange(true))
+    {
+        return;
+    }
+
+    std::shared_ptr<const CConnectArguments> arguments;
+    {
+        const unique_lock lock(m_connectArgumentsMutex);
+        arguments = m_connectArguments;
+    }
+    if (!arguments || !arguments->m_valid)
+    {
+        m_reconnecting.store(false);
+        return;
+    }
+
+    m_reconnectWorker = std::jthread(
+        [this, callbackState = m_messageCallbackState, arguments](const std::stop_token& token)
+        {
+            // The waiting grows and is scattered; see ConnectParameters. The scatter is drawn per
+            // client, from its own index, so that two clients of a run never share a moment - which
+            // is what keeps a returning node from being reached by every one of them at once.
+            mt19937_64 random(static_cast<uint64_t>(m_clientIndex) + 1);
+            uniform_real_distribution<double> scatter(1.0 - arguments->m_parameters.m_reconnectJitter,
+                                                      1.0 + arguments->m_parameters.m_reconnectJitter);
+            const auto maxInterval = chrono::milliseconds(arguments->m_parameters.m_reconnectMaxInterval);
+            auto       interval = chrono::milliseconds(arguments->m_parameters.m_reconnectInterval);
+
+            for (int attempt = 0; attempt < arguments->m_parameters.m_reconnectAttempts; ++attempt)
+            {
+                const auto wait = chrono::milliseconds(static_cast<int64_t>(
+                    static_cast<double>(interval.count()) * scatter(random)));
+
+                // Waiting in small steps: an interval is a lifetime of its own, and a client being
+                // destroyed should not be held up by one - the flag that guards the callbacks ends
+                // the waiting too.
+                for (int64_t waited = 0; waited < wait.count(); waited += 200)
+                {
+                    if (token.stop_requested() || callbackState->closing.load())
+                    {
+                        m_reconnecting.store(false);
+                        return;
+                    }
+                    this_thread::sleep_for(200ms);
+                }
+
+                const auto host = arguments->m_parameters.m_reconnectDestination
+                                      ? arguments->m_parameters.m_reconnectDestination()
+                                      : arguments->m_host;
+                try
+                {
+                    if (connectInternal(host, arguments->m_credentials, arguments->m_parameters,
+                                        arguments->m_protocolVersion, arguments->m_messageProperties,
+                                        arguments->m_sslKeys, nullptr) == ReasonCode::Success)
+                    {
+                        m_reconnecting.store(false);
+                        const auto callback = m_onReconnect.load();
+                        if (callback && *callback && !callbackState->closing.load())
+                        {
+                            (*callback)();
+                        }
+                        return;
+                    }
+                }
+                catch (const std::exception&)
+                {
+                    // An attempt that failed is not the end of it: the next one follows after the
+                    // interval. What the caller learns is a reconnect, or the absence of one.
+                }
+
+                // And the next interval is longer than this one, up to the ceiling: a server that is
+                // down for a while should not be asked every two seconds by every client there is.
+                const auto grown = static_cast<double>(interval.count()) * arguments->m_parameters.m_reconnectBackoff;
+                interval = chrono::milliseconds(static_cast<int64_t>(
+                    min(grown, static_cast<double>(maxInterval.count()))));
+            }
+            m_reconnecting.store(false);
+        });
 }
 
 void MqttClient::executeOnDisconnect(const SMessage& message) const
@@ -355,12 +496,15 @@ void MqttClient::onAck(MessageCallback messageCallback)
 
 void MqttClient::onDisconnect(MessageCallback messageCallback)
 {
-    const auto callback = std::make_shared<const MessageCallback>(std::move(messageCallback));
-    m_onDisconnect.store(callback);
-    if (const auto session = m_session.load())
-    {
-        session->onDisconnect(*callback);
-    }
+    // Stored, and not pushed into the session: the session's handler is the client's own, which
+    // reads this callback as it fires - so one set after the connection works, and a client that
+    // reconnects keeps it without being told.
+    m_onDisconnect.store(std::make_shared<const MessageCallback>(std::move(messageCallback)));
+}
+
+void MqttClient::onReconnect(std::function<void()> reconnectCallback)
+{
+    m_onReconnect.store(std::make_shared<const std::function<void()>>(std::move(reconnectCallback)));
 }
 
 void MqttClient::subscribe(const std::string_view destination, const SMessageProperties& properties)

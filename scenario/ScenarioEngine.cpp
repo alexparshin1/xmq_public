@@ -490,6 +490,23 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
 
         Destination destination(topic, SubscriptionOptions(Qos::Qos1));
         subscriber->subscribe(destination);
+
+        // What a subscriber must take with it when its node goes away and it comes back on another
+        // one: the session it left behind does not carry the subscription unless the scenario asked
+        // for a persistent session, and taking it again costs one packet. The topic comes from the
+        // client's own pool, so it outlives the client; the client itself is held weakly, because
+        // the callback lives in the client it refers to and a shared pointer there would keep it
+        // alive for as long as it lives.
+        const Topic*                       subscriptionTopic = topic;
+        const weak_ptr<client::MqttClient> weakSubscriber = subscriber;
+        subscriber->onReconnect(
+            [weakSubscriber, subscriptionTopic]
+            {
+                if (const auto client = weakSubscriber.lock())
+                {
+                    client->subscribe(Destination(subscriptionTopic, SubscriptionOptions(Qos::Qos1)));
+                }
+            });
     }
 
     // Wait until every subscription is acknowledged before returning, so the subsequent publish()
@@ -694,6 +711,19 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     {
         auto parameters = connectParameters;
         parameters.m_cleanSession = group.m_clean_session.isNull() || group.m_clean_session.asBool();
+        // Absent or false means the client stays down, which is what a measurement wants by default:
+        // a client that comes back on its own would hide a broker that threw it out. A test that
+        // changes the cluster under its load asks for the other behaviour, and then a client whose
+        // node goes away comes back and the load outlives the node it was connected to.
+        parameters.m_autoReconnect = !group.m_auto_reconnect.isNull() && group.m_auto_reconnect.asBool();
+        if (!group.m_reconnect_interval.isNull())
+        {
+            parameters.m_reconnectInterval = seconds(group.m_reconnect_interval.asInteger());
+        }
+        if (!group.m_reconnect_attempts.isNull())
+        {
+            parameters.m_reconnectAttempts = static_cast<int>(group.m_reconnect_attempts.asInteger());
+        }
         return parameters;
     };
 

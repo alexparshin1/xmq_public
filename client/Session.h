@@ -24,6 +24,7 @@
 #include "common/GenericProtocols.h"
 #include "common/PacketReader.h"
 #include "common/SessionThreads.h"
+#include <sptk5/net/Host.h>
 #include <sptk5/net/SocketEvents.h>
 #include <tuple>
 
@@ -43,6 +44,28 @@ struct ConnectParameters
     std::function<void(sptk::Buffer&)> m_tweakMessage {};
     uint16_t                           m_maxInflightMessages {0};
     bool                               m_cleanSession {true};
+
+    /// Whether the client connects again after a disconnect it did not ask for, and how.
+    ///
+    /// Off by default, and that is the point: a client that comes back on its own hides a broker
+    /// that threw it out, and a measurement exists to show exactly that. A test that changes the
+    /// cluster under its load turns it on, and then a client whose node goes away comes back
+    /// somewhere else and the load outlives the node it was connected to.
+    bool                     m_autoReconnect {false};
+    std::chrono::seconds     m_reconnectInterval {5};  ///< Wait before the first attempt.
+    int                      m_reconnectAttempts {12}; ///< And how many of them before giving up.
+    /// How the waiting grows, and how much it is scattered. One fixed interval has every client of
+    /// a run asking at the same rhythm - and a node that has just come back would then be reached by
+    /// all of them at the same moment, which is the worst time to do it. The interval is multiplied
+    /// by m_reconnectBackoff after each attempt, kept under m_reconnectMaxInterval, and every wait
+    /// is scattered by up to m_reconnectJitter of itself, spread by the client's own index so that
+    /// no two clients share a moment.
+    double                   m_reconnectBackoff {2.0};
+    std::chrono::seconds     m_reconnectMaxInterval {30};
+    double                   m_reconnectJitter {0.25};
+    /// Where to go next, asked at every attempt; empty means the address the client had. This is
+    /// how a client of a cluster moves to another node, without the client knowing what a node is.
+    std::function<sptk::Host()> m_reconnectDestination {};
 };
 
 /**

@@ -28,6 +28,9 @@
     "client_count": 200,
     "qos": 1,
     "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 30,
     "topics": "cluster/topic$clientindex",
     "server": {
       "hostname": "thinker11",

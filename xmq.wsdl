@@ -1459,6 +1459,26 @@
             		<!-- Properties this group sends. Both need MQTT5; the run is refused on 3 or 4
             		     rather than quietly sending none, because a measurement that silently
             		     dropped what it was asked to measure is worse than no measurement. -->
+            <!-- The addresses this group's clients may connect to, for a broker that answers on
+                 more than one: the clients are spread over them in turn, and one whose node goes
+                 away reconnects to another. Absent means the group's own server, or the
+                 scenario's. -->
+            <xsd:element name="servers" type="tns:Host"
+            	maxOccurs="unbounded" minOccurs="0">
+            </xsd:element>
+            <!-- Whether a client connects again after a disconnect it did not ask for, waiting
+                 reconnect_interval seconds between attempts, and up to reconnect_attempts of them.
+                 Absent or false means it does not, which is what a measurement wants by default: a
+                 client that comes back on its own would hide a broker that threw it out. -->
+            <xsd:element name="auto_reconnect" type="xsd:boolean"
+            	maxOccurs="1" minOccurs="0">
+            </xsd:element>
+            <xsd:element name="reconnect_interval" type="xsd:int"
+            	maxOccurs="1" minOccurs="0">
+            </xsd:element>
+            <xsd:element name="reconnect_attempts" type="xsd:int"
+            	maxOccurs="1" minOccurs="0">
+            </xsd:element>
             		<xsd:element name="connect_properties" type="tns:MessageProperty"
             			maxOccurs="unbounded" minOccurs="0">
             		</xsd:element>

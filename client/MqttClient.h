@@ -18,6 +18,7 @@
 #include <atomic>
 #include <memory>
 #include <sptk5/cutils>
+#include <thread>
 
 namespace xmq::client {
 
@@ -156,6 +157,15 @@ public:
     void onDisconnect(MessageCallback messageCallback);
 
     /**
+     * @brief Registers a callback to be invoked when a reconnect has succeeded.
+     *
+     * A client that was asked to reconnect comes back on its own, and this is how a caller learns
+     * that it did: what it held on the connection - a subscription, above all - has to be taken
+     * again, and only the caller knows what that was.
+     */
+    void onReconnect(std::function<void()> reconnectCallback);
+
+    /**
      * @brief Subscribe to destination.
      * @param destination       Destination.
      * @param properties        Subscribe properties.
@@ -286,9 +296,39 @@ private:
     mutable std::atomic_size_t                                 m_activePublishCallbacks {0}; ///< Publish callbacks currently executing; lets onMessage({}) drain in-flight calls before returning.
     AtomicSharedPtr<const MessageCallback>                     m_onAck {nullptr};         ///< Callback for received ACKs.
     AtomicSharedPtr<const MessageCallback>                     m_onDisconnect {nullptr};  ///< Optional callback called for disconnection.
+    AtomicSharedPtr<const std::function<void()>>               m_onReconnect {nullptr};   ///< Called when a reconnect has worked.
     std::atomic_size_t                                         m_clientIndex = 0;         ///< Client index.
     std::atomic_size_t                                         m_publishReceiveCount = 0; ///< Received messages count.
     std::atomic_size_t                                         m_publishSentCount = 0;    ///< Sent messages count.
+
+    /// What the last connect was given, so that a reconnect can be the same connection.
+    struct CConnectArguments
+    {
+        sptk::Host                     m_host;
+        ConnectCredentials             m_credentials;
+        ConnectParameters              m_parameters;
+        ProtocolVersion                m_protocolVersion {ProtocolVersion::MqttV5};
+        SMessageProperties             m_messageProperties;
+        std::shared_ptr<sptk::SSLKeys> m_sslKeys;
+        bool                           m_valid {false};
+    };
+
+    /// True from the moment the caller disconnects the client on purpose until the next connect:
+    /// what must not be brought back is the disconnection somebody asked for.
+    mutable std::atomic_bool m_disconnectRequested {false};
+
+    /// True while a reconnect is being attempted, so that a disconnection caused by an attempt does
+    /// not start a second one at the same time.
+    std::atomic_bool m_reconnecting {false};
+
+    /// The arguments of the connection in force. A shared pointer to a constant because they are
+    /// written by whoever connects and read by the reconnect worker on a thread of its own - and
+    /// because sptk::Host can be constructed but not assigned, so a copy is made once and only its
+    /// pointer travels afterwards. The mutex guards the pointer.
+    mutable std::mutex                       m_connectArgumentsMutex;
+    std::shared_ptr<const CConnectArguments> m_connectArguments;
+
+    std::jthread m_reconnectWorker; ///< Bringing the client back, when it was asked to come back.
 
     /**
      * @brief Connect the client to a server host.
@@ -313,6 +353,20 @@ private:
      * @return copy of the session shared pointer.
      */
     SSession getSession() const;
+
+    /**
+     * @brief Notice a disconnection the caller did not ask for, and start bringing the client back.
+     * @param message           The disconnection message.
+     */
+    void onUnexpectedDisconnect(const SMessage& message);
+
+    /**
+     * @brief Bring the client back: wait, ask where to go, connect, and say so when it worked.
+     *
+     * Runs on a thread of its own, because it is called from the disconnection of a session, which
+     * happens on that session's receive thread.
+     */
+    void startReconnect();
 
     /**
      * @brief Preview the incoming message.
