@@ -1,0 +1,102 @@
+{
+  "name": "the sessions of a node that is gone are adopted",
+  "comments": [
+    "A persistent subscriber of node4 (thinker11) is away when node4 goes. While node4 is down, a",
+    "message is published for it on node1 (thinker10); then the subscriber comes back to node2. The",
+    "message must be there: the cluster adopted node4's session as soon as node4's lease ran out, and",
+    "kept collecting for it - not only when its client came back. On the default stand of stand.sh,",
+    "run from thinker10. xmq_sub prints what it receives with -v; the grep is the check."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      {
+        "name": "publishers",
+        "node": "node1"
+      },
+      {
+        "name": "subscribers",
+        "node": "node3"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "node1",
+      "host": "thinker10",
+      "port": 2884,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node2",
+      "host": "thinker10",
+      "port": 2885,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    },
+    {
+      "name": "node4",
+      "host": "thinker11",
+      "port": 2887,
+      "stop": "~/cluster/stand.sh stop {node}",
+      "start": "~/cluster/stand.sh start {node}"
+    }
+  ],
+  "before": [
+    "~/cluster/stand.sh mark"
+  ],
+  "timeline": [
+    {
+      "at": 5,
+      "action": "run",
+      "command": "xmq_sub -h thinker11 -p 2887 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i stand-orphan -t cluster/test/orphan -W 2 --quiet"
+    },
+    {
+      "at": 10,
+      "action": "stop",
+      "node": "node4"
+    },
+    {
+      "at": 40,
+      "action": "run",
+      "command": "xmq_pub -h thinker10 -p 2884 -u user -P User-Secret1 -V 5 -q 1 -i stand-orphan-publisher -t cluster/test/orphan -m published-while-away --quiet"
+    },
+    {
+      "at": 45,
+      "action": "run",
+      "command": "xmq_sub -h thinker10 -p 2885 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i stand-orphan -t cluster/test/orphan -C 1 -W 10 -v | grep -q published-while-away"
+    },
+    {
+      "at": 60,
+      "action": "start",
+      "node": "node4"
+    },
+    {
+      "at": 80,
+      "action": "check"
+    }
+  ],
+  "after": [
+    "~/cluster/stand.sh check-logs"
+  ],
+  "checks": [
+    {
+      "name": "node4 serves again",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node4"
+    },
+    {
+      "name": "all six nodes are members",
+      "kind": "redis",
+      "uri": "redis://theater:6379/4",
+      "command": "ZCARD cluster:members",
+      "expect": "6"
+    }
+  ]
+}

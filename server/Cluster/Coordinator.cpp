@@ -29,6 +29,46 @@ const string NodePrefix = "cluster:node:";
 const string AlivePrefix = "cluster:alive:";
 const string TermKey = "cluster:term";
 const string CoordinatorKey = "cluster:coordinator";
+const string AdoptPrefix = "cluster:adopt:";
+
+// The coordinator's: the sessions of members that are gone - their lease has expired - go to the
+// members that are running, round the circle, each into the running member's adopt queue. The gone
+// member's set is emptied in the same step, so nothing is handed out twice.
+const string DistributeScript = R"(
+local live = {}
+local gone = {}
+for _, id in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
+  if redis.call('EXISTS', ARGV[2] .. id) == 1 then table.insert(live, id) else table.insert(gone, id) end
+end
+if #live == 0 then return 0 end
+local handed = 0
+for _, id in ipairs(gone) do
+  local name = redis.call('HGET', ARGV[1] .. id, 'name')
+  if name then
+    local key = 'node_' .. name .. '_sessions'
+    for _, client in ipairs(redis.call('SMEMBERS', key)) do
+      redis.call('RPUSH', ARGV[3] .. live[(handed % #live) + 1], client)
+      handed = handed + 1
+    end
+    redis.call('DEL', key)
+  end
+end
+return handed)";
+
+// Take up to ARGV[1] sessions this node was given to adopt.
+const string TakeAdoptedScript = R"(
+local taken = redis.call('LRANGE', KEYS[1], 0, tonumber(ARGV[1]) - 1)
+redis.call('LTRIM', KEYS[1], #taken, -1)
+return taken)";
+
+// Claim a session only if nobody running holds it: what adoption may take. Answers 1 when it is ours.
+const string ClaimOrphanScript = R"(
+local owner = redis.call('GET', KEYS[1])
+if (not owner) or owner == ARGV[1] or redis.call('EXISTS', ARGV[2] .. owner) == 0 then
+  redis.call('SET', KEYS[1], ARGV[1])
+  return 1
+end
+return 0)";
 
 // What JoinScript answers.
 constexpr int64_t Joined = 1;
@@ -378,6 +418,21 @@ string Coordinator::claimSession(const string& clientId)
     return result.empty() ? string() : string(result[0].asString().c_str());
 }
 
+bool Coordinator::claimOrphanSession(const string& clientId)
+{
+    const scoped_lock lock(m_mutex);
+    const auto        result = eval(ClaimOrphanScript, {format("session_{}_owner", clientId)}, {m_nodeId, AlivePrefix});
+    return !result.empty() && result[0].asInt64() == 1;
+}
+
+string Coordinator::sessionOwner(const string& clientId)
+{
+    const scoped_lock lock(m_mutex);
+    connectRedis();
+    const auto owner = m_redis.getValue(format("session_{}_owner", clientId));
+    return owner.isNull() ? string() : string(owner.asString().c_str());
+}
+
 void Coordinator::handOverSession(const string& clientId, const string& nodeId)
 {
     const scoped_lock lock(m_mutex);
@@ -514,6 +569,10 @@ void Coordinator::step()
         {
             const auto renewed = eval(RenewScript, {CoordinatorKey}, {coordinator, to_string(m_lease.count())});
             m_coordinator = !renewed.empty() && renewed[0].asInt64() == 1;
+            if (m_coordinator)
+            {
+                (void) eval(DistributeScript, {MembersKey}, {NodePrefix, AlivePrefix, AdoptPrefix});
+            }
         }
         else
         {
@@ -525,6 +584,26 @@ void Coordinator::step()
                 // back, and goes to the end, behind every node admitted meanwhile. That keeps the
                 // coordinator first in the order, so the next one is always the node after it.
                 (void) eval(RequeueScript, {MembersKey, AdmissionKey}, {m_nodeId});
+            }
+        }
+
+        // What the coordinator gave this node to adopt, a batch a step: the work itself is the
+        // adopter's, on a thread of its own, and a step must stay short.
+        if (m_adoptSessions)
+        {
+            constexpr int batch = 1000;
+            const auto    taken = eval(TakeAdoptedScript, {AdoptPrefix + m_nodeId}, {to_string(batch)});
+            vector<string> clients;
+            for (const auto& client: taken)
+            {
+                if (!client.isNull())
+                {
+                    clients.emplace_back(client.asString().c_str());
+                }
+            }
+            if (!clients.empty())
+            {
+                m_adoptSessions(std::move(clients));
             }
         }
 
