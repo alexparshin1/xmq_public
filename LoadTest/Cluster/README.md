@@ -113,9 +113,10 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
 After the unit tests, on the default stand (six nodes, two on each of thinker10, thinker11 and theater):
 
 ```sh
-# lay the build down on every machine, from the machine it was built on - one per distribution
-~/cluster/stand.sh deploy ~/build/xmq_cluster_client/xmq_server thinker10          # on thinker10
-ssh thinker11 ~/cluster/stand.sh deploy ~/build/xmq_stand/xmq_server thinker11 theater
+# lay the build down on every machine, from the machine it was built on - one per distribution:
+# thinker10 is Debian, thinker11 and theater are Ubuntu and take the same binary
+~/cluster/stand.sh deploy ~/workspace/xmq_public/cmake-build-debug/xmq_server thinker10    # on thinker10
+ssh thinker11 ~/cluster/stand.sh deploy ~/workspace/xmq_public/xmq_server thinker11 theater
 ~/cluster/stand.sh up                     # refuses machines with servers of different commits
 xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if all passed
 xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
