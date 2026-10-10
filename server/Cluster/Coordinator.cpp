@@ -164,10 +164,22 @@ Coordinator::~Coordinator()
 
 void Coordinator::connectRedis()
 {
-    if (!m_redis.isConnected())
+    if (m_redis.isConnected())
     {
-        m_redis.connect(m_redisUrl);
+        return;
     }
+
+    // Within a step, not the system's own connect timeout: storage the network has lost sends no
+    // refusal, and a connect left to the system waits it out - minutes, with this node's mutex held
+    // and no step taken, so the node came back that much later than the storage did. A timeout the
+    // URL names is kept when it is shorter.
+    auto timeout = chrono::duration_cast<chrono::milliseconds>(m_tick);
+    if (const auto& params = m_redisUrl.params(); params.has("connect_timeout"))
+    {
+        timeout = min(timeout, chrono::duration_cast<chrono::milliseconds>(chrono::seconds(params.get("connect_timeout").toInt())));
+    }
+    const auto& [host, port] = m_redisUrl.hostAndPort();
+    m_redis.connect(host, port, m_redisUrl.username(), m_redisUrl.password(), m_redisUrl.path(), timeout);
 }
 
 vector<Variant> Coordinator::eval(const string& script, const vector<string>& keys, const vector<string>& arguments)
@@ -175,6 +187,10 @@ vector<Variant> Coordinator::eval(const string& script, const vector<string>& ke
     if (m_storageLost.load())
     {
         throw Exception("Storage loss simulated by a test");
+    }
+    while (m_storageHung.load())
+    {
+        this_thread::sleep_for(10ms);
     }
     connectRedis();
     RedisCommand command("EVAL", script);
@@ -229,13 +245,34 @@ void Coordinator::start()
         m_stopping = false;
         m_participating = true;
         step();
+
+        // Installed before the lock is let go, so that the question above - is it running already? -
+        // means something. Assigned after it, two callers arriving together - the node's own start
+        // and an attach over a link - both passed the question, and the second assignment, to a
+        // running std::thread, ended the process. The thread waits for this lock before its first
+        // step, so starting it here costs nothing.
+        m_thread = thread([this] { run(); });
+        {
+            const scoped_lock watchLock(m_watchMutex);
+            m_stopWatch = false;
+        }
+        m_watch = thread([this] { watch(); });
     }
     reportState();
-    m_thread = thread([this] { run(); });
 }
 
 void Coordinator::stop()
 {
+    {
+        const scoped_lock lock(m_watchMutex);
+        m_stopWatch = true;
+    }
+    m_watchWake.notify_all();
+    if (m_watch.joinable() && m_watch.get_id() != this_thread::get_id())
+    {
+        m_watch.join();
+    }
+
     {
         const scoped_lock lock(m_mutex);
         m_stopping = true;
@@ -271,6 +308,11 @@ void Coordinator::leave()
 void Coordinator::simulateStorageLoss(const bool lost)
 {
     m_storageLost = lost;
+}
+
+void Coordinator::simulateStorageHang(const bool hung)
+{
+    m_storageHung = hung;
 }
 
 bool Coordinator::isOnline() const
@@ -380,6 +422,21 @@ void Coordinator::run()
             break;
         }
         step();
+    }
+}
+
+void Coordinator::watch()
+{
+    // Apart from the steps, which wait on Redis - up to its read timeout, longer than a lease - with
+    // the step's lock held. The lease is a deadline, and a node whose storage has gone has to stop
+    // serving when it passes, not when the step that is waiting on that storage gives up: reported
+    // from the step, the clients of a node that had lost its storage stayed connected for as long
+    // as Redis kept the step waiting. Only atomics are read here, so nothing a step holds can delay it.
+    const auto interval = min(chrono::duration_cast<chrono::milliseconds>(m_tick) / 4, chrono::milliseconds(250));
+    unique_lock lock(m_watchMutex);
+    while (!m_stopWatch)
+    {
+        m_watchWake.wait_for(lock, interval, [this] { return m_stopWatch; });
         lock.unlock();
         reportState();
         lock.lock();

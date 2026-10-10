@@ -118,6 +118,13 @@ public:
     void simulateStorageLoss(bool lost);
 
     /**
+     * @brief For tests: act as if Redis stopped answering, without refusing - every command waits
+     *        until this is turned off again, as one does on a network that has lost the storage.
+     * @param hung              True to make every Redis command wait.
+     */
+    void simulateStorageHang(bool hung);
+
+    /**
      * @return True while this node may serve clients: it holds its lease, or is not taking part -
      *         never started, or left the cluster.
      */
@@ -241,18 +248,24 @@ private:
     std::condition_variable m_wake;           ///< Wakes the thread to stop.
     bool                    m_stopping {false};
     std::thread             m_thread;
+    std::mutex              m_watchMutex;     ///< Guards m_stopWatch; never held with m_mutex.
+    std::condition_variable m_watchWake;      ///< Wakes the watch thread to stop.
+    bool                    m_stopWatch {false};
+    std::thread             m_watch;          ///< Reports going offline and online, see watch().
     sptk::RedisConnect      m_redis;          ///< The coordinator's own: the storage's is busy with async work.
     std::string             m_coordinatorName;
     Clock::time_point       m_coordinatorAbsentSince {}; ///< Zero while there is a coordinator.
 
     std::atomic<int64_t> m_leaseUntil {0};        ///< Clock ticks; the lease is valid before it.
     std::atomic<bool>    m_storageLost {false};   ///< See simulateStorageLoss().
+    std::atomic<bool>    m_storageHung {false};   ///< See simulateStorageHang().
     std::atomic<bool>    m_coordinator {false};
     std::atomic<int64_t> m_term {0};
     std::atomic<bool>    m_reportedOnline {true};
     std::atomic<bool>    m_participating {false}; ///< Between start() and leave().
 
     void run();
+    void watch();
     void step();
     void connectRedis();
     std::vector<sptk::Variant> eval(const std::string& script, const std::vector<std::string>& keys,

@@ -299,3 +299,68 @@ TEST_F(XMQ_ClusterTests, enabledNodeJoinsByItself)
     EXPECT_EQ((vector<string> {TestCluster::nodeName(0), TestCluster::nodeName(1), "joiner"}), memberNames(coordinatorOf(cluster, 0)));
     stopNode("joiner");
 }
+
+/**
+ * Confirm that a node asked to take part in the cluster twice at the same moment - its own start
+ * and an attach arriving over a link - starts its coordinator once, and survives it.
+ *
+ * Setup: A coordinator for a node of its own, started from two threads released together; again,
+ * many times, each with a coordinator of its own.
+ *
+ * Verification: the process is still here, and each coordinator ends up online. The thread used to
+ * be installed after the lock that guarded the question "is it running already?", so both callers
+ * passed it and the second assignment, to a running std::thread, ended the process.
+ */
+TEST_F(XMQ_ClusterTests, coordinatorStartedTwiceAtOnceStartsOnce)
+{
+    constexpr int attempts = 50;
+    for (int attempt = 0; attempt < attempts; ++attempt)
+    {
+        cluster::Coordinator coordinator(cluster::NodeIdentity::generate(), format("racing-node-{}", attempt), "localhost:1",
+                                         URL(TestServers::redisUri()), chrono::seconds(TestLeaseSeconds), {});
+        atomic_bool go {false};
+        const auto  startWhenReleased = [&]
+        {
+            while (!go)
+            {
+            }
+            coordinator.start();
+        };
+        thread first(startWhenReleased);
+        thread second(startWhenReleased);
+        go = true;
+        first.join();
+        second.join();
+        EXPECT_TRUE(coordinator.isOnline());
+        coordinator.leave();
+    }
+}
+
+/**
+ * Confirm that a node whose storage stops answering - the network lost it, nothing refuses - goes
+ * cluster-offline when its lease runs out, while its coordinator's step is still waiting on Redis,
+ * and serves again as soon as the storage answers.
+ *
+ * Setup: Two nodes and a client on node 1. Every Redis command of node 1's coordinator waits.
+ *
+ * Verification: node 1 goes offline and its client is disconnected within a lease and a step,
+ * though no step returns meanwhile; the storage back, node 1 takes a client again. Reported from
+ * the step, the offline state came only when the step gave up, and the client stayed connected.
+ */
+TEST_F(XMQ_ClusterTests, nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns)
+{
+    TestCluster cluster(2);
+    const auto  client = cluster.connect(1, "client-of-a-hung-node", false);
+    ASSERT_TRUE(client->isConnected());
+
+    coordinatorOf(cluster, 1).simulateStorageHang(true);
+    const auto hungAt = chrono::steady_clock::now();
+    EXPECT_TRUE(TestCluster::waitFor([&] { return !client->isConnected(); }, Handover))
+        << "the client of a node whose storage stopped answering stayed connected";
+    EXPECT_LT(chrono::steady_clock::now() - hungAt, chrono::seconds(TestLeaseSeconds) + chrono::seconds(2));
+
+    coordinatorOf(cluster, 1).simulateStorageHang(false);
+    EXPECT_TRUE(TestCluster::waitFor([&] { return cluster[1]->getCluster()->isOnline(); }, Handover));
+    const auto again = cluster.connect(1, "client-of-a-hung-node", false);
+    EXPECT_TRUE(again->isConnected());
+}
