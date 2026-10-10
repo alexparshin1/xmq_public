@@ -113,20 +113,22 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
 After the unit tests, on the default stand (six nodes, two on each of thinker10, thinker11 and theater):
 
 ```sh
-# build the pushed branch on thinker10 (Debian) and thinker11 (Ubuntu; theater takes its binary)
-# and lay it down on every machine
+# every machine builds the pushed branch and runs what it built
 ~/cluster/stand.sh deploy 2026-10-03-Cluster-development
 ~/cluster/stand.sh up                     # refuses machines with servers of different commits
 xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if all passed
 xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
 ```
 
-`deploy <branch>` builds in `~/workspace/xmq_public_stand` on each build machine - a worktree of
-`~/workspace/xmq_public`, detached at `origin/<branch>`, with its own RelWithDebInfo build in `build/`
-- so the working trees there are left alone; the first build takes a few minutes, later ones only
-what changed. It refuses builds of different commits, and builds against the SPTK installed in
-`~/.local` on each machine. A build of one's own, not pushed, goes the old way:
-`stand.sh deploy <server> <host>...`, run on the machine that built it.
+`deploy <branch>`: every machine in `STAND_DEPLOY_HOSTS` (thinker11, thinker10, theater) builds the
+branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public_stand`,
+a worktree of `~/workspace/xmq_public` detached at `origin/<branch>`, with its own RelWithDebInfo
+build in `build/`; the working trees there are left alone. The build runs at the lowest priority on
+half the cores - theater runs the smart home - and is refused on a machine where the farm is
+running. The first build takes several minutes, later ones only what changed. Builds of different
+commits are refused; each machine builds against the SPTK installed in its `~/.local`. A build of
+one's own, not pushed, goes the old way: `stand.sh deploy <server> <host>...`, on the machine that
+built it.
 
 `deploy` copies the server, the SPTK it was built against (into `~/sptk/lib`) and the stand's own
 scripts, and records the commit the server was built from in `xmq_server.source`; `up` and `status`
