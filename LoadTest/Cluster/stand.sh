@@ -34,11 +34,13 @@
 #   stand.sh mark               remember where every node's logs end, for check-logs
 #   stand.sh check-logs         what the nodes logged since the mark: a crash, or a node not running,
 #                               fails it; what went cluster-offline is reported
+#   stand.sh deploy <branch>    build the branch, as pushed, on the build machines and lay it down on
+#                               the whole stand: see BUILDS
 #   stand.sh deploy <server> <host>...
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: STAND_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: BUILDS, BUILD_TREE, STAND_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $STAND_DIR/stand.env on every machine of the stand, and every
@@ -491,7 +493,71 @@ command_check_logs() {
 # resolves from under $HOME into ~/sptk/lib (which every launcher puts on the library path), and a
 # stamp of the commit it was built from, which `up` compares across machines. Run on the machine the
 # build is on; the machines given have to be able to run it - the same distribution.
+# Where `deploy <branch>` builds, and where each build goes: "<build machine>:<machine>,<machine>...".
+# theater builds nothing - it runs the smart home - and takes thinker11's build.
+BUILDS=${BUILDS:-"thinker10:thinker10 thinker11:thinker11,theater"}
+# A worktree of ~/workspace/xmq_public on each build machine, detached at the branch as pushed: the
+# working tree there - its branch, its changes, its build - is left alone.
+BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public_stand'}
+
+# Bring the build tree on this machine to origin/<branch> and build the server there.
+build_branch_here() {
+    local branch=$1 tree
+    tree=$(eval echo "$BUILD_TREE")
+    git -C "$HOME/workspace/xmq_public" fetch -q origin "$branch" || return 1
+    if [ ! -d "$tree" ]; then
+        git -C "$HOME/workspace/xmq_public" worktree add -q --detach "$tree" "origin/$branch" || return 1
+    fi
+    git -C "$tree" checkout -q --detach "origin/$branch" || return 1
+    # RelWithDebInfo: close to what ships, and a node that crashes still says where.
+    [ -f "$tree/build/CMakeCache.txt" ] ||
+        cmake -S "$tree" -B "$tree/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/.local" >/dev/null 2>&1 ||
+        return 1
+    cmake --build "$tree/build" --target xmq_server -j "$(nproc)" >"$tree/build/stand-build.log" 2>&1 ||
+        { tail -n 30 "$tree/build/stand-build.log" >&2; return 1; }
+    git -C "$tree" rev-parse --short HEAD
+}
+
+deploy_branch() {
+    local branch=$1 build builder targets commit commits="" failed=0
+    for build in $BUILDS; do
+        builder=${build%%:*}
+        echo "$builder: building $branch..."
+        if [ "$builder" = "$LOCAL_HOST" ]; then
+            commit=$(build_branch_here "$branch") || { echo "$builder: build failed" >&2; return 1; }
+        else
+            commit=$(ssh -o BatchMode=yes "$builder" "BUILD_TREE='$BUILD_TREE' bash -s" <<<"$(declare -f build_branch_here); build_branch_here '$branch'") ||
+                { echo "$builder: build failed" >&2; return 1; }
+        fi
+        commit=$(tail -n 1 <<<"$commit")
+        commits="$commits $commit"
+    done
+    # A push between two fetches would give the machines different commits.
+    [ "$(tr ' ' '\n' <<<"$commits" | sed '/^$/d' | sort -u | wc -l)" = 1 ] ||
+        { echo "deploy: the build machines got different commits:$commits - deploy again" >&2; return 1; }
+    for build in $BUILDS; do
+        builder=${build%%:*}
+        targets=$(tr ',' ' ' <<<"${build#*:}")
+        if [ "$builder" = "$LOCAL_HOST" ]; then
+            command_deploy_binary "$(eval echo "$BUILD_TREE")/build/xmq_server" $targets || failed=1
+        else
+            # The branch's own stand.sh lays it down: the stand runs the scripts of what it tests.
+            ssh -o BatchMode=yes "$builder" "t=$BUILD_TREE; \$t/LoadTest/Cluster/stand.sh deploy \$t/build/xmq_server $targets" || failed=1
+        fi
+    done
+    return $failed
+}
+
 command_deploy() {
+    [ $# -gt 0 ] || { echo "deploy: name a branch, or a server and the machines" >&2; exit 2; }
+    if [ $# -eq 1 ] && [ ! -f "$1" ]; then
+        deploy_branch "$1"
+    else
+        command_deploy_binary "$@"
+    fi
+}
+
+command_deploy_binary() {
     local binary=${1:?server binary} host source_dir commit stamp libs
     shift
     [ $# -gt 0 ] || { echo "deploy: name the machines" >&2; exit 2; }
