@@ -566,7 +566,7 @@ IF (UNIX AND NOT APPLE)
     IF (GCC_LIBSTDCXX_DIR)
         SET(XMQ_INSTALL_RPATH "${XMQ_INSTALL_RPATH}:${GCC_LIBSTDCXX_DIR}")
     ENDIF ()
-    SET_TARGET_PROPERTIES(xmq_server xmq_pub xmq_sub xmq_con xmq_scn xmq_unit_tests
+    SET_TARGET_PROPERTIES(xmq_server xmq_pub xmq_sub xmq_con xmq_scn xmq_scn_cluster xmq_unit_tests
             PROPERTIES INSTALL_RPATH "${XMQ_INSTALL_RPATH}")
 ENDIF ()
 
@@ -574,8 +574,10 @@ ENDIF ()
 # it wants a Redis, a mosquitto, a database host and its own data files before it will run - and
 # shipping it drags googletest into the runtime dependencies of a production package, which is the
 # one library here whose ABI is tied to the compiler that built it. xmq_scn stays: the scenario
-# utility is a tool in its own right.
-INSTALL(TARGETS xmq_server xmq_pub xmq_sub xmq_con xmq_scn
+# utility is a tool in its own right. xmq_scn_cluster is the same kind of thing - a tool of its own,
+# with no dependency the others do not already carry - and it is the only way to run the tests the
+# cluster is measured by, so it is installed with them.
+INSTALL(TARGETS xmq_server xmq_pub xmq_sub xmq_con xmq_scn xmq_scn_cluster
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
