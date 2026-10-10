@@ -1046,7 +1046,11 @@ string ClusterTestRunner::captureCommand(const string& command) const
     // a node's web service, as likely as anything else - and the tool already runs the nodes
     // themselves through a shell.
     string output;
-    FILE*  pipe = popen(command.c_str(), "r");
+#ifdef _WIN32
+    FILE* pipe = _popen(command.c_str(), "r");
+#else
+    FILE* pipe = popen(command.c_str(), "r");
+#endif
     if (pipe == nullptr)
     {
         return output;
@@ -1056,7 +1060,11 @@ string ClusterTestRunner::captureCommand(const string& command) const
     {
         output += buffer;
     }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
     pclose(pipe);
+#endif
     return output;
 }
 

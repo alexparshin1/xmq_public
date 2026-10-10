@@ -109,6 +109,7 @@
     <ROW Component="xmq_con.exe" ComponentId="{0115D49D-F8B1-4D88-8566-80C342D9371E}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_con.exe"/>
     <ROW Component="xmq_pub.exe" ComponentId="{48A7B4C7-CBA6-46D3-9C0F-7D07C6826069}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_pub.exe"/>
     <ROW Component="xmq_scn.exe" ComponentId="{AF63F926-A468-4FC9-892B-59BBDCA48150}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_scn.exe"/>
+    <ROW Component="xmq_scn_cluster.exe" ComponentId="{AFAF3855-2AEA-481F-B906-663B2657BB75}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_scn_cluster.exe"/>
     <ROW Component="xmq_server.conf.template" ComponentId="{06BF6951-57A3-4D39-B43C-7B45D57AF21A}" Directory_="XMQ_Dir" Attributes="0" KeyPath="xmq_server.conf.template" Type="0"/>
     <ROW Component="xmq_server.exe" ComponentId="{6D48CF00-3518-4131-81F1-52143D651487}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_server.exe"/>
     <ROW Component="xmq_sub.exe" ComponentId="{B621A3A1-84CE-468A-AF41-9250F417B821}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_sub.exe"/>
@@ -140,6 +141,7 @@
     <ROW File="README" Component_="README" FileName="README" Attributes="0" SourcePath="..\README.md" SelfReg="false"/>
     <ROW File="xmq_server.conf.template" Component_="xmq_server.conf.template" FileName="XMQ_SE~1.TEM|xmq_server.conf.template" Version="65535.65535.65535.65535" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_server.conf.template" SelfReg="false"/>
     <ROW File="xmq_scn.exe" Component_="xmq_scn.exe" FileName="xmq_scn.exe" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\bin\xmq_scn.exe" SelfReg="false" DigSign="true"/>
+    <ROW File="xmq_scn_cluster.exe" Component_="xmq_scn_cluster.exe" FileName="xmq_scn_cluster.exe" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\bin\xmq_scn_cluster.exe" SelfReg="false" DigSign="true"/>
     <ROW File="Connections10k100.json" Component_="Connections10k100.json" FileName="CONNEC~1.JSO|Connections-10k-100.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Connections-10k-100.json" SelfReg="false"/>
     <ROW File="FanIn1K51K1K.json" Component_="Connections10k100.json" FileName="FAN-IN~1.JSO|Fan-In-1K-5-1K-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Fan-In-1K-5-1K-1K.json" SelfReg="false"/>
     <ROW File="FanOut11k11K.json" Component_="Connections10k100.json" FileName="FAN-OU~1.JSO|Fan-Out-1-1k-1-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Fan-Out-1-1k-1-1K.json" SelfReg="false"/>
@@ -458,6 +460,7 @@
     <ROW Feature_="Feature_3" Component_="libssl3x64.dll"/>
     <ROW Feature_="Feature_3" Component_="pcre28.dll"/>
     <ROW Feature_="XMQServer" Component_="xmq_scn.exe"/>
+    <ROW Feature_="XMQServer" Component_="xmq_scn_cluster.exe"/>
     <ROW Feature_="XMQServer" Component_="lib"/>
     <ROW Feature_="Feature_3" Component_="zlib.dll"/>
     <ROW Feature_="Feature_1" Component_="README"/>
