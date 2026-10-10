@@ -132,6 +132,59 @@ int ClusterTestRunner::run()
     // The load runs on a thread of its own while the timeline changes the cluster under it. What it
     // throws is kept and reported with everything else: a load that ends in an error when its node is
     // taken away is a result about the cluster, not a failure of this tool.
+    // Wait until every node of the test serves clients, and say what is still missing while waiting.
+    //
+    // A node that has just started refuses clients with "the MQTT server unavailable" until the
+    // cluster has taken it in - deliberately, and the refusal names the session rather than the
+    // moment, which makes it look like a defect of the cluster. Both the checks and the load begin
+    // below, so a run started right after `stand.sh up` would measure the stand's start-up instead,
+    // and that is exactly how a day went into chasing the wrong thing: the same refusal turned up
+    // under whichever node happened to be last to join.
+    {
+        constexpr auto readyTimeout = chrono::seconds(120);
+        const auto     deadline = chrono::steady_clock::now() + readyTimeout;
+        auto           ready = false;
+        while (!ready && chrono::steady_clock::now() < deadline)
+        {
+            Strings missing;
+            for (const auto& node : m_test.m_nodes)
+            {
+                if (node.m_host.empty() || node.m_port == 0)
+                {
+                    continue; // A node the test never gave an address: there is nothing to ask.
+                }
+                client::MqttClient probe(nullptr, "", "");
+                try
+                {
+                    if (probe.connect(Host(node.m_host, node.m_port),
+                                      credentials(checkClientId("ready-" + node.m_name)),
+                                      runDefinition().m_connectParameters, checkProtocolVersion(), {},
+                                      runDefinition().m_sslKeys) != ReasonCode::Success)
+                    {
+                        missing.push_back(format("{} (refused)", node.m_name).c_str());
+                    }
+                }
+                catch (const exception&)
+                {
+                    missing.push_back(format("{} (unreachable)", node.m_name).c_str());
+                }
+            }
+            ready = missing.empty();
+            if (!ready)
+            {
+                COUT(format("waiting for the cluster: {} not serving clients yet",
+                            missing.join(", ").c_str()));
+                this_thread::sleep_for(chrono::seconds(3));
+            }
+        }
+        if (!ready)
+        {
+            CERR(format("The cluster is not ready after {}s: the test would measure the stand's "
+                        "start-up rather than the cluster.", readyTimeout.count()));
+            return 1;
+        }
+    }
+
     exception_ptr loadFailure;
     m_loadStarted = chrono::steady_clock::now();
     thread loadThread(
