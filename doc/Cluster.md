@@ -1,4 +1,7 @@
 # XMQ cluster should support:
+
+`[x]` means done; `[ ]` means not done, with what is done and what is left said underneath.
+
 - [x] the cluster is a mesh of at most 10 admitted nodes, including the coordinator. This is the current supported
   size limit and the target for cluster validation. Admission of an additional node must be rejected if it would exceed the limit; unreachable
   members still count until their removal is committed through an agreed membership change.
@@ -20,9 +23,12 @@
   Done: a session of a node that is gone is taken over by the node its client connects to, with what was queued for it.
   Left: taking orphaned sessions over before their clients come back, so that they go on receiving meanwhile.
 
-- [ ] every node must use the same logical Redis storage and cluster data namespace as the coordinator. Storage belongs
+- [x] every node must use the same logical Redis storage and cluster data namespace as the coordinator. Storage belongs
   to the cluster and remains unchanged on coordinator succession. Access to that storage is required for client service;
   a node must not fall back to an independent Redis instance.
+  Done: a node whose `persistence.redis_uri` differs is refused and one without it does not start on a cluster; a node
+  that cannot reach the storage goes cluster-offline. Left: the URI is compared as a string, so the same storage at
+  another endpoint - a failover, a proxy - is refused as if it were another storage.
 
 - [x] any MQTT client can connect to arbitrary node of the cluster. The cluster automatically migrates the session
   from its previous owner to the node to which the client has connected.
@@ -69,6 +75,35 @@
 - [x] a cluster is formed and rejoined through the shared storage. A node with `cluster.enabled` joins the cluster in
   its Redis database by itself, or forms it; a member that starts again rejoins whether that is set or not. Either
   finds the other members, and their TLS addresses, in the storage.
+
+
+## Acceptance
+
+What covers each requirement today. *unit* is the suite in `test/`, whose cluster tests are
+`XMQ_ClusterTests`; *stand* is a cluster of nodes built by `LoadTest/Cluster/stand.sh` and driven by
+`xmq_scn_cluster` - `LoadTest/Cluster/README.md` says how; *bench* is the load bench against a single
+broker, for what the cluster must not make worse.
+
+| Requirement | Covered by |
+|---|---|
+| 10-node mesh, admission refused past the limit | unit: `eleventhNodeIsRefused`, `AddDuplicateNode` |
+| client id unique, takeover | unit: `enforceUniqueClientId`, `connectedClientIsTakenOverAcrossNodes`, `sessionMovesToTheNodeItsClientConnectsTo`, `clusterAndOrdinarySessionsCannotTakeOverEachOther` |
+| coordinator, leases, succession | unit: `firstNodeCoordinatesAndEveryNodeIsOnline`, `nextNodeInOrderSucceedsTheCoordinator`, `coordinatorChangeDoesNotDisturbClients`, `clientsNeverSeeTheClusterAssignment` |
+| sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; stand: `the-second-node-comes-back.json` |
+| a client may connect to any node | stand: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
+| encrypted internode links | unit: `clusterCredentialsRequireTls`, `unencryptedClusterJoinIsRejected`, `unencryptedPeerRecordIsRejected`, `clusterLinkRequiresTrustedCertificate`, `clusterLinkRefusesUntrustedCertificate`, `peerTlsUsesLocalKeys` |
+| one logical storage, no fallback | unit: `nodeWithoutStorageServesNoClients`, `standaloneNodeMayNotUseAClustersDatabase` |
+| node identity, name, a clone | unit: `nodeMayNotTakeAnotherNodesName`, `nodeRunningElsewhereDoesNotStartAgain`, `restartedNodeKeepsItsIdentityAndRejoins`, `nodeThatLeavesFreesItsPlace` |
+| forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; stand: `stand.sh up`, a node stopped and started again |
+| subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |
+| shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
+| retained, including a node that was away | unit: `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
+| cluster-offline, and returning to service | stand: a node stopped and started under load; it does not serve again - `LoadTest/Cluster/README.md`, *Known to be broken* |
+| in-flight shared-subscription deliveries across a failure | not covered |
+| a load balancer in front | not covered |
+| the cluster as one broker in `$SYS` | not decided |
+
+"Not covered" means what it says: no test speaks to it yet.
 
 
 ## Retained conflict resolution
