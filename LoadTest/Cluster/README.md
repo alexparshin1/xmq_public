@@ -27,7 +27,7 @@ groups by name and may point them at a named node of the cluster.
 ## The stand
 
 Nodes are processes, not services, so a test can stop one in the middle of a run. Each node keeps its
-configuration, certificate and log in its own directory under `$STAND_DIR` (default `~/cluster`), and
+configuration, certificate and log in its own directory under `$STAND_DIR` (default `~/cluster.run`; `~/cluster` links to this directory of the stand worktree), and
 is started through a launcher of its own, so an interrupted run does not take the nodes with it.
 
 ```sh

@@ -10,7 +10,7 @@
 # A node is named as `node@host`, so one stand can span machines: the cluster's links then cross a
 # real network instead of loopback, which is the cheaper and the less honest of the two. Everything
 # a node needs lives on the machine it runs on, under the same path everywhere
-# ($HOME/cluster/<node>), so the layout is the same whether a node is local or remote, and the
+# ($HOME/cluster.run/<node>), so the layout is the same whether a node is local or remote, and the
 # running of one is a single ssh away.
 #
 # The cluster requires every node to name the storage the same way: a node joining is refused with
@@ -50,7 +50,7 @@
 
 set -u
 
-STAND_DIR=${STAND_DIR:-$HOME/cluster}
+STAND_DIR=${STAND_DIR:-$HOME/cluster.run}
 STAND_ENV="$STAND_DIR/stand.env"
 if [ -f "$STAND_ENV" ]; then
     while IFS='=' read -r key value; do
@@ -63,7 +63,7 @@ CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
 # the release gates measure, and a test stand has no business replacing them. Laid down on every
 # machine the stand uses, which is why the path is the same everywhere.
-SERVER=${SERVER:-$HOME/cluster/xmq_server}
+SERVER=${SERVER:-$HOME/cluster.run/xmq_server}
 REDIS_HOST=${REDIS_HOST:-theater}
 REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
@@ -83,14 +83,14 @@ CLIENT_PASSWORD=${CLIENT_PASSWORD:-User-Secret1}
 USER_DATABASE_URI=${USER_DATABASE_URI:-postgresql://xmq:xmq_secret@theater/xmq}
 # The authenticator extension, beside the server on every machine: a broker with no extension that
 # authenticates admits nobody, and every cluster link arrives with an account and a password.
-EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster/lib/libxmq_user_database.so}
+EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster.run/lib/libxmq_user_database.so}
 # Some machines carry SPTK of their own and some carry a private copy of it - a stand built against
 # a machine whose installed SPTK is another version keeps the one it needs in ~/sptk. Naming both
 # places costs nothing and saves discovering, on one machine only, that a node cannot find a
 # library: on Ubuntu, where the installed SPTK is not the version the project wants, the binary
 # names ~/.local in its runpath, and without this a node starts and dies with "cannot open shared
 # object file".
-SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster/lib:$HOME/sptk/lib}
+SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster.run/lib:$HOME/sptk/lib}
 # Two nodes on each machine, so that the links between them are links between hosts, and the stand
 # still leaves every machine able to carry its share of clients and traffic.
 NODES=${NODES:-"node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater"}
@@ -495,6 +495,8 @@ command_check_logs() {
 # build is on; the machines given have to be able to run it - the same distribution.
 # The machines `deploy <branch>` builds on: each one builds the branch itself and runs what it built.
 STAND_DEPLOY_HOSTS=${STAND_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
+# ~/cluster on every machine links to LoadTest/Cluster there, so the scripts a timeline step runs on
+# a machine are those of the branch the machine runs; the stand's data is in ~/cluster.run.
 # A worktree of ~/workspace/xmq_public on each machine, detached at the branch as pushed: the working
 # tree there - its branch, its changes, its build - is left alone.
 BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public_stand'}
@@ -601,9 +603,6 @@ command_deploy_binary() {
                     ssh -o BatchMode=yes "$host" "mv -f sptk/lib/$(basename "$lib").new sptk/lib/$(basename "$lib")" ||
                     { echo "$host: $lib copy failed" >&2; failed=1; }
             done
-            # The stand's own scripts go along: a timeline step runs them on that machine, and a
-            # copy left from an older stand there answers for this one.
-            scp -q "$HERE/stand.sh" "$HERE/redis_query.py" "$HERE/redis_proxy.py" "$host:$STAND_DIR/"
         fi
         on_host "$host" "echo '$stamp' > \"$SERVER.source\""
         echo "$host: $stamp"
