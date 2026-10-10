@@ -3,6 +3,14 @@
 An ordinary load scenario runs against a cluster while a timeline takes nodes away and brings them
 back, and checks after the load ask the cluster what state it is in.
 
+## Where this lives
+
+The stand, the tool and the example tests are on branch `2026-10-10-Cluster-test-system`, which carries
+the cluster work as it stood when the branch was made; nothing here is in `0.9.20` yet. Two SPTK fixes
+go with it, on branch `5.6.14`: a connect timeout taken from the URL by the PostgreSQL connector and by
+`RedisConnect` - a check that points at something which cannot answer otherwise waits out the system's
+own timeout instead of one it named itself.
+
 ## The pieces
 
 | Piece | Where | What it is |
