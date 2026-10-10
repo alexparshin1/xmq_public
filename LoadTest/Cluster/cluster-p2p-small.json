@@ -1,0 +1,56 @@
+{
+  "name": "Cluster-P2P-small",
+  "type": "Point-To-Point",
+  "comments": [
+    "The load the cluster tests run: small enough to be about the cluster and not about scale.",
+    "Publishers connect to one node, subscribers to the other, which is what makes the cluster",
+    "route anything at all - 200 topics, one subscriber each, 2 messages per second per publisher.",
+    "",
+    "The accounts are the stand's: user/User-Secret1, from the cluster's shared accounts database."
+  ],
+  "publishers": {
+    "id_prefix": "cluster-publisher-",
+    "protocol_version": 5,
+    "client_count": 200,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "cluster/topic$clientindex",
+    "server": {
+      "hostname": "thinker11",
+      "port": 2884,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "subscribers": {
+    "id_prefix": "cluster-subscriber-",
+    "protocol_version": 5,
+    "client_count": 200,
+    "qos": 1,
+    "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 30,
+    "topics": "cluster/topic$clientindex",
+    "server": {
+      "hostname": "thinker11",
+      "port": 2885,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "server": {
+    "hostname": "thinker11",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 400,
+    "duration_sec": 150,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}
