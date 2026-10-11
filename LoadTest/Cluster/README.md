@@ -30,6 +30,11 @@ Nodes are processes, not services, so a test can stop one in the middle of a run
 configuration, certificate and log in its own directory under `$CLUSTER_DIR` (default `~/cluster.run`; `~/cluster` links to this directory of the test cluster worktree), and
 is started through a launcher of its own, so an interrupted run does not take the nodes with it.
 
+`test_cluster.sh` is bash, and the Windows package leaves it out. On Windows it runs under WSL
+(`wsl --install`), which is the same environment as on Linux, or under Git Bash (Git for Windows,
+with its `bin` on `PATH`), which is lighter but has no `pgrep`. Either way, `bash test_cluster.sh ...`.
+`xmq_scn_cluster` itself and the tests need neither.
+
 ```sh
 test_cluster.sh up            # write configurations and certificates, start every node
 test_cluster.sh status        # nodes, ports, and the cluster keys in the shared storage
