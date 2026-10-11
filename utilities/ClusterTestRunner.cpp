@@ -109,6 +109,10 @@ const ClusterTestCommandLine& ClusterTestRunner::arguments() const
 
 int ClusterTestRunner::run()
 {
+    if (const string redisUri = commandLine().getOptionValue("redis").c_str(); !redisUri.empty())
+    {
+        return runRedisCommand(redisUri, commandLine().getOptionValue("redis-command").c_str());
+    }
     const string suite = commandLine().getOptionValue("suite").c_str();
     const auto   repeat = max(1, static_cast<int>(commandLine().getOptionValue("repeat").toInt()));
     if (!suite.empty() || repeat > 1)
@@ -731,6 +735,42 @@ bool ClusterTestRunner::runCheck(const CClusterCheck& check, string& detail)
         return false;
     }
     return false;
+}
+
+int ClusterTestRunner::runRedisCommand(const string& uri, const string& commandText)
+{
+    const auto arguments = words(commandText);
+    if (arguments.empty())
+    {
+        CERR("--redis needs --redis-command, the command to run.");
+        return 1;
+    }
+    try
+    {
+        RedisConnect redis;
+        redis.connect(URL(uri));
+        RedisCommand command(arguments.front());
+        if (arguments.size() > 1)
+        {
+            command.emplace_back(vector<string>(arguments.begin() + 1, arguments.end()));
+        }
+        vector<Variant> results;
+        redis.executeCommand(command, results);
+        redis.disconnect();
+        for (const auto& result: results)
+        {
+            if (!result.isNull())
+            {
+                COUT(result.asString());
+            }
+        }
+    }
+    catch (const Exception& e)
+    {
+        CERR(e.what());
+        return 1;
+    }
+    return 0;
 }
 
 bool ClusterTestRunner::checkRedis(const CClusterCheck& check, string& detail)

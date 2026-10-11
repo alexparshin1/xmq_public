@@ -40,7 +40,7 @@
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -97,7 +97,9 @@ NODES=${NODES:-"node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 
 
 HERE=$(dirname "$(readlink -f "$0")")
 LOCAL_HOST=$(hostname)
-QUERY="python3 $HERE/redis_query.py $REDIS_HOST $REDIS_PORT $REDIS_DB"
+# A Redis read: xmq_scn_cluster runs one command against the test cluster's database and prints the
+# reply, one element per line.
+query() { "${XMQ_SCN_CLUSTER:-xmq_scn_cluster}" --redis "$REDIS_URI" --redis-command "$*"; }
 
 # A node is written `name@host`; a plain name means this machine.
 node_name() { echo "${1%%@*}"; }
@@ -625,14 +627,14 @@ command_status() {
     done
     echo
     echo "cluster keys in Redis:"
-    $QUERY KEYS 'cluster:*' 2>/dev/null | sed 's/^/  /'
+    query KEYS 'cluster:*' 2>/dev/null | sed 's/^/  /'
     for key in cluster:coordinator cluster:term cluster:members; do
         local value
-        value=$($QUERY GET "$key" 2>/dev/null)
+        value=$(query GET "$key" 2>/dev/null)
         [ -n "$value" ] && echo "  $key = $value"
     done
     local owners
-    owners=$($QUERY KEYS 'session_*_owner' 2>/dev/null | wc -l)
+    owners=$(query KEYS 'session_*_owner' 2>/dev/null | wc -l)
     echo "  session owners: $owners"
 }
 
@@ -643,7 +645,7 @@ command_status() {
 # beside a configuration by default, or a database of its own named by `database_uri`) - so the wipe
 # touches nothing of theirs.
 command_wipe() {
-    $QUERY FLUSHDB
+    query FLUSHDB
     echo "emptied $REDIS_HOST:$REDIS_PORT db $REDIS_DB"
 }
 

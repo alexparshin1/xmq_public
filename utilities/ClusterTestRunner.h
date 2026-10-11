@@ -81,6 +81,14 @@ private:
      * @return 0 when every run passed.
      */
     int runSuite(const std::string& suite, int repeat) const;
+
+    /**
+     * @brief --redis: run one command against the storage and print the reply, one element per line.
+     * @param uri               The storage.
+     * @param commandText       The command as typed: words separated by spaces.
+     * @return 0, or 1 when the command failed.
+     */
+    static int runRedisCommand(const std::string& uri, const std::string& commandText);
     std::vector<CCheckOutcome> m_outcomes;
     std::vector<bool>          m_ran; ///< One per check of the test, in its order.
     size_t                     m_failedSteps {0}; ///< Timeline steps whose command exited non-zero.
