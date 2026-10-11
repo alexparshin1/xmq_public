@@ -2,9 +2,9 @@
   "name": "the second node is taken away and brought back under load",
   "comments": [
     "A node is taken away under load and brought back: the load's subscribers are on it, so the",
-    "cluster has to take their sessions back when it returns. On the default stand of stand.sh -",
+    "cluster has to take their sessions back when it returns. On the default test cluster of test_cluster.sh -",
     "six nodes, two on each of thinker10, thinker11 and theater - run from thinker10, where",
-    "~/cluster/stand.sh reaches every node by itself."
+    "~/cluster/test_cluster.sh reaches every node by itself."
   ],
   "server": {
     "username": "user",
@@ -28,15 +28,15 @@
       "name": "node1",
       "host": "thinker10",
       "port": 2884,
-      "stop": "~/cluster/stand.sh stop {node}",
-      "start": "~/cluster/stand.sh start {node}"
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
       "host": "thinker11",
       "port": 2887,
-      "stop": "~/cluster/stand.sh stop {node}",
-      "start": "~/cluster/stand.sh start {node}"
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
     }
   ],
   "timeline": [
@@ -99,9 +99,9 @@
     }
   ],
   "before": [
-    "~/cluster/stand.sh mark"
+    "~/cluster/test_cluster.sh mark"
   ],
   "after": [
-    "~/cluster/stand.sh check-logs"
+    "~/cluster/test_cluster.sh check-logs"
   ]
 }

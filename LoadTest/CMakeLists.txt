@@ -27,3 +27,13 @@ IF (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     INSTALL(FILES ${XMQ_SCN_SYSTEMD_FILES} DESTINATION share/xmq/setup/systemd)
     INSTALL(FILES setup/README.md DESTINATION share/xmq/setup)
 ENDIF ()
+
+# The cluster tests that xmq_scn_cluster runs, and the test cluster they run on. test_cluster.sh is a
+# Unix tool - bash, ssh, openssl, pgrep - and goes to every Unix; the
+# tests and their load scenario are what xmq_scn_cluster reads anywhere, Windows included, and serve
+# as examples: their nodes are our machines, and a test is moved to others by editing its nodes.
+FILE(GLOB XMQ_CLUSTER_TESTS Cluster/*.json)
+IF (NOT WIN32)
+    INSTALL(PROGRAMS Cluster/test_cluster.sh DESTINATION share/xmq/cluster)
+ENDIF ()
+INSTALL(FILES ${XMQ_CLUSTER_TESTS} Cluster/README.md DESTINATION share/xmq/cluster)

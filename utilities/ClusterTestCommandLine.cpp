@@ -35,7 +35,7 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
                     "first. Examples live in LoadCluster.local.");
     defineParameter("load-scenario", "", "file", "", alwaysVisible, "",
                     "Run this scenario instead of the one the test file names, with the same cluster and "
-                    "the same timeline. For trying a different load against a stand that is already "
+                    "the same timeline. For trying a different load against a test cluster that is already "
                     "understood.");
     defineParameter("bind-to-interfaces", "I", "IP list or mask", R"(^[\d\.,/]+$)", alwaysVisible, "",
                     "Bind the load's clients to local interface IP addresses, using round-robin. "
@@ -49,10 +49,17 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
     defineParameter("suite", "", "directory or file", "", alwaysVisible, "",
                     "Run every cluster test in a directory - each JSON file with a 'timeline' - or the "
                     "one file named, one after another, and exit non-zero if any of them failed. The way "
-                    "to confirm a change on the stand after the unit tests.");
+                    "to confirm a change on the test cluster after the unit tests.");
     defineParameter("repeat", "", "number", R"(^\d+$)", alwaysVisible, "1",
                     "Run each test this many times. A race shows in some runs and not in others, and a "
                     "single pass says little about it.");
+    defineParameter("redis", "", "URI", "", alwaysVisible, "",
+                    "Run one Redis command against this storage, print the reply - one element per line - "
+                    "and exit: the same reads the checks of kind redis make, from a shell, e.g. "
+                    "--redis redis://theater:6379/4 --redis-command 'KEYS cluster:*'. An error goes to "
+                    "stderr with exit status 1.");
+    defineParameter("redis-command", "", "command", "", alwaysVisible, "",
+                    "The command for --redis, as it would be typed: words separated by spaces.");
     defineOption("dry-run", "", alwaysVisible,
                  "Read the test file, print the plan and the checks, and exit without running anything. "
                  "A test takes minutes, and a mistake in it is cheaper to hear about here.");
@@ -60,7 +67,7 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
 
     addNote("Note",
             "--host, --port, --username and --password override the server the test file names, which is "
-            "how one test is pointed at another stand. The load's own clients take their settings from "
+            "how one test is pointed at another test cluster. The load's own clients take their settings from "
             "the scenario file, as they do under xmq_scn.");
 
     initCommandLine(args);

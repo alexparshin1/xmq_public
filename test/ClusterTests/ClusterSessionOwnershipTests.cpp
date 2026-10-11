@@ -169,3 +169,92 @@ TEST_F(XMQ_ClusterTests, sessionOfANodeThatIsGoneIsTakenOver)
     EXPECT_EQ(vector<string> {"left behind"}, received.payloads());
     EXPECT_EQ(cluster[1]->getCluster()->nodeId(), sessionOwner(clientId));
 }
+
+/**
+ * Confirm that the session of a node that is gone is adopted by a running node before its client
+ * returns, and goes on receiving meanwhile.
+ *
+ * Setup: Two nodes. A persistent subscriber on node 0 subscribes and disconnects. Node 0 stops, and
+ * its lease runs out. A message is published on node 1 - where nothing subscribed until node 0's
+ * sessions were adopted. Then the subscriber connects to node 1.
+ *
+ * Verification: node 1 holds the session before the client is back, and the client gets the message
+ * published while it was away.
+ */
+TEST_F(XMQ_ClusterTests, sessionOfAGoneNodeReceivesBeforeItsClientReturns)
+{
+    TestCluster  cluster(2);
+    const string topic = "ownership/adopted";
+    const string clientId = "adopted-subscriber";
+
+    auto subscriber = cluster.connect(0, clientId, false);
+    subscriber->subscribe(Destination(client::MqttClient::getTopic(topic), SubscriptionOptions(Qos::Qos1)));
+    subscriber->disconnect();
+    this_thread::sleep_for(100ms);
+
+    cluster.stopNode(0);
+    EXPECT_TRUE(TestCluster::waitFor([&] { return cluster[1]->getClientSession(clientId) != nullptr; }, LeaseRunsOut + 5s))
+        << "node 1 did not adopt the session of node 0";
+
+    cluster.connect(1, "adopted-publisher")->publish(topic, "while away", Qos::Qos1);
+    this_thread::sleep_for(200ms);
+
+    Received received;
+    subscriber = make_shared<client::MqttClient>(logEngine());
+    received.listen(subscriber);
+    ASSERT_EQ(ReasonCode::Success, subscriber->connect(TestCluster::host(1), ConnectCredentials(clientId, "user", "secret"),
+                                                       {.m_cleanSession = false}, ProtocolVersion::MqttV5));
+    EXPECT_TRUE(TestCluster::waitFor([&] { return received.count() >= 1; })) << "the message published while it was away was lost";
+    EXPECT_EQ(vector<string> {"while away"}, received.payloads());
+}
+
+/**
+ * Confirm that an adopted session moves on, with what it collected, when its client returns to a
+ * node other than the one that adopted it.
+ *
+ * Setup: Three nodes. A persistent subscriber on node 0 subscribes and disconnects. Node 0 stops;
+ * one of the others adopts its session. A message is published on the adopting node, and the
+ * subscriber connects to the third.
+ *
+ * Verification: the client gets the message published while it was away.
+ */
+TEST_F(XMQ_ClusterTests, adoptedSessionMovesToTheNodeItsClientReturnsTo)
+{
+    TestCluster  cluster(3);
+    const string topic = "ownership/adopted-moves";
+    const string clientId = "adopted-moving-subscriber";
+
+    auto subscriber = cluster.connect(0, clientId, false);
+    subscriber->subscribe(Destination(client::MqttClient::getTopic(topic), SubscriptionOptions(Qos::Qos1)));
+    subscriber->disconnect();
+    this_thread::sleep_for(100ms);
+
+    cluster.stopNode(0);
+    size_t adopter = 0;
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         for (size_t node: {1, 2})
+                                         {
+                                             if (cluster[node]->getClientSession(clientId) != nullptr)
+                                             {
+                                                 adopter = node;
+                                             }
+                                         }
+                                         return adopter != 0;
+                                     }, LeaseRunsOut + 5s))
+        << "no node adopted the session of node 0";
+    ASSERT_NE(0U, adopter);
+    const size_t returnTo = adopter == 1 ? 2 : 1;
+
+    cluster.connect(adopter, "adopted-moves-publisher")->publish(topic, "while away", Qos::Qos1);
+    this_thread::sleep_for(200ms);
+
+    Received received;
+    subscriber = make_shared<client::MqttClient>(logEngine());
+    received.listen(subscriber);
+    ASSERT_EQ(ReasonCode::Success, subscriber->connect(TestCluster::host(returnTo), ConnectCredentials(clientId, "user", "secret"),
+                                                       {.m_cleanSession = false}, ProtocolVersion::MqttV5));
+    EXPECT_TRUE(TestCluster::waitFor([&] { return received.count() >= 1; })) << "the message the adopted session collected was lost";
+    EXPECT_EQ(vector<string> {"while away"}, received.payloads());
+    EXPECT_EQ(nullptr, cluster[adopter]->getClientSession(clientId)) << "the adopting node kept the session";
+}

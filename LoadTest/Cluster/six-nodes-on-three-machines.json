@@ -41,43 +41,43 @@
       "name": "node1",
       "host": "thinker10",
       "port": 2884,
-      "stop": "ssh thinker10 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker10 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh thinker10 /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh thinker10 /home/alexeyp/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node2",
       "host": "thinker10",
       "port": 2885,
-      "stop": "ssh thinker10 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker10 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh thinker10 /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh thinker10 /home/alexeyp/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
       "host": "thinker11",
       "port": 2886,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh thinker11 /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
       "host": "thinker11",
       "port": 2887,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh thinker11 /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh thinker11 /home/alexeyp/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node5",
       "host": "theater",
       "port": 2888,
-      "stop": "ssh theater /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh theater /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh theater /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh theater /home/alexeyp/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node6",
       "host": "theater",
       "port": 2889,
-      "stop": "ssh theater /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh theater /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh theater /home/alexeyp/cluster/test_cluster.sh stop {node}",
+      "start": "ssh theater /home/alexeyp/cluster/test_cluster.sh start {node}"
     }
   ],
   "timeline": [
@@ -226,9 +226,9 @@
     }
   ],
   "before": [
-    "~/cluster/stand.sh mark"
+    "~/cluster/test_cluster.sh mark"
   ],
   "after": [
-    "~/cluster/stand.sh check-logs"
+    "~/cluster/test_cluster.sh check-logs"
   ]
 }

@@ -80,7 +80,7 @@
 ## Acceptance
 
 What covers each requirement today. *unit* is the suite in `test/`, whose cluster tests are
-`XMQ_ClusterTests`; *stand* is a cluster of nodes built by `LoadTest/Cluster/stand.sh` and driven by
+`XMQ_ClusterTests`; *test cluster* is a cluster of nodes built by `LoadTest/Cluster/test_cluster.sh` and driven by
 `xmq_scn_cluster` - `LoadTest/Cluster/README.md` says how; *bench* is the load bench against a single
 broker, for what the cluster must not make worse.
 
@@ -89,17 +89,17 @@ broker, for what the cluster must not make worse.
 | 10-node mesh, admission refused past the limit | unit: `eleventhNodeIsRefused`, `AddDuplicateNode` |
 | client id unique, takeover | unit: `enforceUniqueClientId`, `connectedClientIsTakenOverAcrossNodes`, `sessionMovesToTheNodeItsClientConnectsTo`, `clusterAndOrdinarySessionsCannotTakeOverEachOther` |
 | coordinator, leases, succession | unit: `firstNodeCoordinatesAndEveryNodeIsOnline`, `nextNodeInOrderSucceedsTheCoordinator`, `coordinatorChangeDoesNotDisturbClients`, `clientsNeverSeeTheClusterAssignment` |
-| sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; stand: `the-second-node-comes-back.json` |
-| a node starts while others attach to it | unit: `coordinatorStartedTwiceAtOnceStartsOnce`; stand: `stand.sh up`, every node at once |
-| a client may connect to any node | stand: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
+| sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; test cluster: `the-second-node-comes-back.json` |
+| a node starts while others attach to it | unit: `coordinatorStartedTwiceAtOnceStartsOnce`; test cluster: `test_cluster.sh up`, every node at once |
+| a client may connect to any node | test cluster: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
 | encrypted internode links | unit: `clusterCredentialsRequireTls`, `unencryptedClusterJoinIsRejected`, `unencryptedPeerRecordIsRejected`, `clusterLinkRequiresTrustedCertificate`, `clusterLinkRefusesUntrustedCertificate`, `peerTlsUsesLocalKeys` |
 | one logical storage, no fallback | unit: `nodeWithoutStorageServesNoClients`, `standaloneNodeMayNotUseAClustersDatabase` |
 | node identity, name, a clone | unit: `nodeMayNotTakeAnotherNodesName`, `nodeRunningElsewhereDoesNotStartAgain`, `restartedNodeKeepsItsIdentityAndRejoins`, `nodeThatLeavesFreesItsPlace` |
-| forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; stand: `stand.sh up`, a node stopped and started again |
+| forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; test cluster: `test_cluster.sh up`, a node stopped and started again |
 | subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |
 | shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
 | retained, including a node that was away | unit: `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
-| cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; stand: `the-storage-goes-away-from-one-machine.json` |
+| cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; test cluster: `the-storage-goes-away-from-one-machine.json` |
 | in-flight shared-subscription deliveries across a failure | not covered |
 | a load balancer in front | not covered |
 | the cluster as one broker in `$SYS` | not decided |
@@ -264,18 +264,18 @@ leaving the handler would show the throw in between: `std::terminate()` called d
 `ClientSession::handlePublishMessage()`, from `ClientSession::receiveMessages()`.
 
 What it takes is for the node's own startup and an incoming attach to reach that function together. Starting both nodes
-of a stand at the same moment is exactly that: each asks the other, and each handles the asking while still starting
+of a test cluster at the same moment is exactly that: each asks the other, and each handles the asking while still starting
 itself.
 
-1. Two nodes on one host sharing one Redis, which is what the stand arranges (`LoadTest/Cluster/stand.sh up`).
-2. `stand.sh down`, then `up`, so both start together. Watch for a node to go within a second or two of `Server
+1. Two nodes on one host sharing one Redis, which is what the test cluster arranges (`LoadTest/Cluster/test_cluster.sh up`).
+2. `test_cluster.sh down`, then `up`, so both start together. Watch for a node to go within a second or two of `Server
    started`: its console log ends with `terminate called without an active exception`, its ports stop listening, and
    the other logs `Node <name> couldn't connect to node <address>`.
 3. The window is the few microseconds between the lock being released and the thread being assigned, so it does not
    come out every run: in one session it took three restarts of three, and attempts in a row afterwards did not reach
    it at all. Repeating `down; up` is what brings it out. The line stays in the node's console log, so the count of
    them grows across runs and is the more reliable check - the node can go a few seconds after the moment a fixed
-   liveness check looks, and a process that is gone is otherwise easy to mistake for a stand that was never up.
+   liveness check looks, and a process that is gone is otherwise easy to mistake for a test cluster that was never up.
 4. Under a debugger, a node run as `gdb -batch -ex run -ex "thread apply all bt" --args xmq_server -c <node
    configuration>` while the other is restarted prints the backtrace above when it is the one that aborts. A debugger
    slows the startup enough to hide a race by itself, so the node that is not under it is the better one to watch.

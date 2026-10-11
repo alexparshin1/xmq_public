@@ -322,6 +322,29 @@ private:
     std::mutex                           m_releaseMutex;           ///< Guards the release queue.
     std::condition_variable              m_releaseAdded;           ///< Wakes the release worker.
     std::deque<ReleaseRequest>           m_releaseRequests;        ///< Guarded by m_releaseMutex.
+    std::deque<std::function<void()>>    m_sessionTasks;           ///< Adoption and the like; guarded by m_releaseMutex.
+
+    /**
+     * @brief Run work on the release worker, after what is queued there.
+     * @param task              The work.
+     */
+    void queueSessionTask(std::function<void()> task);
+
+    /**
+     * @brief Adopt sessions of nodes that are gone, which the coordinator gave this node: each one
+     *        nobody running holds is loaded here, offline, its subscriptions advertised, so that it
+     *        goes on receiving until its client returns.
+     * @param clientIds         Client ids.
+     */
+    void adoptSessions(const std::vector<std::string>& clientIds);
+
+    /**
+     * @brief Let go of every session this node holds that the storage says another node serves now.
+     *
+     * After this node was offline longer than its lease: its sessions were handed out meanwhile, and
+     * holding them too would give each two owners.
+     */
+    void dropSessionsOwnedElsewhere();
     std::thread                          m_releaseWorker;          ///< Lets sessions go, off the link's thread.
 
     /**

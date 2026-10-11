@@ -1679,6 +1679,20 @@ void Server::detachFromCluster() const
     m_cluster.load()->detachCluster();
 }
 
+void Server::adoptSession(const string& clientId)
+{
+    if (getClientSession(clientId))
+    {
+        return;
+    }
+    const auto parameters = make_shared<ConnectMessageParameters>();
+    parameters->m_cleanSession = false;
+    parameters->setClientId(clientId);
+    // factory() persists the session: it loads the record, restores its subscriptions and messages,
+    // and moves it to this node's set - as a restoring node does with its own.
+    getClientSessionManager()->add(ClientSession::factory(this, parameters));
+}
+
 bool Server::releaseSession(const string& clientId)
 {
     const auto session = getClientSession(clientId);

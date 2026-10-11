@@ -6,7 +6,7 @@
     "Publishers connect to one node, subscribers to the other, which is what makes the cluster",
     "route anything at all - 200 topics, one subscriber each, 2 messages per second per publisher.",
     "",
-    "The accounts are the stand's: user/User-Secret1, from the cluster's shared accounts database."
+    "The accounts are the test cluster's: user/User-Secret1, from the cluster's shared accounts database."
   ],
   "publishers": {
     "id_prefix": "cluster-publisher-",

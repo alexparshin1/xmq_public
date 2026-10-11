@@ -214,6 +214,13 @@ public:
     bool releaseSession(const std::string& clientId);
 
     /**
+     * @brief Load a persistent session of another node, which this node now owns, as it loads its own
+     *        on start: offline, with its subscriptions and queued messages.
+     * @param clientId          Client id.
+     */
+    void adoptSession(const std::string& clientId);
+
+    /**
      * @brief Grant topic subscription to a client ID.
      * @param client            Client ID.
      * @param topic             Destination topic.

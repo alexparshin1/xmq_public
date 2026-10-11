@@ -78,7 +78,22 @@ void Cluster::releaseSessions()
     unique_lock lock(m_releaseMutex);
     while (!m_stopping)
     {
-        m_releaseAdded.wait(lock, [this] { return m_stopping || !m_releaseRequests.empty(); });
+        m_releaseAdded.wait(lock, [this] { return m_stopping || !m_releaseRequests.empty() || !m_sessionTasks.empty(); });
+        while (!m_sessionTasks.empty() && !m_stopping)
+        {
+            const auto task = std::move(m_sessionTasks.front());
+            m_sessionTasks.pop_front();
+            lock.unlock();
+            try
+            {
+                task();
+            }
+            catch (const Exception& e)
+            {
+                logMessage(LogPriority::Error, [&e] { return format("Cluster session task failed: {}", e.what()); });
+            }
+            lock.lock();
+        }
         while (!m_releaseRequests.empty() && !m_stopping)
         {
             const auto [clientId, nodeId] = m_releaseRequests.front();
@@ -105,6 +120,69 @@ void Cluster::releaseSessions()
             }
             lock.lock();
         }
+    }
+}
+
+void Cluster::queueSessionTask(function<void()> task)
+{
+    {
+        const scoped_lock lock(m_releaseMutex);
+        m_sessionTasks.push_back(std::move(task));
+    }
+    m_releaseAdded.notify_one();
+}
+
+void Cluster::adoptSessions(const vector<string>& clientIds)
+{
+    auto* coordinator = m_coordinatorView.load();
+    if (coordinator == nullptr)
+    {
+        return;
+    }
+    size_t adopted = 0;
+    for (const auto& clientId: clientIds)
+    {
+        // A client back already, on this node or another, holds its session: it is not an orphan.
+        if (m_server->getClientSession(clientId) || !coordinator->claimOrphanSession(clientId))
+        {
+            continue;
+        }
+        m_server->adoptSession(clientId);
+        ++adopted;
+    }
+    logMessage(LogPriority::Info, [adopted, &clientIds]
+               {
+                   return format("Adopted {} of {} session(s) of nodes that are gone.", adopted, clientIds.size());
+               });
+}
+
+void Cluster::dropSessionsOwnedElsewhere()
+{
+    auto* coordinator = m_coordinatorView.load();
+    if (coordinator == nullptr)
+    {
+        return;
+    }
+    vector<string> held;
+    m_server->getClientSessionManager()->forEach([&held](const SClientSession& session)
+                                                 {
+                                                     if (!session->isClusterSession() && !session->isCleanSession())
+                                                     {
+                                                         held.emplace_back(session->getClientId());
+                                                     }
+                                                 });
+    size_t dropped = 0;
+    for (const auto& clientId: held)
+    {
+        if (const auto owner = coordinator->sessionOwner(clientId); !owner.empty() && owner != m_nodeId)
+        {
+            (void) m_server->releaseSession(clientId);
+            ++dropped;
+        }
+    }
+    if (dropped > 0)
+    {
+        logMessage(LogPriority::Info, [dropped] { return format("Let go of {} session(s) other nodes took over while this one was offline.", dropped); });
     }
 }
 
@@ -413,7 +491,19 @@ Coordinator& Cluster::coordinatorForCluster()
         m_coordinator = make_unique<Coordinator>(
             m_nodeId, m_server->getNodeName(), m_settings->m_cluster.m_this_node.m_host_port.asString().c_str(),
             storage->getRedis()->getRedisUrl(), chrono::seconds(leaseSeconds),
-            [this](const bool online) { m_server->onClusterStateChanged(online); });
+            [this](const bool online)
+            {
+                m_server->onClusterStateChanged(online);
+                if (online)
+                {
+                    // Reported only after being offline: what this node held may be another's now.
+                    queueSessionTask([this] { dropSessionsOwnedElsewhere(); });
+                }
+            });
+        m_coordinator->onAdoptSessions([this](vector<string> clientIds)
+                                       {
+                                           queueSessionTask([this, clientIds = std::move(clientIds)] { adoptSessions(clientIds); });
+                                       });
         m_coordinatorView = m_coordinator.get();
     }
     return *m_coordinator;

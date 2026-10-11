@@ -109,6 +109,10 @@ const ClusterTestCommandLine& ClusterTestRunner::arguments() const
 
 int ClusterTestRunner::run()
 {
+    if (const string redisUri = commandLine().getOptionValue("redis").c_str(); !redisUri.empty())
+    {
+        return runRedisCommand(redisUri, commandLine().getOptionValue("redis-command").c_str());
+    }
     const string suite = commandLine().getOptionValue("suite").c_str();
     const auto   repeat = max(1, static_cast<int>(commandLine().getOptionValue("repeat").toInt()));
     if (!suite.empty() || repeat > 1)
@@ -251,7 +255,7 @@ int ClusterTestRunner::runOne()
     // A node that has just started refuses clients with "the MQTT server unavailable" until the
     // cluster has taken it in - deliberately, and the refusal names the session rather than the
     // moment, which makes it look like a defect of the cluster. Both the checks and the load begin
-    // below, so a run started right after `stand.sh up` would measure the stand's start-up instead,
+    // below, so a run started right after `test_cluster.sh up` would measure the test cluster's start-up instead,
     // and that is exactly how a day went into chasing the wrong thing: the same refusal turned up
     // under whichever node happened to be last to join.
     {
@@ -293,7 +297,7 @@ int ClusterTestRunner::runOne()
         }
         if (!ready)
         {
-            CERR(format("The cluster is not ready after {}s: the test would measure the stand's "
+            CERR(format("The cluster is not ready after {}s: the test would measure the test cluster's "
                         "start-up rather than the cluster.", readyTimeout.count()));
             runAfterCommands();
             return 1;
@@ -381,7 +385,7 @@ void ClusterTestRunner::applyCommandLineOverrides()
     }
 
     // A test that names no server at all takes what the command line would have used - localhost and
-    // the MQTT port - so that one file works against a stand and against a broker reached by an
+    // the MQTT port - so that one file works against a test cluster and against a broker reached by an
     // address given on the command line.
     if (m_test.m_serverHost.empty())
     {
@@ -605,7 +609,7 @@ void ClusterTestRunner::waitUntil(const chrono::seconds at) const
 
 int ClusterTestRunner::runCommand(const string& label, string command, const string& node) const
 {
-    // {node} stands for the node's name, so a stand whose commands take a node as an argument has the
+    // {node} stands for the node's name, so a test cluster whose commands take a node as an argument has the
     // name written once in the test file and not once per node.
     for (auto at = command.find("{node}"); at != string::npos; at = command.find("{node}", at))
     {
@@ -731,6 +735,42 @@ bool ClusterTestRunner::runCheck(const CClusterCheck& check, string& detail)
         return false;
     }
     return false;
+}
+
+int ClusterTestRunner::runRedisCommand(const string& uri, const string& commandText)
+{
+    const auto arguments = words(commandText);
+    if (arguments.empty())
+    {
+        CERR("--redis needs --redis-command, the command to run.");
+        return 1;
+    }
+    try
+    {
+        RedisConnect redis;
+        redis.connect(URL(uri));
+        RedisCommand command(arguments.front());
+        if (arguments.size() > 1)
+        {
+            command.emplace_back(vector<string>(arguments.begin() + 1, arguments.end()));
+        }
+        vector<Variant> results;
+        redis.executeCommand(command, results);
+        redis.disconnect();
+        for (const auto& result: results)
+        {
+            if (!result.isNull())
+            {
+                COUT(result.asString());
+            }
+        }
+    }
+    catch (const Exception& e)
+    {
+        CERR(e.what());
+        return 1;
+    }
+    return 0;
 }
 
 bool ClusterTestRunner::checkRedis(const CClusterCheck& check, string& detail)

@@ -210,6 +210,32 @@ public:
     void handOverSession(const std::string& clientId, const std::string& nodeId);
 
     /**
+     * @brief Take a session for this node only if no running node holds it - a session of a node
+     *        that is gone, which this node was given to adopt. A running holder keeps it.
+     * @param clientId          Client id.
+     * @return True when the session is this node's now.
+     */
+    [[nodiscard]] bool claimOrphanSession(const std::string& clientId);
+
+    /**
+     * @param clientId          Client id.
+     * @return The GUID of the node the storage says serves the session, or empty.
+     */
+    [[nodiscard]] std::string sessionOwner(const std::string& clientId);
+
+    /// Called from a step with sessions the coordinator gave this node to adopt.
+    using AdoptSessions = std::function<void(std::vector<std::string> clientIds)>;
+
+    /**
+     * @brief Who adopts the sessions of nodes that are gone, when the coordinator hands them here.
+     *        Set before start().
+     */
+    void onAdoptSessions(AdoptSessions adopt)
+    {
+        m_adoptSessions = std::move(adopt);
+    }
+
+    /**
      * @param nodeId            A member's GUID.
      * @return Its name, or empty for an unknown GUID.
      * @throws sptk::Exception  Redis cannot be reached.
@@ -243,6 +269,7 @@ private:
     const std::chrono::milliseconds m_lease;
     const std::chrono::milliseconds m_tick;
     StateChanged                    m_stateChanged;
+    AdoptSessions                   m_adoptSessions;
 
     mutable std::mutex      m_mutex;          ///< Guards everything below that is not atomic.
     std::condition_variable m_wake;           ///< Wakes the thread to stop.

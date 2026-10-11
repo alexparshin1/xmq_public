@@ -1,16 +1,16 @@
 #!/bin/bash
 #
-# The cluster stand: several xmq_server nodes as plain processes, across several machines,
+# The test cluster: several xmq_server nodes as plain processes, across several machines,
 # sharing one Redis and one accounts database.
 #
 # Nodes are processes, not services, for two reasons. A scenario has to be able to stop and start
 # one in the middle of a run (that is what the cluster is being tested for), and the installed
 # service on a machine belongs to the release bench, which must not be disturbed by tests.
 #
-# A node is named as `node@host`, so one stand can span machines: the cluster's links then cross a
+# A node is named as `node@host`, so one test cluster can span machines: the cluster's links then cross a
 # real network instead of loopback, which is the cheaper and the less honest of the two. Everything
 # a node needs lives on the machine it runs on, under the same path everywhere
-# ($HOME/cluster/<node>), so the layout is the same whether a node is local or remote, and the
+# ($HOME/cluster.run/<node>), so the layout is the same whether a node is local or remote, and the
 # running of one is a single ssh away.
 #
 # The cluster requires every node to name the storage the same way: a node joining is refused with
@@ -25,31 +25,33 @@
 # time. theater's PostgreSQL already holds it.
 #
 # Usage:
-#   stand.sh up                 prepare (dirs, certificates, configuration), start every node
-#   stand.sh down               stop every node
-#   stand.sh start|stop <node>  one node (what a scenario timeline calls)
-#   stand.sh status             processes, ports, and what the cluster has written in Redis
-#   stand.sh wipe               empty this stand's Redis database, and nothing else
-#   stand.sh tail <node>        the node's console log
-#   stand.sh mark               remember where every node's logs end, for check-logs
-#   stand.sh check-logs         what the nodes logged since the mark: a crash, or a node not running,
+#   test_cluster.sh up                 prepare (dirs, certificates, configuration), start every node
+#   test_cluster.sh down               stop every node
+#   test_cluster.sh start|stop <node>  one node (what a scenario timeline calls)
+#   test_cluster.sh status             processes, ports, and what the cluster has written in Redis
+#   test_cluster.sh wipe               empty this test cluster's Redis database, and nothing else
+#   test_cluster.sh tail <node>        the node's console log
+#   test_cluster.sh mark               remember where every node's logs end, for check-logs
+#   test_cluster.sh check-logs         what the nodes logged since the mark: a crash, or a node not running,
 #                               fails it; what went cluster-offline is reported
-#   stand.sh deploy <server> <host>...
+#   test_cluster.sh deploy <branch>    every machine of CLUSTER_DEPLOY_HOSTS builds the branch, as pushed, and
+#                               runs what it built
+#   test_cluster.sh deploy <server> <host>...
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: STAND_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
-# `up` writes the settings it used to $STAND_DIR/stand.env on every machine of the stand, and every
-# later command reads them from there - a timeline step that runs `stand.sh stop node3` on another
-# machine means the same stand as the `up` did, without repeating the environment. A variable set
+# `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
+# later command reads them from there - a timeline step that runs `test_cluster.sh stop node3` on another
+# machine means the same test cluster as the `up` did, without repeating the environment. A variable set
 # in the environment still wins.
 
 set -u
 
-STAND_DIR=${STAND_DIR:-$HOME/cluster}
-STAND_ENV="$STAND_DIR/stand.env"
+CLUSTER_DIR=${CLUSTER_DIR:-$HOME/cluster.run}
+STAND_ENV="$CLUSTER_DIR/cluster.env"
 if [ -f "$STAND_ENV" ]; then
     while IFS='=' read -r key value; do
         case $key in '' | \#*) continue ;; esac
@@ -59,9 +61,9 @@ fi
 STAND_SETTINGS="NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
 CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
-# the release gates measure, and a test stand has no business replacing them. Laid down on every
-# machine the stand uses, which is why the path is the same everywhere.
-SERVER=${SERVER:-$HOME/cluster/xmq_server}
+# the release gates measure, and a test cluster has no business replacing them. Laid down on every
+# machine the test cluster uses, which is why the path is the same everywhere.
+SERVER=${SERVER:-$HOME/cluster.run/xmq_server}
 REDIS_HOST=${REDIS_HOST:-theater}
 REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
@@ -74,28 +76,30 @@ CLIENT_USER=${CLIENT_USER:-user}
 CLIENT_PASSWORD=${CLIENT_PASSWORD:-User-Secret1}
 # ^ the account the test clients connect with. It is made once in the configuration interface: the
 #   import that seeds the accounts database updates the accounts already there and creates none, so
-#   the stand can name this account but not invent it - and a server reads the accounts as it starts,
-#   so an account made while the stand is up is there only after the next `up`. The cluster account
-#   above is the stand's own business, and its password has to match what the nodes present when
+#   the test cluster can name this account but not invent it - and a server reads the accounts as it starts,
+#   so an account made while the test cluster is up is there only after the next `up`. The cluster account
+#   above is the test cluster's own business, and its password has to match what the nodes present when
 #   they link.
 USER_DATABASE_URI=${USER_DATABASE_URI:-postgresql://xmq:xmq_secret@theater/xmq}
 # The authenticator extension, beside the server on every machine: a broker with no extension that
 # authenticates admits nobody, and every cluster link arrives with an account and a password.
-EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster/lib/libxmq_user_database.so}
-# Some machines carry SPTK of their own and some carry a private copy of it - a stand built against
+EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster.run/lib/libxmq_user_database.so}
+# Some machines carry SPTK of their own and some carry a private copy of it - a test cluster built against
 # a machine whose installed SPTK is another version keeps the one it needs in ~/sptk. Naming both
 # places costs nothing and saves discovering, on one machine only, that a node cannot find a
 # library: on Ubuntu, where the installed SPTK is not the version the project wants, the binary
 # names ~/.local in its runpath, and without this a node starts and dies with "cannot open shared
 # object file".
-SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster/lib:$HOME/sptk/lib}
-# Two nodes on each machine, so that the links between them are links between hosts, and the stand
+SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster.run/lib:$HOME/sptk/lib}
+# Two nodes on each machine, so that the links between them are links between hosts, and the test cluster
 # still leaves every machine able to carry its share of clients and traffic.
 NODES=${NODES:-"node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater"}
 
 HERE=$(dirname "$(readlink -f "$0")")
 LOCAL_HOST=$(hostname)
-QUERY="python3 $HERE/redis_query.py $REDIS_HOST $REDIS_PORT $REDIS_DB"
+# A Redis read: xmq_scn_cluster runs one command against the test cluster's database and prints the
+# reply, one element per line.
+query() { "${XMQ_SCN_CLUSTER:-xmq_scn_cluster}" --redis "$REDIS_URI" --redis-command "$*"; }
 
 # A node is written `name@host`; a plain name means this machine.
 node_name() { echo "${1%%@*}"; }
@@ -112,16 +116,16 @@ node_spec() {
 
 # Everything a node owns lives under one directory on its own machine, and the path is the same on
 # every machine: the configuration, the certificate, the logs, the pid file.
-node_dir()  { echo "$STAND_DIR/$(node_name "$1")"; }
+node_dir()  { echo "$CLUSTER_DIR/$(node_name "$1")"; }
 node_host_of() { node_host "$(node_spec "$1")"; }
 
-# Ports are laid out by node number, and the numbers are unique across the stand, so two nodes on
+# Ports are laid out by node number, and the numbers are unique across the test cluster, so two nodes on
 # one machine never collide: clients above 2884, cluster TLS above 9883, the control web service
 # above 28883. None of them touch the installed service, which keeps 1883/1884/8883.
 #
 # Both forms of a node are accepted everywhere - the plain name the test file writes, and the
 # `name@host` the loops of this script carry - because a function that took only one of them was
-# how the first status of a six-node stand answered "unknown node: node1@thinker10" six times.
+# how the first status of a six-node test cluster answered "unknown node: node1@thinker10" six times.
 node_index() {
     local wanted index=0
     wanted=$(node_name "$1")
@@ -164,36 +168,36 @@ wait_for_port() {
     return 1
 }
 
-# One authority for the stand and one certificate per node, signed by it.
+# One authority for the test cluster and one certificate per node, signed by it.
 #
 # The cluster verifies a peer against connections.ssl_keys.cafile when that is set, and only
 # otherwise against the peers directory - which is the installed one, /etc/xmq/certs/peers, shared
-# with the bench and not ours to write into. A CA of the stand's own keeps the whole arrangement
-# inside $STAND_DIR, and one signature is what makes the nodes trust each other. The authority is
-# made once, where the stand is run from; only the certificates travel to the nodes.
+# with the bench and not ours to write into. A CA of the test cluster's own keeps the whole arrangement
+# inside $CLUSTER_DIR, and one signature is what makes the nodes trust each other. The authority is
+# made once, where the test cluster is run from; only the certificates travel to the nodes.
 make_certificates() {
-    local node=$1 staging="$STAND_DIR/staging/$(node_name "$1")"
+    local node=$1 staging="$CLUSTER_DIR/staging/$(node_name "$1")"
     mkdir -p "$staging"
-    if [ ! -f "$STAND_DIR/ca.crt" ]; then
+    if [ ! -f "$CLUSTER_DIR/ca.crt" ]; then
         openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
-            -keyout "$STAND_DIR/ca.key" -out "$STAND_DIR/ca.crt" -subj "/CN=xmq-stand-ca" >/dev/null 2>&1
+            -keyout "$CLUSTER_DIR/ca.key" -out "$CLUSTER_DIR/ca.crt" -subj "/CN=xmq-test-cluster-ca" >/dev/null 2>&1
     fi
     if [ ! -f "$staging/node.crt" ]; then
         openssl req -nodes -newkey rsa:2048 -keyout "$staging/node.key" -out "$staging/node.csr" \
             -subj "/CN=xmq-$(node_name "$1")" >/dev/null 2>&1
-        openssl x509 -req -in "$staging/node.csr" -CA "$STAND_DIR/ca.crt" -CAkey "$STAND_DIR/ca.key" \
+        openssl x509 -req -in "$staging/node.csr" -CA "$CLUSTER_DIR/ca.crt" -CAkey "$CLUSTER_DIR/ca.key" \
             -CAcreateserial -out "$staging/node.crt" -days 3650 >/dev/null 2>&1
     fi
     # The node's own key and certificate, and the authority that lets it verify its peers.
     put_file "$1" "$(node_dir "$1")/node.key" "$staging/node.key"
     put_file "$1" "$(node_dir "$1")/node.crt" "$staging/node.crt"
-    put_file "$1" "$(node_dir "$1")/ca.crt"   "$STAND_DIR/ca.crt"
+    put_file "$1" "$(node_dir "$1")/ca.crt"   "$CLUSTER_DIR/ca.crt"
 }
 
 # The configuration is regenerated on every `up` rather than edited in place: it is a function of
 # the ports and paths above, and a stale copy is how a node ends up in the wrong cluster.
 write_configuration() {
-    local node=$1 staging="$STAND_DIR/staging/$(node_name "$1")"
+    local node=$1 staging="$CLUSTER_DIR/staging/$(node_name "$1")"
     local dir client tls web host
     dir=$(node_dir "$node"); client=$(client_port "$node"); tls=$(tls_port "$node")
     web=$(web_port "$node"); host=$(node_host_of "$node")
@@ -260,7 +264,7 @@ JSON
 # The authenticator. Extensions are read beside the server's own configuration, not from the
 # installation prefix, which is why each node gets its own fragment in its own directory.
 write_extensions() {
-    local node=$1 dir staging="$STAND_DIR/staging/$(node_name "$1")"
+    local node=$1 dir staging="$CLUSTER_DIR/staging/$(node_name "$1")"
     dir=$(node_dir "$node")
     mkdir -p "$staging"
     cat > "$staging/50-user-database.conf" <<JSON
@@ -307,16 +311,16 @@ set_cluster_password() {
 # A node is started through a small script of its own, in a session of its own.
 #
 # The session is what makes a node outlive the run that started it: a local node starts in the
-# stand's own process group, so an interrupted `up` - Ctrl-C in a terminal, or a tool call that is
+# test cluster's own process group, so an interrupted `up` - Ctrl-C in a terminal, or a tool call that is
 # stopped - would take the nodes down with it. That is exactly what happened the first time this
-# stand was brought up across machines: two nodes on the machine running the stand died when the
+# test cluster was brought up across machines: two nodes on the machine running the test cluster died when the
 # run was interrupted, while the remote ones, started over ssh, stayed.
 #
 # The script is what makes the pid file name the server rather than a wrapper: it writes its own
 # pid and then execs the server, so the number in the file stays the server's. It also carries the
 # library path, which some machines need and others do not; see SERVER_LIBRARY_PATH above.
 write_launcher() {
-    local node=$1 dir staging="$STAND_DIR/staging/$(node_name "$1")"
+    local node=$1 dir staging="$CLUSTER_DIR/staging/$(node_name "$1")"
     dir=$(node_dir "$node")
     mkdir -p "$staging"
     cat > "$staging/start.sh" <<LAUNCHER
@@ -376,7 +380,7 @@ node_state() {
     fi
 }
 
-# The settings this stand runs with, on every machine of it; see the note at the top.
+# The settings this test cluster runs with, on every machine of it; see the note at the top.
 write_stand_env() {
     local staging done_hosts=" " host
     staging=$(mktemp)
@@ -394,7 +398,7 @@ write_stand_env() {
 
 # The server each machine would run, as deploy recorded it: "commit=... sha256=... from=...".
 server_stamp() {
-    on_host "$1" "cat \"$SERVER.source\" 2>/dev/null || echo 'commit=unknown (not deployed by stand.sh)'"
+    on_host "$1" "cat \"$SERVER.source\" 2>/dev/null || echo 'commit=unknown (not deployed by test_cluster.sh)'"
 }
 
 # Every machine runs a build of the same commit, or the test says nothing about that commit: a node
@@ -487,11 +491,87 @@ command_check_logs() {
     return $failed
 }
 
-# Lay a server down on machines of the stand: the binary where SERVER says, the SPTK libraries it
+# Lay a server down on machines of the test cluster: the binary where SERVER says, the SPTK libraries it
 # resolves from under $HOME into ~/sptk/lib (which every launcher puts on the library path), and a
 # stamp of the commit it was built from, which `up` compares across machines. Run on the machine the
 # build is on; the machines given have to be able to run it - the same distribution.
+# The machines `deploy <branch>` builds on: each one builds the branch itself and runs what it built.
+CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
+# ~/cluster on every machine links to LoadTest/Cluster there, so the scripts a timeline step runs on
+# a machine are those of the branch the machine runs; the test cluster's data is in ~/cluster.run.
+# A worktree of ~/workspace/xmq_public on each machine, detached at the branch as pushed: the working
+# tree there - its branch, its changes, its build - is left alone.
+BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public_cluster'}
+
+# Bring the build tree on this machine to origin/<branch> and build the server there; print the commit.
+# At the lowest priority, on half the cores, and not beside the farm: theater runs the smart home.
+build_branch_here() {
+    local branch=$1 tree
+    tree=$(eval echo "$BUILD_TREE")
+    if pgrep -f "^bash $HOME/build/build_all.sh" >/dev/null; then
+        echo "the build farm is running here - deploy when it is done" >&2; return 1
+    fi
+    git -C "$HOME/workspace/xmq_public" fetch -q origin "$branch" || return 1
+    if [ ! -d "$tree" ]; then
+        git -C "$HOME/workspace/xmq_public" worktree add -q --detach "$tree" "origin/$branch" || return 1
+    fi
+    git -C "$tree" checkout -q --detach "origin/$branch" || return 1
+    # RelWithDebInfo: close to what ships, and a node that crashes still says where.
+    [ -f "$tree/build/CMakeCache.txt" ] ||
+        cmake -S "$tree" -B "$tree/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/.local" >/dev/null 2>&1 ||
+        return 1
+    nice -n 19 cmake --build "$tree/build" --target xmq_server -j "$(( ($(nproc) + 1) / 2 ))" >"$tree/build/cluster-build.log" 2>&1 ||
+        { tail -n 30 "$tree/build/cluster-build.log" >&2; return 1; }
+    git -C "$tree" rev-parse --short HEAD
+}
+
+deploy_branch() {
+    local branch=$1 host commit commits="" failed=0 out
+    out=$(mktemp -d)
+    # Every machine at once: the build takes as long as the slowest, and only the first one is long.
+    for host in $CLUSTER_DEPLOY_HOSTS; do
+        echo "$host: building $branch..."
+        if [ "$host" = "$LOCAL_HOST" ]; then
+            build_branch_here "$branch" >"$out/$host" 2>"$out/$host.err" &
+        else
+            ssh -o BatchMode=yes "$host" "BUILD_TREE='$BUILD_TREE' bash -s" \
+                <<<"$(declare -f build_branch_here); build_branch_here '$branch'" >"$out/$host" 2>"$out/$host.err" &
+        fi
+    done
+    wait
+    for host in $CLUSTER_DEPLOY_HOSTS; do
+        commit=$(tail -n 1 "$out/$host")
+        if [ -z "$commit" ]; then
+            echo "$host: build failed" >&2; sed 's/^/    /' "$out/$host.err" >&2; failed=1
+        fi
+        commits="$commits $commit"
+    done
+    rm -rf "$out"
+    [ $failed = 0 ] || return 1
+    # A push between two fetches would give the machines different commits.
+    [ "$(tr ' ' '\n' <<<"$commits" | sed '/^$/d' | sort -u | wc -l)" = 1 ] ||
+        { echo "deploy: the machines built different commits:$commits - deploy again" >&2; return 1; }
+    for host in $CLUSTER_DEPLOY_HOSTS; do
+        if [ "$host" = "$LOCAL_HOST" ]; then
+            command_deploy_binary "$(eval echo "$BUILD_TREE")/build/xmq_server" "$host" || failed=1
+        else
+            # The branch's own test_cluster.sh lays it down: the test cluster runs the scripts of what it tests.
+            ssh -o BatchMode=yes "$host" "t=$BUILD_TREE; \$t/LoadTest/Cluster/test_cluster.sh deploy \$t/build/xmq_server $host" || failed=1
+        fi
+    done
+    return $failed
+}
+
 command_deploy() {
+    [ $# -gt 0 ] || { echo "deploy: name a branch, or a server and the machines" >&2; exit 2; }
+    if [ $# -eq 1 ] && [ ! -f "$1" ]; then
+        deploy_branch "$1"
+    else
+        command_deploy_binary "$@"
+    fi
+}
+
+command_deploy_binary() {
     local binary=${1:?server binary} host source_dir commit stamp libs
     shift
     [ $# -gt 0 ] || { echo "deploy: name the machines" >&2; exit 2; }
@@ -506,20 +586,30 @@ command_deploy() {
     fi
     stamp="commit=$commit sha256=$(sha256sum "$binary" | cut -c1-12) from=$(hostname):$binary"
     libs=$(ldd "$binary" | awk '{print $3}' | grep "^$HOME/" || true)
+    local failed=0
     for host in "$@"; do
+        # Copied beside it and renamed over it: a running node keeps the old file open, and writing
+        # into that fails ("text file busy") - after which the stamp below used to claim a server the
+        # machine did not have.
         if [ "$host" = "$LOCAL_HOST" ]; then
-            [ "$binary" = "$(readlink -f "$SERVER")" ] || cp -f "$binary" "$SERVER"
+            if [ "$binary" != "$(readlink -f "$SERVER")" ]; then
+                cp -f "$binary" "$SERVER.new" && mv -f "$SERVER.new" "$SERVER" || { echo "$host: copy failed" >&2; failed=1; continue; }
+            fi
         else
-            ssh -o BatchMode=yes "$host" "mkdir -p \"$(dirname "$SERVER")\" \"$STAND_DIR\" \$HOME/sptk/lib"
-            scp -q "$binary" "$host:$SERVER"
-            for lib in $libs; do scp -q "$lib" "$host:sptk/lib/"; done
-            # The stand's own scripts go along: a timeline step runs them on that machine, and a
-            # copy left from an older stand there answers for this one.
-            scp -q "$HERE/stand.sh" "$HERE/redis_query.py" "$HERE/redis_proxy.py" "$host:$STAND_DIR/"
+            ssh -o BatchMode=yes "$host" "mkdir -p \"$(dirname "$SERVER")\" \"$CLUSTER_DIR\" \$HOME/sptk/lib"
+            if ! scp -q "$binary" "$host:$SERVER.new" || ! ssh -o BatchMode=yes "$host" "mv -f \"$SERVER.new\" \"$SERVER\""; then
+                echo "$host: copy failed" >&2; failed=1; continue
+            fi
+            for lib in $libs; do
+                scp -q "$lib" "$host:sptk/lib/$(basename "$lib").new" &&
+                    ssh -o BatchMode=yes "$host" "mv -f sptk/lib/$(basename "$lib").new sptk/lib/$(basename "$lib")" ||
+                    { echo "$host: $lib copy failed" >&2; failed=1; }
+            done
         fi
         on_host "$host" "echo '$stamp' > \"$SERVER.source\""
         echo "$host: $stamp"
     done
+    return $failed
 }
 
 command_status() {
@@ -537,25 +627,25 @@ command_status() {
     done
     echo
     echo "cluster keys in Redis:"
-    $QUERY KEYS 'cluster:*' 2>/dev/null | sed 's/^/  /'
+    query KEYS 'cluster:*' 2>/dev/null | sed 's/^/  /'
     for key in cluster:coordinator cluster:term cluster:members; do
         local value
-        value=$($QUERY GET "$key" 2>/dev/null)
+        value=$(query GET "$key" 2>/dev/null)
         [ -n "$value" ] && echo "  $key = $value"
     done
     local owners
-    owners=$($QUERY KEYS 'session_*_owner' 2>/dev/null | wc -l)
+    owners=$(query KEYS 'session_*_owner' 2>/dev/null | wc -l)
     echo "  session owners: $owners"
 }
 
-# Everything in the stand's own database, and only there: the farm works in database 1 and the
+# Everything in the test cluster's own database, and only there: the farm works in database 1 and the
 # desktops in 2, so a FLUSHALL here would be somebody else's data loss.
 #
 # Accounts are not kept here - they live in the user database the authenticator extension reads (SQLite
 # beside a configuration by default, or a database of its own named by `database_uri`) - so the wipe
 # touches nothing of theirs.
 command_wipe() {
-    $QUERY FLUSHDB
+    query FLUSHDB
     echo "emptied $REDIS_HOST:$REDIS_PORT db $REDIS_DB"
 }
 
