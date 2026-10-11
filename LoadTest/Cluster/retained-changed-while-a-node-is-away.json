@@ -1,0 +1,123 @@
+{
+  "name": "retained messages changed while a node is away",
+  "comments": [
+    "Two retained messages are held by every node. node5 (theater) goes; while it is down one of them",
+    "is replaced and the other cleared, on node3 (thinker11). node5 comes back and must give a new",
+    "subscriber the replacement, and nothing for the cleared topic: it reads the retained messages from",
+    "the storage as it starts, and does not bring back what it held. On the default test cluster of",
+    "test_cluster.sh, run from thinker10. xmq_sub -v prints each message with its payload in brackets,",
+    "and 'Received N message(s).' at the end; an empty message published retained clears a topic."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      {
+        "name": "publishers",
+        "node": "node1"
+      },
+      {
+        "name": "subscribers",
+        "node": "node3"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "node1",
+      "host": "thinker10",
+      "port": 2884,
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
+    },
+    {
+      "name": "node3",
+      "host": "thinker11",
+      "port": 2886,
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
+    },
+    {
+      "name": "node5",
+      "host": "theater",
+      "port": 2888,
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
+    }
+  ],
+  "before": [
+    "~/cluster/test_cluster.sh mark"
+  ],
+  "timeline": [
+    {
+      "at": 5,
+      "action": "run",
+      "command": "xmq_pub -h thinker10 -p 2884 -u user -P User-Secret1 -V 5 -q 1 -R -i cluster-retained-publisher -t cluster/test/retained-replaced -m held-before --quiet"
+    },
+    {
+      "at": 6,
+      "action": "run",
+      "command": "xmq_pub -h thinker10 -p 2884 -u user -P User-Secret1 -V 5 -q 1 -R -i cluster-retained-publisher -t cluster/test/retained-cleared -m will-be-cleared --quiet"
+    },
+    {
+      "at": 10,
+      "action": "stop",
+      "node": "node5"
+    },
+    {
+      "at": 20,
+      "action": "run",
+      "command": "xmq_pub -h thinker11 -p 2886 -u user -P User-Secret1 -V 5 -q 1 -R -i cluster-retained-publisher -t cluster/test/retained-replaced -m replaced-while-away --quiet"
+    },
+    {
+      "at": 21,
+      "action": "run",
+      "command": "xmq_pub -h thinker11 -p 2886 -u user -P User-Secret1 -V 5 -q 1 -R -i cluster-retained-publisher -t cluster/test/retained-cleared -m '' --quiet"
+    },
+    {
+      "at": 25,
+      "action": "start",
+      "node": "node5"
+    },
+    {
+      "at": 45,
+      "action": "run",
+      "command": "xmq_sub -h theater -p 2888 -u user -P User-Secret1 -V 5 -q 1 -i cluster-retained-subscriber -t cluster/test/retained-replaced -C 1 -W 5 -v | grep -q '\\[replaced-while-away\\]'"
+    },
+    {
+      "at": 52,
+      "action": "run",
+      "command": "xmq_sub -h theater -p 2888 -u user -P User-Secret1 -V 5 -q 1 -i cluster-retained-subscriber -t cluster/test/retained-cleared -W 3 | grep -q 'Received 0 message'"
+    },
+    {
+      "at": 57,
+      "action": "run",
+      "command": "xmq_pub -h thinker10 -p 2884 -u user -P User-Secret1 -V 5 -q 1 -R -i cluster-retained-publisher -t cluster/test/retained-replaced -m '' --quiet"
+    },
+    {
+      "at": 65,
+      "action": "check"
+    }
+  ],
+  "after": [
+    "~/cluster/test_cluster.sh check-logs"
+  ],
+  "checks": [
+    {
+      "name": "node5 serves again",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "node5"
+    },
+    {
+      "name": "the cleared topic is gone from the storage",
+      "kind": "redis",
+      "uri": "redis://theater:6379/4",
+      "command": "HEXISTS cluster:retained:10 cluster/test/retained-cleared",
+      "expect": "0"
+    }
+  ]
+}

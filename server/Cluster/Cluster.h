@@ -15,6 +15,7 @@
 
 #include "../Settings/Settings.h"
 #include "../Subscription/RetainedMessages.h"
+#include "RetainedSync.h"
 #include "../Subscription/Subscription.h"
 
 #include "ClusterTopics.h"
@@ -227,15 +228,24 @@ public:
     void updateLocalSubscription(std::string_view topicFilter, bool subscribed);
 
     /**
-     * @brief Send a retained message change made on this node to every other node.
+     * @brief Send a committed retained message change to every other node.
      *
      * Every node holds every retained message, whether or not anyone there is subscribed, so this
      * goes to all of them, apart from the subscriptions that route ordinary publications.
      *
      * @param topicName         Topic that changed.
-     * @param record            The change, with its time; a tombstone clears.
+     * @param record            The change, with its revision; an empty payload clears.
      */
     void publishRetained(const std::string& topicName, const RetainedMessages::Record& record) const;
+
+    /**
+     * @return What keeps this node's retained messages in line with the cluster's, or nullptr when
+     *         the node is not in a cluster.
+     */
+    [[nodiscard]] RetainedSync* retainedSync() const
+    {
+        return m_retainedSyncView.load();
+    }
 
     /**
      * @brief Get a copy of a node's effective subscription filters.
@@ -313,6 +323,8 @@ private:
     std::mutex                           m_coordinatorMutex;       ///< Guards creating m_coordinator.
     std::unique_ptr<Coordinator>         m_coordinator;            ///< Created when the node first joins a cluster.
     std::atomic<Coordinator*>            m_coordinatorView {nullptr}; ///< m_coordinator, read without the lock.
+    std::unique_ptr<RetainedSync>        m_retainedSync;           ///< Created with m_coordinator.
+    std::atomic<RetainedSync*>           m_retainedSyncView {nullptr}; ///< m_retainedSync, read without the lock.
     std::string                          m_nodeId;                 ///< This node's GUID.
     std::thread                          m_rejoinThread;           ///< Links to the other members after startup().
     std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
@@ -438,12 +450,6 @@ private:
      * @brief Stop the subscription sender and wait for it.
      */
     void stopSubscriptionSender();
-
-    /**
-     * @brief Send a node that has just been connected every retained record, tombstones included.
-     * @param node              Connected node.
-     */
-    void publishRetainedSnapshot(const SNode& node) const;
 
     /**
      * @brief A cluster message carrying encoded retained records.

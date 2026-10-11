@@ -5,8 +5,8 @@
     "message is published for it on node1 (thinker10); then the subscriber comes back to node2. The",
     "message must be there: the cluster adopted node4's session as soon as node4's lease ran out, and",
     "kept collecting for it - not only when its client came back. On the default test cluster of test_cluster.sh,",
-    "run from thinker10. The grep is the check: xmq_sub reports how many messages it received (its -v",
-    "prints a message's size, not its payload), and the topic is this test's own."
+    "run from thinker10. The grep is the check: xmq_sub -v prints each message it receives with its",
+    "payload in brackets."
   ],
   "server": {
     "username": "user",
@@ -70,7 +70,7 @@
     {
       "at": 45,
       "action": "run",
-      "command": "xmq_sub -h thinker10 -p 2885 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -C 1 -W 10 | grep -q 'Receive 1 messages'"
+      "command": "xmq_sub -h thinker10 -p 2885 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -C 1 -W 10 -v | grep -q '\\[published-while-away\\]'"
     },
     {
       "at": 60,

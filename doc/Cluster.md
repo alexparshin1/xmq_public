@@ -42,7 +42,7 @@
 
 - [x] retained messages, including replacements and clears, must be applied on all nodes regardless of whether they have subscribers.
 
-- [ ] concurrent retained changes to the same topic must be ordered by monotonically increasing per-topic revisions
+- [x] concurrent retained changes to the same topic must be ordered by monotonically increasing per-topic revisions
   committed atomically with the retained state in shared Redis. The greatest committed revision wins on every node;
   replacements and clears follow the same conflict-resolution rule.
 
@@ -98,7 +98,7 @@ broker, for what the cluster must not make worse.
 | forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; test cluster: `test_cluster.sh up`, a node stopped and started again |
 | subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |
 | shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
-| retained, including a node that was away | unit: `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
+| retained, including a node that was away | unit: `XMQ_RetainedMessages.*`, `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `concurrentReplacementsAndClearingsConverge`, `retainedChangeCommittedButNotSentReachesEveryNode`, `lateRetainedChangeDoesNotBringAClearedMessageBack`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
 | cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; test cluster: `the-storage-goes-away-from-one-machine.json` |
 | in-flight shared-subscription deliveries across a failure | not covered |
 | a load balancer in front | not covered |
@@ -123,10 +123,11 @@ revision is greater than the locally applied revision. Equal revisions are idemp
 change; lower revisions are ignored. Internode propagation and retries must never create a new retained mutation or
 allocate another revision for an already committed change.
 
-A clear stores a versioned deletion marker (tombstone), rather than simply removing all evidence of the topic's state.
-The marker is internal metadata and is never delivered as a retained message. Topic revisions must not reset on clear,
-node restart or coordinator succession. Deletion metadata must remain available until older updates can no longer be
-replayed, so delayed publications cannot resurrect cleared retained values.
+A clear removes the topic from the storage, in the same atomic step that numbers it; it leaves no
+deletion marker. Topic revisions must not reset on clear, node restart or coordinator succession. A
+node that receives a change to a topic it does not hold cannot tell it from a late change to a topic
+cleared since, so it takes such a change only from the storage, never from the message: a delayed
+publication cannot resurrect a cleared retained value.
 
 Nodes must recover missed updates from authoritative storage, including after a writer commits a change but fails
 before broadcasting it. Joining and returning nodes synchronize retained state and deletion revisions before serving
@@ -389,22 +390,15 @@ is acknowledged to the publisher as soon as the node has taken it, and the stora
 behind. Writes are issued in the order the changes were taken - one writer, in order - so that two
 changes to the same topic are numbered in the order they were accepted. A node that dies before a
 write lands has lost a retained change whose publisher was already acknowledged. A cleared topic
-leaves a tombstone carrying its revision, so that a node which was away is told of the clear instead
-of being left to keep what it had. Tombstones are not forgotten by a timer: each member writes into the storage, with
-the renewal of its lease and not on every change, the greatest retained revision it has applied in
-each shard (`cluster:retained_watermark:<guid>`), and a record - a value or a tombstone - may be
-forgotten once every member that holds a lease has passed its revision in that shard. A member which
-was away when that happened is not consulted: it synchronizes from the storage rather than offering
-what it kept, so forgetting never waits on a node that is down. Revisions are handed out per shard
-(`cluster:retained_rev:<k>`, `k` the topic's hash modulo the shard count), so that changes to
-different topics do not queue behind one another on a single key, while changes to the same topic
-serialise in the storage in any case - they change one record - and a per-topic revision needs no
-shared key at all. A member advances its counters only over what it has applied, so a counter that
-lags only delays forgetting. Nodes exchange their records on connecting, tombstones included, so a
-node which was down or cut off neither misses a change nor brings a cleared message back; a node
-whose counters are below what the storage still keeps offers none of its own and synchronizes from
-the storage instead, since a change is applied only after the storage has committed it and a node's
-memory is never the authority for a retained message. `$SYS` stays each node's own.
+leaves nothing behind. Revisions are handed out per shard (`cluster:retained_rev:<k>`, the records in
+`cluster:retained:<k>`, `k` the topic's hash modulo 16), so that changes to different topics do not
+queue behind one another on a single key; the revisions of a shard leave no gaps. A node that sees a
+shard's counter stay ahead of what it has applied - a change committed by a node that died before
+sending it, or sent while the link was down - reads that shard again. A node that starts, or comes
+back from cluster-offline, reads every shard before serving clients, and a change it is sent for a
+topic it does not hold is checked against the storage before it is taken, so a node which was down
+or cut off neither misses a change nor brings a cleared message back: a node's memory is never the
+authority for a retained message. `$SYS` stays each node's own.
 Publications forwarded between nodes carry no retained state, and carry the origin they were first
 taken from a client at: the node, and its sequence number for that publication. That is what the
 node holding a session that has just moved matches on to deliver a publication once; the links

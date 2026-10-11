@@ -43,17 +43,7 @@ int Subscriber::run()
     createClients();
     const auto clientsTotal = clients().size();
 
-    auto connectedClientCounter = connectClients();
-    if (connectedClientCounter < clientsTotal)
-    {
-        CERR("Not all clients connected.");
-        return 1;
-    }
-
-    for (auto& client: clients())
-    {
-        client->setTopics(runDefinition().m_topics);
-    }
+    atomic_size_t connectedClientCounter = clientsTotal;
 
     Semaphore         allMessagesReceived;
     atomic_size_t     receivedMessageCount = 0;
@@ -133,6 +123,19 @@ int Subscriber::run()
             });
     }
 
+    // Connected only now that every client has its handlers: a persistent session's queued messages
+    // come the moment it connects, and a client without a handler then dropped them unseen.
+    if (connectClients() < clientsTotal)
+    {
+        CERR("Not all clients connected.");
+        return 1;
+    }
+
+    for (auto& client: clients())
+    {
+        client->setTopics(runDefinition().m_topics);
+    }
+
     ExecuteParallel parallel(
         subscribeReporter, clients(),
         [this](const SUtilityClient& client)
@@ -169,6 +172,8 @@ int Subscriber::run()
         allMessagesReceived.wait();
     }
     receiveReporter.printFooter(false);
+    // The title names the count asked for; this is the count that came.
+    COUT("Received " << receivedMessageCount.load() << " message(s).");
 
     disconnectClients();
 
