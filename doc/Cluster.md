@@ -18,10 +18,10 @@
   shared Redis storage, the arbiter every node already depends on. Coordinator succession must remain safe during network
   partitions; join order determines the candidate priority, not the authority to act as coordinator.
 
-- [ ] cluster sessions are persistent and must survive the reboot of any node. If a node goes down, the online node(s) should
+- [x] cluster sessions are persistent and must survive the reboot of any node. If a node goes down, the online node(s) should
   take over orphaned sessions. A coordinator node may distribute the orphaned sessions between online nodes.
-  Done: a session of a node that is gone is taken over by the node its client connects to, with what was queued for it.
-  Left: taking orphaned sessions over before their clients come back, so that they go on receiving meanwhile.
+  The coordinator hands a gone node's sessions round the running members, which load them and go on collecting for
+  them; a client returning anywhere takes its session along, with what was queued.
 
 - [x] every node must use the same logical Redis storage and cluster data namespace as the coordinator. Storage belongs
   to the cluster and remains unchanged on coordinator succession. Access to that storage is required for client service;
@@ -37,7 +37,7 @@
 
 - [ ] an external load balancer can connect a client to any node in the cluster.
 
-- [ ] a node can be connected and disconnected to/from the cluster. When a node is disconnected (or crashed), one or more of the cluster
+- [x] a node can be connected and disconnected to/from the cluster. When a node is disconnected (or crashed), one or more of the cluster
   nodes should load its sessions and be ready to migrate them to the clients re-connecting from disconnected node.
 
 - [x] retained messages, including replacements and clears, must be applied on all nodes regardless of whether they have subscribers.
@@ -61,6 +61,12 @@
 - [ ] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
   below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
   reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
+  Done: a member's session that ends - a clean session, or the cluster link to a member's node - hands its
+  unacknowledged QoS 1 shared deliveries to another member; QoS 2 stays with its session. A message published as a
+  session moves reaches it once: the node it left sends what matches it on by name until the node it went to has
+  subscribed, and that node keeps such messages until the session's CONNACK is out.
+  Left: a node that acknowledged a forwarded shared delivery and stopped before handing it to a member has nobody to
+  give it to; a link copy carrying several shared subscriptions is not reassigned.
 
 - [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
@@ -100,7 +106,8 @@ broker, for what the cluster must not make worse.
 | shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
 | retained, including a node that was away | unit: `XMQ_RetainedMessages.*`, `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `concurrentReplacementsAndClearingsConverge`, `retainedChangeCommittedButNotSentReachesEveryNode`, `lateRetainedChangeDoesNotBringAClearedMessageBack`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
 | cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; test cluster: `the-storage-goes-away-from-one-machine.json` |
-| in-flight shared-subscription deliveries across a failure | not covered |
+| in-flight shared-subscription deliveries across a failure | unit: `sharedQos1MessagesSurviveAMemberNodeStopping`, `sharedQos1MessagesOfAnEndedSessionGoToAnotherMember` |
+| a message published as a session moves | unit: `messagePublishedAsASessionMovesReachesIt`, `messagesPublishedWhileASessionMovesArriveOnce` |
 | a load balancer in front | not covered |
 | the cluster as one broker in `$SYS` | not decided |
 

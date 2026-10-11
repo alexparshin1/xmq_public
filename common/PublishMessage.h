@@ -159,10 +159,28 @@ public:
         m_clusterShares = std::move(shares);
     }
 
+    /// The user property a forwarded message names a session in that has just moved to the node it
+    /// goes to: the node that held it sends on what matches it, until the node it moved to has
+    /// subscribed for it. Taken off again on arrival, as the shared subscriptions are.
+    static constexpr std::string_view ClusterSessionProperty {"$xmq-cluster-session"};
+
+    /// The sessions the sending node named, for a forwarded message: delivered to whether or not
+    /// their subscriptions are here yet.
+    [[nodiscard]] const std::vector<std::string>& clusterSessions() const
+    {
+        return m_clusterSessions;
+    }
+
+    void setClusterSessions(std::vector<std::string> sessions)
+    {
+        m_clusterSessions = std::move(sessions);
+    }
+
 private:
     std::string              m_sender;              ///< Message sender.
     bool                     m_fromCluster {false}; ///< Forwarded by another cluster node.
     std::vector<std::string> m_clusterShares;       ///< Shared subscriptions assigned to this node, for a forwarded message.
+    std::vector<std::string> m_clusterSessions;     ///< Sessions moved to this node, for a forwarded message.
 };
 
 using SPublishMessage = std::shared_ptr<PublishMessage>;

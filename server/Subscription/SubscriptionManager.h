@@ -105,6 +105,12 @@ public:
     }
 
     /**
+     * @brief Add what a moving session needs: on the node it moved to, the sessions a forwarded
+     *        message names; on the node it left, the node it went to, naming it.
+     */
+    void matchMovedSessions(const std::shared_ptr<PublishMessage>& message, mqtt::SubscriptionIds& deliverToSessions) const;
+
+    /**
      * @brief Offer QoS 1 messages a session left unacknowledged when it ended to other members of
      *        the shared subscriptions that chose it - MQTT 5, section 4.8.2.
      * @param messages          Each message, with the shared subscription that chose the session.

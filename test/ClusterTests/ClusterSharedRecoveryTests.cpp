@@ -32,6 +32,7 @@ public:
                               }
                               const scoped_lock lock(m_mutex);
                               m_payloads.emplace(message->payload());
+                              ++m_deliveries;
                           });
     }
 
@@ -41,9 +42,17 @@ public:
         return m_payloads.size();
     }
 
+    /// Every delivery, repeats included.
+    [[nodiscard]] size_t deliveries() const
+    {
+        const scoped_lock lock(m_mutex);
+        return m_deliveries;
+    }
+
 private:
     mutable mutex m_mutex;
     set<string>   m_payloads;
+    size_t        m_deliveries {0};
 };
 
 void subscribeQos1(const client::SMqttClient& client, const string& filter)
@@ -166,4 +175,45 @@ TEST_F(XMQ_ClusterTests, messagePublishedAsASessionMovesReachesIt)
 
     EXPECT_TRUE(TestCluster::waitFor([&received] { return received.count() == 1; }, 3s))
         << "the message published as the session moved was lost";
+    this_thread::sleep_for(300ms);
+    EXPECT_EQ(1U, received.deliveries()) << "the message came twice";
+}
+
+/**
+ * Confirm that a stream of messages published while a session moves reaches it whole, each message
+ * once.
+ *
+ * Setup: Two nodes. A persistent subscriber on node 0; a stream of QoS 1 messages is published on
+ * node 0 while the subscriber connects again, under the same client id, to node 1.
+ *
+ * Verification: Every message arrives - those queued on node 0 before the move, those sent on by
+ * name during it, those routed to node 1 after it - and none twice.
+ */
+TEST_F(XMQ_ClusterTests, messagesPublishedWhileASessionMovesArriveOnce)
+{
+    const TestCluster cluster(2);
+    const string      topic = "recovery/moving-stream";
+    const string      clientId = "recovery-moving-stream-subscriber";
+
+    auto first = cluster.connect(0, clientId, false);
+    subscribeQos1(first, topic);
+    first->disconnect();
+    const auto publisher = cluster.connect(0, "recovery-moving-stream-publisher");
+
+    constexpr int count = 200;
+    thread        publishing([&publisher, &topic] { publishNumbered(publisher, topic, count); });
+    this_thread::sleep_for(80ms);
+
+    Payloads   received;
+    const auto second = make_shared<client::MqttClient>(logEngine());
+    received.listen(second);
+    const auto connected = second->connect(TestCluster::host(1), ConnectCredentials(clientId, "user", "secret"),
+                                           {.m_cleanSession = false}, ProtocolVersion::MqttV5);
+    publishing.join();
+    ASSERT_EQ(ReasonCode::Success, connected) << "node 0 did not let the session go";
+
+    EXPECT_TRUE(TestCluster::waitFor([&received] { return received.count() == count; }, 5s))
+        << count - static_cast<int>(received.count()) << " of " << count << " messages were lost";
+    this_thread::sleep_for(300ms);
+    EXPECT_EQ(static_cast<size_t>(count), received.deliveries()) << "messages came twice";
 }

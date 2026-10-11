@@ -46,6 +46,8 @@ public:
         /// For a cluster link: the shared subscriptions this node chose the node behind it for.
         /// Empty - and allocating nothing - for every other session.
         std::vector<std::string> m_clusterShares;
+        /// For a cluster link: the sessions that moved to the node behind it, named on the message.
+        std::vector<std::string> m_clusterSessions;
         /// The shared subscription that chose this session, when that is the only way it matched.
         std::weak_ptr<Subscription> m_sharedSubscription;
     };
@@ -74,6 +76,24 @@ public:
     void addClusterShare(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId,
                          SubscriptionOptions options, std::string_view share,
                          const std::weak_ptr<Subscription>& sharedSubscription = {});
+
+    /**
+     * @brief Record that a session which moved to the node behind a cluster link matches: the link
+     *        carries the message there, naming the session.
+     * @param link              The cluster link to that node.
+     * @param clientId          The session's client id.
+     */
+    void addClusterSession(const std::shared_ptr<ISubscriptionClient>& link, const std::string& clientId);
+
+    /**
+     * @brief Take the session with this client id off the matches.
+     */
+    void removeClient(std::string_view clientId);
+
+    /**
+     * @return Is the session with this client id among the matches?
+     */
+    [[nodiscard]] bool hasClient(std::string_view clientId) const;
 
     /**
      * @brief Merge the matches of each session into one entry, and order entries by session.

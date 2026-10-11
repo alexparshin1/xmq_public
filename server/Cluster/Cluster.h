@@ -239,6 +239,32 @@ public:
     void publishRetained(const std::string& topicName, const RetainedMessages::Record& record) const;
 
     /**
+     * @brief The sessions that moved from this node whose subscriptions match the topic, and the
+     *        nodes they moved to: a publication matching them goes there, naming them, until those
+     *        nodes have subscribed for them. Each is (node name, client id).
+     * @param topicName         Concrete topic.
+     */
+    [[nodiscard]] std::vector<std::pair<std::string, std::string>> movedSessionsMatching(std::string_view topicName);
+
+    /**
+     * @return The session of the link the named node has to this one, which carries what it
+     *         subscribed for; nullptr when there is none.
+     */
+    [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName) const;
+
+    /**
+     * @brief Keep a message sent here for a session that moved here, until its CONNECT has completed:
+     *        until then it may not be sent anything - the CONNACK goes first.
+     * @return False when the session has arrived already, and is to be delivered to at once.
+     */
+    bool holdForSession(const std::string& clientId, const SPublishMessage& message);
+
+    /**
+     * @brief A session's CONNECT has completed here: deliver what was kept for it.
+     */
+    void sessionArrived(const std::string& clientId, const std::shared_ptr<ISubscriptionClient>& session);
+
+    /**
      * @return What keeps this node's retained messages in line with the cluster's, or nullptr when
      *         the node is not in a cluster.
      */
@@ -297,6 +323,29 @@ private:
     mutable std::shared_mutex            m_mutex;                  ///< Mutex that protects access to internal data
     mutable std::mutex                   m_subscriptionMutex;      ///< Protects effective subscription snapshots.
     std::map<std::string, std::set<std::string>> m_nodeSubscriptions; ///< Effective filters advertised by each node.
+
+    /// A session that moved from this node, until the node it went to has subscribed for it.
+    struct MovedSession
+    {
+        std::string                           m_nodeName; ///< Where it went.
+        std::vector<std::string>              m_filters;  ///< Its subscriptions, shared ones aside.
+        std::chrono::steady_clock::time_point m_movedAt;
+    };
+
+    /// A message kept for a session that moved here, until its CONNECT completes.
+    struct HeldMessage
+    {
+        SPublishMessage                       m_message;
+        std::chrono::steady_clock::time_point m_heldAt;
+    };
+
+    std::mutex                                           m_movedMutex;    ///< Guards m_movedSessions and m_heldMessages.
+    std::map<std::string, MovedSession>                  m_movedSessions; ///< By client id.
+    std::map<std::string, std::vector<HeldMessage>>      m_heldMessages;  ///< By client id.
+    std::map<std::string, std::chrono::steady_clock::time_point> m_arrivedSessions; ///< Moved here and connected, by client id.
+
+    /// Forget the moved sessions the node has now subscribed for, all of whose filters it advertises.
+    void forgetCoveredMoves(const std::string& nodeName);
     std::set<std::string>                m_localSubscriptions;      ///< Effective local client filters.
 
     /// A change of this node's effective filters, waiting to be sent to the other nodes.

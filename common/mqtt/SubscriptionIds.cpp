@@ -54,6 +54,26 @@ void SubscriptionIds::addClusterShare(const std::shared_ptr<ISubscriptionClient>
     m_sessions.back().second.m_clusterShares.emplace_back(share);
 }
 
+void SubscriptionIds::addClusterSession(const std::shared_ptr<ISubscriptionClient>& link, const std::string& clientId)
+{
+    if (!link)
+    {
+        return;
+    }
+    add(link, Qos::Qos1, 0, SubscriptionOptions(Qos::Qos1));
+    m_sessions.back().second.m_clusterSessions.push_back(clientId);
+}
+
+void SubscriptionIds::removeClient(const std::string_view clientId)
+{
+    std::erase_if(m_sessions, [clientId](const Entry& entry) { return entry.first->getClientIdUnlocked() == clientId; });
+}
+
+bool SubscriptionIds::hasClient(const std::string_view clientId) const
+{
+    return std::ranges::any_of(m_sessions, [clientId](const Entry& entry) { return entry.first->getClientIdUnlocked() == clientId; });
+}
+
 void SubscriptionIds::finish()
 {
     if (m_sessions.size() < 2)
@@ -76,6 +96,8 @@ void SubscriptionIds::finish()
             // One copy goes to the node behind a link, so it carries every subscription assigned to it.
             auto& shares = kept->second.m_clusterShares;
             shares.insert(shares.end(), next->second.m_clusterShares.begin(), next->second.m_clusterShares.end());
+            auto& sessions = kept->second.m_clusterSessions;
+            sessions.insert(sessions.end(), next->second.m_clusterSessions.begin(), next->second.m_clusterSessions.end());
             // Matched another way too - or for another shared subscription as well: the message is
             // not one subscription's to hand to another member.
             kept->second.m_sharedSubscription.reset();
