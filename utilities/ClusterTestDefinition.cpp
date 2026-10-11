@@ -149,7 +149,7 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
 
     // Which node each group of the load runs against. The scenario says where its clients go, but
     // that is a fact about the cluster, and the cluster is this file's business: naming the node here
-    // keeps the ports in one place and lets one scenario be run against another stand.
+    // keeps the ports in one place and lets one scenario be run against another test cluster.
     for (const auto& group : load->nodes("groups"))
     {
         const auto groupName = text(group, "name");

@@ -27,15 +27,15 @@
       "name": "node1",
       "host": "thinker10",
       "port": 2884,
-      "stop": "~/cluster/stand.sh stop {node}",
-      "start": "~/cluster/stand.sh start {node}"
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
       "host": "thinker11",
       "port": 2886,
-      "stop": "~/cluster/stand.sh stop {node}",
-      "start": "~/cluster/stand.sh start {node}"
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
     }
   ],
   "timeline": [],
@@ -59,9 +59,9 @@
     }
   ],
   "before": [
-    "~/cluster/stand.sh mark"
+    "~/cluster/test_cluster.sh mark"
   ],
   "after": [
-    "~/cluster/stand.sh check-logs"
+    "~/cluster/test_cluster.sh check-logs"
   ]
 }

@@ -5,7 +5,7 @@ back, and checks after the load ask the cluster what state it is in.
 
 ## Where this lives
 
-The stand, the tool and the example tests are on branch `2026-10-10-Cluster-test-system`, which carries
+The test cluster, the tool and the example tests are on branch `2026-10-10-Cluster-test-system`, which carries
 the cluster work as it stood when the branch was made; nothing here is in `0.9.20` yet. Two SPTK fixes
 go with it, on branch `5.6.14`: a connect timeout taken from the URL by the PostgreSQL connector and by
 `RedisConnect` - a check that points at something which cannot answer otherwise waits out the system's
@@ -15,7 +15,7 @@ own timeout instead of one it named itself.
 
 | Piece | Where | What it is |
 |---|---|---|
-| stand | `LoadTest/Cluster/stand.sh` | builds a cluster of plain processes on one or several machines: nodes, certificates, one shared storage, one shared accounts database |
+| test cluster | `LoadTest/Cluster/test_cluster.sh` | builds a cluster of plain processes on one or several machines: nodes, certificates, one shared storage, one shared accounts database |
 | tests | `LoadTest/Cluster/*.json` | a cluster test: nodes, the load to run, a timeline, checks |
 | runner | `utilities/ClusterTestRunner.*`, `ClusterTestDefinition.*`, `ClusterTestCommandLine.*` | runs the load in a thread, walks the timeline, runs the checks, prints PASS/FAIL |
 | executable | `xmq_scn_cluster` | the runner's entry point, installed beside `xmq_scn` |
@@ -24,19 +24,19 @@ own timeout instead of one it named itself.
 The runner does not change the scenario format: groups in the test file select the scenario's own
 groups by name and may point them at a named node of the cluster.
 
-## The stand
+## The test cluster
 
 Nodes are processes, not services, so a test can stop one in the middle of a run. Each node keeps its
-configuration, certificate and log in its own directory under `$STAND_DIR` (default `~/cluster.run`; `~/cluster` links to this directory of the stand worktree), and
+configuration, certificate and log in its own directory under `$CLUSTER_DIR` (default `~/cluster.run`; `~/cluster` links to this directory of the test cluster worktree), and
 is started through a launcher of its own, so an interrupted run does not take the nodes with it.
 
 ```sh
-stand.sh up            # write configurations and certificates, start every node
-stand.sh status        # nodes, ports, and the cluster keys in the shared storage
-stand.sh stop node3    # stop one node
-stand.sh start node3
-stand.sh down          # stop every node
-stand.sh wipe          # remove the directories; the next up starts fresh
+test_cluster.sh up            # write configurations and certificates, start every node
+test_cluster.sh status        # nodes, ports, and the cluster keys in the shared storage
+test_cluster.sh stop node3    # stop one node
+test_cluster.sh start node3
+test_cluster.sh down          # stop every node
+test_cluster.sh wipe          # remove the directories; the next up starts fresh
 ```
 
 Two things are shared and must read identically on every node: `persistence.redis_uri` (the cluster
@@ -44,7 +44,7 @@ compares the string, so proxies and different spellings of the same storage are 
 database. Nodes are chosen by name and host:
 
 ```sh
-NODES="node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11" stand.sh up
+NODES="node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11" test_cluster.sh up
 ```
 
 ## The test file
@@ -60,8 +60,8 @@ NODES="node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11" stand.sh
                     { "name": "subscribers", "node": "node6", "servers": ["node1", "node3"] } ]
     },
     "nodes": [ { "name": "node3", "host": "thinker11", "port": 2884,
-                 "stop": "~/cluster/stand.sh stop {node}",
-                 "start": "~/cluster/stand.sh start {node}" } ],
+                 "stop": "~/cluster/test_cluster.sh stop {node}",
+                 "start": "~/cluster/test_cluster.sh start {node}" } ],
     "timeline": [ { "at": 30, "action": "stop", "node": "node3" },
                   { "at": 60, "action": "start", "node": "node3" },
                   { "at": 100, "action": "check", "check": "delivery after the restart" } ],
@@ -110,34 +110,34 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
 
 ## Confirming a change
 
-After the unit tests, on the default stand (six nodes, two on each of thinker10, thinker11 and theater):
+After the unit tests, on the default test cluster (six nodes, two on each of thinker10, thinker11 and theater):
 
 ```sh
 # every machine builds the pushed branch and runs what it built
-~/cluster/stand.sh deploy 2026-10-03-Cluster-development
-~/cluster/stand.sh up                     # refuses machines with servers of different commits
+~/cluster/test_cluster.sh deploy 2026-10-03-Cluster-development
+~/cluster/test_cluster.sh up                     # refuses machines with servers of different commits
 xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if all passed
 xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
 ```
 
-`deploy <branch>`: every machine in `STAND_DEPLOY_HOSTS` (thinker11, thinker10, theater) builds the
-branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public_stand`,
+`deploy <branch>`: every machine in `CLUSTER_DEPLOY_HOSTS` (thinker11, thinker10, theater) builds the
+branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public_cluster`,
 a worktree of `~/workspace/xmq_public` detached at `origin/<branch>`, with its own RelWithDebInfo
 build in `build/`; the working trees there are left alone. The build runs at the lowest priority on
 half the cores - theater runs the smart home - and is refused on a machine where the farm is
 running. The first build takes several minutes, later ones only what changed. Builds of different
 commits are refused; each machine builds against the SPTK installed in its `~/.local`. A build of
-one's own, not pushed, goes the old way: `stand.sh deploy <server> <host>...`, on the machine that
+one's own, not pushed, goes the old way: `test_cluster.sh deploy <server> <host>...`, on the machine that
 built it.
 
-`deploy` copies the server, the SPTK it was built against (into `~/sptk/lib`) and the stand's own
+`deploy` copies the server, the SPTK it was built against (into `~/sptk/lib`) and the test cluster's own
 scripts, and records the commit the server was built from in `xmq_server.source`; `up` and `status`
-show it per machine. `up` also writes the stand's settings to `$STAND_DIR/stand.env` on every
-machine, so `stand.sh stop node3` means the same stand wherever it runs, and starts every node's logs
+show it per machine. `up` also writes the test cluster's settings to `$CLUSTER_DIR/cluster.env` on every
+machine, so `test_cluster.sh stop node3` means the same test cluster wherever it runs, and starts every node's logs
 afresh, so that `check-logs` finds this run's crash and not yesterday's.
 
 A test's `before` and `after` commands run around it - `after` whatever happened, which is where a
-test undoes what it did to the network. The tests here end with `stand.sh check-logs`: a crash in a
+test undoes what it did to the network. The tests here end with `test_cluster.sh check-logs`: a crash in a
 node's log, or a node that is not running, fails the test; going cluster-offline is reported.
 
 The timeline has two more steps: `run` (a shell command; the network cut in
@@ -152,5 +152,5 @@ back long after the storage did. Its coordinator's step was waiting on Redis - i
 timeout (SPTK's synchronous `RedisConnect`), and in a `connect()` left to the system - and going
 offline and online was reported from that step. Fixed by a read timeout in SPTK, timeouts of one step
 on the coordinator's connection, and a watch thread that reports both from the lease's deadline.
-`the-storage-goes-away-from-one-machine.json` covers it on the stand; `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`
+`the-storage-goes-away-from-one-machine.json` covers it on the test cluster; `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`
 in the unit tests.

@@ -56,12 +56,12 @@ struct CClusterTimelineStep
  * @brief A node of the cluster under test: where it listens, and how to stop and start it.
  *
  * The commands are shell commands, spelled out in the test file, because this orchestrator does not
- * own the nodes: a stand runs them as processes, the farm runs them as a service, and one that
+ * own the nodes: a test cluster runs them as processes, the farm runs them as a service, and one that
  * hardcoded either would be good on one machine only. `{node}` in a command stands for the node's
- * name, so a stand that takes one argument per node needs it written once.
+ * name, so a test cluster that takes one argument per node needs it written once.
  *
  * The address is here so that the rest of the file can name a node rather than repeat its port in
- * every check and in the load: one fact, one place, and the test moves to another stand by writing
+ * every check and in the load: one fact, one place, and the test moves to another test cluster by writing
  * three fields.
  */
 struct CClusterNode
@@ -105,7 +105,7 @@ struct CClusterCheck
     bool        m_empty {false};
 
     /// MQTT. A check names the node it talks to - by name where the test gives the node an address,
-    /// which is the shorter and the only form that survives the stand moving; the host and port
+    /// which is the shorter and the only form that survives the test cluster moving; the host and port
     /// remain for a check that talks to something which is not one of the cluster's nodes.
     std::string          m_node;                 ///< Instead of m_host and m_port.
     std::string          m_host;

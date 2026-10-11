@@ -149,7 +149,7 @@ private:
 
     /// Where a check talks: the node it names, or the host and port it spells out, or the test's own
     /// server when it names neither. The node wins, so a test that gives its nodes addresses can be
-    /// pointed at another stand by editing the nodes and nothing else.
+    /// pointed at another test cluster by editing the nodes and nothing else.
     struct CAddress
     {
         std::string m_host;

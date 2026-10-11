@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-A Redis read for the stand's own use, with no client library to install.
+A Redis read for the test cluster's own use, with no client library to install.
 
     redis_query.py <host> <port> <db> <command> [args...]
 
 Prints the reply: a string as it is, a number as a number, an array one element per line (nested
-ones as JSON), and an error to stderr with a non-zero exit status. Enough for the stand's checks -
+ones as JSON), and an error to stderr with a non-zero exit status. Enough for the test cluster's checks -
 what the cluster wrote where - and for the same checks from a shell, without a C++ tool in the way:
 
     redis_query.py redis_server 6379 4 KEYS 'cluster:*'
