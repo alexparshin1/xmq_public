@@ -72,7 +72,8 @@ public:
      * @param share             The shared subscription, as "$share/{ShareName}/{filter}".
      */
     void addClusterShare(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId,
-                         SubscriptionOptions options, std::string_view share);
+                         SubscriptionOptions options, std::string_view share,
+                         const std::weak_ptr<Subscription>& sharedSubscription = {});
 
     /**
      * @brief Merge the matches of each session into one entry, and order entries by session.

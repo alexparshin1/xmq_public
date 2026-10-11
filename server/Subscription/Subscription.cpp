@@ -259,7 +259,7 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&      publishMe
                     }
                     const auto* details = subscription.get();
                     deliverToSessions.addClusterShare(subscription->clientSession(), details->qos(), details->subscriptionId(),
-                                                      details->options(), fullName());
+                                                      details->options(), fullName(), weak_from_this());
                 },
                 eligible);
         }

@@ -35,6 +35,30 @@ namespace {
  * A copy, properties included: the message is shared by every recipient, and none of the others
  * is to see what was assigned to this one.
  */
+/// The message without the shared subscriptions assigned to another node: a copy, when it names any.
+SPublishMessage withoutClusterShares(const SPublishMessage& message)
+{
+    const auto& properties = message->getProperties();
+    bool        named = false;
+    if (properties)
+    {
+        properties->forEachUserProperty([&named](const string_view name, const string_view)
+                                        {
+                                            named = named || name == xmq::PublishMessage::ClusterShareProperty;
+                                        });
+    }
+    const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(message);
+    if (!named || !published)
+    {
+        return message;
+    }
+    auto copy = make_shared<mqtt::PublishMessage>(*published);
+    auto copied = make_shared<MessageProperties>(dynamic_cast<const MessageProperties&>(*properties));
+    copied->removeUserProperty(xmq::PublishMessage::ClusterShareProperty);
+    copy->setProperties(copied);
+    return copy;
+}
+
 SMessage withClusterShares(const xmq::PublishMessage& message, const vector<string>& shares)
 {
     const auto* published = dynamic_cast<const mqtt::PublishMessage*>(&message);
@@ -155,11 +179,14 @@ void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription
     for (const auto& [sharedSubscription, message]: messages)
     {
         const auto subscription = sharedSubscription.lock();
-        const auto publishMessage = dynamic_pointer_cast<PublishMessage>(message);
+        auto       publishMessage = dynamic_pointer_cast<PublishMessage>(message);
         if (!subscription || !publishMessage)
         {
             continue;
         }
+        // Sent over a cluster link, it named the subscription assigned to the node behind it; chosen
+        // again, it is assigned afresh.
+        publishMessage = withoutClusterShares(publishMessage);
         // Chosen as any message is - the next member, or a node with members - with the one that
         // ended left out. No member left, and it goes nowhere, as a message nobody subscribes to does.
         mqtt::SubscriptionIds deliverToSessions;
@@ -205,8 +232,10 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         const auto retain = info.m_options.m_retainAsPublished && message->isRetain();
         if (!info.m_clusterShares.empty())
         {
+            // The link keeps the subscription when it is the only one assigned: if the link breaks
+            // before the other node acknowledges, the message is offered to another member.
             const auto assigned = withClusterShares(*message, info.m_clusterShares);
-            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain);
+            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
         }
         else if (!info.m_sharedSubscription.expired())
         {

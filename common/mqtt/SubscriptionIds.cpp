@@ -43,13 +43,14 @@ bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, c
 }
 
 void SubscriptionIds::addClusterShare(const std::shared_ptr<ISubscriptionClient>& session, const Qos qos, const uint32_t subscriptionId,
-                                      const SubscriptionOptions options, const std::string_view share)
+                                      const SubscriptionOptions options, const std::string_view share,
+                                      const std::weak_ptr<Subscription>& sharedSubscription)
 {
     if (!session)
     {
         return;
     }
-    add(session, qos, subscriptionId, options);
+    add(session, qos, subscriptionId, options, sharedSubscription);
     m_sessions.back().second.m_clusterShares.emplace_back(share);
 }
 
@@ -75,8 +76,8 @@ void SubscriptionIds::finish()
             // One copy goes to the node behind a link, so it carries every subscription assigned to it.
             auto& shares = kept->second.m_clusterShares;
             shares.insert(shares.end(), next->second.m_clusterShares.begin(), next->second.m_clusterShares.end());
-            // Matched another way too: the session would have had the message anyway, and it is not
-            // the shared subscription's to hand to another member.
+            // Matched another way too - or for another shared subscription as well: the message is
+            // not one subscription's to hand to another member.
             kept->second.m_sharedSubscription.reset();
         }
         else if (++kept != next)
