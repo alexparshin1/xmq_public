@@ -149,6 +149,29 @@ bool SubscriptionManager::matchMessage(const std::shared_ptr<PublishMessage>& me
     return true;
 }
 
+void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription>, SMessage>>& messages,
+                                         const ISubscriptionClient*                               endedSession)
+{
+    for (const auto& [sharedSubscription, message]: messages)
+    {
+        const auto subscription = sharedSubscription.lock();
+        const auto publishMessage = dynamic_pointer_cast<PublishMessage>(message);
+        if (!subscription || !publishMessage)
+        {
+            continue;
+        }
+        // Chosen as any message is - the next member, or a node with members - with the one that
+        // ended left out. No member left, and it goes nowhere, as a message nobody subscribes to does.
+        mqtt::SubscriptionIds deliverToSessions;
+        cluster::NodeSet      notForwarded;
+        bool                  dynamicRoute = false;
+        subscription->matchSessionsForDelivery(*publishMessage, deliverToSessions, notForwarded, dynamicRoute,
+                                               MessageDomain::Server, endedSession);
+        deliverToSessions.finish();
+        deliverShard(publishMessage, deliverToSessions, 0, 1);
+    }
+}
+
 void SubscriptionManager::countRetainedChange(const RetainedMessages::Change change) const
 {
     if (const auto statistics = m_server ? m_server->systemStatistics() : nullptr)
@@ -184,6 +207,10 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         {
             const auto assigned = withClusterShares(*message, info.m_clusterShares);
             info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain);
+        }
+        else if (!info.m_sharedSubscription.expired())
+        {
+            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
         }
         else
         {

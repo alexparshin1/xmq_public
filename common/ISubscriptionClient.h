@@ -88,6 +88,22 @@ public:
 
     virtual MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) = 0;
 
+    /**
+     * @brief Post a message a shared subscription chose this client for.
+     *
+     * A client that keeps what it is sent until it is acknowledged keeps the subscription with it, so
+     * that a message left unacknowledged when the session ends can go to another member - MQTT 5,
+     * section 4.8.2. Anything else posts it as any message.
+     *
+     * @param sharedSubscription The shared subscription that chose this client.
+     */
+    virtual MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
+                                  const std::weak_ptr<Subscription>& sharedSubscription)
+    {
+        (void) sharedSubscription;
+        return postMessage(message, qos, subscriptionIds, retain);
+    }
+
     virtual void onMessage(MessageCallback messageCallback) = 0;
 
     [[nodiscard]] virtual std::string bridgeOrigin() const = 0;

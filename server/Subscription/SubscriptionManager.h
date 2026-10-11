@@ -105,6 +105,15 @@ public:
     }
 
     /**
+     * @brief Offer QoS 1 messages a session left unacknowledged when it ended to other members of
+     *        the shared subscriptions that chose it - MQTT 5, section 4.8.2.
+     * @param messages          Each message, with the shared subscription that chose the session.
+     * @param endedSession      The session that ended; it is not chosen again.
+     */
+    void reassignShared(const std::vector<std::pair<std::weak_ptr<Subscription>, SMessage>>& messages,
+                        const ISubscriptionClient* endedSession);
+
+    /**
      * @brief Move the broker's retained-message counter by a change.
      * @param change            What changed.
      */

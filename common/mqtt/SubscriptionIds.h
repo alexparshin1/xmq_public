@@ -46,6 +46,8 @@ public:
         /// For a cluster link: the shared subscriptions this node chose the node behind it for.
         /// Empty - and allocating nothing - for every other session.
         std::vector<std::string> m_clusterShares;
+        /// The shared subscription that chose this session, when that is the only way it matched.
+        std::weak_ptr<Subscription> m_sharedSubscription;
     };
 
     /// One entry per session, ordered by session address once finish() has run - the order the map
@@ -61,7 +63,8 @@ public:
      * Appends. A session matched through several subscriptions is listed once per match until
      * finish() merges them.
      */
-    bool add(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId, SubscriptionOptions options);
+    bool add(const std::shared_ptr<ISubscriptionClient>& session, Qos qos, uint32_t subscriptionId, SubscriptionOptions options,
+             const std::weak_ptr<Subscription>& sharedSubscription = {});
 
     /**
      * @brief Record that a shared subscription chose a cluster link: the node behind it is to hand

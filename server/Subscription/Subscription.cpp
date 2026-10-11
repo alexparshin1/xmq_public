@@ -182,11 +182,12 @@ std::vector<shared_ptr<cluster::ServerNode>> Subscription::getClusterNodes() con
     return clusterNodes;
 }
 
-void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessage,
-                                            mqtt::SubscriptionIds& deliverToSessions,
-                                            cluster::NodeSet&      deliverToClusterNodes,
-                                            bool&                  dynamicRoute,
-                                            const MessageDomain    domain)
+void Subscription::matchSessionsForDelivery(const PublishMessage&      publishMessage,
+                                            mqtt::SubscriptionIds&     deliverToSessions,
+                                            cluster::NodeSet&          deliverToClusterNodes,
+                                            bool&                      dynamicRoute,
+                                            const MessageDomain        domain,
+                                            const ISubscriptionClient* excluded)
 {
     // A shared subscription picks a different client per message (round-robin), so its route can't
     // be memorised by topic.
@@ -200,8 +201,12 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessag
 
     // Who may be handed this message at all. Shared and not: a shared subscription offers the
     // message to the next member that passes, rather than to the next member.
-    auto eligible = [&publishMessage, &dynamicRoute](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+    auto eligible = [&publishMessage, &dynamicRoute, excluded](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
     {
+        if (clientSession == excluded)
+        {
+            return false;
+        }
         if (subscription->options().m_noLocal)
         {
             // Membership depends on the publisher's client id, so this route can't be memoised.
@@ -216,11 +221,14 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&  publishMessag
         return clientSession->bridgeOrigin().empty() || publishMessage.getSourceNode().empty();
     };
 
-    auto addToDeliverToSessions = [&deliverToSessions](const ISubscriptionClient*, const SSessionSubscription& subscription)
+    // A shared subscription goes with what it hands a member, to hand it to another if the member's
+    // session ends before acknowledging it.
+    const auto sharedSubscription = isShared() ? weak_from_this() : weak_ptr<Subscription>();
+    auto       addToDeliverToSessions = [&deliverToSessions, &sharedSubscription](const ISubscriptionClient*, const SSessionSubscription& subscription)
     {
         const auto* clientSubscriptionDetails = subscription.get();
         deliverToSessions.add(subscription->clientSession(), clientSubscriptionDetails->qos(),
-                              clientSubscriptionDetails->subscriptionId(), clientSubscriptionDetails->options());
+                              clientSubscriptionDetails->subscriptionId(), clientSubscriptionDetails->options(), sharedSubscription);
     };
 
     const shared_lock lock(m_mutex);

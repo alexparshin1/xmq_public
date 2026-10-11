@@ -336,6 +336,8 @@ public:
      * @param retain             Retain flag.
      */
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) override;
+    MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
+                          const std::weak_ptr<Subscription>& sharedSubscription) override;
 
     /**
      * @brief Directly send the message to the client.

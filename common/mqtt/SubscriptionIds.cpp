@@ -20,7 +20,8 @@ using namespace std;
 
 namespace xmq::mqtt {
 
-bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, const Qos qos, const uint32_t subscriptionId, const SubscriptionOptions options)
+bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, const Qos qos, const uint32_t subscriptionId, const SubscriptionOptions options,
+                          const std::weak_ptr<Subscription>& sharedSubscription)
 {
     if (!session)
     {
@@ -32,6 +33,7 @@ bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, c
     info.m_qos = qos;
     info.m_options = options;
     info.m_session = session;
+    info.m_sharedSubscription = sharedSubscription;
     if (subscriptionId != 0)
     {
         info.m_ids.push_back(subscriptionId);
@@ -73,6 +75,9 @@ void SubscriptionIds::finish()
             // One copy goes to the node behind a link, so it carries every subscription assigned to it.
             auto& shares = kept->second.m_clusterShares;
             shares.insert(shares.end(), next->second.m_clusterShares.begin(), next->second.m_clusterShares.end());
+            // Matched another way too: the session would have had the message anyway, and it is not
+            // the shared subscription's to hand to another member.
+            kept->second.m_sharedSubscription.reset();
         }
         else if (++kept != next)
         {
