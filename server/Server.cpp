@@ -1140,6 +1140,11 @@ void Server::completePendingConnect(const SClientSession& newClientSession, cons
         // one, and it is the session that lives on - for the timer, and for the bytes to be read.
         const auto& reader = surviving ? surviving : newClientSession;
         reader->scheduleIdleDisconnect();
+        // A session that has just moved here gets what the node it left sent on for it meanwhile.
+        if (const auto cluster = m_cluster.load(); cluster && cluster->coordinator() != nullptr)
+        {
+            cluster->sessionArrived(connectMessage->getParameters()->getClientId(), reader);
+        }
         // Whatever the client sent behind its CONNECT is still in the read buffer and the socket,
         // and the reactor has no further event to give for it: an edge-triggered pool reported
         // those bytes once, while this session was refusing to read them. They go to the session

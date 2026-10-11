@@ -227,6 +227,11 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
     std::string disconnectedUsername;
     std::string disconnectedAddress;
 
+    // QoS 1 messages shared subscriptions chose this session for and it did not acknowledge: when
+    // the session ends with them, they go to other members - MQTT 5, section 4.8.2. A QoS 2 message
+    // is bound to the session it was chosen for, and goes with it.
+    vector<pair<weak_ptr<Subscription>, SMessage>> unacknowledgedShared;
+
     {
         const unique_lock lock(m_mutex);
 
@@ -259,6 +264,14 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
             {
                 if (const auto& queue = getInflightQueueUnlocked())
                 {
+                    queue->forEach([&unacknowledgedShared](const SMessageDispatch& dispatch)
+                                   {
+                                       const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch);
+                                       if (delivery && delivery->m_flags.getQos() == Qos::Qos1 && !delivery->sharedSubscription().expired())
+                                       {
+                                           unacknowledgedShared.emplace_back(delivery->sharedSubscription(), delivery->message());
+                                       }
+                                   });
                     queue->clear();
                 }
                 clearSessionUnlocked();
@@ -317,6 +330,14 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
     if (notifyHangup)
     {
         handleConnectionHangup();
+    }
+
+    if (!unacknowledgedShared.empty())
+    {
+        if (const auto subscriptionManager = server().getSubscriptionManager())
+        {
+            subscriptionManager->reassignShared(unacknowledgedShared, this);
+        }
     }
 
     return true;
@@ -718,6 +739,12 @@ void ClientSession::sendMessageUnlocked(const MessageDispatch& messageDispatch)
 
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain)
 {
+    return postMessage(message, qos, subscriptionIds, retain, {});
+}
+
+MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
+                                     const weak_ptr<Subscription>& sharedSubscription)
+{
     const auto& inflightQueue = inflightQueueUnlocked();
 
     // Allocated up front, from the queue that owns this session's packet id space, because
@@ -727,6 +754,10 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     const MessageId deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
 
     const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
+    if (!sharedSubscription.expired())
+    {
+        messageDelivery->setSharedSubscription(sharedSubscription);
+    }
 
     if (inflightQueue)
     {

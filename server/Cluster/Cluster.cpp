@@ -102,6 +102,27 @@ void Cluster::releaseSessions()
             try
             {
                 logMessage(LogPriority::Debug, [&clientId] { return format("Letting session {} go.", clientId); });
+                // What matches it from now on goes to the node it moves to, named, until that node
+                // has subscribed for it - recorded before it is let go, so that nothing falls between.
+                if (auto* coordinator = m_coordinatorView.load())
+                {
+                    if (const auto session = m_server->getClientSession(clientId))
+                    {
+                        MovedSession moved {coordinator->nodeName(nodeId), {}, chrono::steady_clock::now()};
+                        for (const auto& filter: views::keys(session->getSubscribedTo()))
+                        {
+                            if (!filter.starts_with("$share/"))
+                            {
+                                moved.m_filters.emplace_back(filter);
+                            }
+                        }
+                        if (!moved.m_nodeName.empty() && !moved.m_filters.empty())
+                        {
+                            const scoped_lock movedLock(m_movedMutex);
+                            m_movedSessions[clientId] = std::move(moved);
+                        }
+                    }
+                }
                 if (!m_server->releaseSession(clientId))
                 {
                     logMessage(LogPriority::Warning, [&clientId]
@@ -651,6 +672,11 @@ void Cluster::disconnectNode(const SNode& node)
         const scoped_lock lock(m_subscriptionMutex);
         m_nodeSubscriptions.erase(node->getName());
     }
+    {
+        // Nothing can be sent there any more.
+        const scoped_lock lock(m_movedMutex);
+        erase_if(m_movedSessions, [&node](const auto& moved) { return moved.second.m_nodeName == node->getName(); });
+    }
     logMessage(LogPriority::Debug, [&node]
                {
                    return "Disconnected node '" + node->getName() + "'.";
@@ -862,18 +888,28 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
         if (const auto& properties = publishMessage->getProperties())
         {
             vector<string> shares;
+            vector<string> sessions;
             properties->forEachUserProperty(
-                [&shares](const string_view name, const string_view value)
+                [&shares, &sessions](const string_view name, const string_view value)
                 {
                     if (name == PublishMessage::ClusterShareProperty)
                     {
                         shares.emplace_back(value);
+                    }
+                    else if (name == PublishMessage::ClusterSessionProperty)
+                    {
+                        sessions.emplace_back(value);
                     }
                 });
             if (!shares.empty())
             {
                 properties->removeUserProperty(PublishMessage::ClusterShareProperty);
                 publishMessage->setClusterShares(std::move(shares));
+            }
+            if (!sessions.empty())
+            {
+                properties->removeUserProperty(PublishMessage::ClusterSessionProperty);
+                publishMessage->setClusterSessions(std::move(sessions));
             }
         }
         ++m_forwardedMessagesReceived;
@@ -1047,6 +1083,101 @@ void Cluster::sendSubscriptions()
     }
 }
 
+namespace {
+
+/// How long a moved session is sent on by name without the node it went to subscribing for it, and
+/// how long a message waits for a session that is to arrive: a node that has not subscribed by then
+/// has the session no more, and a CONNECT that has not completed by then has failed.
+constexpr auto MovedSessionLifetime = 60s;
+constexpr auto HeldMessageLifetime = 10s;
+
+} // namespace
+
+vector<pair<string, string>> Cluster::movedSessionsMatching(const string_view topicName)
+{
+    vector<pair<string, string>> matching;
+    const scoped_lock            lock(m_movedMutex);
+    if (m_movedSessions.empty())
+    {
+        return matching;
+    }
+    const auto now = chrono::steady_clock::now();
+    erase_if(m_movedSessions, [now](const auto& moved) { return now - moved.second.m_movedAt > MovedSessionLifetime; });
+    for (const auto& [clientId, moved]: m_movedSessions)
+    {
+        if (ranges::any_of(moved.m_filters, [topicName](const string& filter) { return RetainedMessages::matches(filter, topicName); }))
+        {
+            matching.emplace_back(moved.m_nodeName, clientId);
+        }
+    }
+    return matching;
+}
+
+shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName) const
+{
+    // The client id a node connects to this one with; see ServerNode.
+    return m_server->getClientSession("node_" + nodeName + "_" + m_server->getNodeName());
+}
+
+bool Cluster::holdForSession(const string& clientId, const SPublishMessage& message)
+{
+    const scoped_lock lock(m_movedMutex);
+    const auto        now = chrono::steady_clock::now();
+    // Named for as long as the node it left sends on by name, and some.
+    erase_if(m_arrivedSessions, [now](const auto& arrived) { return now - arrived.second > 2 * MovedSessionLifetime; });
+    if (m_arrivedSessions.contains(clientId))
+    {
+        return false;
+    }
+    erase_if(m_heldMessages, [now](auto& held)
+             {
+                 erase_if(held.second, [now](const HeldMessage& message) { return now - message.m_heldAt > HeldMessageLifetime; });
+                 return held.second.empty();
+             });
+    m_heldMessages[clientId].push_back({message, now});
+    return true;
+}
+
+void Cluster::sessionArrived(const string& clientId, const shared_ptr<ISubscriptionClient>& session)
+{
+    vector<HeldMessage> held;
+    {
+        // Marked arrived with what was held taken, under one lock: a message named for it from now
+        // on goes to it directly, and none falls between.
+        const scoped_lock lock(m_movedMutex);
+        m_arrivedSessions[clientId] = chrono::steady_clock::now();
+        if (const auto found = m_heldMessages.find(clientId); found != m_heldMessages.end())
+        {
+            held = std::move(found->second);
+            m_heldMessages.erase(found);
+        }
+    }
+    for (const auto& message: held)
+    {
+        session->postMessage(message.m_message, message.m_message->getQos(), {}, false);
+    }
+}
+
+void Cluster::forgetCoveredMoves(const string& nodeName)
+{
+    set<string> advertised;
+    {
+        const scoped_lock lock(m_subscriptionMutex);
+        if (const auto found = m_nodeSubscriptions.find(nodeName); found != m_nodeSubscriptions.end())
+        {
+            advertised = found->second;
+        }
+    }
+    // Subscribed for there now: what matches goes there as anything does, and the session is
+    // matched by its own subscriptions.
+    const scoped_lock lock(m_movedMutex);
+    erase_if(m_movedSessions, [&nodeName, &advertised](const auto& moved)
+             {
+                 return moved.second.m_nodeName == nodeName &&
+                        ranges::all_of(moved.second.m_filters, [&advertised](const string& filter) { return advertised.contains(filter); });
+             });
+}
+
 set<string> Cluster::getNodeSubscriptions(const string_view nodeName) const
 {
     const scoped_lock lock(m_subscriptionMutex);
@@ -1132,34 +1263,40 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
                 }
                 payload.remove_prefix(separator + 1);
             }
-            const scoped_lock lock(m_subscriptionMutex);
-            m_nodeSubscriptions[sender] = std::move(filters);
+            {
+                const scoped_lock lock(m_subscriptionMutex);
+                m_nodeSubscriptions[sender] = std::move(filters);
+            }
+            forgetCoveredMoves(sender);
             break;
         }
         case SubscriptionUpdate:
         {
             // "+filter" or "-filter" per line, in the order the sending node made them.
-            const scoped_lock lock(m_subscriptionMutex);
-            auto&             filters = m_nodeSubscriptions[sender];
-            string_view       payload = message->payload();
-            while (!payload.empty())
             {
-                const auto separator = payload.find('\n');
-                const auto line = payload.substr(0, separator);
-                if (line.size() > 1 && line[0] == '+')
+                const scoped_lock lock(m_subscriptionMutex);
+                auto&             filters = m_nodeSubscriptions[sender];
+                string_view       payload = message->payload();
+                while (!payload.empty())
                 {
-                    filters.emplace(line.substr(1));
+                    const auto separator = payload.find('\n');
+                    const auto line = payload.substr(0, separator);
+                    if (line.size() > 1 && line[0] == '+')
+                    {
+                        filters.emplace(line.substr(1));
+                    }
+                    else if (line.size() > 1 && line[0] == '-')
+                    {
+                        filters.erase(string(line.substr(1)));
+                    }
+                    if (separator == string_view::npos)
+                    {
+                        break;
+                    }
+                    payload.remove_prefix(separator + 1);
                 }
-                else if (line.size() > 1 && line[0] == '-')
-                {
-                    filters.erase(string(line.substr(1)));
-                }
-                if (separator == string_view::npos)
-                {
-                    break;
-                }
-                payload.remove_prefix(separator + 1);
             }
+            forgetCoveredMoves(sender);
             break;
         }
         case RetainedUpdate:

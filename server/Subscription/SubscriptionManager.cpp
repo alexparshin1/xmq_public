@@ -35,7 +35,31 @@ namespace {
  * A copy, properties included: the message is shared by every recipient, and none of the others
  * is to see what was assigned to this one.
  */
-SMessage withClusterShares(const xmq::PublishMessage& message, const vector<string>& shares)
+/// The message without the shared subscriptions assigned to another node: a copy, when it names any.
+SPublishMessage withoutClusterShares(const SPublishMessage& message)
+{
+    const auto& properties = message->getProperties();
+    bool        named = false;
+    if (properties)
+    {
+        properties->forEachUserProperty([&named](const string_view name, const string_view)
+                                        {
+                                            named = named || name == xmq::PublishMessage::ClusterShareProperty;
+                                        });
+    }
+    const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(message);
+    if (!named || !published)
+    {
+        return message;
+    }
+    auto copy = make_shared<mqtt::PublishMessage>(*published);
+    auto copied = make_shared<MessageProperties>(dynamic_cast<const MessageProperties&>(*properties));
+    copied->removeUserProperty(xmq::PublishMessage::ClusterShareProperty);
+    copy->setProperties(copied);
+    return copy;
+}
+
+SMessage withClusterShares(const xmq::PublishMessage& message, const vector<string>& shares, const vector<string>& sessions = {})
 {
     const auto* published = dynamic_cast<const mqtt::PublishMessage*>(&message);
     if (published == nullptr)
@@ -49,6 +73,10 @@ SMessage withClusterShares(const xmq::PublishMessage& message, const vector<stri
     for (const auto& share: shares)
     {
         properties->setUserProperty(xmq::PublishMessage::ClusterShareProperty, share);
+    }
+    for (const auto& session: sessions)
+    {
+        properties->setUserProperty(xmq::PublishMessage::ClusterSessionProperty, session);
     }
     copy->setProperties(properties);
     return copy;
@@ -143,10 +171,79 @@ bool SubscriptionManager::matchMessage(const std::shared_ptr<PublishMessage>& me
     m_topics.matchSessionsForDelivery(destination, msg, false, deliverToSessions, deliverToBridges, dynamicRoute, domain);
     m_wildcards.matchSessionsForDelivery(destination, msg, true, deliverToSessions, deliverToBridges, dynamicRoute, domain);
 
-    // A session matched by an exact topic and by a wildcard was listed twice above.
+    if (!destination->isSystem())
+    {
+        matchMovedSessions(message, deliverToSessions);
+    }
+
+    // A session matched by an exact topic and by a wildcard was listed twice above - and a session
+    // named by the node it moved from, once it has subscribed here, is listed twice too.
     deliverToSessions.finish();
 
     return true;
+}
+
+void SubscriptionManager::matchMovedSessions(const std::shared_ptr<PublishMessage>& message, mqtt::SubscriptionIds& deliverToSessions) const
+{
+    const auto cluster = m_server ? m_server->getCluster() : nullptr;
+    if (!cluster)
+    {
+        return;
+    }
+
+    // Named by the node a session moved from: delivered to it whether or not its subscriptions are
+    // here yet - and kept for it until its CONNECT has completed, as the CONNACK goes first.
+    for (const auto& clientId: message->clusterSessions())
+    {
+        if (cluster->holdForSession(clientId, message))
+        {
+            // Its subscriptions may be back already, its CONNACK not yet: matched by them, it would
+            // be sent this before the CONNACK. The copy kept is its delivery.
+            deliverToSessions.removeClient(clientId);
+            continue;
+        }
+        if (const auto session = m_server->getClientSession(clientId))
+        {
+            deliverToSessions.add(session, message->getQos(), 0, SubscriptionOptions(message->getQos()));
+        }
+    }
+
+    // Moved from here: what matches it goes to the node it moved to, naming it, until that node has
+    // subscribed for it. Not while it is still here and matched itself - it is let go after its move
+    // is recorded, and a message it was given is in the queue it takes along.
+    for (const auto& [nodeName, clientId]: cluster->movedSessionsMatching(message->destination()->fullName()))
+    {
+        if (!deliverToSessions.hasClient(clientId))
+        {
+            deliverToSessions.addClusterSession(cluster->linkFrom(nodeName), clientId);
+        }
+    }
+}
+
+void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription>, SMessage>>& messages,
+                                         const ISubscriptionClient*                               endedSession)
+{
+    for (const auto& [sharedSubscription, message]: messages)
+    {
+        const auto subscription = sharedSubscription.lock();
+        auto       publishMessage = dynamic_pointer_cast<PublishMessage>(message);
+        if (!subscription || !publishMessage)
+        {
+            continue;
+        }
+        // Sent over a cluster link, it named the subscription assigned to the node behind it; chosen
+        // again, it is assigned afresh.
+        publishMessage = withoutClusterShares(publishMessage);
+        // Chosen as any message is - the next member, or a node with members - with the one that
+        // ended left out. No member left, and it goes nowhere, as a message nobody subscribes to does.
+        mqtt::SubscriptionIds deliverToSessions;
+        cluster::NodeSet      notForwarded;
+        bool                  dynamicRoute = false;
+        subscription->matchSessionsForDelivery(*publishMessage, deliverToSessions, notForwarded, dynamicRoute,
+                                               MessageDomain::Server, endedSession);
+        deliverToSessions.finish();
+        deliverShard(publishMessage, deliverToSessions, 0, 1);
+    }
 }
 
 void SubscriptionManager::countRetainedChange(const RetainedMessages::Change change) const
@@ -180,10 +277,16 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         // subscription as retained, and a bridge then stores each one as the retained message for
         // its topic - so every later subscriber is greeted by the last thing that crossed.
         const auto retain = info.m_options.m_retainAsPublished && message->isRetain();
-        if (!info.m_clusterShares.empty())
+        if (!info.m_clusterShares.empty() || !info.m_clusterSessions.empty())
         {
-            const auto assigned = withClusterShares(*message, info.m_clusterShares);
-            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain);
+            // The link keeps the subscription when it is the only one assigned: if the link breaks
+            // before the other node acknowledges, the message is offered to another member.
+            const auto assigned = withClusterShares(*message, info.m_clusterShares, info.m_clusterSessions);
+            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
+        }
+        else if (!info.m_sharedSubscription.expired())
+        {
+            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
         }
         else
         {

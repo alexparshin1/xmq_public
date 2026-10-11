@@ -141,12 +141,15 @@ public:
      * @param dynamicRoute          Out: set true if the resolved route depends on per-message
      *                              state (shared or no-local subscriptions) and must not be cached.
      * @param domain                Message domain: client or server.
+     * @param excluded              A session not to choose: a member whose session ended with the
+     *                              message unacknowledged, which goes to another member instead.
      */
-    void matchSessionsForDelivery(const PublishMessage&  publishMessage,
-                                  mqtt::SubscriptionIds& deliverToSessions,
-                                  cluster::NodeSet&      deliverToClusterNodes,
-                                  bool&                  dynamicRoute,
-                                  MessageDomain          domain);
+    void matchSessionsForDelivery(const PublishMessage&      publishMessage,
+                                  mqtt::SubscriptionIds&     deliverToSessions,
+                                  cluster::NodeSet&          deliverToClusterNodes,
+                                  bool&                      dynamicRoute,
+                                  MessageDomain              domain,
+                                  const ISubscriptionClient* excluded = nullptr);
 
     /**
      * @brief Subscribed clients count.
