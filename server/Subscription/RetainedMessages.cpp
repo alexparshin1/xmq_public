@@ -84,96 +84,229 @@ bool RetainedMessages::matches(const string_view filter, const string_view topic
     return level == topicLevels.size();
 }
 
-RetainedMessages::Applied RetainedMessages::set(const string_view topicName, const string_view payload, const Qos qos,
-                                                const int64_t now)
+RetainedMessages::Change RetainedMessages::set(const string_view topicName, const string_view payload, const Qos qos)
 {
     const unique_lock lock(m_mutex);
 
-    const auto [message, inserted] = m_messages.try_emplace(string(topicName));
-    auto&      record = message->second;
-    const auto wasMessage = !inserted && !record.isTombstone();
-
-    Applied applied;
+    const auto message = m_messages.find(string(topicName));
     if (payload.empty())
     {
-        if (!inserted && record.isTombstone())
+        if (message == m_messages.end())
         {
-            // Cleared already. Clearing it again tells nobody anything.
-            applied.record = record;
-            return applied;
+            return Change::None;
         }
-        // A clearing is recorded even when nothing was held here: another node may hold the
-        // message, or receive it late, and the tombstone is what tells it the message is gone.
-        applied.change = wasMessage ? Change::Removed : Change::None;
+        m_messages.erase(message);
+        return Change::Removed;
     }
-    else
+    if (message == m_messages.end())
     {
-        if (wasMessage && record.m_payload == payload && record.m_qos == qos)
-        {
-            applied.record = record;
-            return applied;
-        }
-        applied.change = wasMessage ? Change::Replaced : Change::Added;
+        auto& entry = m_messages[string(topicName)];
+        entry.m_record = {string(payload), qos, 0};
+        entry.m_present = true;
+        return Change::Added;
     }
-
-    // Later than what it replaces, whatever the clock says: a node whose clock runs ahead must not
-    // make the next publication here lose to the one before it.
-    record.m_updated = inserted ? now : max(now, record.m_updated + 1);
+    auto& record = message->second.m_record;
+    if (record.m_payload == payload && record.m_qos == qos)
+    {
+        return Change::None;
+    }
     record.m_payload = payload;
     record.m_qos = qos;
-    applied.stored = true;
-    applied.record = record;
-    return applied;
+    return Change::Replaced;
 }
 
-RetainedMessages::Applied RetainedMessages::merge(const string_view topicName, const Record& incoming)
+RetainedMessages::Change RetainedMessages::show(Entry& entry, const Record& committed)
 {
-    const unique_lock lock(m_mutex);
-
-    const auto [message, inserted] = m_messages.try_emplace(string(topicName));
-    auto&      record = message->second;
-
-    Applied applied;
-    if (!inserted && !incoming.supersedes(record))
+    Change change;
+    if (committed.clears())
     {
-        applied.record = record;
-        return applied;
+        change = entry.m_present ? Change::Removed : Change::None;
     }
-
-    const auto wasMessage = !inserted && !record.isTombstone();
-    if (incoming.isTombstone())
+    else if (!entry.m_present)
     {
-        applied.change = wasMessage ? Change::Removed : Change::None;
+        change = Change::Added;
     }
     else
     {
-        applied.change = wasMessage ? Change::Replaced : Change::Added;
+        change = entry.m_record.m_payload == committed.m_payload && entry.m_record.m_qos == committed.m_qos
+                     ? Change::None
+                     : Change::Replaced;
     }
-
-    record = incoming;
-    applied.stored = true;
-    applied.record = record;
-    return applied;
+    entry.m_record = committed;
+    entry.m_present = !committed.clears();
+    return change;
 }
 
-vector<string> RetainedMessages::purgeTombstones(const int64_t now)
+RetainedMessages::Change RetainedMessages::takeLocal(const string_view topicName, const string_view payload, const Qos qos)
 {
-    vector<string> purged;
-
     const unique_lock lock(m_mutex);
-    for (auto message = m_messages.begin(); message != m_messages.end();)
+
+    auto& entry = m_messages[string(topicName)];
+    if (entry.m_inFlight == 0)
     {
-        if (message->second.isTombstone() && now - message->second.m_updated > TombstoneLifetimeMs)
+        // The state committed so far, to be weighed against the commits on their way back.
+        entry.m_best = entry.m_present ? entry.m_record : Record {"", Qos::Qos0, entry.m_record.m_revision};
+    }
+    ++entry.m_inFlight;
+    return show(entry, {string(payload), qos, 0});
+}
+
+RetainedMessages::Change RetainedMessages::applyCommit(const string_view topicName, const Record& committed)
+{
+    unique_lock lock(m_mutex);
+
+    const auto message = m_messages.find(string(topicName));
+    if (message == m_messages.end() || message->second.m_inFlight == 0)
+    {
+        // Nothing of this node's in flight for it any more - a reconcile cannot take one away, so this
+        // is a commit the entry outlived; it weighs as any committed change does.
+        lock.unlock();
+        bool unknown = false;
+        return applyRemote(topicName, committed, true, unknown);
+    }
+
+    auto& entry = message->second;
+    if (committed.m_revision > entry.m_best.m_revision)
+    {
+        entry.m_best = committed;
+    }
+    if (--entry.m_inFlight > 0)
+    {
+        return Change::None;
+    }
+    const auto change = show(entry, entry.m_best);
+    if (!entry.m_present)
+    {
+        m_messages.erase(message);
+    }
+    return change;
+}
+
+RetainedMessages::Change RetainedMessages::applyRemote(const string_view topicName, const Record& committed,
+                                                       const bool fromStorage, bool& unknown)
+{
+    unknown = false;
+    const unique_lock lock(m_mutex);
+
+    const auto message = m_messages.find(string(topicName));
+    if (message == m_messages.end())
+    {
+        if (committed.clears())
         {
-            purged.push_back(message->first);
+            return Change::None;
+        }
+        if (!fromStorage)
+        {
+            unknown = true;
+            return Change::None;
+        }
+        auto& entry = m_messages[string(topicName)];
+        return show(entry, committed);
+    }
+
+    auto& entry = message->second;
+    if (entry.m_inFlight > 0)
+    {
+        if (committed.m_revision > entry.m_best.m_revision)
+        {
+            entry.m_best = committed;
+        }
+        return Change::None;
+    }
+    if (committed.m_revision <= entry.m_record.m_revision)
+    {
+        return Change::None;
+    }
+    const auto change = show(entry, committed);
+    if (!entry.m_present)
+    {
+        m_messages.erase(message);
+    }
+    return change;
+}
+
+void RetainedMessages::reconcile(const size_t shard, const int64_t numbered, const unordered_map<string, Record>& stored,
+                                 const Changed& changed)
+{
+    vector<pair<string, Change>> changes;
+    {
+        const unique_lock lock(m_mutex);
+        for (auto message = m_messages.begin(); message != m_messages.end();)
+        {
+            auto& [topicName, entry] = *message;
+            if (topicName.starts_with('$') || shardOf(topicName) != shard || stored.contains(topicName))
+            {
+                ++message;
+                continue;
+            }
+            if (entry.m_inFlight > 0 || entry.m_record.m_revision > numbered)
+            {
+                // A change of this node's on its way to the storage, or one committed after the
+                // storage was read: neither was cleared.
+                ++message;
+                continue;
+            }
+            changes.emplace_back(topicName, Change::Removed);
             message = m_messages.erase(message);
         }
-        else
+    }
+    for (const auto& [topicName, record]: stored)
+    {
+        bool       unknown = false;
+        const auto change = applyRemote(topicName, record, true, unknown);
+        if (change != Change::None)
         {
-            ++message;
+            changes.emplace_back(topicName, change);
         }
     }
-    return purged;
+    for (const auto& [topicName, change]: changes)
+    {
+        changed(topicName, change);
+    }
+}
+
+size_t RetainedMessages::shardOf(const string_view topicName)
+{
+    // FNV-1a: std::hash differs between standard libraries, and every node has to agree.
+    uint32_t hash = 2166136261U;
+    for (const auto character: topicName)
+    {
+        hash ^= static_cast<uint8_t>(character);
+        hash *= 16777619U;
+    }
+    return hash % ShardCount;
+}
+
+bool RetainedMessages::parseShared(const string_view stored, Record& record)
+{
+    const auto revisionEnd = stored.find(':');
+    if (revisionEnd == string_view::npos || revisionEnd == 0)
+    {
+        return false;
+    }
+    const auto qosEnd = stored.find(':', revisionEnd + 1);
+    if (qosEnd != revisionEnd + 2)
+    {
+        return false;
+    }
+    int64_t revision = 0;
+    for (const auto digit: stored.substr(0, revisionEnd))
+    {
+        if (digit < '0' || digit > '9')
+        {
+            return false;
+        }
+        revision = revision * 10 + (digit - '0');
+    }
+    const auto qos = stored[revisionEnd + 1] - '0';
+    if (qos < 0 || qos > 2)
+    {
+        return false;
+    }
+    record.m_revision = revision;
+    record.m_qos = static_cast<Qos>(qos);
+    record.m_payload.assign(stored.substr(qosEnd + 1));
+    return true;
 }
 
 void RetainedMessages::forEachMatching(const string_view filter, const Handler& handler) const
@@ -183,30 +316,16 @@ void RetainedMessages::forEachMatching(const string_view filter, const Handler& 
     vector<pair<string, Record>> matched;
     {
         const shared_lock lock(m_mutex);
-        for (const auto& [topicName, record]: m_messages)
+        for (const auto& [topicName, entry]: m_messages)
         {
-            if (!record.isTombstone() && matches(filter, topicName))
+            if (entry.m_present && matches(filter, topicName))
             {
-                matched.emplace_back(topicName, record);
+                matched.emplace_back(topicName, entry.m_record);
             }
         }
     }
 
     for (const auto& [topicName, record]: matched)
-    {
-        handler(topicName, record);
-    }
-}
-
-void RetainedMessages::forEachRecord(const Handler& handler) const
-{
-    vector<pair<string, Record>> records;
-    {
-        const shared_lock lock(m_mutex);
-        records.assign(m_messages.begin(), m_messages.end());
-    }
-
-    for (const auto& [topicName, record]: records)
     {
         handler(topicName, record);
     }
@@ -218,14 +337,14 @@ size_t RetainedMessages::size() const
     return static_cast<size_t>(count_if(m_messages.begin(), m_messages.end(),
                                         [](const auto& message)
                                         {
-                                            return !message.second.isTombstone();
+                                            return message.second.m_present;
                                         }));
 }
 
 namespace {
 
-/// The first byte of a record in the format that carries a time. Records written before it begin
-/// with their QoS, which is never above 2.
+/// The first byte of a record in the format that carries a revision - a time, in the versions
+/// before. Records written before it begin with their QoS, which is never above 2.
 constexpr char TimedRecordFormat = '\x80';
 
 void appendInteger(Buffer& buffer, uint64_t value, const size_t bytes)
@@ -258,7 +377,7 @@ void RetainedMessages::encode(Buffer& message, const string_view topicName, cons
 {
     appendInteger(message, topicName.size(), sizeof(uint32_t));
     message.append(topicName.data(), topicName.size());
-    appendInteger(message, static_cast<uint64_t>(record.m_updated), sizeof(int64_t));
+    appendInteger(message, static_cast<uint64_t>(record.m_revision), sizeof(int64_t));
     message.append(static_cast<char>(record.m_qos));
     appendInteger(message, record.m_payload.size(), sizeof(uint32_t));
     message.append(record.m_payload.data(), record.m_payload.size());
@@ -277,13 +396,13 @@ bool RetainedMessages::decode(string_view message, const Handler& handler)
         message.remove_prefix(topicLength);
 
         Record   record;
-        uint64_t updated = 0;
+        uint64_t revision = 0;
         uint64_t payloadLength = 0;
-        if (!readInteger(message, updated, sizeof(int64_t)) || message.empty())
+        if (!readInteger(message, revision, sizeof(int64_t)) || message.empty())
         {
             return false;
         }
-        record.m_updated = static_cast<int64_t>(updated);
+        record.m_revision = static_cast<int64_t>(revision);
         record.m_qos = static_cast<Qos>(message[0]);
         message.remove_prefix(1);
         if (!readInteger(message, payloadLength, sizeof(uint32_t)) || message.size() < payloadLength)
@@ -309,13 +428,13 @@ string RetainedMessages::storageKey(const string& nodeId)
 
 Buffer RetainedMessages::pack(const Record& record)
 {
-    // A format byte, the QoS, the time, then the payload - empty in a tombstone. A Buffer rather
+    // A format byte, the QoS, the revision, then the payload. A Buffer rather
     // than a string because a payload is arbitrary bytes, as in the neighbouring session-message
     // records.
     Buffer packed;
     packed.append(TimedRecordFormat);
     packed.append(static_cast<char>(record.m_qos));
-    appendInteger(packed, static_cast<uint64_t>(record.m_updated), sizeof(int64_t));
+    appendInteger(packed, static_cast<uint64_t>(record.m_revision), sizeof(int64_t));
     packed.append(record.m_payload.data(), record.m_payload.size());
     return packed;
 }
@@ -330,15 +449,14 @@ bool RetainedMessages::unpack(const Buffer& packed, Record& record)
 
     if (data[0] != TimedRecordFormat)
     {
-        // Written before records carried a time: the QoS, then a payload that is never empty. It
-        // reads as older than any change made since.
+        // Written before records carried a revision: the QoS, then a payload that is never empty.
         if (data.size() < 2)
         {
             return false;
         }
         record.m_qos = static_cast<Qos>(data[0]);
         record.m_payload.assign(data.substr(1));
-        record.m_updated = 0;
+        record.m_revision = 0;
         return true;
     }
 
@@ -349,12 +467,12 @@ bool RetainedMessages::unpack(const Buffer& packed, Record& record)
     }
     record.m_qos = static_cast<Qos>(data[0]);
     data.remove_prefix(1);
-    uint64_t updated = 0;
-    if (!readInteger(data, updated, sizeof(int64_t)))
+    uint64_t revision = 0;
+    if (!readInteger(data, revision, sizeof(int64_t)))
     {
         return false;
     }
-    record.m_updated = static_cast<int64_t>(updated);
+    record.m_revision = static_cast<int64_t>(revision);
     record.m_payload.assign(data);
     return true;
 }
@@ -377,9 +495,12 @@ void RetainedMessages::load(const SStorage& storage, const string& nodeId)
     const unique_lock lock(m_mutex);
     for (const auto& [topicName, packed]: stored)
     {
-        if (Record record; unpack(packed.asBuffer(), record))
+        // A clearing left by a version that kept them is nothing to hold.
+        if (Record record; unpack(packed.asBuffer(), record) && !record.clears())
         {
-            m_messages[topicName] = std::move(record);
+            auto& entry = m_messages[topicName];
+            entry.m_record = std::move(record);
+            entry.m_present = true;
         }
     }
 }
@@ -403,12 +524,12 @@ void RetainedMessages::store(const SStorage& storage, const string& nodeId, cons
     {
         const shared_lock lock(m_mutex);
         const auto        message = m_messages.find(topicName);
-        if (message == m_messages.end())
+        if (message == m_messages.end() || !message->second.m_present)
         {
             redis->deleteHashKeysAsync(key, {topicName});
             return;
         }
-        packed = pack(message->second);
+        packed = pack(message->second.m_record);
     }
 
     redis->setHashValueAsync(key, topicName, packed);

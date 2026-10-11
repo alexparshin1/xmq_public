@@ -453,6 +453,10 @@ void Cluster::stop()
         m_rejoinThread.join();
     }
     stopSubscriptionSender();
+    if (auto* retainedSync = m_retainedSyncView.load())
+    {
+        retainedSync->stop();
+    }
     // A node that stops is down, not gone: it keeps its place among the members, to rejoin with.
     if (auto* coordinator = m_coordinatorView.load())
     {
@@ -496,8 +500,13 @@ Coordinator& Cluster::coordinatorForCluster()
                 m_server->onClusterStateChanged(online);
                 if (online)
                 {
-                    // Reported only after being offline: what this node held may be another's now.
+                    // Reported only after being offline: what this node held may be another's now,
+                    // and the retained messages may have changed without this node hearing of it.
                     queueSessionTask([this] { dropSessionsOwnedElsewhere(); });
+                    if (auto* retainedSync = m_retainedSyncView.load())
+                    {
+                        retainedSync->resynchronize();
+                    }
                 }
             });
         m_coordinator->onAdoptSessions([this](vector<string> clientIds)
@@ -505,6 +514,13 @@ Coordinator& Cluster::coordinatorForCluster()
                                            queueSessionTask([this, clientIds = std::move(clientIds)] { adoptSessions(clientIds); });
                                        });
         m_coordinatorView = m_coordinator.get();
+
+        m_retainedSync = make_unique<RetainedSync>(
+            storage->getRedis()->getRedisUrl(), m_subscriptionManager->retainedMessages(),
+            [this](const string& topicName, const RetainedMessages::Record& record) { publishRetained(topicName, record); },
+            [this](const string&, const RetainedMessages::Change change) { m_subscriptionManager->countRetainedChange(change); },
+            [this](const LogPriority priority, const Logger::OutputString& output) { logMessage(priority, output); });
+        m_retainedSyncView = m_retainedSync.get();
     }
     return *m_coordinator;
 }
@@ -512,6 +528,9 @@ Coordinator& Cluster::coordinatorForCluster()
 void Cluster::startCoordinator()
 {
     coordinatorForCluster().start();
+    // After the coordinator, which has made this node a member: the retained messages are read
+    // before a client is served.
+    m_retainedSyncView.load()->start();
 }
 
 SNode Cluster::findClusterNode(const std::string& nodeName) const
@@ -612,7 +631,6 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
                             acceptClusterMessage(message, node->getName());
                         });
         publishSubscriptionSnapshot(node);
-        publishRetainedSnapshot(node);
 
         return node;
     }
@@ -919,43 +937,6 @@ SPublishMessage Cluster::retainedMessage(const Buffer& payload) const
     return message;
 }
 
-void Cluster::publishRetainedSnapshot(const SNode& node) const
-{
-    // Messages and tombstones alike: the peer has to learn what was cleared as well as what is
-    // held, or a copy it kept from before would outlive the clearing. In pieces, so that a large
-    // retained store is not one message the size of the store.
-    constexpr size_t maxPayloadSize = 64 * 1024;
-
-    Buffer payload;
-    size_t records = 0;
-    m_subscriptionManager->retainedMessages().forEachRecord(
-        [this, &node, &payload, &records](const string& topicName, const RetainedMessages::Record& record)
-        {
-            // $SYS is each node's own: sent along, it would overwrite the peer's own metrics.
-            if (topicName.starts_with('$'))
-            {
-                return;
-            }
-            ++records;
-            RetainedMessages::encode(payload, topicName, record);
-            if (payload.bytes() >= maxPayloadSize)
-            {
-                node->publish(retainedMessage(payload));
-                payload.reset();
-            }
-        });
-
-    if (payload.bytes() > 0)
-    {
-        node->publish(retainedMessage(payload));
-    }
-
-    logMessage(LogPriority::Debug, [&node, records]
-               {
-                   return format("Sent {} retained record(s) to node '{}'.", records, node->getName());
-               });
-}
-
 void Cluster::publishSubscriptionSnapshot(const SNode& node)
 {
     {
@@ -1185,7 +1166,10 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
             if (!RetainedMessages::decode(message->payload(),
                                           [this](const string& topicName, const RetainedMessages::Record& record)
                                           {
-                                              m_subscriptionManager->applyClusterRetained(topicName, record);
+                                              if (auto* retainedSync = m_retainedSyncView.load())
+                                              {
+                                                  retainedSync->receive(topicName, record);
+                                              }
                                           }))
             {
                 logMessage(LogPriority::Error, [&sender]
