@@ -33,7 +33,10 @@ bool SubscriptionIds::add(const std::shared_ptr<ISubscriptionClient>& session, c
     info.m_qos = qos;
     info.m_options = options;
     info.m_session = session;
-    info.m_sharedSubscription = sharedSubscription;
+    if (!sharedSubscription.expired())
+    {
+        info.m_sharedSubscriptions.push_back(sharedSubscription);
+    }
     if (subscriptionId != 0)
     {
         info.m_ids.push_back(subscriptionId);
@@ -98,9 +101,19 @@ void SubscriptionIds::finish()
             shares.insert(shares.end(), next->second.m_clusterShares.begin(), next->second.m_clusterShares.end());
             auto& sessions = kept->second.m_clusterSessions;
             sessions.insert(sessions.end(), next->second.m_clusterSessions.begin(), next->second.m_clusterSessions.end());
-            // Matched another way too - or for another shared subscription as well: the message is
-            // not one subscription's to hand to another member.
-            kept->second.m_sharedSubscription.reset();
+            // A cluster link carries the message for each shared subscription it was chosen for, and a
+            // link that breaks has each offered again. A client matched another way too - or for
+            // another shared subscription as well - would have had the message anyway: it is not one
+            // subscription's to hand to another member.
+            auto& shared = kept->second.m_sharedSubscriptions;
+            if (kept->first->isClusterLink())
+            {
+                shared.insert(shared.end(), next->second.m_sharedSubscriptions.begin(), next->second.m_sharedSubscriptions.end());
+            }
+            else
+            {
+                shared.clear();
+            }
         }
         else if (++kept != next)
         {

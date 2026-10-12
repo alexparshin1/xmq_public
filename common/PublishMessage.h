@@ -126,9 +126,9 @@ public:
     /**
      * @brief Mark the message as forwarded by another cluster node.
      */
-    void setFromCluster()
+    void setFromCluster(const bool fromCluster = true)
     {
-        m_fromCluster = true;
+        m_fromCluster = fromCluster;
     }
 
     /**

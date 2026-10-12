@@ -48,8 +48,9 @@ public:
         std::vector<std::string> m_clusterShares;
         /// For a cluster link: the sessions that moved to the node behind it, named on the message.
         std::vector<std::string> m_clusterSessions;
-        /// The shared subscription that chose this session, when that is the only way it matched.
-        std::weak_ptr<Subscription> m_sharedSubscription;
+        /// The shared subscriptions that chose this session: for a client, the one that did when that is
+        /// the only way it matched; for a cluster link, every one it carries the message for.
+        std::vector<std::weak_ptr<Subscription>> m_sharedSubscriptions;
     };
 
     /// One entry per session, ordered by session address once finish() has run - the order the map
