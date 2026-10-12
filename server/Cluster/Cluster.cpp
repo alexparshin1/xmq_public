@@ -1117,6 +1117,32 @@ vector<pair<string, string>> Cluster::movedSessionsMatching(const string_view to
     return matching;
 }
 
+bool Cluster::divertToMovedSession(const string& clientId, const SMessage& message)
+{
+    string nodeName;
+    {
+        const scoped_lock lock(m_movedMutex);
+        if (const auto moved = m_movedSessions.find(clientId); moved != m_movedSessions.end())
+        {
+            nodeName = moved->second.m_nodeName;
+        }
+    }
+    const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(message);
+    const auto link = nodeName.empty() || !published ? nullptr : linkFrom(nodeName);
+    if (!link)
+    {
+        return false;
+    }
+    auto copy = make_shared<mqtt::PublishMessage>(*published);
+    const auto& original = message->getProperties();
+    auto        properties = original ? make_shared<MessageProperties>(dynamic_cast<const MessageProperties&>(*original))
+                                      : make_shared<MessageProperties>();
+    properties->setUserProperty(PublishMessage::ClusterSessionProperty, clientId);
+    copy->setProperties(properties);
+    link->postMessage(copy, Qos::Qos1, {}, false);
+    return true;
+}
+
 shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName) const
 {
     // The client id a node connects to this one with; see ServerNode.

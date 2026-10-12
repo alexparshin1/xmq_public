@@ -347,6 +347,12 @@ public:
     [[nodiscard]] std::vector<std::pair<std::weak_ptr<Subscription>, SMessage>> unacknowledgedShared() const;
 
     /**
+     * @brief Send a message for this session, which was let go to another node, on to that node.
+     * @return False when it could not be sent.
+     */
+    bool divertReleased(const SMessage& message);
+
+    /**
      * @brief Directly send the message to the client.
      * @param messageDispatch               Message delivery.
      */

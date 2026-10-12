@@ -247,6 +247,13 @@ public:
     [[nodiscard]] std::vector<std::pair<std::string, std::string>> movedSessionsMatching(std::string_view topicName);
 
     /**
+     * @brief A message for a session this node has let go: send it on, naming the session, to the node
+     *        it moved to. A delivery already chosen when the session was let go reaches it after.
+     * @return False when the session has not moved from here, or the node it moved to is not linked.
+     */
+    [[nodiscard]] bool divertToMovedSession(const std::string& clientId, const SMessage& message);
+
+    /**
      * @return The session of the link the named node has to this one, which carries what it
      *         subscribed for; nullptr when there is none.
      */

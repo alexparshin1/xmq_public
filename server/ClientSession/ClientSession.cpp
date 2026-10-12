@@ -752,6 +752,12 @@ void ClientSession::sendMessageUnlocked(const MessageDispatch& messageDispatch)
 }
 
 
+bool ClientSession::divertReleased(const SMessage& message)
+{
+    const auto cluster = serverUnlocked().getCluster();
+    return cluster && cluster->divertToMovedSession(string(getClientIdUnlocked()), message);
+}
+
 vector<pair<weak_ptr<Subscription>, SMessage>> ClientSession::unacknowledgedShared() const
 {
     const shared_lock lock(m_mutex);
@@ -767,6 +773,13 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
                                      const vector<weak_ptr<Subscription>>& sharedSubscriptions)
 {
+    // Let go to another node while this was on its way: the session's queue is that node's now, and
+    // a delivery put in it would be lost. The message goes after the session, by name.
+    if (isReleased() && divertReleased(message))
+    {
+        return 0;
+    }
+
     const auto& inflightQueue = inflightQueueUnlocked();
 
     // Allocated up front, from the queue that owns this session's packet id space, because
