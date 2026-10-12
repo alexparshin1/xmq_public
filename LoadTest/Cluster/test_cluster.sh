@@ -34,13 +34,15 @@
 #   test_cluster.sh mark               remember where every node's logs end, for check-logs
 #   test_cluster.sh check-logs         what the nodes logged since the mark: a crash, or a node not running,
 #                               fails it; what went cluster-offline is reported
+#   test_cluster.sh lb up|down|status
+#                               a load balancer in front of the nodes, at LB_VIP:LB_PORT (keepalived, IPVS)
 #   test_cluster.sh deploy <branch>    every machine of CLUSTER_DEPLOY_HOSTS builds the branch, as pushed, and
 #                               runs what it built
 #   test_cluster.sh deploy <server> <host>...
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -649,6 +651,63 @@ command_wipe() {
     echo "emptied $REDIS_HOST:$REDIS_PORT db $REDIS_DB"
 }
 
+# A load balancer in front of the test cluster: IPVS in the kernel, run by keepalived, on the machine
+# test_cluster.sh runs on. NAT mode, so that the nodes need nothing set up: the clients of this
+# machine reach LB_VIP:LB_PORT, and the replies come back through it. keepalived checks each node's
+# port, and takes a node that does not answer out until it answers again.
+LB_VIP=${LB_VIP:-$(hostname -I | awk '{print $1}')}
+LB_PORT=${LB_PORT:-1883}
+LB_CONFIG=/etc/keepalived/keepalived.conf
+
+command_lb() {
+    case ${1:-status} in
+        up)
+            {
+                echo "# Written by test_cluster.sh lb up: the test cluster behind $LB_VIP:$LB_PORT."
+                echo "global_defs {"
+                echo "    router_id xmq_test_cluster"
+                echo "}"
+                echo "virtual_server $LB_VIP $LB_PORT {"
+                echo "    delay_loop 2"
+                echo "    lb_algo lc"
+                echo "    lb_kind NAT"
+                echo "    protocol TCP"
+                local node address
+                for node in $NODES; do
+                    # This machine by its LAN address: /etc/hosts may name it 127.0.1.1.
+                    if [ "$(node_host "$node")" = "$LOCAL_HOST" ]; then
+                        address=$(hostname -I | awk '{print $1}')
+                    else
+                        address=$(getent ahostsv4 "$(node_host "$node")" | awk 'NR == 1 {print $1}')
+                    fi
+                    echo "    real_server $address $(client_port "$(node_name "$node")") {"
+                    echo "        weight 1"
+                    echo "        TCP_CHECK {"
+                    echo "            connect_timeout 2"
+                    echo "        }"
+                    echo "    }"
+                done
+                echo "}"
+            } | sudo -n tee "$LB_CONFIG" >/dev/null
+            sudo -n modprobe ip_vs
+            sudo -n systemctl restart keepalived
+            sleep 3
+            sudo -n ipvsadm -Ln
+            ;;
+        down)
+            sudo -n systemctl stop keepalived
+            sudo -n ipvsadm -C
+            ;;
+        status)
+            sudo -n ipvsadm -Ln --stats
+            ;;
+        *)
+            echo "lb: up, down or status" >&2
+            exit 2
+            ;;
+    esac
+}
+
 case "${1:-help}" in
     up)      command_up ;;
     down)    command_down ;;
@@ -658,6 +717,7 @@ case "${1:-help}" in
     wipe)    command_wipe ;;
     mark)    command_mark ;;
     check-logs) command_check_logs ;;
+    lb)      command_lb "${2:-status}" ;;
     deploy)  shift; command_deploy "$@" ;;
     tail)    on_host "$(node_host_of "${2:?node}")" "tail -n 40 \"$(node_dir "${2:?node}")/console.log\"" ;;
     *)       sed -n '/^set -u$/q;2,$p' "$0" | sed 's/^# \{0,1\}//' ;;

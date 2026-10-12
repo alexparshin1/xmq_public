@@ -113,6 +113,18 @@ xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
    suite with `--gtest_filter=-*Scenario*`, so changes to the scenario engine are covered by the
    scenario tests beside it, run by hand.
 
+## A load balancer in front
+
+`test_cluster.sh lb up` puts one load balancer in front of the whole test cluster: IPVS in the
+kernel, run by keepalived, on the machine the script runs on, at `LB_VIP:LB_PORT` (this machine's
+address, port 1883). It writes `/etc/keepalived/keepalived.conf` from the node list - one real server
+per node, least-connections, NAT, so the nodes need nothing set up - and keepalived checks each node's
+port and takes a node that does not answer out of the balancing until it answers again. `lb status`
+shows the balancing (`ipvsadm -Ln --stats`), `lb down` stops it. It needs `keepalived` and `ipvsadm`
+installed and sudo for them. Clients of the machine reach the cluster through `LB_VIP:LB_PORT`, by
+address: the machine's own name may resolve to 127.0.1.1. A connection costs the kernel a few hundred
+bytes - HAProxy's default buffers cost some 35 KB.
+
 ## Confirming a change
 
 After the unit tests, on the default test cluster (six nodes, two on each of thinker10, thinker11 and theater):
