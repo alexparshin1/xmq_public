@@ -41,6 +41,7 @@ const map<SystemStatistics::SysTopicKind, string> systemTopicNames = {
     {BrokerQueuesDelivery, "$SYS/broker/queues/delivery/length"},
     {BrokerMessagesStored, "$SYS/broker/messages/stored"},
     {BrokerSubscriptionsCount, "$SYS/broker/subscriptions/count"},
+    {BrokerClusterMessagesReceived, "$SYS/broker/cluster/messages/received"},
     {BrokerTime, "$SYS/broker/time"},
     {BrokerUptime, "$SYS/broker/uptime"},
     {BrokerVersion, "$SYS/broker/version"},
@@ -239,6 +240,8 @@ std::string SystemStatistics::sysTopicKindToString(const SysTopicKind topicKind)
             return "BrokerQueuesSend";
         case BrokerQueuesDelivery:
             return "BrokerQueuesDelivery";
+        case BrokerClusterMessagesReceived:
+            return "BrokerClusterMessagesReceived";
         case BrokerTime:
             return "BrokerTime";
         case BrokerUptime:
