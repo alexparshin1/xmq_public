@@ -5,6 +5,7 @@
  */
 
 #include "test/ClusterTests/ClusterTests.h"
+#include "server/SystemStatistics.h"
 #include "test/ClusterTests/TestCluster.h"
 
 #include <mutex>
@@ -301,4 +302,35 @@ TEST_F(XMQ_ClusterTests, sharedQos1MessagesForSeveralSubscriptionsSurviveAMember
     EXPECT_TRUE(TestCluster::waitFor([&] { return first.count() == count && second.count() == count; }, 5s))
         << "lost: " << count - static_cast<int>(first.count()) << " of the first subscription, "
         << count - static_cast<int>(second.count()) << " of the second";
+}
+
+/**
+ * Confirm that a node counts the publications other nodes forward to it in
+ * $SYS/broker/cluster/messages/received, and only those.
+ *
+ * Setup: Two nodes; a subscriber on node 1. Three messages are published on node 0, two on node 1.
+ *
+ * Verification: Node 1 counts three, node 0 none.
+ */
+TEST_F(XMQ_ClusterTests, forwardedMessagesAreCountedInSys)
+{
+    const TestCluster cluster(2);
+    const string      topic = "recovery/counted";
+
+    Payloads   received;
+    const auto subscriber = cluster.connect(1, "recovery-counted-subscriber");
+    received.listen(subscriber);
+    subscribeQos1(subscriber, topic);
+    ASSERT_TRUE(TestCluster::waitFor([&] { return cluster[0]->getCluster()->getNodeSubscriptions(TestCluster::nodeName(1)).contains(topic); }));
+
+    const auto kind = SystemStatistics::SysTopicKind::BrokerClusterMessagesReceived;
+    const auto before0 = cluster[0]->systemStatistics()->getValue(kind);
+    const auto before1 = cluster[1]->systemStatistics()->getValue(kind);
+    publishNumbered(cluster.connect(0, "recovery-counted-publisher-0"), topic, 3);
+    cluster.connect(1, "recovery-counted-publisher-1")->publish(topic, "local one", Qos::Qos1);
+    cluster.connect(1, "recovery-counted-publisher-2")->publish(topic, "local two", Qos::Qos1);
+    ASSERT_TRUE(TestCluster::waitFor([&received] { return received.count() == 5; }));
+
+    EXPECT_EQ(3U, cluster[1]->systemStatistics()->getValue(kind) - before1);
+    EXPECT_EQ(0U, cluster[0]->systemStatistics()->getValue(kind) - before0);
 }

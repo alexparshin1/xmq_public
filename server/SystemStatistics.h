@@ -56,6 +56,9 @@ public:
         BrokerQueuesReceive,
         BrokerQueuesSend,
         BrokerQueuesDelivery,
+        // Publications other cluster nodes forwarded here: what crossed a cluster link, of what the
+        // node received.
+        BrokerClusterMessagesReceived,
         BrokerTime,
         BrokerUptime,
         BrokerVersion,

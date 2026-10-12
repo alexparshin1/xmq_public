@@ -913,6 +913,10 @@ void Cluster::acceptClusterMessage(const SPublishMessage& publishMessage, const 
             }
         }
         ++m_forwardedMessagesReceived;
+        if (auto* statistics = m_server->systemStatistics())
+        {
+            statistics->increment(SystemStatistics::SysTopicKind::BrokerClusterMessagesReceived);
+        }
         m_server->publishMessage(publishMessage);
     }
 }

@@ -1,0 +1,111 @@
+{
+  "name": "clients through a load balancer while a node goes",
+  "comments": [
+    "The load reaches the cluster only through a load balancer - IPVS run by keepalived on thinker10,",
+    "test_cluster.sh lb up - which spreads the clients over all six nodes. node3 (thinker11) is taken",
+    "away under load: keepalived takes it out of the balancing, its clients reconnect through the",
+    "balancer to the other nodes, and node3 comes back into the balancing when it serves again. On the",
+    "default test cluster of test_cluster.sh, run from thinker10, with sudo for keepalived and ipvsadm.",
+    "The balancer is named by its address: on thinker10 itself the name resolves to 127.0.1.1."
+  ],
+  "server": {
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "load": {
+    "scenario": "cluster-p2p-small.json",
+    "groups": [
+      {
+        "name": "publishers",
+        "node": "balancer"
+      },
+      {
+        "name": "subscribers",
+        "node": "balancer"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "name": "balancer",
+      "host": "10.1.1.64",
+      "port": 1883,
+      "stop": "~/cluster/test_cluster.sh lb down",
+      "start": "~/cluster/test_cluster.sh lb up"
+    },
+    {
+      "name": "node1",
+      "host": "thinker10",
+      "port": 2884,
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
+    },
+    {
+      "name": "node3",
+      "host": "thinker11",
+      "port": 2886,
+      "stop": "~/cluster/test_cluster.sh stop {node}",
+      "start": "~/cluster/test_cluster.sh start {node}"
+    }
+  ],
+  "before": [
+    "~/cluster/test_cluster.sh mark",
+    "~/cluster/test_cluster.sh lb up"
+  ],
+  "timeline": [
+    {
+      "at": 30,
+      "action": "stop",
+      "node": "node3"
+    },
+    {
+      "at": 40,
+      "action": "run",
+      "command": "! sudo -n ipvsadm -Ln | grep -q ':2886 '"
+    },
+    {
+      "at": 60,
+      "action": "start",
+      "node": "node3"
+    },
+    {
+      "at": 80,
+      "action": "run",
+      "command": "sudo -n ipvsadm -Ln | grep -q ':2886 '"
+    },
+    {
+      "at": 100,
+      "action": "check"
+    }
+  ],
+  "after": [
+    "~/cluster/test_cluster.sh lb down",
+    "~/cluster/test_cluster.sh check-logs"
+  ],
+  "checks": [
+    {
+      "name": "the balancer serves clients",
+      "kind": "mqtt",
+      "action": "connect",
+      "node": "balancer",
+      "expect": true
+    },
+    {
+      "name": "a message crosses the cluster through the balancer",
+      "kind": "mqtt",
+      "action": "deliver",
+      "publish-node": "balancer",
+      "subscribe-node": "node1",
+      "topic": "cluster/test/through-balancer",
+      "payload": "through-balancer",
+      "timeout": 15
+    },
+    {
+      "name": "all six nodes are members",
+      "kind": "redis",
+      "uri": "redis://theater:6379/4",
+      "command": "ZCARD cluster:members",
+      "expect": "6"
+    }
+  ]
+}

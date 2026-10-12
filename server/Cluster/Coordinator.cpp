@@ -568,8 +568,14 @@ void Coordinator::step()
         if (coordinatorId == m_nodeId)
         {
             const auto renewed = eval(RenewScript, {CoordinatorKey}, {coordinator, to_string(m_lease.count())});
-            m_coordinator = !renewed.empty() && renewed[0].asInt64() == 1;
-            if (m_coordinator)
+            const auto holds = !renewed.empty() && renewed[0].asInt64() == 1;
+            // The term first: whoever sees this node coordinator sees the term it is coordinator in.
+            if (holds)
+            {
+                m_term = term;
+            }
+            m_coordinator = holds;
+            if (holds)
             {
                 (void) eval(DistributeScript, {MembersKey}, {NodePrefix, AlivePrefix, AdoptPrefix});
             }
