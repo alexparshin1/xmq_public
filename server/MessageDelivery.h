@@ -114,18 +114,18 @@ public:
     }
 
     /**
-     * @brief The shared subscription that chose this delivery's session, if one did.
+     * @brief The shared subscriptions that chose this delivery's session, if any did.
      *
      * A message a session's end leaves unacknowledged goes back to it, to be offered to another member.
      */
-    void setSharedSubscription(std::weak_ptr<Subscription> sharedSubscription)
+    void setSharedSubscriptions(std::vector<std::weak_ptr<Subscription>> sharedSubscriptions)
     {
-        m_sharedSubscription = std::move(sharedSubscription);
+        m_sharedSubscriptions = std::move(sharedSubscriptions);
     }
 
-    [[nodiscard]] const std::weak_ptr<Subscription>& sharedSubscription() const
+    [[nodiscard]] const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions() const
     {
-        return m_sharedSubscription;
+        return m_sharedSubscriptions;
     }
 
     /**
@@ -260,7 +260,7 @@ private:
     static std::atomic_size_t      m_writeCapacityResumeAt; ///< Backlog at which blocked deliveries are released.
 
     std::string                  m_sessionMessagesKey; ///< Redis hash key of the session's messages, captured at construction.
-    std::weak_ptr<Subscription>  m_sharedSubscription; ///< See setSharedSubscription(); not persisted.
+    std::vector<std::weak_ptr<Subscription>> m_sharedSubscriptions; ///< See setSharedSubscriptions(); not persisted.
     bool                         m_persisted {false};  ///< True if the record exists in Redis under m_recordId; only then is it removed on destruction.
     RecordId                     m_recordId {0};
     static std::atomic<RecordId> m_recordIdSerial;

@@ -337,7 +337,14 @@ public:
      */
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) override;
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
-                          const std::weak_ptr<Subscription>& sharedSubscription) override;
+                          const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions) override;
+
+    /**
+     * @return The QoS 1 messages shared subscriptions chose this session for that it has not
+     *         acknowledged, each with the subscription - what goes to another member if the session
+     *         ends, or this node stops.
+     */
+    [[nodiscard]] std::vector<std::pair<std::weak_ptr<Subscription>, SMessage>> unacknowledgedShared() const;
 
     /**
      * @brief Directly send the message to the client.

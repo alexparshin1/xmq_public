@@ -217,3 +217,88 @@ TEST_F(XMQ_ClusterTests, messagesPublishedWhileASessionMovesArriveOnce)
     this_thread::sleep_for(300ms);
     EXPECT_EQ(static_cast<size_t>(count), received.deliveries()) << "messages came twice";
 }
+
+/**
+ * Confirm that QoS 1 messages a node took for a shared-subscription member - and acknowledged to the
+ * node that sent them - are not lost when that node stops before its member has them.
+ *
+ * Setup: Two nodes, one member on each; the member on node 1 is very slow, so node 1 holds messages
+ * for it that node 0 no longer does. A stream of QoS 1 messages is published on node 0; part way
+ * through, node 1 stops.
+ *
+ * Verification: Every message reaches a member, each counted once.
+ */
+TEST_F(XMQ_ClusterTests, sharedQos1MessagesANodeTookSurviveItStopping)
+{
+    TestCluster  cluster(2);
+    const string topic = "recovery/node-took";
+    const string filter = "$share/recovery/" + topic;
+
+    Payloads   received;
+    const auto member0 = cluster.connect(0, "recovery-took-member-0");
+    const auto member1 = cluster.connect(1, "recovery-took-member-1");
+    received.listen(member0);
+    received.listen(member1, 50ms);
+    subscribeQos1(member0, filter);
+    subscribeQos1(member1, filter);
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return cluster[0]->getCluster()->getNodeSubscriptions(TestCluster::nodeName(1)).contains(filter);
+                                     }));
+
+    constexpr int count = 100;
+    const auto    publisher = cluster.connect(0, "recovery-took-publisher");
+    thread        publishing([&publisher, &topic] { publishNumbered(publisher, topic, count); });
+    this_thread::sleep_for(150ms);
+    cluster.stopNode(1);
+    publishing.join();
+
+    EXPECT_TRUE(TestCluster::waitFor([&received] { return received.count() == count; }, 5s))
+        << count - static_cast<int>(received.count()) << " of " << count << " messages were lost";
+}
+
+/**
+ * Confirm that a message forwarded to a node for several shared subscriptions at once is offered to
+ * each of them again when the link breaks before the node acknowledges it.
+ *
+ * Setup: Two nodes; two shared subscriptions of the same topic, with a member of each on each node,
+ * so that one copy to node 1 can carry both. A stream of QoS 1 messages is published on node 0;
+ * part way through, node 1 stops.
+ *
+ * Verification: Every message reaches a member of each subscription.
+ */
+TEST_F(XMQ_ClusterTests, sharedQos1MessagesForSeveralSubscriptionsSurviveAMemberNodeStopping)
+{
+    TestCluster  cluster(2);
+    const string topic = "recovery/several";
+
+    Payloads                    first;
+    Payloads                    second;
+    vector<client::SMqttClient> members;
+    for (size_t node = 0; node < 2; ++node)
+    {
+        for (const auto& [group, received]: {pair {"first", &first}, pair {"second", &second}})
+        {
+            const auto member = cluster.connect(node, format("recovery-several-{}-{}", group, node));
+            received->listen(member, node == 1 ? 2ms : 0ms);
+            subscribeQos1(member, format("$share/{}/{}", group, topic));
+            members.push_back(member);
+        }
+    }
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto filters = cluster[0]->getCluster()->getNodeSubscriptions(TestCluster::nodeName(1));
+                                         return filters.contains("$share/first/" + topic) && filters.contains("$share/second/" + topic);
+                                     }));
+
+    constexpr int count = 400;
+    const auto    publisher = cluster.connect(0, "recovery-several-publisher");
+    thread        publishing([&publisher, &topic] { publishNumbered(publisher, topic, count); });
+    this_thread::sleep_for(200ms);
+    cluster.stopNode(1);
+    publishing.join();
+
+    EXPECT_TRUE(TestCluster::waitFor([&] { return first.count() == count && second.count() == count; }, 5s))
+        << "lost: " << count - static_cast<int>(first.count()) << " of the first subscription, "
+        << count - static_cast<int>(second.count()) << " of the second";
+}

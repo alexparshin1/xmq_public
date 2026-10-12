@@ -659,6 +659,45 @@ void Server::stopServer()
 
         m_sessionTimer.reset();
 
+        // While the links are up: what this node's members took from shared subscriptions and have
+        // not acknowledged goes to the members on other nodes - stopping, this node delivers it to
+        // nobody. A clean session's messages only: a persistent session's stay in its queue, which the
+        // cluster hands to another node with it.
+        if (const auto cluster = m_cluster.load(); cluster && cluster->hasNodes())
+        {
+            vector<pair<weak_ptr<Subscription>, SMessage>> unacknowledged;
+            getClientSessionManager()->forEach([&unacknowledged](const SClientSession& session)
+                                               {
+                                                   if (session->isCleanSession() && !session->isClusterLink())
+                                                   {
+                                                       auto messages = session->unacknowledgedShared();
+                                                       unacknowledged.insert(unacknowledged.end(), messages.begin(), messages.end());
+                                                   }
+                                               });
+            if (!unacknowledged.empty())
+            {
+                getSubscriptionManager()->handOffSharedToOtherNodes(unacknowledged);
+                // The links send what was queued for them before they close.
+                const auto linksIdle = [this]
+                {
+                    bool idle = true;
+                    getClientSessionManager()->forEach([&idle](const SClientSession& session)
+                                                       {
+                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr;
+                                                               queue && queue->size() > 0)
+                                                           {
+                                                               idle = false;
+                                                           }
+                                                       });
+                    return idle;
+                };
+                for (int i = 0; i < 20 && !linksIdle(); ++i)
+                {
+                    this_thread::sleep_for(50ms);
+                }
+            }
+        }
+
         // First, while delivery still runs: the links to the other nodes bring in messages until
         // they are closed, and one arriving after delivery has stopped crashed the server.
         m_cluster.load()->stop();

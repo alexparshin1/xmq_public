@@ -95,12 +95,13 @@ public:
      * that a message left unacknowledged when the session ends can go to another member - MQTT 5,
      * section 4.8.2. Anything else posts it as any message.
      *
-     * @param sharedSubscription The shared subscription that chose this client.
+     * @param sharedSubscriptions The shared subscriptions that chose this client - several only for a
+     *                            cluster link, which carries the message for each to the node behind it.
      */
     virtual MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
-                                  const std::weak_ptr<Subscription>& sharedSubscription)
+                                  const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions)
     {
-        (void) sharedSubscription;
+        (void) sharedSubscriptions;
         return postMessage(message, qos, subscriptionIds, retain);
     }
 

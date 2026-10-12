@@ -58,15 +58,16 @@
   across the entire cluster, not one recipient per node. Independent nodes must not assign the same publication to different
   members of that shared subscription.
 
-- [ ] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
+- [x] recovery and reassignment of in-flight shared-subscription deliveries must follow MQTT 5 QoS rules, as specified
   below: after a node failure, session migration or coordinator handover, a QoS 1 delivery may be retransmitted or
   reassigned, and an incomplete QoS 2 delivery stays bound to its selected session.
   Done: a member's session that ends - a clean session, or the cluster link to a member's node - hands its
   unacknowledged QoS 1 shared deliveries to another member; QoS 2 stays with its session. A message published as a
   session moves reaches it once: the node it left sends what matches it on by name until the node it went to has
   subscribed, and that node keeps such messages until the session's CONNACK is out.
-  Left: a node that acknowledged a forwarded shared delivery and stopped before handing it to a member has nobody to
-  give it to; a link copy carrying several shared subscriptions is not reassigned.
+  A node that stops hands what its members have not acknowledged to members on other nodes first; a link copy
+  carrying several shared subscriptions offers the message to each again. A node that crashes loses what its
+  members held unacknowledged - nothing outside it knew of it.
 
 - [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
@@ -106,7 +107,7 @@ broker, for what the cluster must not make worse.
 | shared subscriptions across the cluster | unit: `sharedSubscriptionDeliversOncePerCluster`, `independentSharedSubscriptionsEachGetEveryMessageOnce`, `oneShareNameWithTwoFiltersIsTwoSubscriptions`, `sharedSubscriptionIsNotServedAgainWhereAPlainSubscriberTookTheMessage` |
 | retained, including a node that was away | unit: `XMQ_RetainedMessages.*`, `retainedMessageReplicatesWithoutSubscribers`, `concurrentRetainedChangesConverge`, `concurrentReplacementsAndClearingsConverge`, `retainedChangeCommittedButNotSentReachesEveryNode`, `lateRetainedChangeDoesNotBringAClearedMessageBack`, `retainedClearedWhileNodeWasDownStaysCleared`, `retainedReplacedWhileNodeWasDownIsTakenOnRejoin`, `joiningNodeReceivesRetainedMessagesWithoutSubscribers`, `joiningNodeDoesNotReplayRetainedToSubscribers` |
 | cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; test cluster: `the-storage-goes-away-from-one-machine.json` |
-| in-flight shared-subscription deliveries across a failure | unit: `sharedQos1MessagesSurviveAMemberNodeStopping`, `sharedQos1MessagesOfAnEndedSessionGoToAnotherMember` |
+| in-flight shared-subscription deliveries across a failure | unit: `sharedQos1MessagesSurviveAMemberNodeStopping`, `sharedQos1MessagesANodeTookSurviveItStopping`, `sharedQos1MessagesForSeveralSubscriptionsSurviveAMemberNodeStopping`, `sharedQos1MessagesOfAnEndedSessionGoToAnotherMember` |
 | a message published as a session moves | unit: `messagePublishedAsASessionMovesReachesIt`, `messagesPublishedWhileASessionMovesArriveOnce` |
 | a load balancer in front | not covered |
 | the cluster as one broker in `$SYS` | not decided |

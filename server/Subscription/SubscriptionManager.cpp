@@ -220,8 +220,13 @@ void SubscriptionManager::matchMovedSessions(const std::shared_ptr<PublishMessag
     }
 }
 
-void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription>, SMessage>>& messages,
-                                         const ISubscriptionClient*                               endedSession)
+namespace {
+
+/// Offer each message to its shared subscription again, choosing only among the sessions allowed.
+/// A message forwarded by another node is offered as this node's own, so that a node with members
+/// may be chosen - a forwarded message is otherwise kept from going back into the cluster.
+void reassign(SubscriptionManager& manager, const vector<pair<weak_ptr<Subscription>, SMessage>>& messages,
+              const function<bool(const ISubscriptionClient*)>& allowed)
 {
     for (const auto& [sharedSubscription, message]: messages)
     {
@@ -234,16 +239,39 @@ void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription
         // Sent over a cluster link, it named the subscription assigned to the node behind it; chosen
         // again, it is assigned afresh.
         publishMessage = withoutClusterShares(publishMessage);
-        // Chosen as any message is - the next member, or a node with members - with the one that
-        // ended left out. No member left, and it goes nowhere, as a message nobody subscribes to does.
+        if (publishMessage->isFromCluster())
+        {
+            if (const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(publishMessage))
+            {
+                auto local = make_shared<mqtt::PublishMessage>(*published);
+                local->setFromCluster(false);
+                local->setSourceNode("");
+                publishMessage = local;
+            }
+        }
+        // Chosen as any message is - the next member, or a node with members - from those allowed.
+        // No member left, and it goes nowhere, as a message nobody subscribes to does.
         mqtt::SubscriptionIds deliverToSessions;
         cluster::NodeSet      notForwarded;
         bool                  dynamicRoute = false;
         subscription->matchSessionsForDelivery(*publishMessage, deliverToSessions, notForwarded, dynamicRoute,
-                                               MessageDomain::Server, endedSession);
+                                               MessageDomain::Server, allowed);
         deliverToSessions.finish();
-        deliverShard(publishMessage, deliverToSessions, 0, 1);
+        manager.deliverShard(publishMessage, deliverToSessions, 0, 1);
     }
+}
+
+} // namespace
+
+void SubscriptionManager::reassignShared(const vector<pair<weak_ptr<Subscription>, SMessage>>& messages,
+                                         const ISubscriptionClient*                               endedSession)
+{
+    reassign(*this, messages, [endedSession](const ISubscriptionClient* session) { return session != endedSession; });
+}
+
+void SubscriptionManager::handOffSharedToOtherNodes(const vector<pair<weak_ptr<Subscription>, SMessage>>& messages)
+{
+    reassign(*this, messages, [](const ISubscriptionClient* session) { return session->isClusterLink(); });
 }
 
 void SubscriptionManager::countRetainedChange(const RetainedMessages::Change change) const
@@ -279,14 +307,14 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         const auto retain = info.m_options.m_retainAsPublished && message->isRetain();
         if (!info.m_clusterShares.empty() || !info.m_clusterSessions.empty())
         {
-            // The link keeps the subscription when it is the only one assigned: if the link breaks
-            // before the other node acknowledges, the message is offered to another member.
+            // The link keeps the subscriptions assigned: if it breaks before the other node
+            // acknowledges, the message is offered to another member of each.
             const auto assigned = withClusterShares(*message, info.m_clusterShares, info.m_clusterSessions);
-            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
+            info.m_session->postMessage(assigned ? assigned : message, info.m_qos, info.m_ids, retain, info.m_sharedSubscriptions);
         }
-        else if (!info.m_sharedSubscription.expired())
+        else if (!info.m_sharedSubscriptions.empty())
         {
-            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain, info.m_sharedSubscription);
+            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain, info.m_sharedSubscriptions);
         }
         else
         {

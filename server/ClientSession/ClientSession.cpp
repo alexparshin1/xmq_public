@@ -214,6 +214,27 @@ void ClientSession::registerConnectedClient(SystemStatistics& statistics, const 
     }
 }
 
+namespace {
+
+vector<pair<weak_ptr<Subscription>, SMessage>> unacknowledgedSharedIn(const MessageQueue& queue)
+{
+    vector<pair<weak_ptr<Subscription>, SMessage>> messages;
+    queue.forEach([&messages](const SMessageDispatch& dispatch)
+                  {
+                      const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch);
+                      if (delivery && delivery->m_flags.getQos() == Qos::Qos1)
+                      {
+                          for (const auto& sharedSubscription: delivery->sharedSubscriptions())
+                          {
+                              messages.emplace_back(sharedSubscription, delivery->message());
+                          }
+                      }
+                  });
+    return messages;
+}
+
+} // namespace
+
 bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& expectedConnection)
 {
     auto        notifyHangup = false;
@@ -264,14 +285,7 @@ bool ClientSession::closeSession(const std::shared_ptr<ServerConnectionExt>& exp
             {
                 if (const auto& queue = getInflightQueueUnlocked())
                 {
-                    queue->forEach([&unacknowledgedShared](const SMessageDispatch& dispatch)
-                                   {
-                                       const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch);
-                                       if (delivery && delivery->m_flags.getQos() == Qos::Qos1 && !delivery->sharedSubscription().expired())
-                                       {
-                                           unacknowledgedShared.emplace_back(delivery->sharedSubscription(), delivery->message());
-                                       }
-                                   });
+                    unacknowledgedShared = unacknowledgedSharedIn(*queue);
                     queue->clear();
                 }
                 clearSessionUnlocked();
@@ -737,13 +751,21 @@ void ClientSession::sendMessageUnlocked(const MessageDispatch& messageDispatch)
     }
 }
 
+
+vector<pair<weak_ptr<Subscription>, SMessage>> ClientSession::unacknowledgedShared() const
+{
+    const shared_lock lock(m_mutex);
+    const auto&       queue = getInflightQueueUnlocked();
+    return queue ? unacknowledgedSharedIn(*queue) : vector<pair<weak_ptr<Subscription>, SMessage>> {};
+}
+
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain)
 {
     return postMessage(message, qos, subscriptionIds, retain, {});
 }
 
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
-                                     const weak_ptr<Subscription>& sharedSubscription)
+                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions)
 {
     const auto& inflightQueue = inflightQueueUnlocked();
 
@@ -754,9 +776,9 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     const MessageId deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
 
     const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
-    if (!sharedSubscription.expired())
+    if (!sharedSubscriptions.empty())
     {
-        messageDelivery->setSharedSubscription(sharedSubscription);
+        messageDelivery->setSharedSubscriptions(sharedSubscriptions);
     }
 
     if (inflightQueue)

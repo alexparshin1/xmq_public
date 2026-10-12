@@ -182,12 +182,12 @@ std::vector<shared_ptr<cluster::ServerNode>> Subscription::getClusterNodes() con
     return clusterNodes;
 }
 
-void Subscription::matchSessionsForDelivery(const PublishMessage&      publishMessage,
-                                            mqtt::SubscriptionIds&     deliverToSessions,
-                                            cluster::NodeSet&          deliverToClusterNodes,
-                                            bool&                      dynamicRoute,
-                                            const MessageDomain        domain,
-                                            const ISubscriptionClient* excluded)
+void Subscription::matchSessionsForDelivery(const PublishMessage&                                   publishMessage,
+                                            mqtt::SubscriptionIds&                                  deliverToSessions,
+                                            cluster::NodeSet&                                       deliverToClusterNodes,
+                                            bool&                                                   dynamicRoute,
+                                            const MessageDomain                                     domain,
+                                            const std::function<bool(const ISubscriptionClient*)>& allowed)
 {
     // A shared subscription picks a different client per message (round-robin), so its route can't
     // be memorised by topic.
@@ -201,9 +201,9 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&      publishMe
 
     // Who may be handed this message at all. Shared and not: a shared subscription offers the
     // message to the next member that passes, rather than to the next member.
-    auto eligible = [&publishMessage, &dynamicRoute, excluded](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+    auto eligible = [&publishMessage, &dynamicRoute, &allowed](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
     {
-        if (clientSession == excluded)
+        if (allowed && !allowed(clientSession))
         {
             return false;
         }

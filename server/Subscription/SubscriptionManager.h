@@ -120,6 +120,13 @@ public:
                         const ISubscriptionClient* endedSession);
 
     /**
+     * @brief This node is stopping: offer QoS 1 messages its members have not acknowledged to the
+     *        members on other nodes, before the cluster links close.
+     * @param messages          Each message, with the shared subscription that chose the session.
+     */
+    void handOffSharedToOtherNodes(const std::vector<std::pair<std::weak_ptr<Subscription>, SMessage>>& messages);
+
+    /**
      * @brief Move the broker's retained-message counter by a change.
      * @param change            What changed.
      */
