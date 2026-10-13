@@ -42,7 +42,7 @@
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: CLUSTER_LINKS, LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: CLUSTER_LOG_LEVEL, CLUSTER_LINKS, LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -60,7 +60,7 @@ if [ -f "$STAND_ENV" ]; then
         [ -z "${!key+x}" ] && export "$key=$value"
     done < "$STAND_ENV"
 fi
-STAND_SETTINGS="CLUSTER_LINKS NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
+STAND_SETTINGS="CLUSTER_LOG_LEVEL CLUSTER_LINKS NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
 CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
 # the release gates measure, and a test cluster has no business replacing them. Laid down on every
@@ -238,7 +238,7 @@ write_configuration() {
   "logging": {
     "log_to": "$dir/xmq_server.log",
     "keep_logs": 3,
-    "min_log_level": "INFO",
+    "min_log_level": "${CLUSTER_LOG_LEVEL:-INFO}",
     "log_level": {
       "connect": "DEBUG",
       "disconnect": "DEBUG",
@@ -248,8 +248,8 @@ write_configuration() {
       "ack": "ERROR",
       "server_connections": "DEBUG",
       "server_events": "DEBUG",
-      "cluster_connections": "INFO",
-      "cluster_events": "INFO"
+      "cluster_connections": "${CLUSTER_LOG_LEVEL:-INFO}",
+      "cluster_events": "${CLUSTER_LOG_LEVEL:-INFO}"
     }
   },
   "web_service": { "listener_port": $web, "encrypted": false },
