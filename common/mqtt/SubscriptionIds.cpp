@@ -121,6 +121,45 @@ void SubscriptionIds::finish()
         }
     }
     m_sessions.erase(kept + 1, m_sessions.end());
+
+    mergeLinksOfOneNode();
+}
+
+void SubscriptionIds::mergeLinksOfOneNode()
+{
+    // A node has several links to another, and sends it a message once: over the link of the
+    // topic, which is the one a subscription of its subscribers is on. The shared subscriptions
+    // assigned to the node are on the first link, whatever the topic, and travel with the message
+    // as properties, so they go over the link of the topic as well - the order of a topic's
+    // messages is the order of one link.
+    for (size_t i = 0; i < m_sessions.size();)
+    {
+        auto& [shareLink, shareInfo] = m_sessions[i];
+        if (!shareLink->isClusterLink() || shareInfo.m_clusterShares.empty())
+        {
+            ++i;
+            continue;
+        }
+        const auto origin = shareLink->bridgeOrigin();
+        const auto target = std::ranges::find_if(m_sessions,
+                                                 [&](const Entry& entry)
+                                                 {
+                                                     return entry.first != shareLink && entry.first->isClusterLink() &&
+                                                            entry.first->bridgeOrigin() == origin;
+                                                 });
+        if (target == m_sessions.end())
+        {
+            ++i;
+            continue;
+        }
+        auto& info = target->second;
+        info.m_ids.insert(info.m_ids.end(), shareInfo.m_ids.begin(), shareInfo.m_ids.end());
+        info.m_clusterShares.insert(info.m_clusterShares.end(), shareInfo.m_clusterShares.begin(), shareInfo.m_clusterShares.end());
+        info.m_clusterSessions.insert(info.m_clusterSessions.end(), shareInfo.m_clusterSessions.begin(), shareInfo.m_clusterSessions.end());
+        info.m_sharedSubscriptions.insert(info.m_sharedSubscriptions.end(), shareInfo.m_sharedSubscriptions.begin(),
+                                          shareInfo.m_sharedSubscriptions.end());
+        m_sessions.erase(m_sessions.begin() + static_cast<std::ptrdiff_t>(i));
+    }
 }
 
 } // namespace xmq::mqtt

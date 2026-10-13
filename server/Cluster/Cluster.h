@@ -254,10 +254,11 @@ public:
     [[nodiscard]] bool divertToMovedSession(const std::string& clientId, const SMessage& message);
 
     /**
+     * @param topicName The topic of what is to be sent: the node has several links, and one carries it.
      * @return The session of the link the named node has to this one, which carries what it
      *         subscribed for; nullptr when there is none.
      */
-    [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName) const;
+    [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName, std::string_view topicName) const;
 
     /**
      * @brief Keep a message sent here for a session that moved here, until its CONNECT has completed:

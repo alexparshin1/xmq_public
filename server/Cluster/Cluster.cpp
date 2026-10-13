@@ -1128,7 +1128,7 @@ bool Cluster::divertToMovedSession(const string& clientId, const SMessage& messa
         }
     }
     const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(message);
-    const auto link = nodeName.empty() || !published ? nullptr : linkFrom(nodeName);
+    const auto link = nodeName.empty() || !published ? nullptr : linkFrom(nodeName, published->destination()->fullName());
     if (!link)
     {
         return false;
@@ -1143,10 +1143,17 @@ bool Cluster::divertToMovedSession(const string& clientId, const SMessage& messa
     return true;
 }
 
-shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName) const
+shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName, const string_view topicName) const
 {
-    // The client id a node connects to this one with; see ServerNode.
-    return m_server->getClientSession("node_" + nodeName + "_" + m_server->getNodeName());
+    // The client ids a node connects to this one with; see ServerNode.
+    const auto base = "node_" + nodeName + "_" + m_server->getNodeName();
+    const auto first = m_server->getClientSession(base);
+    if (!first || first->clusterLinkCount() <= 1)
+    {
+        return first;
+    }
+    const auto index = clusterLinkOf(topicName, first->clusterLinkCount());
+    return index == 0 ? first : m_server->getClientSession(base + "#" + to_string(index));
 }
 
 bool Cluster::holdForSession(const string& clientId, const SPublishMessage& message)

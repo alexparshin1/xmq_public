@@ -1320,6 +1320,20 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
             clientSession->setBridgeOrigin(string(bridgeOrigin));
         }
         clientSession->setClusterSession(connectMessage->getUsername() == "cluster");
+        if (const auto& messageProperties = connectMessage->getProperties(); messageProperties && clientSession->isClusterSession())
+        {
+            // "index/count": which of a node's links to this one it is.
+            const string link(messageProperties->getUserProperty("cluster-link"));
+            if (const auto slash = link.find('/'); slash != string::npos)
+            {
+                const auto index = stoul(link.substr(0, slash));
+                const auto count = stoul(link.substr(slash + 1));
+                if (count > 0 && index < count)
+                {
+                    clientSession->setClusterLink(index, count);
+                }
+            }
+        }
 
         if (!existingClientSession)
         {

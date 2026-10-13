@@ -17,6 +17,7 @@
 #include "ServerNodeState.h"
 #include "base/Message.h"
 #include "client/MqttClient.h"
+#include "common/ClusterLinks.h"
 #include "service/CServerNode.h"
 
 namespace xmq {
@@ -42,7 +43,7 @@ public:
     ServerNode(Server* server, CServerNode nodeSettings, const Topics& clusterTopics);
 
     /**
-     * @brief Connect to the node over MQTT+SSL and subscribe to its cluster topics.
+     * @brief Connect to the node over MQTT+SSL, as many times as it has links, and subscribe to its cluster topics.
      *
      * The node must present a certificate this node trusts: one in the certificates' peers
      * directory, or one issued by the configured certificate authority.
@@ -101,7 +102,10 @@ public:
      */
     void onMessage(const PublishMessageCallback& callback)
     {
-        m_mqttClient.onMessage(callback);
+        for (const auto& link: m_links)
+        {
+            link->onMessage(callback);
+        }
     }
 
     /**
@@ -144,7 +148,10 @@ public:
      */
     void flush() const
     {
-        m_mqttClient.flush();
+        for (const auto& link: m_links)
+        {
+            link->flush();
+        }
     }
 
     CServerNode getNodeSettings() const
@@ -171,10 +178,18 @@ private:
      */
     std::shared_ptr<sptk::SSLKeys> clusterLinkKeys() const;
 
+    /**
+     * @brief The links a subscription to a topic filter is made on.
+     *
+     * An exact filter is carried by the link its topic is, a wildcard one can match topics of
+     * any link and is on all of them, and a shared one is on the first.
+     */
+    std::vector<size_t> linksFor(const std::string& topicFilter) const;
+
     mutable std::shared_mutex           m_mutex;                           ///< Shared mutex.
-    client::MqttClient                  m_mqttClient;                      ///< MQTT client.
+    std::vector<std::unique_ptr<client::MqttClient>> m_links;              ///< MQTT clients, one for each link to the node.
     Server*                             m_server;                          ///< Owning server instance.
-    std::shared_ptr<ConnectCredentials> m_credentials;                     ///< Bridge MQTT client credentials (ID, username, password).
+    std::vector<std::shared_ptr<ConnectCredentials>> m_credentials;        ///< MQTT client credentials of each link (ID, username, password).
     CServerNode                         m_nodeSettings;                    ///< Bridge configuration.
     sptk::DateTime                      m_created {sptk::DateTime::Now()}; ///< Node creation date.
     const Topics&                       m_clusterTopics;                   ///< Cluster topics.

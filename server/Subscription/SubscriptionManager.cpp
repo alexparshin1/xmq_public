@@ -215,7 +215,7 @@ void SubscriptionManager::matchMovedSessions(const std::shared_ptr<PublishMessag
     {
         if (!deliverToSessions.hasClient(clientId))
         {
-            deliverToSessions.addClusterSession(cluster->linkFrom(nodeName), clientId);
+            deliverToSessions.addClusterSession(cluster->linkFrom(nodeName, message->destination()->fullName()), clientId);
         }
     }
 }
