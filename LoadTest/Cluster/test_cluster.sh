@@ -42,7 +42,7 @@
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: CLUSTER_LINKS, LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -60,7 +60,7 @@ if [ -f "$STAND_ENV" ]; then
         [ -z "${!key+x}" ] && export "$key=$value"
     done < "$STAND_ENV"
 fi
-STAND_SETTINGS="NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
+STAND_SETTINGS="CLUSTER_LINKS NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
 CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
 # the release gates measure, and a test cluster has no business replacing them. Laid down on every
@@ -69,6 +69,8 @@ SERVER=${SERVER:-$HOME/cluster.run/xmq_server}
 REDIS_HOST=${REDIS_HOST:-theater}
 REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
+# Links each node opens to each other node; 4 is the server's own default.
+CLUSTER_LINKS=${CLUSTER_LINKS:-}
 # One spelling for every node, which is what the cluster asks of them; see the note at the top.
 REDIS_URI=${REDIS_URI:-redis://$REDIS_HOST:$REDIS_PORT/$REDIS_DB}
 CLUSTER_PASSWORD=${CLUSTER_PASSWORD:-Stand-Cluster1}
@@ -254,6 +256,7 @@ write_configuration() {
   "bridges": [],
   "cluster": {
     "enabled": true,
+    "links": ${CLUSTER_LINKS:-4},
     "password": "$CLUSTER_PASSWORD",
     "this_node": { "node_name": "$(node_name "$node")", "host_port": "$host:$tls", "encrypted": true },
     "nodes": []
