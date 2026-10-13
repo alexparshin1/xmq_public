@@ -1,0 +1,31 @@
+Point-To-Point over TLS: the practical limit of one node (2026-10-14)
+
+Server:  thinker11, i7-8705G, 4 cores / 8 threads, 32 GB, kernel 7.0.0, OpenSSL 3.5.5.
+         XMQ 0.9.20 (cluster branch) as the systemd service, MQTT+SSL listener on 8884 (4 threads),
+         send_threads 3, receive_threads 4, delivery_threads 2, queue_limits.max_size 50000.
+Client:  thinker10, xmq_scn --encrypted, 29 bound source addresses.
+Load:    Point-To-Point-50K-50K-50K-100K, MQTT 5, QoS 1, 16-byte payload; the rate set by the
+         client count (N publishers + N subscribers, 2 msg/s each), 1 msg/s for 50K.
+Cipher:  TLS 1.3, TLS_AES_256_GCM_SHA384 (AES-NI).
+
+Rate asked   Rate held   Median latency   Server CPU
+  50K/s        50.0K/s        238 us
+  70K/s        69.8K/s        268 us
+  85K/s        84.5K/s        300 ms       8 threads at 83-100%, 6.5% idle
+ 100K/s        99.8K/s        500 ms       (plain TCP at 100K/s: 219-224 us)
+
+Practical limit: ~70-80K msg/s over TLS on this machine. Up to 70K/s TLS adds next to nothing
+to the latency; above it the server's CPU is saturated and the latency is a queue (flat, 0.3-0.5 s).
+
+Where the CPU goes at 85K/s (perf with frame pointers): SSL_write 33% (of it the write syscall
+23%), SSL_read 27% (read syscall 17%), network softirq 21%. AES-GCM itself is ~3%: the cost is
+one small record and one syscall per message, in each direction.
+
+Kernel TLS (SSL_OP_ENABLE_KTLS, tls module loaded; all 85000 connections in kTLS): no gain -
+84.5K/s, median 329 ms. The per-record work moves into the kernel (tls_sw_sendmsg 22%,
+tls_sw_recvmsg 12%) and stays the same. SPTK branch ktls (50c120d5) not merged.
+
+Not the cause: SSLSocket::socketBytes() counts one record only (reproduced), but it is not on the
+receive path - SSL_read(0) had no samples; both server and client read until RECV_RETRY.
+
+Raw data: LoadTest/results/raw/Cluster-2026-10-12/P2P-tls-* (untracked).
