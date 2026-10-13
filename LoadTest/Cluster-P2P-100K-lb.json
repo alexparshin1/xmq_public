@@ -4,7 +4,7 @@
   "comments": [
     "Point-To-Point-50K-50K-50K-100K through a load balancer (test_cluster.sh lb up on thinker10), which",
     "spreads both groups over the nodes: with N nodes about (N-1)/N of the messages cross a cluster link.",
-    "node3 on thinker11, node5 on theater (NODES='node3@thinker11 node5@theater'), client thinker10."
+    "node1 on thinker11, node2 on theater (NODES='node1@thinker11 node2@theater'), client thinker10."
   ],
   "publishers": {
     "id_prefix": "test-publisher-",
@@ -41,5 +41,11 @@
     "publish_rate": 2,
     "keep_alive_sec": 300,
     "max_inflight_messages": 1024
+  },
+  "server": {
+    "hostname": "10.1.1.64",
+    "port": 1883,
+    "username": "user",
+    "password": "User-Secret1"
   }
 }

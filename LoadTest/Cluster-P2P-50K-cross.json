@@ -1,0 +1,52 @@
+{
+  "name": "Cluster-P2P-50K-cross",
+  "type": "Point-To-Point",
+  "comments": [
+    "Point-To-Point-50K-50K-50K-100K at half the rate (50K messages/s) across a cluster: publishers on one node, subscribers on another, so",
+    "every message crosses a cluster link - what a cluster costs at worst. node3 on thinker11, node5 on",
+    "node1 on thinker11, node2 on theater (NODES='node1@thinker11 node2@theater' test_cluster.sh;",
+    "ports follow the position in NODES), client thinker10."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 50000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex",
+    "server": {
+      "hostname": "10.1.1.243",
+      "port": 2884,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 50000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex",
+    "server": {
+      "hostname": "10.1.1.242",
+      "port": 2885,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 600,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  },
+  "server": {
+    "hostname": "10.1.1.243",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  }
+}

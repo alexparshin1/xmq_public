@@ -98,6 +98,7 @@
       "subscribe-node": "node1",
       "topic": "cluster/test/through-balancer",
       "payload": "through-balancer",
+      "settle": 3,
       "timeout": 15
     },
     {
