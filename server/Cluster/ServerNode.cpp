@@ -86,6 +86,9 @@ ReasonCode ServerNode::connect()
         {
             continue;
         }
+        // A link the other end closed is a client that was connected: put down what is left of
+        // that connection before opening a new one.
+        m_links[link]->disconnect();
 
         const auto messageProperties = make_shared<MessageProperties>();
         messageProperties->setUserProperty("origin-node", m_server->getNodeName());
@@ -94,8 +97,14 @@ ReasonCode ServerNode::connect()
         const auto rc = m_links[link]->connect(*destinationHost, *m_credentials[link], connectParameters, ProtocolVersion::MqttV5, messageProperties, sslKeys);
         if (rc != ReasonCode::Success)
         {
+            m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
+                                 format("Link {} of {} to node '{}' at {}: {}", link, m_links.size(),
+                                        string(m_nodeSettings.m_node_name.asString().c_str()), string(destinationHost->toString().c_str()), toString(rc)));
             return rc;
         }
+        m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Info,
+                             format("Link {} of {} to node '{}' at {} opened.", link, m_links.size(),
+                                    string(m_nodeSettings.m_node_name.asString().c_str()), string(destinationHost->toString().c_str())));
         if (link == 0)
         {
             m_links[0]->subscribe("$CLUSTER/#");

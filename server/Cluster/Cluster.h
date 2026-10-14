@@ -258,6 +258,13 @@ public:
      * @return The session of the link the named node has to this one, which carries what it
      *         subscribed for; nullptr when there is none.
      */
+    /**
+     * @brief Open again, once a second, a link to a running member that this node has none to.
+     *
+     * Runs on the rejoin thread, after rejoin(), until stop().
+     */
+    void keepLinks();
+
     [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName, std::string_view topicName) const;
 
     /**
@@ -383,7 +390,7 @@ private:
     std::unique_ptr<RetainedSync>        m_retainedSync;           ///< Created with m_coordinator.
     std::atomic<RetainedSync*>           m_retainedSyncView {nullptr}; ///< m_retainedSync, read without the lock.
     std::string                          m_nodeId;                 ///< This node's GUID.
-    std::thread                          m_rejoinThread;           ///< Links to the other members after startup().
+    std::thread                          m_rejoinThread;           ///< Links to the other members after startup(), then keeps the links.
     std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
 
     /// A session another node asked for, to be let go of: client id and the asking node's GUID.

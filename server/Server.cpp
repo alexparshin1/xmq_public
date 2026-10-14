@@ -834,6 +834,13 @@ void Server::closeSession(const SClientSession& clientSession, const bool takeOv
         return;
     }
 
+    if (clientSession->isClusterSession() && clientSession->isConnected())
+    {
+        logMessage(LogSubject::ClusterConnections, LogPriority::Info,
+                   format("Link {} from node '{}' closed{}.", clientSession->getClientId(), clientSession->bridgeOrigin(),
+                          takeOver ? ": the node opened it again" : ""));
+    }
+
     if (clientSession->isConnected())
     {
         // The connection this close is about, for callers that had no particular one in mind.
@@ -1332,6 +1339,8 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
                 {
                     clientSession->setClusterLink(index, count);
                 }
+                logMessage(LogSubject::ClusterConnections, LogPriority::Info,
+                           format("Link {} accepted from node '{}'.", connectMessage->getParameters()->getClientId(), clientSession->bridgeOrigin()));
             }
         }
 
