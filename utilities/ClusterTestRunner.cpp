@@ -237,6 +237,11 @@ int ClusterTestRunner::runOne()
 
     // Stamped from here until the load starts, so that what runs before it is timed too.
     m_loadStarted = chrono::steady_clock::now();
+    if (!commandLine().hasOption("keep-cluster") && !bringUpCluster())
+    {
+        CERR("The test cluster could not be brought up as the test lists it: nothing was run.");
+        return 1;
+    }
     for (const auto& command : m_test.m_before)
     {
         if (runCommand("before: " + command, command) != 0)
@@ -277,7 +282,7 @@ int ClusterTestRunner::runOne()
                     if (probe.connect(Host(node.m_host, node.m_port),
                                       credentials(checkClientId("ready-" + node.m_name)),
                                       runDefinition().m_connectParameters, checkProtocolVersion(), {},
-                                      runDefinition().m_sslKeys) != ReasonCode::Success)
+                                      keysFor(node.m_encrypted)) != ReasonCode::Success)
                     {
                         missing.push_back(format("{} (refused)", node.m_name).c_str());
                     }
@@ -384,6 +389,19 @@ void ClusterTestRunner::applyCommandLineOverrides()
         m_test.m_password = args.getOptionValue("password").c_str();
     }
 
+    if (commandLine().hasOption("encrypted") || runDefinition().m_sslKeys)
+    {
+        for (size_t index = 0; index < m_test.m_nodes.size(); ++index)
+        {
+            auto& node = m_test.m_nodes[index];
+            node.m_encrypted = true;
+            if (!node.m_portGiven && !node.m_host.empty())
+            {
+                node.m_port = ClusterTestDefinition::defaultNodePort(index, true);
+            }
+        }
+    }
+
     // A test that names no server at all takes what the command line would have used - localhost and
     // the MQTT port - so that one file works against a test cluster and against a broker reached by an
     // address given on the command line.
@@ -410,7 +428,7 @@ void ClusterTestRunner::printPlan() const
     Strings nodeNames;
     for (const auto& node : m_test.m_nodes)
     {
-        nodeNames.push_back(format("{} ({}:{})", node.m_name, node.m_host, node.m_port).c_str());
+        nodeNames.push_back(format("{} ({}:{}{})", node.m_name, node.m_host, node.m_port, node.m_encrypted ? " TLS" : "").c_str());
     }
     COUT(format("Nodes:        {}", nodeNames.join(", ").c_str()));
 
@@ -529,6 +547,18 @@ void ClusterTestRunner::runLoad()
     }
 
     engine.sslKeys(runDefinition().m_sslKeys);
+    for (const auto& [groupName, nodeName] : m_test.m_loadGroups)
+    {
+        const auto keys = keysFor(m_test.node(nodeName).m_encrypted);
+        if (groupName == "publishers")
+        {
+            engine.sslKeys(keys);
+        }
+        else
+        {
+            engine.subscriberSslKeys(keys);
+        }
+    }
     engine.commandProperties(runDefinition().m_commandConnectProperties, runDefinition().m_commandPublishProperties);
 
     if (const auto connectIntervals = commandLine().getOptionValue("connect-intervals").toInt(); connectIntervals > 0)
@@ -605,6 +635,90 @@ void ClusterTestRunner::waitUntil(const chrono::seconds at) const
     {
         this_thread::sleep_until(when);
     }
+}
+
+shared_ptr<SSLKeys> ClusterTestRunner::keysFor(const bool encrypted) const
+{
+    if (!encrypted)
+    {
+        return nullptr;
+    }
+    // An empty set still encrypts: a listener that asks for no client certificate needs none.
+    return runDefinition().m_sslKeys ? runDefinition().m_sslKeys : make_shared<SSLKeys>();
+}
+
+string ClusterTestRunner::clusterNodes() const
+{
+    string nodes;
+    for (const auto& node : m_test.m_nodes)
+    {
+        if (!nodes.empty())
+        {
+            nodes += ' ';
+        }
+        nodes += node.m_name + "@" + node.m_host;
+    }
+    return nodes;
+}
+
+bool ClusterTestRunner::bringUpCluster() const
+{
+    if (m_test.m_nodes.empty())
+    {
+        return true;
+    }
+
+    // test_cluster.sh gives a node its client port by its place in the list: the test's ports have
+    // to be the ones the list gives, or the checks and the load go to nodes that are not there.
+    for (size_t index = 0; index < m_test.m_nodes.size(); ++index)
+    {
+        const auto& node = m_test.m_nodes[index];
+        if (node.m_host.empty())
+        {
+            CERR(format("Node '{}' has no 'host': the test cluster cannot be brought up without one.", node.m_name));
+            return false;
+        }
+        if (const auto expected = ClusterTestDefinition::defaultNodePort(index, node.m_encrypted);
+            node.m_portGiven && node.m_port != expected)
+        {
+            CERR(format("Node '{}' is number {} in 'nodes', which test_cluster.sh serves on port {}, not {}.",
+                        node.m_name, index + 1, expected, node.m_port));
+            return false;
+        }
+    }
+
+    const auto nodes = clusterNodes();
+
+    // What the test cluster runs with now, as its last `up` wrote it.
+    const char* clusterDir = getenv("CLUSTER_DIR");
+    const auto  envFile = filesystem::path(clusterDir != nullptr ? clusterDir : string(getenv("HOME")) + "/cluster.run") / "cluster.env";
+    string      running;
+    if (ifstream env(envFile); env)
+    {
+        for (string line; getline(env, line);)
+        {
+            if (line.starts_with("NODES="))
+            {
+                running = line.substr(6);
+            }
+        }
+    }
+
+    const string script = "~/cluster/test_cluster.sh";
+    if (running == nodes)
+    {
+        // The same nodes: up starts whichever of them is not running and leaves the others alone.
+        return runCommand("cluster: up", format("NODES='{}' {} up > /dev/null", nodes, script)) == 0;
+    }
+
+    // Other nodes: what they left in the storage and in the node directories belongs to another
+    // cluster - a node that finds its name taken by another identity does not start.
+    if (!running.empty())
+    {
+        (void) runCommand("cluster: down (" + running + ")", format("{} down > /dev/null", script));
+    }
+    return runCommand("cluster: wipe", format("NODES='{}' {} wipe > /dev/null", nodes, script)) == 0 &&
+           runCommand("cluster: up " + nodes, format("NODES='{}' {} up > /dev/null", nodes, script)) == 0;
 }
 
 int ClusterTestRunner::runCommand(const string& label, string command, const string& node) const
@@ -826,7 +940,7 @@ bool ClusterTestRunner::checkConnect(const CClusterCheck& check, string& detail)
     {
         const auto reasonCode = client.connect(server, credentials(checkClientId(check.m_name)),
                                                runDefinition().m_connectParameters,
-                                               checkProtocolVersion(), {}, runDefinition().m_sslKeys);
+                                               checkProtocolVersion(), {}, keysFor(address.m_encrypted));
         connected = reasonCode == ReasonCode::Success;
         if (!connected)
         {
@@ -877,7 +991,8 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
     const auto subscriberId = checkClientId(check.m_name + "-subscriber");
     const auto parameters = runDefinition().m_connectParameters;
     const auto version = checkProtocolVersion();
-    const auto& sslKeys = runDefinition().m_sslKeys;
+    const auto publishKeys = keysFor(from.m_encrypted);
+    const auto subscribeKeys = keysFor(to.m_encrypted);
 
     // The message is taken under the lock the waiting side holds, so one that arrives between the
     // publish and the wait is not lost - which across a cluster, where the two ends are different
@@ -910,7 +1025,7 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
     if (retain)
     {
         if (const auto reasonCode = publisher.connect(publishServer, credentials(publisherId),
-                                                      parameters, version, {}, sslKeys);
+                                                      parameters, version, {}, publishKeys);
             reasonCode != ReasonCode::Success)
         {
             detail = format("could not publish the retained message on {}: {}",
@@ -928,7 +1043,7 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
     }
 
     if (const auto reasonCode = subscriber.connect(subscribeServer, credentials(subscriberId),
-                                                   parameters, version, {}, sslKeys);
+                                                   parameters, version, {}, subscribeKeys);
         reasonCode != ReasonCode::Success)
     {
         detail = format("could not subscribe on {}: {}", subscribeServer.toString(), toString(reasonCode));
@@ -965,7 +1080,7 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
     if (!retain)
     {
         if (const auto reasonCode = publisher.connect(publishServer, credentials(publisherId),
-                                                      parameters, version, {}, sslKeys);
+                                                      parameters, version, {}, publishKeys);
             reasonCode != ReasonCode::Success)
         {
             detail = format("could not publish on {}: {}", publishServer.toString(), toString(reasonCode));
@@ -989,7 +1104,7 @@ bool ClusterTestRunner::carryMessage(const CClusterCheck& check, const bool reta
         // pass for a reason that has nothing to do with this run.
         client::MqttClient cleaner(nullptr, "", "");
         if (const auto reasonCode = cleaner.connect(publishServer, credentials(publisherId),
-                                                    parameters, version, {}, sslKeys);
+                                                    parameters, version, {}, publishKeys);
             reasonCode == ReasonCode::Success)
         {
             cleaner.publish(check.m_topic, string(), Qos::Qos1, true);
@@ -1056,15 +1171,16 @@ ClusterTestRunner::CAddress ClusterTestRunner::addressFor(const string& nodeName
             throw Exception(format("Node '{}' has no 'host' and 'port', so a check cannot reach it.",
                                    nodeName));
         }
-        return {node.m_host, node.m_port};
+        return {node.m_host, node.m_port, node.m_encrypted};
     }
 
+    const auto encrypted = runDefinition().m_sslKeys != nullptr;
     if (!host.empty())
     {
-        return {host, port};
+        return {host, port, encrypted};
     }
 
-    return {m_test.m_serverHost, m_test.m_serverPort};
+    return {m_test.m_serverHost, m_test.m_serverPort, encrypted};
 }
 
 ConnectCredentials ClusterTestRunner::credentials(const string_view clientId) const

@@ -167,6 +167,8 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         m_loadGroups[groupName] = nodeName;
     }
 
+    // TLS for every node, unless a node says otherwise.
+    const auto encrypted = boolean(root, "encrypted", false);
     for (const auto& node : root->nodes("nodes"))
     {
         CClusterNode item;
@@ -176,9 +178,26 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
             throw Exception("A node in 'nodes' has no 'name'.");
         }
         item.m_host = text(node, "host");
-        item.m_port = child(node, "port") ? port(node, "port", 0) : 0;
+        item.m_encrypted = boolean(node, "encrypted", encrypted);
+        item.m_portGiven = child(node, "port") != nullptr;
+        if (item.m_portGiven)
+        {
+            item.m_port = port(node, "port", 0);
+        }
+        else if (!item.m_host.empty())
+        {
+            // test_cluster.sh's: a node's ports follow its place in the list.
+            item.m_port = defaultNodePort(m_nodes.size(), item.m_encrypted);
+        }
         item.m_stopCommand = text(node, "stop");
         item.m_startCommand = text(node, "start");
+        if (item.m_stopCommand.empty() && item.m_startCommand.empty() && !item.m_host.empty())
+        {
+            // The test cluster's own commands, run on the node's machine: the test names where a
+            // node is, and that is all it has to say about how it is stopped and started.
+            item.m_stopCommand = format("ssh {} ~/cluster/test_cluster.sh stop {{node}}", item.m_host);
+            item.m_startCommand = format("ssh {} ~/cluster/test_cluster.sh start {{node}}", item.m_host);
+        }
         if (item.m_stopCommand.empty() || item.m_startCommand.empty())
         {
             throw Exception(format("Node '{}' names only one of 'stop' and 'start'; both are needed, "
@@ -404,6 +423,11 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
                                    "and 'port' in 'nodes'.", groupName, nodeName));
         }
     }
+}
+
+uint16_t ClusterTestDefinition::defaultNodePort(const size_t index, const bool encrypted)
+{
+    return static_cast<uint16_t>((encrypted ? 9883 : 2884) + index);
 }
 
 const CClusterNode& ClusterTestDefinition::node(const string_view name) const

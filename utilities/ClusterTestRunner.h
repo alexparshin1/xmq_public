@@ -117,6 +117,12 @@ private:
      * @param node              The node the command is about, or empty.
      * @return The command's exit code.
      */
+    /// The test's nodes as test_cluster.sh takes them: name@host, in order.
+    [[nodiscard]] std::string clusterNodes() const;
+
+    /// Bring the test cluster up as the test lists it; false when it could not be.
+    [[nodiscard]] bool bringUpCluster() const;
+
     int  runCommand(const std::string& label, std::string command, const std::string& node = {}) const;
     void repeatCheck(const CClusterTimelineStep& step);
     void runAfterCommands();
@@ -162,7 +168,12 @@ private:
     {
         std::string m_host;
         uint16_t    m_port {0};
+        bool        m_encrypted {false};
     };
+
+    /// The keys a connection to a node takes: the command line's, or an empty set (TLS, no client
+    /// certificate) for a node reached over TLS, or none.
+    [[nodiscard]] std::shared_ptr<sptk::SSLKeys> keysFor(bool encrypted) const;
 
     [[nodiscard]] CAddress addressFor(const std::string& nodeName, const std::string& host,
                                       uint16_t port) const;
