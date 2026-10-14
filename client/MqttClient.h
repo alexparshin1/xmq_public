@@ -44,6 +44,19 @@ public:
     virtual ~MqttClient();
 
     /**
+     * @brief Read and write on threads of this client's own, rather than on those the process's
+     * clients share.
+     *
+     * A shared thread runs the message callbacks of every client it serves, one after another, so a
+     * client whose callback is slow holds back the reading of the others on its thread. That is
+     * right for a load generator with a hundred thousand clients and no threads to spare, and
+     * wrong for a broker's own few: a cluster link waited for a bridge, or - in a test that runs a
+     * cluster and its clients in one process - for a slow subscriber, long enough for a stopping
+     * node to give up on it. Called before connect(); takes effect from the next connection.
+     */
+    void useOwnThreads();
+
+    /**
      * @brief Connect the client to a server host.
      * @param host              Server host.
      * @param credentials       Session credentials.
@@ -292,6 +305,7 @@ private:
     std::shared_ptr<sptk::Logger>                              m_logger;                  ///< Logger (set once in the constructor, then read-only).
     AtomicSharedPtr<Session>                                   m_session {nullptr};       ///< Client session.
     sptk::String                                               m_bindAddress;             ///< Bind to local interface IP address.
+    std::shared_ptr<SessionThread>                             m_ownThread;               ///< Threads of its own, when useOwnThreads() asked for them.
     AtomicSharedPtr<const PublishMessageCallback>              m_onMessage {nullptr};     ///< Callback for received Publish messages.
     mutable std::atomic_size_t                                 m_activePublishCallbacks {0}; ///< Publish callbacks currently executing; lets onMessage({}) drain in-flight calls before returning.
     AtomicSharedPtr<const MessageCallback>                     m_onAck {nullptr};         ///< Callback for received ACKs.

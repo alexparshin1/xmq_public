@@ -110,7 +110,12 @@ public:
      * @param logger            Logger.
      * @param bindAddress       Optional bind address as a local interface IP address.
      */
-    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger, const std::string& bindAddress = "");
+    /**
+     * @param sessionThread     The thread the session reads and writes on: its own, or, when null,
+     *                          one of the threads all the process's clients share.
+     */
+    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger, const std::string& bindAddress = "",
+                     std::shared_ptr<SessionThread> sessionThread = nullptr);
 
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
@@ -246,7 +251,7 @@ private:
     std::atomic<State>                 m_state {State::Disconnected};                        ///< Session state.
     bool                               m_isHangup {false};                                   ///< Flag: has the server hang up.
     bool                               m_isMonitoring {false};                               ///< Flag: are the incoming events being monitored.
-    std::shared_ptr<SessionThread>     m_sessionThread {m_allClientThreads.getNextThread()}; ///< Session thread.
+    std::shared_ptr<SessionThread>     m_sessionThread;                                      ///< Session thread.
     /**
      * The pending keep-alive event, and the small lock that is all it needs.
      *

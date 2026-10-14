@@ -676,24 +676,47 @@ void Server::stopServer()
                                                });
             if (!unacknowledged.empty())
             {
+                logMessage(LogSubject::ClusterEvents, LogPriority::Info,
+                           format("Stopping: {} shared message(s) this node's members have not acknowledged go to other nodes.",
+                                  unacknowledged.size()));
+            }
+            if (!unacknowledged.empty())
+            {
                 getSubscriptionManager()->handOffSharedToOtherNodes(unacknowledged);
-                // The links send what was queued for them before they close.
-                const auto linksIdle = [this]
+                // The links send what was queued for them before they close: for as long as the
+                // other nodes keep acknowledging, up to a limit, and a second more without. A fixed
+                // second was not always enough - acknowledgements that came at the pace of a slow
+                // member still being served here took 2.4 s for 49 messages, and the rest were lost.
+                const auto unsent = [this]
                 {
-                    bool idle = true;
-                    getClientSessionManager()->forEach([&idle](const SClientSession& session)
+                    size_t queued = 0;
+                    getClientSessionManager()->forEach([&queued](const SClientSession& session)
                                                        {
-                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr;
-                                                               queue && queue->size() > 0)
+                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr)
                                                            {
-                                                               idle = false;
+                                                               queued += queue->size();
                                                            }
                                                        });
-                    return idle;
+                    return queued;
                 };
-                for (int i = 0; i < 20 && !linksIdle(); ++i)
+                constexpr auto patience = 1s;
+                constexpr auto limit = 10s;
+                const auto     started = chrono::steady_clock::now();
+                auto           lastProgress = started;
+                auto           left = unsent();
+                while (left > 0 && chrono::steady_clock::now() - lastProgress < patience && chrono::steady_clock::now() - started < limit)
                 {
                     this_thread::sleep_for(50ms);
+                    if (const auto now = unsent(); now < left)
+                    {
+                        left = now;
+                        lastProgress = chrono::steady_clock::now();
+                    }
+                }
+                if (left > 0)
+                {
+                    logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
+                               format("Stopping: {} shared message(s) handed to other nodes were not acknowledged in time.", left));
                 }
             }
         }

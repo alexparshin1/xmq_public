@@ -26,6 +26,14 @@ using namespace sptk;
 using namespace xmq;
 using namespace xmq::client;
 
+void MqttClient::useOwnThreads()
+{
+    if (!m_ownThread)
+    {
+        m_ownThread = make_shared<SessionThread>();
+    }
+}
+
 MqttClient::MqttClient(const std::shared_ptr<LogEngine>& logEngine,
                        const std::string&                logPrefix,
                        String                            bindAddress)
@@ -119,7 +127,7 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
                 previewMessage(message);
             }
         },
-        logger, m_bindAddress);
+        logger, m_bindAddress, m_ownThread);
 
     // The client's own handler rather than the caller's callback directly: a disconnection the
     // caller did not ask for is the moment to bring the client back, and this is the one place that
