@@ -4,7 +4,8 @@
   "comments": [
     "Point-To-Point-50K-50K-50K-100K across a cluster: publishers on one node, subscribers on another, so",
     "every message crosses a cluster link - what a cluster costs at worst. node3 on thinker11, node5 on",
-    "theater (NODES='node3@thinker11 node5@theater' test_cluster.sh), client thinker10."
+    "node1 on thinker11, node2 on theater (NODES='node1@thinker11 node2@theater' test_cluster.sh;",
+    "ports follow the position in NODES), client thinker10."
   ],
   "publishers": {
     "id_prefix": "test-publisher-",
@@ -15,7 +16,7 @@
     "topics": "test/topic$clientindex",
     "server": {
       "hostname": "10.1.1.243",
-      "port": 2886,
+      "port": 2884,
       "username": "user",
       "password": "User-Secret1"
     }
@@ -29,7 +30,7 @@
     "topics": "test/topic$clientindex",
     "server": {
       "hostname": "10.1.1.242",
-      "port": 2888,
+      "port": 2885,
       "username": "user",
       "password": "User-Secret1"
     }
@@ -41,5 +42,11 @@
     "publish_rate": 2,
     "keep_alive_sec": 300,
     "max_inflight_messages": 1024
+  },
+  "server": {
+    "hostname": "10.1.1.243",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
   }
 }

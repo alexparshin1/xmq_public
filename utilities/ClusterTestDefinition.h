@@ -69,6 +69,9 @@ struct CClusterNode
     std::string m_name;
     std::string m_host;  ///< Where the node listens for clients.
     uint16_t    m_port {0};
+    bool        m_encrypted {false}; ///< Clients reach the node over TLS.
+    bool        m_portGiven {false}; ///< The test names the port; otherwise it is the test cluster's.
+    uint16_t    m_tlsPort {0};       ///< The port over TLS, where the test names one besides 'port'.
     std::string m_stopCommand;
     std::string m_startCommand;
 };
@@ -159,6 +162,15 @@ public:
      * @brief The node of that name.
      * @throws sptk::Exception  When the test has no such node.
      */
+    /// The whole test cluster, name@host in order, as test_cluster.sh takes it; empty when 'nodes' is it.
+    std::vector<std::string> m_cluster;
+
+    /// Where a node is in the test cluster: its place in 'cluster', or in 'nodes' when there is none.
+    [[nodiscard]] size_t clusterIndex(const std::string& name, size_t nodesIndex) const;
+
+    /// The port test_cluster.sh gives the node at this place in the list, for clients or over TLS.
+    [[nodiscard]] static uint16_t defaultNodePort(size_t index, bool encrypted);
+
     [[nodiscard]] const CClusterNode& node(std::string_view name) const;
 
     /**

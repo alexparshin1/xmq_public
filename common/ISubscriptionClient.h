@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "ClusterLinks.h"
 #include "PublishMessage.h"
 #include "SubscriptionOptions.h"
 #include "storage/Storage.h"
@@ -118,6 +119,29 @@ public:
     [[nodiscard]] virtual bool isClusterLink() const
     {
         return false;
+    }
+
+    /// Of how many links between two nodes this one is, and which; one of one for anything else.
+    [[nodiscard]] virtual size_t clusterLinkCount() const
+    {
+        return 1;
+    }
+
+    [[nodiscard]] virtual size_t clusterLinkIndex() const
+    {
+        return 0;
+    }
+
+    /**
+     * @brief Does a publication on the topic go over this link?
+     *
+     * A node opens several links to another, and a topic is carried by one of them, so that its
+     * messages stay in order and none arrives twice.
+     */
+    [[nodiscard]] bool carriesTopic(const std::string_view topicName) const
+    {
+        const auto count = clusterLinkCount();
+        return count <= 1 || clusterLinkOf(topicName, count) == clusterLinkIndex();
     }
 
     virtual void setBridgeOrigin(const std::string& bridgeOrigin) = 0;

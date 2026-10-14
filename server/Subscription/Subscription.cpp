@@ -201,8 +201,15 @@ void Subscription::matchSessionsForDelivery(const PublishMessage&               
 
     // Who may be handed this message at all. Shared and not: a shared subscription offers the
     // message to the next member that passes, rather than to the next member.
-    auto eligible = [&publishMessage, &dynamicRoute, &allowed](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
+    const auto topicName = publishMessage.destination()->fullName();
+    auto eligible = [this, &publishMessage, &dynamicRoute, &allowed, &topicName](const ISubscriptionClient* clientSession, const SSessionSubscription& subscription)
     {
+        // One of the links between two nodes carries a topic. A shared subscription has members, not
+        // topics, behind the link, and is on the first one only.
+        if (!isShared() && !clientSession->carriesTopic(topicName))
+        {
+            return false;
+        }
         if (allowed && !allowed(clientSession))
         {
             return false;

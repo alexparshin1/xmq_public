@@ -78,6 +78,17 @@ public:
     }
 
     /**
+     * @brief SSL keys for the subscribers alone, where they connect differently from the publishers -
+     * to another broker, or to a node of a cluster that one reaches over TLS and the other does not.
+     * @param sslKeys SSL keys, or null for plain TCP.
+     */
+    void subscriberSslKeys(std::shared_ptr<sptk::SSLKeys> sslKeys)
+    {
+        m_subscriberSslKeys = std::move(sslKeys);
+        m_subscriberSslKeysSet = true;
+    }
+
+    /**
      * @brief Enable or disable a live, in-place progress bar for the connect and publish phases.
      * Disabled by default; connectClients() and publish() are silent unless this is called with true.
      * @param show Whether to show the progress bar.
@@ -173,6 +184,8 @@ private:
     size_t                           m_connectIntervals {10}; ///< Rows the connect phase reports.
     std::shared_ptr<sptk::LogEngine> m_logEngine;
     std::shared_ptr<sptk::SSLKeys>   m_sslKeys; ///< Non-null connects every client over TLS.
+    std::shared_ptr<sptk::SSLKeys>   m_subscriberSslKeys;           ///< The subscribers' own, when set.
+    bool                             m_subscriberSslKeysSet {false}; ///< The subscribers use m_subscriberSslKeys.
     std::shared_ptr<MessageProperties> m_connectProperties; ///< Properties for the CONNECT, from the command line.
     std::shared_ptr<MessageProperties> m_publishProperties; ///< Properties for every PUBLISH, from the command line.
 
@@ -189,9 +202,9 @@ private:
      */
     [[nodiscard]] const CHost&       groupServer(const CTestClientGroup& group) const;
 
-    void                             probeConnection(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion) const;
-    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties) const;
-    std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties) const;
+    void                             probeConnection(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
+    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
+    std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
 
     /**
      * @brief The properties a group sends, from the scenario file and the command line together.

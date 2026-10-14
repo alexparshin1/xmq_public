@@ -12,6 +12,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
+#include <array>
 #include "MessageReaderTests.h"
 #include "base/AckMessage.h"
 #include "base/ReasonCode.h"
@@ -367,6 +368,10 @@ TEST_F(XMQ_MessageReaderTests, readAllMessageTypes_Socket)
 
         client::Session session(nullptr, nullptr);
 
+        // What the socket has handed over and no packet has been taken from yet: a read returns
+        // what is there, which can be a part of a packet or more than one.
+        Buffer received;
+
         for (auto messageType: messageTypes)
         {
             // Send marker before every command so that auto-ACKs can be ignored on the server side
@@ -378,7 +383,30 @@ TEST_F(XMQ_MessageReaderTests, readAllMessageTypes_Socket)
             ASSERT_TRUE(clientSocket()->readyToRead(1s));
 
             const auto packetReceivedTS = LatencyTrace::now();
-            auto       packet = packetReader->readPacket(clientSocket().get());
+            Packet     packet;
+            for (const auto deadline = chrono::steady_clock::now() + 2s; chrono::steady_clock::now() < deadline;)
+            {
+                auto   empty = true;
+                size_t offset = 0;
+                packet = packetReader->readPacket(received, empty, offset);
+                if (!empty)
+                {
+                    received.erase(0, offset);
+                    break;
+                }
+                array<uint8_t, 4096> chunk {};
+                const auto           bytes = clientSocket()->readAvailable(chunk.data(), chunk.size());
+                if (bytes == 0)
+                {
+                    break;
+                }
+                if (bytes == Socket::RECV_RETRY)
+                {
+                    (void) clientSocket()->readyToRead(100ms);
+                    continue;
+                }
+                received.append(chunk.data(), bytes);
+            }
             if (packet.bytes() == 0)
             {
                 continue;

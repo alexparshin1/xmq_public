@@ -6,6 +6,7 @@
     "six nodes, two on each of thinker10, thinker11 and theater - run from thinker10, where",
     "~/cluster/test_cluster.sh reaches every node by itself."
   ],
+  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -27,14 +28,12 @@
     {
       "name": "node1",
       "host": "thinker10",
-      "port": 2884,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
       "host": "thinker11",
-      "port": 2887,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }

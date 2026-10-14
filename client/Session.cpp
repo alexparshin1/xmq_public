@@ -74,10 +74,12 @@ SocketEvents<Session> Session::m_socketEvents(
     },
     100ms, clientSocketEventsMode);
 
-Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger>& logger, const std::string& bindAddress)
+Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger>& logger, const std::string& bindAddress,
+                 shared_ptr<SessionThread> sessionThread)
     : BaseClientSession(SessionType::Client)
     , m_bindAddress(bindAddress)
     , m_logger(logger)
+    , m_sessionThread(sessionThread ? std::move(sessionThread) : m_allClientThreads.getNextThread())
 {
     constexpr uint16_t maxInflightMessages = 32768;
     setInflightLimit(maxInflightMessages);
@@ -193,24 +195,54 @@ ReasonCode Session::receiveConnect()
 
     try
     {
-        // For SSL connections, can read-only after several attempts
-        constexpr size_t maxAttempts = 10;
-        for (size_t attempts = 0; attempts < maxAttempts; ++attempts)
+        // The CONNACK, read the way every later packet is: what the socket holds goes into the
+        // read buffer, and a packet is taken from it once it is whole. Asking the socket first how
+        // many bytes it holds does not work over TLS, which answers for the record it has
+        // decrypted and not for those behind it, and a CONNACK that did not fit the answer was
+        // taken for none: under load, "Invalid response from server to CONNECT message" from a
+        // server that had answered. What follows the CONNACK stays in the buffer for the receive
+        // loop.
+        constexpr auto connackTimeout = 10s;
+        constexpr auto chunkBytes = 16u * 1024u;
+        const auto     deadline = chrono::steady_clock::now() + connackTimeout;
+        Buffer         chunk(chunkBytes);
+        Packet         packet;
+        for (;;)
         {
-            if (constexpr size_t minPacketSize = 2;
-                socket->readyToRead(1s) &&
-                socket->socketBytes() >= minPacketSize)
+            auto       empty = true;
+            auto       offset = m_readConsumed;
+            packet = protocol().packetReader()->readPacket(m_readBuffer, empty, offset);
+            if (!empty)
             {
+                m_readConsumed = offset;
                 break;
             }
-        }
 
-        const auto packetReceivedTS = LatencyTrace::now();
-        auto       packet = protocol().packetReader()->readPacket(socket.get());
-        if (packet.bytes() == 0)
-        {
-            throw ConnectionException("Invalid response from server to CONNECT message");
+            const auto received = socket->readAvailable(chunk.data(), chunkBytes);
+            if (received == 0)
+            {
+                throw ConnectionException("The server closed the connection instead of answering CONNECT");
+            }
+            if (received != Socket::RECV_RETRY)
+            {
+                m_readBuffer.append(chunk.data(), received);
+                continue;
+            }
+
+            const auto left = chrono::duration_cast<chrono::milliseconds>(deadline - chrono::steady_clock::now());
+            if (left <= 0ms)
+            {
+                throw ConnectionException("No response from server to CONNECT message");
+            }
+            // Bytes of a record that has not all arrived wake this at once, and read nothing yet.
+            if (!socket->readyToRead(min(left, 100ms)))
+            {
+                continue;
+            }
+            this_thread::sleep_for(1ms);
         }
+        discardConsumedReadBufferUnlocked();
+        const auto packetReceivedTS = LatencyTrace::now();
 
         const auto packetBeforeDecodeTS = LatencyTrace::now();
         const auto message = protocol().messageReader()->readMessage(std::move(packet), *this, packetReceivedTS);
@@ -241,6 +273,12 @@ ReasonCode Session::receiveConnect()
                 applyServerReceiveMaximum(message);
                 monitorIncomingDataUnlocked(true);
                 setStateUnlocked(State::Connected);
+                // What came with the CONNACK - a resumed session's queued messages - is in the read
+                // buffer now, not in the socket, and the socket will not announce it again.
+                if (m_readConsumed < m_readBuffer.bytes())
+                {
+                    queueReceiveMessages();
+                }
             }
             else
             {
@@ -457,6 +495,7 @@ SendReceiveResult Session::receiveMessages()
             m_readConsumed = offset;
 
             byteCounter += packet.fullSize();
+            m_readBufferSizer.packet(packet.fullSize());
             packetBeforeDecodeTS = LatencyTrace::now();
             message = protocol().messageReader()->readMessage(std::move(packet), *this, packetReceivedTS);
             if (!message)
@@ -627,6 +666,7 @@ void Session::discardConsumedReadBufferUnlocked()
     if (m_readConsumed >= m_readBuffer.bytes())
     {
         m_readBuffer.bytes(0);
+        m_readBufferSizer.settle(m_readBuffer);
     }
     else
     {

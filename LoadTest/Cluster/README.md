@@ -138,9 +138,10 @@ xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some r
 ```
 
 `deploy <branch>`: every machine in `CLUSTER_DEPLOY_HOSTS` (thinker11, thinker10, theater) builds the
-branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public_cluster`,
-a worktree of `~/workspace/xmq_public` detached at `origin/<branch>`, with its own RelWithDebInfo
-build in `build/`; the working trees there are left alone. The build runs at the lowest priority on
+branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public`,
+brought to `origin/<branch>` and built in its `build/` (RelWithDebInfo): one tree and one build per
+machine, so a node never runs a binary from a build other than the one just made. A tree with
+changes not committed is refused rather than checked out over. The build runs at the lowest priority on
 half the cores - theater runs the smart home - and is refused on a machine where the farm is
 running. The first build takes several minutes, later ones only what changed. Builds of different
 commits are refused; each machine builds against the SPTK installed in its `~/.local`. A build of

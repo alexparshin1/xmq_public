@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "common/ReadBufferSizer.h"
 #include <atomic>
 #include <mutex>
 
@@ -109,7 +110,12 @@ public:
      * @param logger            Logger.
      * @param bindAddress       Optional bind address as a local interface IP address.
      */
-    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger, const std::string& bindAddress = "");
+    /**
+     * @param sessionThread     The thread the session reads and writes on: its own, or, when null,
+     *                          one of the threads all the process's clients share.
+     */
+    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger, const std::string& bindAddress = "",
+                     std::shared_ptr<SessionThread> sessionThread = nullptr);
 
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
@@ -245,7 +251,7 @@ private:
     std::atomic<State>                 m_state {State::Disconnected};                        ///< Session state.
     bool                               m_isHangup {false};                                   ///< Flag: has the server hang up.
     bool                               m_isMonitoring {false};                               ///< Flag: are the incoming events being monitored.
-    std::shared_ptr<SessionThread>     m_sessionThread {m_allClientThreads.getNextThread()}; ///< Session thread.
+    std::shared_ptr<SessionThread>     m_sessionThread;                                      ///< Session thread.
     /**
      * The pending keep-alive event, and the small lock that is all it needs.
      *
@@ -271,6 +277,7 @@ private:
     std::atomic<std::chrono::seconds>  m_keepAlivePeriod {std::chrono::seconds {0}};
     sptk::Semaphore                    m_isDisconnectSent;                                   ///< Is disconnect sent flag.
     sptk::Buffer                       m_readBuffer;                                         ///< Inbound read buffer (drained in batches).
+    ReadBufferSizer                    m_readBufferSizer;                                    ///< Keeps m_readBuffer about the size of what is read.
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.
     sptk::Buffer                       m_ackBatchBuffer;                                     ///< Acks accumulated during a drain, flushed with a single write. Guarded by m_mutex.
     std::shared_ptr<sptk::Logger>      m_logger;                                             ///< Logger.

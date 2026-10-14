@@ -7,6 +7,7 @@
     "carry on. On the default test cluster of test_cluster.sh, run from thinker10. The 'after' commands give the",
     "route back whatever happened, so a failed run does not leave thinker11 without its storage."
   ],
+  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -28,28 +29,24 @@
     {
       "name": "node1",
       "host": "thinker10",
-      "port": 2884,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node2",
       "host": "thinker10",
-      "port": 2885,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
       "host": "thinker11",
-      "port": 2886,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node5",
       "host": "theater",
-      "port": 2888,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }

@@ -142,6 +142,9 @@ public:
     }
 
 private:
+    /// Several links to one node: one message to it, over the link of the topic.
+    void mergeLinksOfOneNode();
+
     // A vector, not the std::map it was: a map allocates a node for every session a message reaches,
     // and a Point-To-Point message reaches one, so the node was a whole allocation per message. The
     // vector is reused across messages by the delivery threads and stops allocating once it is sized.

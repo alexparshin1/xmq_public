@@ -42,7 +42,7 @@
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: CLUSTER_LOG_LEVEL, CLUSTER_LINKS, LB_VIP, LB_PORT, LB_TLS_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -60,7 +60,7 @@ if [ -f "$STAND_ENV" ]; then
         [ -z "${!key+x}" ] && export "$key=$value"
     done < "$STAND_ENV"
 fi
-STAND_SETTINGS="NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
+STAND_SETTINGS="CLUSTER_LOG_LEVEL CLUSTER_LINKS NODES REDIS_HOST REDIS_PORT REDIS_DB REDIS_URI SERVER SERVER_LIBRARY_PATH CLUSTER_PASSWORD
 CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # A build of its own, never the bench's: the bench's tree and the server installed from it are what
 # the release gates measure, and a test cluster has no business replacing them. Laid down on every
@@ -69,6 +69,9 @@ SERVER=${SERVER:-$HOME/cluster.run/xmq_server}
 REDIS_HOST=${REDIS_HOST:-theater}
 REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
+# Links each node opens to each other node; 4 is the server's own default.
+CLUSTER_LINKS=${CLUSTER_LINKS:-}
+CLUSTER_LOG_LEVEL=${CLUSTER_LOG_LEVEL:-}
 # One spelling for every node, which is what the cluster asks of them; see the note at the top.
 REDIS_URI=${REDIS_URI:-redis://$REDIS_HOST:$REDIS_PORT/$REDIS_DB}
 CLUSTER_PASSWORD=${CLUSTER_PASSWORD:-Stand-Cluster1}
@@ -236,7 +239,7 @@ write_configuration() {
   "logging": {
     "log_to": "$dir/xmq_server.log",
     "keep_logs": 3,
-    "min_log_level": "INFO",
+    "min_log_level": "${CLUSTER_LOG_LEVEL:-INFO}",
     "log_level": {
       "connect": "DEBUG",
       "disconnect": "DEBUG",
@@ -246,14 +249,15 @@ write_configuration() {
       "ack": "ERROR",
       "server_connections": "DEBUG",
       "server_events": "DEBUG",
-      "cluster_connections": "INFO",
-      "cluster_events": "INFO"
+      "cluster_connections": "${CLUSTER_LOG_LEVEL:-INFO}",
+      "cluster_events": "${CLUSTER_LOG_LEVEL:-INFO}"
     }
   },
   "web_service": { "listener_port": $web, "encrypted": false },
   "bridges": [],
   "cluster": {
     "enabled": true,
+    "links": ${CLUSTER_LINKS:-4},
     "password": "$CLUSTER_PASSWORD",
     "this_node": { "node_name": "$(node_name "$node")", "host_port": "$host:$tls", "encrypted": true },
     "nodes": []
@@ -501,9 +505,11 @@ command_check_logs() {
 CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
 # ~/cluster on every machine links to LoadTest/Cluster there, so the scripts a timeline step runs on
 # a machine are those of the branch the machine runs; the test cluster's data is in ~/cluster.run.
-# A worktree of ~/workspace/xmq_public on each machine, detached at the branch as pushed: the working
-# tree there - its branch, its changes, its build - is left alone.
-BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public_cluster'}
+# ~/workspace/xmq_public on each machine, at the branch as pushed, built in its build/ - the one
+# tree and the one build there. A separate worktree with a build of its own was how a node ended up
+# running a binary from another build than the one just made. A tree with changes not committed is
+# not touched: the branch is not checked out over them.
+BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public'}
 
 # Bring the build tree on this machine to origin/<branch> and build the server there; print the commit.
 # At the lowest priority, on half the cores, and not beside the farm: theater runs the smart home.
@@ -513,11 +519,12 @@ build_branch_here() {
     if pgrep -f "^bash $HOME/build/build_all.sh" >/dev/null; then
         echo "the build farm is running here - deploy when it is done" >&2; return 1
     fi
-    git -C "$HOME/workspace/xmq_public" fetch -q origin "$branch" || return 1
-    if [ ! -d "$tree" ]; then
-        git -C "$HOME/workspace/xmq_public" worktree add -q --detach "$tree" "origin/$branch" || return 1
+    git -C "$tree" fetch -q origin "$branch" || return 1
+    if ! git -C "$tree" diff --quiet HEAD; then
+        echo "$tree has changes not committed - deploy does not check a branch out over them" >&2; return 1
     fi
-    git -C "$tree" checkout -q --detach "origin/$branch" || return 1
+    git -C "$tree" checkout -q "$branch" 2>/dev/null || git -C "$tree" checkout -q -b "$branch" "origin/$branch" || return 1
+    git -C "$tree" merge -q --ff-only "origin/$branch" || return 1
     # RelWithDebInfo: close to what ships, and a node that crashes still says where.
     [ -f "$tree/build/CMakeCache.txt" ] ||
         cmake -S "$tree" -B "$tree/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/.local" >/dev/null 2>&1 ||
@@ -657,22 +664,26 @@ command_wipe() {
 # port, and takes a node that does not answer out until it answers again.
 LB_VIP=${LB_VIP:-$(hostname -I | awk '{print $1}')}
 LB_PORT=${LB_PORT:-1883}
+LB_TLS_PORT=${LB_TLS_PORT:-8883}
 LB_CONFIG=/etc/keepalived/keepalived.conf
 
 command_lb() {
     case ${1:-status} in
         up)
             {
-                echo "# Written by test_cluster.sh lb up: the test cluster behind $LB_VIP:$LB_PORT."
+                echo "# Written by test_cluster.sh lb up: the test cluster behind $LB_VIP:$LB_PORT and, over TLS, $LB_VIP:$LB_TLS_PORT."
                 echo "global_defs {"
                 echo "    router_id xmq_test_cluster"
                 echo "}"
-                echo "virtual_server $LB_VIP $LB_PORT {"
+                # One for the clients' port and one for TLS, each to the nodes' port of that kind.
+                local port_of vport node address
+                for vport in "$LB_PORT:client_port" "$LB_TLS_PORT:tls_port"; do
+                port_of=${vport#*:}
+                echo "virtual_server $LB_VIP ${vport%%:*} {"
                 echo "    delay_loop 2"
                 echo "    lb_algo lc"
                 echo "    lb_kind NAT"
                 echo "    protocol TCP"
-                local node address
                 for node in $NODES; do
                     # This machine by its LAN address: /etc/hosts may name it 127.0.1.1.
                     if [ "$(node_host "$node")" = "$LOCAL_HOST" ]; then
@@ -680,7 +691,7 @@ command_lb() {
                     else
                         address=$(getent ahostsv4 "$(node_host "$node")" | awk 'NR == 1 {print $1}')
                     fi
-                    echo "    real_server $address $(client_port "$(node_name "$node")") {"
+                    echo "    real_server $address $($port_of "$(node_name "$node")") {"
                     echo "        weight 1"
                     echo "        TCP_CHECK {"
                     echo "            connect_timeout 2"
@@ -688,6 +699,7 @@ command_lb() {
                     echo "    }"
                 done
                 echo "}"
+                done
             } | sudo -n tee "$LB_CONFIG" >/dev/null
             sudo -n modprobe ip_vs
             sudo -n systemctl restart keepalived

@@ -133,7 +133,8 @@ void ScenarioEngine::verifyScenario() const
 }
 
 void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCredentials& serverCredentials,
-                                     const client::ConnectParameters& connectParameters, const ProtocolVersion protocolVersion) const
+                                     const client::ConnectParameters& connectParameters, const ProtocolVersion protocolVersion,
+                                     const shared_ptr<SSLKeys>& sslKeys) const
 {
     const ConnectCredentials probeCredentials("xmq_scn-connect-probe", serverCredentials.getUsername(), serverCredentials.getPassword());
 
@@ -142,7 +143,7 @@ void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCreden
     ReasonCode reasonCode;
     try
     {
-        reasonCode = probeClient.connect(serverHost, probeCredentials, connectParameters, protocolVersion, {}, m_sslKeys);
+        reasonCode = probeClient.connect(serverHost, probeCredentials, connectParameters, protocolVersion, {}, sslKeys);
     }
     catch (const std::exception& e)
     {
@@ -162,7 +163,8 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
                                                        const size_t clientIndex, const size_t clientCount, atomic_size_t& connectedCount,
                                                        Semaphore& allConnected, RoundTripLatency& roundTripLatency,
                                                        const ConnectCredentials& connectCredentials,
-                                                       const SMessageProperties& connectProperties) const
+                                                       const SMessageProperties& connectProperties,
+                                                       const shared_ptr<SSLKeys>& sslKeys) const
 {
     String bindAddress;
     if (!m_bindAddresses.empty())
@@ -172,9 +174,17 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
 
     auto client = make_shared<client::MqttClient>(m_logEngine, "", bindAddress);
     roundTripLatency.sent();
-    const auto reasonCode = client->connectAsync(serverHost, connectCredentials, connectParameters, protocolVersion, connectProperties, m_sslKeys,
-                                                 [this, &connectedCount, clientCount, &allConnected, &roundTripLatency](const SMessage&)
+    // Once: the counters and the latency live in the caller's frame, which is gone by the time a
+    // later CONNACK arrives - a client the broker disconnected (a cluster node handing the session
+    // to another) connects again through the same callback, and crashed the run in the publish phase.
+    const auto counted = make_shared<atomic_bool>(false);
+    const auto reasonCode = client->connectAsync(serverHost, connectCredentials, connectParameters, protocolVersion, connectProperties, sslKeys,
+                                                 [this, &connectedCount, clientCount, &allConnected, &roundTripLatency, counted](const SMessage&)
                                                  {
+                                                     if (counted->exchange(true))
+                                                     {
+                                                         return;
+                                                     }
                                                      if (m_paceMaker)
                                                      {
                                                          roundTripLatency.received();
@@ -255,7 +265,8 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                                                const string&                    clientIdPrefix,
                                                                const string&                    scenarioTitle,
                                                                const string_view                progressLabel,
-                                                               const SMessageProperties&        connectProperties) const
+                                                               const SMessageProperties&        connectProperties,
+                                                               const shared_ptr<SSLKeys>&       sslKeys) const
 {
     mutex                       amutex;
     vector<client::SMqttClient> clients;
@@ -338,7 +349,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     for (size_t i = 0; i < threadCount; ++i)
     {
         threads.emplace_back([this, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &serverHost, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
-                              clientCount, &clients, testEndTime, &roundTripLatency]
+                              clientCount, &clients, testEndTime, &roundTripLatency, &sslKeys]
                              {
                                  size_t clientIndex = 0;
                                  while (!clientIndices.empty() && clientIndices.pop_front(clientIndex, 100ms))
@@ -365,7 +376,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      {
                                          auto client = connectClientAsync(serverHost, connectParameters, protocolVersion, clientIndex, clientCount,
                                                                           connectedCount, allConnected, roundTripLatency, connectCredentials,
-                                                                          connectProperties);
+                                                                          connectProperties, sslKeys);
 
                                          const scoped_lock lock(amutex);
                                          clients.push_back(std::move(client));
@@ -741,13 +752,14 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     // of clients failing individually.
     // The probe keeps a clean session regardless of the scenario: it must not leave a
     // persistent session behind for its own client id.
-    probeConnection(serverHost, connectCredentials, connectParameters, publisherProtocolVersion);
+    const auto& subscriberKeys = m_subscriberSslKeysSet ? m_subscriberSslKeys : m_sslKeys;
+    probeConnection(serverHost, connectCredentials, connectParameters, publisherProtocolVersion, m_sslKeys);
     if (subscriberHost != serverHost)
     {
         // Two brokers means two ways to be unreachable, and the second one would otherwise
         // only surface after every publisher had already connected.
         probeConnection(subscriberHost, subscriberCredentials, connectParameters,
-                        static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger()));
+                        static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger()), subscriberKeys);
     }
 
     // Create publishers:
@@ -758,7 +770,8 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
                                       publisherProtocolVersion, publisherCount, publisherClientIdPrefix,
                                       scenarioTitle + " (connect clients)", "Connecting publishers",
                                       groupProperties(m_scenario.m_publishers.m_connect_properties,
-                                                      m_connectProperties, publisherProtocolVersion, "connect"));
+                                                      m_connectProperties, publisherProtocolVersion, "connect"),
+                                      m_sslKeys);
     stopwatch.stop();
 
     if (typeFromString(m_scenario.m_type) == Type::Connections)
@@ -781,7 +794,8 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
                                        subscriberProtocolVersion, subscriberCount, subscriberClientIdPrefix,
                                        scenarioTitle + " (connect clients)", "Connecting subscribers",
                                        groupProperties(m_scenario.m_subscribers.m_connect_properties,
-                                                       m_connectProperties, subscriberProtocolVersion, "connect"));
+                                                       m_connectProperties, subscriberProtocolVersion, "connect"),
+                                       subscriberKeys);
 
     clientPublishLatencies.resize(subscriberCount);
 

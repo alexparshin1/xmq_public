@@ -400,9 +400,81 @@ bool Cluster::clusterExists() const
 
 void Cluster::rejoinInBackground()
 {
-    if (m_coordinatorView.load() != nullptr && !m_rejoinThread.joinable())
+    // The same thread then keeps the links: whether this node was a member at start or becomes
+    // one later, by joining, it has links that can break.
+    if (!m_rejoinThread.joinable())
     {
-        m_rejoinThread = thread([this] { rejoin(); });
+        m_rejoinThread = thread([this]
+                                {
+                                    rejoin();
+                                    keepLinks();
+                                });
+    }
+}
+
+void Cluster::keepLinks()
+{
+    // A link between two running nodes that broke - closed by the other end, or its CONNECT not
+    // answered in time by a node busy with clients' TLS handshakes - was opened again by nothing:
+    // links were opened only as a node started, joined or rejoined, and the two nodes stayed
+    // unlinked, each one's subscribers out of reach of the other's publishers, until one of them
+    // restarted. Once a second, a member that holds its lease and has no link from this node is
+    // linked to again.
+    constexpr auto checkInterval = 1s;
+    constexpr auto step = 100ms;
+    while (!m_stopping)
+    {
+        for (auto waited = 0ms; waited < checkInterval && !m_stopping; waited += step)
+        {
+            this_thread::sleep_for(step);
+        }
+
+        auto* coordinator = m_coordinatorView.load();
+        if (m_stopping || coordinator == nullptr || !coordinator->isParticipating())
+        {
+            continue;
+        }
+
+        vector<Coordinator::Member> members;
+        try
+        {
+            members = coordinator->members();
+        }
+        catch (const Exception&)
+        {
+            continue; // The storage is away: there is no telling who is running.
+        }
+
+        for (const auto& member: members)
+        {
+            if (m_stopping)
+            {
+                return;
+            }
+            if (member.m_name == m_server->getNodeName() || !member.m_alive || member.m_hostPort.empty())
+            {
+                continue;
+            }
+            if (const auto node = findClusterNode(member.m_name); node && node->isConnected())
+            {
+                continue;
+            }
+
+            logMessage(LogPriority::Info, [&member] { return format("No link to node '{}': opening it again.", member.m_name); });
+            CServerNode nodeSettings;
+            nodeSettings.m_node_name = member.m_name;
+            nodeSettings.m_host_port = member.m_hostPort;
+            nodeSettings.m_encrypted = true;
+            nodeSettings.m_ssl_keys = m_settings->m_connections.m_ssl_keys;
+            try
+            {
+                (void) connectNode(nodeSettings);
+            }
+            catch (const Exception& e)
+            {
+                logMessage(LogPriority::Warning, [&member, &e] { return format("Can't link to node '{}': {}", member.m_name, e.what()); });
+            }
+        }
     }
 }
 
@@ -584,7 +656,7 @@ void Cluster::registerConnectedNode(const SNode& node)
 
         updateClusterInfo();
 
-        logMessage(LogPriority::Debug,
+        logMessage(LogPriority::Info,
                    [&node]
                    {
                        return "Connected node '" + node->getName() + "'.";
@@ -677,7 +749,7 @@ void Cluster::disconnectNode(const SNode& node)
         const scoped_lock lock(m_movedMutex);
         erase_if(m_movedSessions, [&node](const auto& moved) { return moved.second.m_nodeName == node->getName(); });
     }
-    logMessage(LogPriority::Debug, [&node]
+    logMessage(LogPriority::Info, [&node]
                {
                    return "Disconnected node '" + node->getName() + "'.";
                });
@@ -1128,7 +1200,7 @@ bool Cluster::divertToMovedSession(const string& clientId, const SMessage& messa
         }
     }
     const auto published = dynamic_pointer_cast<mqtt::PublishMessage>(message);
-    const auto link = nodeName.empty() || !published ? nullptr : linkFrom(nodeName);
+    const auto link = nodeName.empty() || !published ? nullptr : linkFrom(nodeName, published->destination()->fullName());
     if (!link)
     {
         return false;
@@ -1143,10 +1215,17 @@ bool Cluster::divertToMovedSession(const string& clientId, const SMessage& messa
     return true;
 }
 
-shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName) const
+shared_ptr<ISubscriptionClient> Cluster::linkFrom(const string& nodeName, const string_view topicName) const
 {
-    // The client id a node connects to this one with; see ServerNode.
-    return m_server->getClientSession("node_" + nodeName + "_" + m_server->getNodeName());
+    // The client ids a node connects to this one with; see ServerNode.
+    const auto base = "node_" + nodeName + "_" + m_server->getNodeName();
+    const auto first = m_server->getClientSession(base);
+    if (!first || first->clusterLinkCount() <= 1)
+    {
+        return first;
+    }
+    const auto index = clusterLinkOf(topicName, first->clusterLinkCount());
+    return index == 0 ? first : m_server->getClientSession(base + "#" + to_string(index));
 }
 
 bool Cluster::holdForSession(const string& clientId, const SPublishMessage& message)

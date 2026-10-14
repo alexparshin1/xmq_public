@@ -1326,6 +1326,16 @@
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
+                    <xsd:element name="links" type="xsd:int" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>How many connections this node opens to each other node; 4 when
+                                absent. What a node publishes for another one's subscribers crosses the
+                                connection chosen by the topic, so one connection never has to carry it all,
+                                and the order of a topic's messages is kept. Cluster control messages and
+                                shared subscriptions use the first connection.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>
 

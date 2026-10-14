@@ -60,6 +60,10 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
                     "stderr with exit status 1.");
     defineParameter("redis-command", "", "command", "", alwaysVisible, "",
                     "The command for --redis, as it would be typed: words separated by spaces.");
+    defineOption("keep-cluster", "", alwaysVisible,
+                 "Run on the test cluster as it is. Without it, a test that lists its nodes brings the "
+                 "test cluster up as listed - name@host in that order, through test_cluster.sh - "
+                 "and, when it runs with other nodes, takes it down, wipes it and brings it up again.");
     defineOption("dry-run", "", alwaysVisible,
                  "Read the test file, print the plan and the checks, and exit without running anything. "
                  "A test takes minutes, and a mistake in it is cheaper to hear about here.");

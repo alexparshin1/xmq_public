@@ -676,24 +676,47 @@ void Server::stopServer()
                                                });
             if (!unacknowledged.empty())
             {
+                logMessage(LogSubject::ClusterEvents, LogPriority::Info,
+                           format("Stopping: {} shared message(s) this node's members have not acknowledged go to other nodes.",
+                                  unacknowledged.size()));
+            }
+            if (!unacknowledged.empty())
+            {
                 getSubscriptionManager()->handOffSharedToOtherNodes(unacknowledged);
-                // The links send what was queued for them before they close.
-                const auto linksIdle = [this]
+                // The links send what was queued for them before they close: for as long as the
+                // other nodes keep acknowledging, up to a limit, and a second more without. A fixed
+                // second was not always enough - acknowledgements that came at the pace of a slow
+                // member still being served here took 2.4 s for 49 messages, and the rest were lost.
+                const auto unsent = [this]
                 {
-                    bool idle = true;
-                    getClientSessionManager()->forEach([&idle](const SClientSession& session)
+                    size_t queued = 0;
+                    getClientSessionManager()->forEach([&queued](const SClientSession& session)
                                                        {
-                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr;
-                                                               queue && queue->size() > 0)
+                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr)
                                                            {
-                                                               idle = false;
+                                                               queued += queue->size();
                                                            }
                                                        });
-                    return idle;
+                    return queued;
                 };
-                for (int i = 0; i < 20 && !linksIdle(); ++i)
+                constexpr auto patience = 1s;
+                constexpr auto limit = 10s;
+                const auto     started = chrono::steady_clock::now();
+                auto           lastProgress = started;
+                auto           left = unsent();
+                while (left > 0 && chrono::steady_clock::now() - lastProgress < patience && chrono::steady_clock::now() - started < limit)
                 {
                     this_thread::sleep_for(50ms);
+                    if (const auto now = unsent(); now < left)
+                    {
+                        left = now;
+                        lastProgress = chrono::steady_clock::now();
+                    }
+                }
+                if (left > 0)
+                {
+                    logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
+                               format("Stopping: {} shared message(s) handed to other nodes were not acknowledged in time.", left));
                 }
             }
         }
@@ -832,6 +855,13 @@ void Server::closeSession(const SClientSession& clientSession, const bool takeOv
             closeConnection(closingConnection);
         }
         return;
+    }
+
+    if (clientSession->isClusterSession() && clientSession->isConnected())
+    {
+        logMessage(LogSubject::ClusterConnections, LogPriority::Info,
+                   format("Link {} from node '{}' closed{}.", clientSession->getClientId(), clientSession->bridgeOrigin(),
+                          takeOver ? ": the node opened it again" : ""));
     }
 
     if (clientSession->isConnected())
@@ -1320,6 +1350,22 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
             clientSession->setBridgeOrigin(string(bridgeOrigin));
         }
         clientSession->setClusterSession(connectMessage->getUsername() == "cluster");
+        if (const auto& messageProperties = connectMessage->getProperties(); messageProperties && clientSession->isClusterSession())
+        {
+            // "index/count": which of a node's links to this one it is.
+            const string link(messageProperties->getUserProperty("cluster-link"));
+            if (const auto slash = link.find('/'); slash != string::npos)
+            {
+                const auto index = stoul(link.substr(0, slash));
+                const auto count = stoul(link.substr(slash + 1));
+                if (count > 0 && index < count)
+                {
+                    clientSession->setClusterLink(index, count);
+                }
+                logMessage(LogSubject::ClusterConnections, LogPriority::Info,
+                           format("Link {} accepted from node '{}'.", connectMessage->getParameters()->getClientId(), clientSession->bridgeOrigin()));
+            }
+        }
 
         if (!existingClientSession)
         {

@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "common/ReadBufferSizer.h"
 #include "common/AtomicSharedPtr.h"
 #include "../Subscription/Subscription.h"
 #include "ClientConnection.h"
@@ -499,6 +500,22 @@ public:
         return isClusterSession();
     }
 
+    void setClusterLink(const size_t index, const size_t count)
+    {
+        m_clusterLinkIndex = static_cast<uint32_t>(index);
+        m_clusterLinkCount = static_cast<uint32_t>(count);
+    }
+
+    [[nodiscard]] size_t clusterLinkCount() const override
+    {
+        return m_clusterLinkCount;
+    }
+
+    [[nodiscard]] size_t clusterLinkIndex() const override
+    {
+        return m_clusterLinkIndex;
+    }
+
     [[nodiscard]] std::string bridgeOrigin() const override
     {
         return m_bridgeOrigin == nullptr ? std::string() : *m_bridgeOrigin;
@@ -562,8 +579,11 @@ private:
     MessageWriter*                          m_messageWriter {nullptr};    ///< Message writer.
     AtomicSharedPtr<SocketWriteBuffer>      m_socketWriteBuffer;          ///< Socket write buffer; replaced on takeover.
     sptk::Buffer                            m_readBuffer;                 ///< Per-session inbound read buffer (drained in batches.)
+    ReadBufferSizer                         m_readBufferSizer;            ///< Keeps m_readBuffer about the size of what is read.
     AtomicSharedPtr<sptk::Buffer>              m_adoptedBytes;            ///< Bytes handed over by a takeover; see adoptPendingBytes().
     AtomicSharedPtr<sptk::Buffer>              m_bytesAwaitingAuthentication; ///< What followed a CONNECT an extension has not answered yet.
+    std::atomic_uint32_t                    m_clusterLinkIndex {0};       ///< Which of the links of the node it is.
+    std::atomic_uint32_t                    m_clusterLinkCount {1};       ///< How many links the node has to this one.
     std::atomic_bool                        m_isClusterSession {false};   ///< Is this session a cluster control session?
     std::atomic<uint64_t>                   m_reactorReadyTimestamp {0};  ///< When the reactor last saw this session readable; see setReactorReadyTimestamp().
     std::atomic_bool                        m_authenticationPending {false}; ///< CONNECT is waiting on an extension; see authenticationPending().
