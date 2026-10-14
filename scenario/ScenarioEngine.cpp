@@ -172,9 +172,17 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
 
     auto client = make_shared<client::MqttClient>(m_logEngine, "", bindAddress);
     roundTripLatency.sent();
+    // Once: the counters and the latency live in the caller's frame, which is gone by the time a
+    // later CONNACK arrives - a client the broker disconnected (a cluster node handing the session
+    // to another) connects again through the same callback, and crashed the run in the publish phase.
+    const auto counted = make_shared<atomic_bool>(false);
     const auto reasonCode = client->connectAsync(serverHost, connectCredentials, connectParameters, protocolVersion, connectProperties, m_sslKeys,
-                                                 [this, &connectedCount, clientCount, &allConnected, &roundTripLatency](const SMessage&)
+                                                 [this, &connectedCount, clientCount, &allConnected, &roundTripLatency, counted](const SMessage&)
                                                  {
+                                                     if (counted->exchange(true))
+                                                     {
+                                                         return;
+                                                     }
                                                      if (m_paceMaker)
                                                      {
                                                          roundTripLatency.received();
