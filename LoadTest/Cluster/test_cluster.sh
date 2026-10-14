@@ -505,9 +505,11 @@ command_check_logs() {
 CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
 # ~/cluster on every machine links to LoadTest/Cluster there, so the scripts a timeline step runs on
 # a machine are those of the branch the machine runs; the test cluster's data is in ~/cluster.run.
-# A worktree of ~/workspace/xmq_public on each machine, detached at the branch as pushed: the working
-# tree there - its branch, its changes, its build - is left alone.
-BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public_cluster'}
+# ~/workspace/xmq_public on each machine, at the branch as pushed, built in its build/ - the one
+# tree and the one build there. A separate worktree with a build of its own was how a node ended up
+# running a binary from another build than the one just made. A tree with changes not committed is
+# not touched: the branch is not checked out over them.
+BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public'}
 
 # Bring the build tree on this machine to origin/<branch> and build the server there; print the commit.
 # At the lowest priority, on half the cores, and not beside the farm: theater runs the smart home.
@@ -517,11 +519,12 @@ build_branch_here() {
     if pgrep -f "^bash $HOME/build/build_all.sh" >/dev/null; then
         echo "the build farm is running here - deploy when it is done" >&2; return 1
     fi
-    git -C "$HOME/workspace/xmq_public" fetch -q origin "$branch" || return 1
-    if [ ! -d "$tree" ]; then
-        git -C "$HOME/workspace/xmq_public" worktree add -q --detach "$tree" "origin/$branch" || return 1
+    git -C "$tree" fetch -q origin "$branch" || return 1
+    if ! git -C "$tree" diff --quiet HEAD; then
+        echo "$tree has changes not committed - deploy does not check a branch out over them" >&2; return 1
     fi
-    git -C "$tree" checkout -q --detach "origin/$branch" || return 1
+    git -C "$tree" checkout -q "$branch" 2>/dev/null || git -C "$tree" checkout -q -b "$branch" "origin/$branch" || return 1
+    git -C "$tree" merge -q --ff-only "origin/$branch" || return 1
     # RelWithDebInfo: close to what ships, and a node that crashes still says where.
     [ -f "$tree/build/CMakeCache.txt" ] ||
         cmake -S "$tree" -B "$tree/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$HOME/.local" >/dev/null 2>&1 ||
