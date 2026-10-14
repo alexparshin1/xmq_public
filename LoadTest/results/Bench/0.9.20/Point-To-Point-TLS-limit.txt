@@ -29,3 +29,13 @@ Not the cause: SSLSocket::socketBytes() counts one record only (reproduced), but
 receive path - SSL_read(0) had no samples; both server and client read until RECV_RETRY.
 
 Raw data: LoadTest/results/raw/Cluster-2026-10-12/P2P-tls-* (untracked).
+
+Ten minutes each, 2026-10-14, at 7d98978 with SPTK f289b8a4 (adaptive read buffer, SSL_MODE_RELEASE_BUFFERS,
+own threads for cluster links), N publishers + N subscribers at 2 msg/s:
+
+Rate asked   Rate held   Median    Average   Server CPU   Server RSS
+  50K/s        49.97K/s   221 us    217 us     302%        1.7 GB
+  75K/s        74.94K/s   1.3 ms    2.0 ms     329%        2.5 GB
+ 100K/s        99.80K/s   578 ms    596 ms     348%        4.1 GB
+
+The bench's practical limit over TLS is between 75K and 100K msg/s: 75K holds at a millisecond or two.
