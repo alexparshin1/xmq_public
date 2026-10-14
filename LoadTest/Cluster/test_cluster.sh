@@ -71,6 +71,7 @@ REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
 # Links each node opens to each other node; 4 is the server's own default.
 CLUSTER_LINKS=${CLUSTER_LINKS:-}
+CLUSTER_LOG_LEVEL=${CLUSTER_LOG_LEVEL:-}
 # One spelling for every node, which is what the cluster asks of them; see the note at the top.
 REDIS_URI=${REDIS_URI:-redis://$REDIS_HOST:$REDIS_PORT/$REDIS_DB}
 CLUSTER_PASSWORD=${CLUSTER_PASSWORD:-Stand-Cluster1}
