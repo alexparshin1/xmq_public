@@ -48,7 +48,6 @@ public:
      * @param socket            Socket to read from.
      * @return Packet
      */
-    [[nodiscard]] virtual Packet readPacket(sptk::TCPSocket* socket) const = 0;
 
     /**
      * @brief Read a single message packet from the buffer
@@ -58,18 +57,6 @@ public:
      * @return Packet
      */
     [[nodiscard]] virtual Packet readPacket(const sptk::Buffer& buffer, bool& empty, size_t& offset) const = 0;
-
-    template<typename T>
-        requires(std::is_trivially_copyable_v<T> || std::is_enum_v<T>)
-    [[nodiscard]] static bool tryRead(sptk::TCPSocket* socket, T& data)
-    {
-        if (socket->socketBytes() >= sizeof(data))
-        {
-            socket->read(reinterpret_cast<uint8_t*>(&data), sizeof(data));
-            return true;
-        }
-        return false;
-    }
 
     /**
      * @brief Message reader factory

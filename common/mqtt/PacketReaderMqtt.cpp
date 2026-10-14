@@ -25,28 +25,6 @@ ProtocolVersion PacketReaderMqtt::protocolVersion() const
     return ProtocolVersion::MqttV31;
 }
 
-size_t PacketReaderMqtt::readVariableLength(TCPSocket* socket, uint8_t& bytes)
-{
-    std::byte digit;
-    size_t    value = 0;
-
-    constexpr unsigned  initialMultiplier {128};
-    constexpr std::byte valueContinuation {128};
-
-    auto multiplier = initialMultiplier;
-
-    do
-    {
-        constexpr std::byte valueMaskInByte {127};
-        socket->read(reinterpret_cast<uint8_t*>(&digit), 1);
-        value += static_cast<size_t>(digit & valueMaskInByte) * multiplier;
-        multiplier *= static_cast<size_t>(valueContinuation);
-        ++bytes;
-    } while ((digit & valueContinuation) != static_cast<std::byte>(0));
-
-    return value;
-}
-
 uint32_t PacketReaderMqtt::readVariableLength(const Buffer& buffer, size_t offset)
 {
     std::byte digit;
@@ -67,37 +45,6 @@ uint32_t PacketReaderMqtt::readVariableLength(const Buffer& buffer, size_t offse
     } while ((digit & valueContinuation) != static_cast<std::byte>(0));
 
     return value;
-}
-
-Packet PacketReaderMqtt::readPacket(TCPSocket* socket) const
-{
-    static constexpr auto     readTimeout = 10s;
-    static constexpr uint32_t valueContinuation = 128;
-    static constexpr uint32_t valueMaskInByte = 127;
-
-    // Read the fixed header and the first getByte of the remaining length
-    if (FixedHeader packetHeader {};
-        tryRead(socket, packetHeader))
-    {
-        uint8_t  extraRemainingLengthBytes = 0;
-        uint64_t remainingLength = packetHeader.m_remainingLength;
-
-        if ((remainingLength & valueContinuation) != 0)
-        {
-            remainingLength &= valueMaskInByte;
-            remainingLength += readVariableLength(socket, extraRemainingLengthBytes);
-        }
-
-        Packet packet(bit_cast<uint8_t*>(&packetHeader), sizeof(FixedHeader),
-                      remainingLength);
-        readWithTimeout(*socket, packet.data(), remainingLength, readTimeout);
-        packet.bytes(remainingLength);
-        packet.setHeaderSize(sizeof(FixedHeader) + extraRemainingLengthBytes);
-
-        return packet;
-    }
-
-    return Packet {};
 }
 
 Packet PacketReaderMqtt::readPacket(const Buffer& buffer, bool& empty, size_t& offset) const

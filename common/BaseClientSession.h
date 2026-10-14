@@ -183,12 +183,6 @@ public:
         return socket && socket->active();
     }
 
-    bool canRead(const size_t byteCount) const
-    {
-        const auto socket = getSocket();
-        return socket && socket->socketBytes() >= byteCount;
-    }
-
     virtual void closeSession();
 
     void onMessage(MessageCallback messageCallback) override;

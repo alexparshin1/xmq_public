@@ -32,7 +32,6 @@ public:
     ~PacketReaderMqtt() override = default;
 
     [[nodiscard]] ProtocolVersion protocolVersion() const override;
-    [[nodiscard]] Packet          readPacket(sptk::TCPSocket* socket) const override;
     [[nodiscard]] Packet          readPacket(const sptk::Buffer& buffer, bool& empty, size_t& offset) const override;
 
 private:
@@ -40,7 +39,6 @@ private:
      * @brief Read the second and the following bytes of variable length.
      * @return variable length.
      */
-    [[nodiscard]] static uint64_t readVariableLength(sptk::TCPSocket* socket, uint8_t& bytes);
     [[nodiscard]] static uint32_t readVariableLength(const sptk::Buffer& buffer, size_t offset);
 };
 
