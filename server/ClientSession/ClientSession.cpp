@@ -986,6 +986,7 @@ SendReceiveResult ClientSession::receiveMessages()
 
             result.bytes += packet.fullSize();
             const auto packetSize = packet.fullSize();
+            m_readBufferSizer.packet(packetSize);
             if (const auto message = decodePacket(std::move(packet), packetReceivedTS))
             {
                 // Carries the reactor's own timestamp into the trace, so the wait between the
@@ -1062,6 +1063,7 @@ SendReceiveResult ClientSession::receiveMessages()
         if (offset >= m_readBuffer.bytes())
         {
             m_readBuffer.bytes(0);
+            m_readBufferSizer.settle(m_readBuffer);
         }
         else if (offset > 0)
         {

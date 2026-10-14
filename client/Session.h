@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "common/ReadBufferSizer.h"
 #include <atomic>
 #include <mutex>
 
@@ -271,6 +272,7 @@ private:
     std::atomic<std::chrono::seconds>  m_keepAlivePeriod {std::chrono::seconds {0}};
     sptk::Semaphore                    m_isDisconnectSent;                                   ///< Is disconnect sent flag.
     sptk::Buffer                       m_readBuffer;                                         ///< Inbound read buffer (drained in batches).
+    ReadBufferSizer                    m_readBufferSizer;                                    ///< Keeps m_readBuffer about the size of what is read.
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.
     sptk::Buffer                       m_ackBatchBuffer;                                     ///< Acks accumulated during a drain, flushed with a single write. Guarded by m_mutex.
     std::shared_ptr<sptk::Logger>      m_logger;                                             ///< Logger.

@@ -271,6 +271,12 @@ ReasonCode Session::receiveConnect()
                 applyServerReceiveMaximum(message);
                 monitorIncomingDataUnlocked(true);
                 setStateUnlocked(State::Connected);
+                // What came with the CONNACK - a resumed session's queued messages - is in the read
+                // buffer now, not in the socket, and the socket will not announce it again.
+                if (m_readConsumed < m_readBuffer.bytes())
+                {
+                    queueReceiveMessages();
+                }
             }
             else
             {
@@ -487,6 +493,7 @@ SendReceiveResult Session::receiveMessages()
             m_readConsumed = offset;
 
             byteCounter += packet.fullSize();
+            m_readBufferSizer.packet(packet.fullSize());
             packetBeforeDecodeTS = LatencyTrace::now();
             message = protocol().messageReader()->readMessage(std::move(packet), *this, packetReceivedTS);
             if (!message)
@@ -657,6 +664,7 @@ void Session::discardConsumedReadBufferUnlocked()
     if (m_readConsumed >= m_readBuffer.bytes())
     {
         m_readBuffer.bytes(0);
+        m_readBufferSizer.settle(m_readBuffer);
     }
     else
     {

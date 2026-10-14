@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "common/ReadBufferSizer.h"
 #include "common/AtomicSharedPtr.h"
 #include "../Subscription/Subscription.h"
 #include "ClientConnection.h"
@@ -578,6 +579,7 @@ private:
     MessageWriter*                          m_messageWriter {nullptr};    ///< Message writer.
     AtomicSharedPtr<SocketWriteBuffer>      m_socketWriteBuffer;          ///< Socket write buffer; replaced on takeover.
     sptk::Buffer                            m_readBuffer;                 ///< Per-session inbound read buffer (drained in batches.)
+    ReadBufferSizer                         m_readBufferSizer;            ///< Keeps m_readBuffer about the size of what is read.
     AtomicSharedPtr<sptk::Buffer>              m_adoptedBytes;            ///< Bytes handed over by a takeover; see adoptPendingBytes().
     AtomicSharedPtr<sptk::Buffer>              m_bytesAwaitingAuthentication; ///< What followed a CONNECT an extension has not answered yet.
     std::atomic_uint32_t                    m_clusterLinkIndex {0};       ///< Which of the links of the node it is.
