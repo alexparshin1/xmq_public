@@ -395,9 +395,13 @@ void ClusterTestRunner::applyCommandLineOverrides()
         {
             auto& node = m_test.m_nodes[index];
             node.m_encrypted = true;
-            if (!node.m_portGiven && !node.m_host.empty())
+            if (node.m_tlsPort != 0)
             {
-                node.m_port = ClusterTestDefinition::defaultNodePort(index, true);
+                node.m_port = node.m_tlsPort;
+            }
+            else if (!node.m_portGiven && !node.m_host.empty())
+            {
+                node.m_port = ClusterTestDefinition::defaultNodePort(m_test.clusterIndex(node.m_name, index), true);
             }
         }
     }
@@ -649,6 +653,15 @@ shared_ptr<SSLKeys> ClusterTestRunner::keysFor(const bool encrypted) const
 
 string ClusterTestRunner::clusterNodes() const
 {
+    if (!m_test.m_cluster.empty())
+    {
+        string all;
+        for (const auto& item : m_test.m_cluster)
+        {
+            all += (all.empty() ? "" : " ") + item;
+        }
+        return all;
+    }
     string nodes;
     for (const auto& node : m_test.m_nodes)
     {
@@ -673,12 +686,19 @@ bool ClusterTestRunner::bringUpCluster() const
     for (size_t index = 0; index < m_test.m_nodes.size(); ++index)
     {
         const auto& node = m_test.m_nodes[index];
+        const bool  inCluster = m_test.m_cluster.empty() ||
+                               ranges::any_of(m_test.m_cluster, [&node](const string& item)
+                                              { return item == node.m_name || item.starts_with(node.m_name + "@"); });
+        if (!inCluster)
+        {
+            continue; // A load balancer or a broker outside it: nothing to bring up.
+        }
         if (node.m_host.empty())
         {
             CERR(format("Node '{}' has no 'host': the test cluster cannot be brought up without one.", node.m_name));
             return false;
         }
-        if (const auto expected = ClusterTestDefinition::defaultNodePort(index, node.m_encrypted);
+        if (const auto expected = ClusterTestDefinition::defaultNodePort(m_test.clusterIndex(node.m_name, index), node.m_encrypted);
             node.m_portGiven && node.m_port != expected)
         {
             CERR(format("Node '{}' is number {} in 'nodes', which test_cluster.sh serves on port {}, not {}.",

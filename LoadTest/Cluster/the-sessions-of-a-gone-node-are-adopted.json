@@ -8,6 +8,7 @@
     "run from thinker10. The grep is the check: xmq_sub -v prints each message it receives with its",
     "payload in brackets."
   ],
+  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -29,21 +30,18 @@
     {
       "name": "node1",
       "host": "thinker10",
-      "port": 2884,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node2",
       "host": "thinker10",
-      "port": 2885,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
       "host": "thinker11",
-      "port": 2887,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }

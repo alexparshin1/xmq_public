@@ -42,7 +42,7 @@
 #                               lay a server binary down on those machines, with the SPTK it was
 #                               built against, and record which commit it was built from
 #
-# Overrides: CLUSTER_LOG_LEVEL, CLUSTER_LINKS, LB_VIP, LB_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
+# Overrides: CLUSTER_LOG_LEVEL, CLUSTER_LINKS, LB_VIP, LB_PORT, LB_TLS_PORT, XMQ_SCN_CLUSTER, CLUSTER_DEPLOY_HOSTS, BUILD_TREE, CLUSTER_DIR, SERVER, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_URI, CLUSTER_PASSWORD,
 # CLIENT_USER, CLIENT_PASSWORD, USER_DATABASE_URI, EXTENSION_LIBRARY, NODES, ALLOW_MIXED_BUILDS.
 #
 # `up` writes the settings it used to $CLUSTER_DIR/cluster.env on every machine of the test cluster, and every
@@ -661,22 +661,26 @@ command_wipe() {
 # port, and takes a node that does not answer out until it answers again.
 LB_VIP=${LB_VIP:-$(hostname -I | awk '{print $1}')}
 LB_PORT=${LB_PORT:-1883}
+LB_TLS_PORT=${LB_TLS_PORT:-8883}
 LB_CONFIG=/etc/keepalived/keepalived.conf
 
 command_lb() {
     case ${1:-status} in
         up)
             {
-                echo "# Written by test_cluster.sh lb up: the test cluster behind $LB_VIP:$LB_PORT."
+                echo "# Written by test_cluster.sh lb up: the test cluster behind $LB_VIP:$LB_PORT and, over TLS, $LB_VIP:$LB_TLS_PORT."
                 echo "global_defs {"
                 echo "    router_id xmq_test_cluster"
                 echo "}"
-                echo "virtual_server $LB_VIP $LB_PORT {"
+                # One for the clients' port and one for TLS, each to the nodes' port of that kind.
+                local port_of vport node address
+                for vport in "$LB_PORT:client_port" "$LB_TLS_PORT:tls_port"; do
+                port_of=${vport#*:}
+                echo "virtual_server $LB_VIP ${vport%%:*} {"
                 echo "    delay_loop 2"
                 echo "    lb_algo lc"
                 echo "    lb_kind NAT"
                 echo "    protocol TCP"
-                local node address
                 for node in $NODES; do
                     # This machine by its LAN address: /etc/hosts may name it 127.0.1.1.
                     if [ "$(node_host "$node")" = "$LOCAL_HOST" ]; then
@@ -684,7 +688,7 @@ command_lb() {
                     else
                         address=$(getent ahostsv4 "$(node_host "$node")" | awk 'NR == 1 {print $1}')
                     fi
-                    echo "    real_server $address $(client_port "$(node_name "$node")") {"
+                    echo "    real_server $address $($port_of "$(node_name "$node")") {"
                     echo "        weight 1"
                     echo "        TCP_CHECK {"
                     echo "            connect_timeout 2"
@@ -692,6 +696,7 @@ command_lb() {
                     echo "    }"
                 done
                 echo "}"
+                done
             } | sudo -n tee "$LB_CONFIG" >/dev/null
             sudo -n modprobe ip_vs
             sudo -n systemctl restart keepalived

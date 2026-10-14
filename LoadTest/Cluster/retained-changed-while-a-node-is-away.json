@@ -8,6 +8,7 @@
     "test_cluster.sh, run from thinker10. xmq_sub -v prints each message with its payload in brackets,",
     "and 'Received N message(s).' at the end; an empty message published retained clears a topic."
   ],
+  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -29,21 +30,18 @@
     {
       "name": "node1",
       "host": "thinker10",
-      "port": 2884,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
       "host": "thinker11",
-      "port": 2886,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node5",
       "host": "theater",
-      "port": 2888,
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }

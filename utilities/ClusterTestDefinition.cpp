@@ -167,6 +167,17 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         m_loadGroups[groupName] = nodeName;
     }
 
+    // The whole test cluster. 'nodes' are the ones the test talks to - often a few of it, and a load
+    // balancer in front of it that is no node at all - so where the cluster is larger, it is named.
+    m_cluster.clear();
+    for (const auto& word : sptk::Strings(text(root, "cluster"), " ", sptk::Strings::SplitMode::DELIMITER))
+    {
+        if (!word.empty())
+        {
+            m_cluster.emplace_back(word);
+        }
+    }
+
     // TLS for every node, unless a node says otherwise.
     const auto encrypted = boolean(root, "encrypted", false);
     for (const auto& node : root->nodes("nodes"))
@@ -180,14 +191,15 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
         item.m_host = text(node, "host");
         item.m_encrypted = boolean(node, "encrypted", encrypted);
         item.m_portGiven = child(node, "port") != nullptr;
+        item.m_tlsPort = child(node, "tls-port") ? port(node, "tls-port", 0) : 0;
         if (item.m_portGiven)
         {
-            item.m_port = port(node, "port", 0);
+            item.m_port = item.m_encrypted && item.m_tlsPort != 0 ? item.m_tlsPort : port(node, "port", 0);
         }
         else if (!item.m_host.empty())
         {
             // test_cluster.sh's: a node's ports follow its place in the list.
-            item.m_port = defaultNodePort(m_nodes.size(), item.m_encrypted);
+            item.m_port = defaultNodePort(clusterIndex(item.m_name, m_nodes.size()), item.m_encrypted);
         }
         item.m_stopCommand = text(node, "stop");
         item.m_startCommand = text(node, "start");
@@ -423,6 +435,22 @@ void ClusterTestDefinition::load(const std::filesystem::path& testFile)
                                    "and 'port' in 'nodes'.", groupName, nodeName));
         }
     }
+}
+
+size_t ClusterTestDefinition::clusterIndex(const string& name, const size_t nodesIndex) const
+{
+    if (m_cluster.empty())
+    {
+        return nodesIndex;
+    }
+    for (size_t index = 0; index < m_cluster.size(); ++index)
+    {
+        if (m_cluster[index] == name || m_cluster[index].starts_with(name + "@"))
+        {
+            return index;
+        }
+    }
+    throw Exception(format("Node '{}' names no port and is not in 'cluster', so it has none.", name));
 }
 
 uint16_t ClusterTestDefinition::defaultNodePort(const size_t index, const bool encrypted)
