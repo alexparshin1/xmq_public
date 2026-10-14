@@ -39,3 +39,8 @@ Rate asked   Rate held   Median    Average   Server CPU   Server RSS
  100K/s        99.80K/s   578 ms    596 ms     348%        4.1 GB
 
 The bench's practical limit over TLS is between 75K and 100K msg/s: 75K holds at a millisecond or two.
+
+Saturation at 100K msg/s over TLS (2026-10-15, service at 857bd48, mpstat over 20 s of the message
+phase): 48% user, 25% sys, 23% softirq, 4% idle. Cores 0, 1, 2, 7 - one per igb receive queue -
+spend ~45% each in softirq (receiving); cores 3-6 run the server's threads; 7 server threads at
+97-99%. The 348% average above includes the connect phase. The limit is the machine.
