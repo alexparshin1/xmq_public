@@ -28,9 +28,28 @@ version() {
         flashmq)   echo "${VERSION_flashmq:-1.27.2}" ;;
         mosquitto) echo "${VERSION_mosquitto:-2.1.2}" ;;
         emqx)      echo "${VERSION_emqx:-6.3.1}" ;;
-        hivemq)    echo "${VERSION_hivemq:-CE-2026.5}" ;;
+        hivemq)    echo "${VERSION_hivemq:-2026.5}" ;;
     esac
 }
+
+# The name the records and the site give the broker, and its settings line: what the site shows under
+# "Settings". On AWS set SETTINGS_<broker> from the configuration there.
+display() {
+    case $1 in
+        xmq) echo "XMQ" ;; flashmq) echo "FlashMQ" ;; mosquitto) echo "Mosquitto" ;; emqx) echo "EMQX" ;; hivemq) echo "HiveMQ CE" ;;
+    esac
+}
+settings() {
+    local v; v=$(version "$1")
+    case $1 in
+        xmq)       echo "${SETTINGS_xmq:-XMQ $v over TLS on port 8884, send_threads=3, receive_threads=4, delivery_threads=2, no persistence}" ;;
+        flashmq)   echo "${SETTINGS_flashmq:-FlashMQ $v over TLS on port 8885, thread_count at its default (one per hardware thread)}" ;;
+        mosquitto) echo "${SETTINGS_mosquitto:-Mosquitto $v over TLS on port 8883, persistence off, max_inflight_messages 65534, max_queued_messages unlimited}" ;;
+        emqx)      echo "${SETTINGS_emqx:-EMQX $v (emqx-enterprise, community license) over TLS on port 8882, max_connections 2M, acceptors 64, backlog 8192}" ;;
+        hivemq)    echo "${SETTINGS_hivemq:-HiveMQ CE $v over TLS on port 8886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M, in-memory persistence}" ;;
+    esac
+}
+host_note() { echo "${HOST_NOTE:-$HOST, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity}"; }
 
 # unit, process to sample, plain port (the readiness probe), TLS port
 spec() {
@@ -54,6 +73,13 @@ for broker in $BROKERS; do
         scenario=Point-To-Point-TLS-${rate}K.json
         if [ "$rate" != 50 ] && { [ -z "$previous" ] || [ "$previous" -ge "$LIMIT_US" ]; }; then
             say "$broker ${rate}K: not run - the median at the rate before was ${previous:-unknown} us, the limit is $LIMIT_US"
+            # A record all the same, so that the site says why the broker is not in this rate.
+            { echo "Server:   $(display "$broker")"; echo "Version:  $(version "$broker")"
+              echo "Host:     $(host_note); $(settings "$broker")"; echo "Client:   ${CLIENT_NOTE:-$(hostname), xmq_scn $(xmq_scn --version 2>/dev/null | head -1 | awk '{print $NF}')}"
+              echo "Date:     $(date +%F)"; echo; echo "Summary - not run"; echo
+              echo "Scenario: Point-To-Point-TLS-${rate}K"
+              echo "NOT RUN - the median at the rate before was $(awk -v u="${previous:-0}" 'BEGIN { if (u >= 1000000) printf "%.1f s", u / 1e6; else printf "%d ms", u / 1000 }'), over the limit of $((LIMIT_US / 1000)) ms"
+            } > "$OUT/record-$broker-${rate}K.txt"
             continue
         fi
         set_file=$LT/.tls-p2p-set.txt            # names resolve beside the set file
@@ -63,8 +89,8 @@ for broker in $BROKERS; do
         XMQ_SCN_EXTRA="--encrypted" ./run_scenario_set.sh \
             --restart-cmd "./restart_broker.sh --host $HOST --unit $unit --port $plain -u user -P secret" \
             --wait-for "$ADDR:$plain" --stats-host "$HOST" --stats-process "$proc" --nic enp86s0 \
-            --out "$OUT/$broker-${rate}K" --record "$OUT/record-$broker-${rate}K.txt" --broker "$broker" --version "$(version "$broker")" \
-            --server-note "$HOST over TLS (port $tls), self-signed certificate, no client verification" \
+            --out "$OUT/$broker-${rate}K" --record "$OUT/record-$broker-${rate}K.txt" --broker "$(display "$broker")" --version "$(version "$broker")" \
+            --server-note "$(host_note); $(settings "$broker")" \
             "$set_file" -- \
             --subnet 10.1.1 --first 150 --count 29 -h "$ADDR" -p "$tls" -u user -P secret \
             > "$OUT/$broker-${rate}K.console" 2>&1

@@ -1,0 +1,30 @@
+Server:   Mosquitto
+Version:  2.1.2
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; Mosquitto 2.1.2 over TLS on port 8883, persistence off, max_inflight_messages 65534, max_queued_messages unlimited
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-15
+Started:  2026-10-15 12:37:06 AEDT
+Total execution time: 00:11:19
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           1104887 18799080us        18414    1661 Mb
+60000ms       1086682 57006729us        18111    1661 Mb
+120000ms      1087212 95201025us        18120    1661 Mb
+180000ms      1169500 133699840us        19491    1661 Mb
+240000ms      1229214 168746014us        20486    1661 Mb
+300000ms      1210527 204578280us        20175    1661 Mb
+360000ms      1240130 239829147us        20668    1661 Mb
+420000ms      1236694 275082043us        20611    1661 Mb
+480000ms      1242487 310247666us        20708    1661 Mb
+540000ms      1227317 345288713us        20455    1661 Mb
+────────────────────────────────────────────────────────
+Average      11834650 189657170us        19724    1661 Mb
+Median                204578280us                1661 Mb
+  interval median 204578280us over 10 samples (as xmq_scn reports it), range 18799080-345288713us
+  server CPU   mean 100%, peak 101%
+  server RSS   1661 Mb peak
+  client NIC enp86s0: no dropped packets during the run

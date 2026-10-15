@@ -1,0 +1,30 @@
+Server:   XMQ
+Version:  0.9.20
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; XMQ 0.9.20 (857bd48, SPTK f289b8a4) over TLS on port 8884, send_threads=3, receive_threads=4, delivery_threads=2, no persistence
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-15
+Started:  2026-10-15 11:52:26 AEDT
+Total execution time: 00:13:20
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-100K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           5944852   494277us        99080    3408 Mb
+60000ms       5993165   491177us        99886    3435 Mb
+120000ms      6004693   485421us       100078    3455 Mb
+180000ms      6013007   449531us       100216    3470 Mb
+240000ms      5990579   479898us        99842    3508 Mb
+300000ms      5994596   470069us        99909    3606 Mb
+360000ms      6007449   434829us       100124    3681 Mb
+420000ms      5969105   498603us        99485    3762 Mb
+480000ms      6018702   546293us       100311    3791 Mb
+540000ms      5945596   524127us        99093    3856 Mb
+────────────────────────────────────────────────────────
+Average      59881744   487383us        99802    3597 Mb
+Median                  491177us                 3557 Mb
+  interval median 491177us over 10 samples (as xmq_scn reports it), range 434829-546293us
+  server CPU   mean 589%, peak 766%
+  server RSS   3856 Mb peak
+  client NIC enp86s0: no dropped packets during the run
