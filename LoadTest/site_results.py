@@ -65,6 +65,11 @@ TESTS = {
         "          50000 publishers / 50000 subscribers, one topic each, 2 msg/s per publisher =\n"
         "          100k/s aggregate, 100000 connections, every one over TLS 1.3. Run for the brokers\n"
         "          whose median at 75K/s was under 100 ms."),
+    # The AWS campaign of October 2026: all tests connect at 10000/s.
+    "500K-Connections-10000-rate": (
+        "Connections.txt",
+        "500K Connections - 500K-Connections-10000-rate.json\n"
+        "          500000 clients connecting at 10000/s; latency is the connect time."),
     # The same test before 2026-10-08, at half the connection rate.
     "500K-Connections-2500-rate": (
         "Connections.txt",
