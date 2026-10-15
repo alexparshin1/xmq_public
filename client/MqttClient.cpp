@@ -26,11 +26,17 @@ using namespace sptk;
 using namespace xmq;
 using namespace xmq::client;
 
-void MqttClient::useOwnThreads()
+void MqttClient::useBrokerThreads()
 {
+    // Threads for a broker's own clients - the links to the other nodes, the bridges - which the
+    // process's other clients do not share. A pool, and for good: a thread of the client's own went
+    // with the client, and the client is released from inside its own callbacks (a node dropped in
+    // its link's disconnect handler) - the destructor of the thread then waits for the thread it is
+    // running on, "Resource deadlock avoided", terminate (debian-forky, 2026-10-15).
+    static SessionThreads brokerThreads(8);
     if (!m_ownThread)
     {
-        m_ownThread = make_shared<SessionThread>();
+        m_ownThread = brokerThreads.getNextThread();
     }
 }
 

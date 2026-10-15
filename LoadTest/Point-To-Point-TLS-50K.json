@@ -1,0 +1,38 @@
+{
+  "name": "Point-To-Point-TLS-50K",
+  "type": "Point-To-Point",
+  "comments": [
+    "Point-To-Point over TLS at 50K messages/s: 25000 publishers and 25000 subscribers, two messages a second each, ten minutes.",
+    "Run with xmq_scn --encrypted; the connect rate is that of the AWS campaign of October 2026."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 25000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 25000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "server": {
+    "hostname": "127.0.0.1",
+    "port": 1883,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 10000,
+    "duration_sec": 600,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

@@ -1,0 +1,4 @@
+# Point-To-Point 60K with persistent sessions (MQTT 5): XMQ alone, in the AWS campaign of October 2026.
+# XMQ writes every message to Redis; set_persistence.sh turns it on for this scenario only.
+
+Point-To-Point-60K-persistent.json

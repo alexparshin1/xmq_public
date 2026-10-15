@@ -1,0 +1,30 @@
+Server:   FlashMQ
+Version:  1.27.2
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; FlashMQ 1.27.2 over TLS on port 8885, thread_count at its default (one per hardware thread)
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-15
+Started:  2026-10-15 12:16:06 AEDT
+Total execution time: 00:10:26
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-75K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           4500039      368us        75000    3992 Mb
+60000ms       4500109      367us        75001    3992 Mb
+120000ms      4500123      325us        75002    3992 Mb
+180000ms      4500115      276us        75001    3992 Mb
+240000ms      4500117      343us        75001    3992 Mb
+300000ms      4500109      333us        75001    3992 Mb
+360000ms      4500113      312us        75001    3992 Mb
+420000ms      4500113      303us        75001    3992 Mb
+480000ms      4500115      322us        75001    3993 Mb
+540000ms      4476596      333us        74609    3993 Mb
+────────────────────────────────────────────────────────
+Average      44977549      328us        74962    3992 Mb
+Median                     333us                 3992 Mb
+  interval median 333us over 10 samples (as xmq_scn reports it), range 276-368us
+  server CPU   mean 598%, peak 792%
+  server RSS   3993 Mb peak
+  client NIC enp86s0: no dropped packets during the run

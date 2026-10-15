@@ -1,0 +1,89 @@
+Scenario: Point-To-Point over TLS, 75K messages/s - Point-To-Point-TLS-75K.json
+          37500 publishers / 37500 subscribers, one topic each, 2 msg/s per publisher =
+          75k/s aggregate, 75000 connections, every one over TLS 1.3. Run for the brokers
+          whose median at 50K/s was under 100 ms.
+          QoS 1, 16B payload, MQTT 5, 10 minutes per scenario, connect rate 10000/s, TLS 1.3.
+Date:     2026-10-15
+Server:   Bench: thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity
+Client:   thinker10, xmq_scn 0.9.20
+
+Every broker restarted before each scenario, the others stopped. CPU percentages are of one
+hardware thread. A scenario that did not finish shows the intervals it completed.
+
+
+Server:   XMQ
+Version:  0.9.20
+Settings: XMQ 0.9.20 (857bd48, SPTK f289b8a4) over TLS on port 8884, send_threads=3, receive_threads=4, delivery_threads=2, no persistence
+CPU Load: 502% mean / 622% peak
+Max RAM:  2.41 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           4499889     1222us        74998    2461 Mb
+60000ms       4500271     2771us        75004    2462 Mb
+120000ms      4500113      756us        75001    2462 Mb
+180000ms      4500114      428us        75001    2462 Mb
+240000ms      4500113     1687us        75001    2462 Mb
+300000ms      4500109      495us        75001    2462 Mb
+360000ms      4500115      515us        75001    2463 Mb
+420000ms      4500113      464us        75001    2463 Mb
+480000ms      4500110      681us        75001    2463 Mb
+540000ms      4462820     1718us        74380    2463 Mb
+────────────────────────────────────────────────────────
+Average      44963767     1073us        74939    2462 Mb    2462 Mb
+Median                     756us                 2462 Mb    2462 Mb
+
+
+Server:   FlashMQ
+Version:  1.27.2
+Settings: FlashMQ 1.27.2 over TLS on port 8885, thread_count at its default (one per hardware thread)
+CPU Load: 598% mean / 792% peak
+Max RAM:  3.90 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           4500039      368us        75000    3992 Mb
+60000ms       4500109      367us        75001    3992 Mb
+120000ms      4500123      325us        75002    3992 Mb
+180000ms      4500115      276us        75001    3992 Mb
+240000ms      4500117      343us        75001    3992 Mb
+300000ms      4500109      333us        75001    3992 Mb
+360000ms      4500113      312us        75001    3992 Mb
+420000ms      4500113      303us        75001    3992 Mb
+480000ms      4500115      322us        75001    3993 Mb
+540000ms      4476596      333us        74609    3993 Mb
+────────────────────────────────────────────────────────
+Average      44977549      328us        74962    3992 Mb    3992 Mb
+Median                     333us                 3992 Mb    3992 Mb
+
+
+Server:   Mosquitto
+Version:  2.1.2
+Settings: Mosquitto 2.1.2 over TLS on port 8883, persistence off, max_inflight_messages 65534, max_queued_messages unlimited
+Status:   NOT RUN - the median at the rate before was 204.6 s, over the limit of 100 ms
+
+
+Server:   EMQX
+Version:  6.3.1
+Settings: EMQX 6.3.1 (emqx-enterprise, community license) over TLS on port 8882, max_connections 2M, acceptors 64, backlog 8192
+Status:   NOT RUN - the median at the rate before was 130.6 s, over the limit of 100 ms
+
+
+Server:   HiveMQ
+Version:  2026.5
+Settings: HiveMQ CE 2026.5 over TLS on port 8886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M, in-memory persistence
+CPU Load: 803% mean / 874% peak
+Max RAM:  4.68 Gb
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           4465353   804823us        74422    4768 Mb
+60000ms       4495871   472107us        74931    4769 Mb
+120000ms      4508861   452292us        75147    4772 Mb
+180000ms      4499322   413761us        74988    4773 Mb
+240000ms      4498610   415422us        74976    4773 Mb
+300000ms      4501174   419099us        75019    4774 Mb
+360000ms      4498658   393685us        74977    4774 Mb
+420000ms      4493521   526592us        74892    4775 Mb
+480000ms      4506831   467994us        75113    4776 Mb
+540000ms      4435227   411185us        73920    4792 Mb
+────────────────────────────────────────────────────────
+Average      44903428   477530us        74839    4775 Mb    4775 Mb
+Median                  452292us                 4774 Mb    4774 Mb

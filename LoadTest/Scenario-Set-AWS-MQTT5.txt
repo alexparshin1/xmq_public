@@ -1,0 +1,9 @@
+# The MQTT 5 set of the AWS campaign of October 2026, for XMQ, FlashMQ, Mosquitto, EMQX and HiveMQ CE.
+# No scenario runs longer than ten minutes. The connection rate is 10000/s in all of them (the
+# campaign passes --connection-rate 10000). No 1M-Connections test; 500K-Connections stays.
+# Persistence is a set of its own, for XMQ alone: Scenario-Set-AWS-Persistence.txt.
+
+Fan-Out-5-1000-5-250K-5min.json
+Fan-In-50K-500-50K-50K.json
+Point-To-Point-50K-50K-50K-100K.json
+500K-Connections-10000-rate.json

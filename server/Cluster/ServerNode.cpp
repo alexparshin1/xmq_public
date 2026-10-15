@@ -45,7 +45,7 @@ ServerNode::ServerNode(Server* server, CServerNode nodeSettings, const Topics& c
         }
         m_credentials.push_back(make_shared<ConnectCredentials>(clientId.str(), "cluster", m_server->getClusterPassword()));
         m_links.push_back(make_unique<client::MqttClient>());
-        m_links.back()->useOwnThreads();
+        m_links.back()->useBrokerThreads();
     }
     if (m_nodeSettings.m_xmq_version.isNull())
     {

@@ -1,0 +1,30 @@
+Server:   HiveMQ CE
+Version:  2026.5
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; HiveMQ CE 2026.5 over TLS on port 8886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M, in-memory persistence
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-15
+Started:  2026-10-15 12:50:11 AEDT
+Total execution time: 00:10:42
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           2999982    53776us        49999    3549 Mb
+60000ms       3000004      535us        50000    3549 Mb
+120000ms      2999992      527us        49999    3556 Mb
+180000ms      3000008      540us        50000    3557 Mb
+240000ms      2999992      531us        49999    3557 Mb
+300000ms      3000006      529us        50000    3557 Mb
+360000ms      2999989      524us        49999    3557 Mb
+420000ms      3000008      579us        50000    3557 Mb
+480000ms      3000002      553us        50000    3560 Mb
+540000ms      2972530      537us        49542    3560 Mb
+────────────────────────────────────────────────────────
+Average      29972513     5868us        49954    3556 Mb
+Median                     537us                 3557 Mb
+  interval median 537us over 10 samples (as xmq_scn reports it), range 524-53776us
+  server CPU   mean 607%, peak 805%
+  server RSS   3593 Mb peak
+  client NIC enp86s0: no dropped packets during the run

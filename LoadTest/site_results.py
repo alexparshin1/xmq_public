@@ -47,6 +47,29 @@ TESTS = {
         "Connections.txt",
         "500K Connections - 500K-Connections-5000-rate.json\n"
         "          500000 clients connecting at 5000/s; latency is the connect time."),
+    "Point-To-Point-TLS-50K": (
+        "Encryption-50K.txt",
+        "Point-To-Point over TLS, 50K messages/s - Point-To-Point-TLS-50K.json\n"
+        "          25000 publishers / 25000 subscribers, one topic each, 2 msg/s per publisher =\n"
+        "          50k/s aggregate, 50000 connections, every one over TLS 1.3 (self-signed certificate,\n"
+        "          the load client verifies nothing)."),
+    "Point-To-Point-TLS-75K": (
+        "Encryption-75K.txt",
+        "Point-To-Point over TLS, 75K messages/s - Point-To-Point-TLS-75K.json\n"
+        "          37500 publishers / 37500 subscribers, one topic each, 2 msg/s per publisher =\n"
+        "          75k/s aggregate, 75000 connections, every one over TLS 1.3. Run for the brokers\n"
+        "          whose median at 50K/s was under 100 ms."),
+    "Point-To-Point-TLS-100K": (
+        "Encryption-100K.txt",
+        "Point-To-Point over TLS, 100K messages/s - Point-To-Point-TLS-100K.json\n"
+        "          50000 publishers / 50000 subscribers, one topic each, 2 msg/s per publisher =\n"
+        "          100k/s aggregate, 100000 connections, every one over TLS 1.3. Run for the brokers\n"
+        "          whose median at 75K/s was under 100 ms."),
+    # The AWS campaign of October 2026: all tests connect at 10000/s.
+    "500K-Connections-10000-rate": (
+        "Connections.txt",
+        "500K Connections - 500K-Connections-10000-rate.json\n"
+        "          500000 clients connecting at 10000/s; latency is the connect time."),
     # The same test before 2026-10-08, at half the connection rate.
     "500K-Connections-2500-rate": (
         "Connections.txt",
@@ -99,7 +122,7 @@ def broker_block(header, lines):
         elif m := re.match(r"server RSS\s+(\d+) Mb peak", stripped):
             mb = int(m.group(1))
             ram = f"{mb / 1024:.2f} Gb" if mb >= 1024 else f"{mb} Mb"
-        elif re.match(r"^(FAILED|INCOMPLETE|NO RESULT)", stripped):
+        elif re.match(r"^(FAILED|INCOMPLETE|NO RESULT|NOT RUN)", stripped):
             status = stripped
         elif stripped == "Memory":
             in_memory = True

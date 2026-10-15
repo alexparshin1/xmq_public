@@ -1,0 +1,30 @@
+Server:   EMQX
+Version:  6.3.1
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) over TLS on port 8882, max_connections 2M, acceptors 64, backlog 8192
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-15
+Started:  2026-10-15 13:15:27 AEDT
+Total execution time: 00:15:03
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           1647169 15176485us        27452   13620 Mb
+60000ms       1684127 39795947us        28068   13569 Mb
+120000ms      1875198 65475364us        31253   13273 Mb
+180000ms      1875413 86613831us        31256   13267 Mb
+240000ms      1896630 109665186us        31610   13158 Mb
+300000ms      1980472 130603036us        33007   13141 Mb
+360000ms      1888431 151553880us        31473   13144 Mb
+420000ms      1928100 174147898us        32135   13098 Mb
+480000ms      2011342 194410197us        33522   13073 Mb
+540000ms      1852392 215195657us        30873   13064 Mb
+────────────────────────────────────────────────────────
+Average      18639274 121008538us        31065   13241 Mb
+Median                130603036us               13151 Mb
+  interval median 130603036us over 10 samples (as xmq_scn reports it), range 15176485-215195657us
+  server CPU   mean 800%, peak 819%
+  server RSS   13620 Mb peak
+  client NIC enp86s0: no dropped packets during the run
