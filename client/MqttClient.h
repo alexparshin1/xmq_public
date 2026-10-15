@@ -44,8 +44,8 @@ public:
     virtual ~MqttClient();
 
     /**
-     * @brief Read and write on threads of this client's own, rather than on those the process's
-     * clients share.
+     * @brief Read and write on threads the broker's own clients share, not on those the process's
+     * other clients do.
      *
      * A shared thread runs the message callbacks of every client it serves, one after another, so a
      * client whose callback is slow holds back the reading of the others on its thread. That is
@@ -54,7 +54,7 @@ public:
      * cluster and its clients in one process - for a slow subscriber, long enough for a stopping
      * node to give up on it. Called before connect(); takes effect from the next connection.
      */
-    void useOwnThreads();
+    void useBrokerThreads();
 
     /**
      * @brief Connect the client to a server host.
@@ -305,7 +305,7 @@ private:
     std::shared_ptr<sptk::Logger>                              m_logger;                  ///< Logger (set once in the constructor, then read-only).
     AtomicSharedPtr<Session>                                   m_session {nullptr};       ///< Client session.
     sptk::String                                               m_bindAddress;             ///< Bind to local interface IP address.
-    std::shared_ptr<SessionThread>                             m_ownThread;               ///< Threads of its own, when useOwnThreads() asked for them.
+    std::shared_ptr<SessionThread>                             m_ownThread;               ///< Thread of the broker pool, when useBrokerThreads() asked for it.
     AtomicSharedPtr<const PublishMessageCallback>              m_onMessage {nullptr};     ///< Callback for received Publish messages.
     mutable std::atomic_size_t                                 m_activePublishCallbacks {0}; ///< Publish callbacks currently executing; lets onMessage({}) drain in-flight calls before returning.
     AtomicSharedPtr<const MessageCallback>                     m_onAck {nullptr};         ///< Callback for received ACKs.

@@ -139,3 +139,4 @@ TEST_F(XMQ_ClusterTests, topicsOverSeveralLinksArriveOnceAndInOrder)
         EXPECT_EQ(expected, wildcard.topic(format("links/other/{}", topic))) << topic;
     }
 }
+

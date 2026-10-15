@@ -76,9 +76,9 @@ Bridge::Bridge(Server* server, const CBridge& settings)
         m_clientId = "bridge_" + m_server->getNodeName() + "_" + m_remoteNodeName;
     }
 
-    // Read on threads of its own: on the shared ones a slow remote broker's bridge would hold
-    // back the cluster links and the other bridges.
-    m_mqttClient.useOwnThreads();
+    // Read on the threads the broker's own clients share, not on those of every client: a slow
+    // remote broker's bridge would hold back the cluster links and the other bridges.
+    m_mqttClient.useBrokerThreads();
 }
 
 Bridge::~Bridge()
