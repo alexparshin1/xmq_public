@@ -299,6 +299,21 @@ private:
         std::atomic_size_t active {0};      ///< Callbacks that may still access the client.
     };
 
+    /// A callback that reaches into the client, counted for as long as it runs; see ~MqttClient().
+    class CallbackGuard
+    {
+    public:
+        explicit CallbackGuard(MessageCallbackState& state);
+        ~CallbackGuard();
+        CallbackGuard(const CallbackGuard&) = delete;
+        CallbackGuard& operator=(const CallbackGuard&) = delete;
+        /// The client is being destroyed: touch nothing of it.
+        [[nodiscard]] bool clientGone() const;
+
+    private:
+        MessageCallbackState& m_state;
+    };
+
     std::shared_ptr<MessageCallbackState>                      m_messageCallbackState = std::make_shared<MessageCallbackState>(); ///< Lifetime guard shared with every session.
     std::shared_ptr<sptk::LogEngine>                           m_logEngine;               ///< Log engine.
     bool                                                       m_hasCallerLogPrefix {false}; ///< Caller named this client; connect() must not relabel it.

@@ -12,6 +12,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
+#include <algorithm>
 #include "MqttClient.h"
 
 #include "base/AckMessage.h"
@@ -73,14 +74,45 @@ void MqttClient::stopReconnectWorker()
     m_stopReconnect = false;
 }
 
+namespace {
+
+// The callback states this thread is inside a callback of, innermost last: a client released from
+// one of its own callbacks - a node dropped in its link's disconnect handler - must not wait for
+// that callback, which is the one destroying it.
+thread_local std::vector<const void*> t_callbacksRunning;
+
+} // namespace
+
+MqttClient::CallbackGuard::CallbackGuard(MessageCallbackState& state)
+    : m_state(state)
+{
+    // Counted before closing is read: a destructor that sets closing after this sees the count and
+    // waits, one that set it before is seen here and nothing touches the client.
+    ++m_state.active;
+    t_callbacksRunning.push_back(&m_state);
+}
+
+MqttClient::CallbackGuard::~CallbackGuard()
+{
+    t_callbacksRunning.pop_back();
+    --m_state.active;
+}
+
+bool MqttClient::CallbackGuard::clientGone() const
+{
+    return m_state.closing.load();
+}
+
 MqttClient::~MqttClient()
 {
     m_messageCallbackState->closing = true;
     stopReconnectWorker();
     disconnect();
-    // Receivers retain the guard independently of this object. New calls see closing;
-    // calls already in previewMessage must return before the members are destroyed.
-    while (m_messageCallbackState->active.load() != 0)
+    // Receivers retain the guard independently of this object. New calls see closing; calls already
+    // inside the client must return before the members are destroyed - all of them but those this
+    // very thread is in, which are destroying it and return after it.
+    const auto own = static_cast<size_t>(std::count(t_callbacksRunning.begin(), t_callbacksRunning.end(), m_messageCallbackState.get()));
+    while (m_messageCallbackState->active.load() > own)
     {
         this_thread::sleep_for(1ms);
     }
@@ -122,13 +154,8 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
     auto session = make_shared<Session>(
         [this, callbackState = m_messageCallbackState](const SMessage& message)
         {
-            ++callbackState->active;
-            const struct CallbackCompleted
-            {
-                MessageCallbackState& state;
-                ~CallbackCompleted() { --state.active; }
-            } completed {*callbackState};
-            if (!callbackState->closing.load())
+            const CallbackGuard guard(*callbackState);
+            if (!guard.clientGone())
             {
                 previewMessage(message);
             }
@@ -142,7 +169,11 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
     // to the session.
     session->onDisconnect([this, callbackState = m_messageCallbackState](const SMessage& message)
                           {
-                              if (callbackState->closing.load())
+                              // Counted like a message: the client was destroyed under a disconnect
+                              // handler that had only looked at closing ("pure virtual method called",
+                              // debian-13, 2026-10-15).
+                              const CallbackGuard guard(*callbackState);
+                              if (guard.clientGone())
                               {
                                   return;
                               }

@@ -140,3 +140,40 @@ TEST_F(XMQ_ClusterTests, topicsOverSeveralLinksArriveOnceAndInOrder)
     }
 }
 
+
+/**
+ * Scenario: A client on the broker's threads is destroyed while its disconnect handler runs on one
+ * of them - the way a node lets go of a link whose other end closed it.
+ *
+ * Verification: The destructor waits for the handler, which finds the client whole: it was destroyed
+ * under a handler that had only looked at whether it was closing ("pure virtual method called",
+ * debian-13, 2026-10-15).
+ */
+TEST_F(XMQ_ClusterTests, aClientIsNotDestroyedUnderItsDisconnectHandler)
+{
+    const TestCluster cluster(1);
+    for (int round = 0; round < 5; ++round)
+    {
+        const string clientId = format("destroyed-under-handler-{}", round);
+        atomic_bool  entered {false};
+        atomic_bool  finished {false};
+        auto         client = make_shared<client::MqttClient>();
+        client->useBrokerThreads();
+        ASSERT_EQ(ReasonCode::Success,
+                  client->connect(TestCluster::host(0), ConnectCredentials(clientId, "user", "secret"),
+                                  {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+        auto* raw = client.get();
+        client->onDisconnect([&entered, &finished, raw](const SMessage&)
+                             {
+                                 entered = true;
+                                 this_thread::sleep_for(200ms);
+                                 // The client's members, after the test has let go of it.
+                                 (void) raw->isConnected();
+                                 finished = true;
+                             });
+        cluster[0]->closeSession(clientId);
+        ASSERT_TRUE(TestCluster::waitFor([&entered] { return entered.load(); }));
+        client.reset();   // Must wait for the handler.
+        EXPECT_TRUE(finished.load()) << "the client was destroyed while its disconnect handler ran";
+    }
+}
