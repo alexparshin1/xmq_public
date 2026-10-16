@@ -1,30 +1,30 @@
 Server:   EMQX
 Version:  6.3.1
-Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64; limits raised for high-rate QoS 1 subscribers: force_shutdown.max_mailbox_size 100000 (default 1000 closed subscribers), max_mqueue_len 100000 (default 1000 dropped messages), max_inflight 128; shared_subscription_strategy round_robin (default); durable sessions off, except on (empty at start) for Point-To-Point-60K-persistent
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) on port 1882, LimitNOFILE 2000000, max_connections 2M, acceptors 64
 Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-07
-Started:  2026-10-07 15:44:22 AEDT
-Total execution time: 00:33:24
+Date:     2026-10-16
+Started:  2026-10-16 09:43:42 AEDT
+Total execution time: 00:27:40
 
 Broker restarted before each scenario.
 
 Scenario: Point-To-Point-50K-50K-50K-100K
 Interval        Count    Latency       Rate/s        RSS
 ────────────────────────────────────────────────────────
-0ms           5946599   786221us        99109    5049 Mb
-60000ms       5992372   612455us        99872    4595 Mb
-120000ms      5993068   622828us        99884    4554 Mb
-180000ms      6008393   614266us       100139    4559 Mb
-240000ms      5992048   617568us        99867    4578 Mb
-300000ms      6002905   627341us       100048    4581 Mb
-360000ms      6006068   622559us       100101    4573 Mb
-420000ms      6002112   622124us       100035    4546 Mb
-480000ms      5993004   617347us        99883    4547 Mb
-540000ms      5883956   618014us        98065    4587 Mb
+0ms           5912214  1072356us        98536    5877 Mb
+60000ms       6020823   656096us       100347    5521 Mb
+120000ms      6008526   665563us       100142    4736 Mb
+180000ms      5988174   652881us        99802    4690 Mb
+240000ms      5999879   657662us        99997    4692 Mb
+300000ms      5997915   655174us        99965    4697 Mb
+360000ms      5997414   644379us        99956    4702 Mb
+420000ms      6005494   649264us       100091    4685 Mb
+480000ms      6002273   650756us       100037    4685 Mb
+540000ms      5727962   640226us        95466    4663 Mb
 ────────────────────────────────────────────────────────
-Average      59820525   635977us        99700
-Median                  622124us
-  interval median 622124us over 10 samples (as xmq_scn reports it), range 612455-786221us
-  server CPU   mean 1503%, peak 1661%
-  server RSS   5049 Mb peak
+Average      59660674   694115us        99434    4895 Mb
+Median                  655174us                 4695 Mb
+  interval median 655174us over 10 samples (as xmq_scn reports it), range 640226-1072356us
+  server CPU   mean 1529%, peak 1636%
+  server RSS   5877 Mb peak
   client NIC ens5: no dropped packets during the run

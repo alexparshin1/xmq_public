@@ -1,30 +1,30 @@
 Server:   XMQ
 Version:  0.9.20
-Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; XMQ 0.9.20 pre-release (0.9.20 dbe0a57, farm package) as systemd service on port 1884, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, appendfsync everysec, max_queued_writes 1000, clean start) only for Point-To-Point-60K-persistent
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; XMQ 0.9.20 as systemd service on port 1884, send_threads=3, receive_threads=4, delivery_threads=2; persistence on (local Redis, appendfsync everysec)
 Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-07
-Started:  2026-10-07 13:16:13 AEDT
-Total execution time: 00:38:48
+Date:     2026-10-16
+Started:  2026-10-16 10:39:04 AEDT
+Total execution time: 00:10:25
 
 Broker restarted before each scenario.
 
 Scenario: Point-To-Point-60K-persistent
 Interval        Count    Latency       Rate/s        RSS
 ────────────────────────────────────────────────────────
-0ms           3600000      216us        60000     459 Mb
-60000ms       3600045      216us        60000     459 Mb
-120000ms      3600148      215us        60002     459 Mb
-180000ms      3600141      216us        60002     459 Mb
-240000ms      3600146      217us        60002     459 Mb
-300000ms      3600147      216us        60002     459 Mb
-360000ms      3600141      215us        60002     459 Mb
-420000ms      3600145      215us        60002     460 Mb
-480000ms      3600144      216us        60002     460 Mb
-540000ms      3559014      216us        59316     460 Mb
+0ms           3600000      215us        60000     465 Mb
+60000ms       3600073      203us        60001     465 Mb
+120000ms      3600140      203us        60002     465 Mb
+180000ms      3600143      204us        60002     465 Mb
+240000ms      3600148      204us        60002     465 Mb
+300000ms      3600145      204us        60002     465 Mb
+360000ms      3600142      204us        60002     465 Mb
+420000ms      3600144      204us        60002     466 Mb
+480000ms      3600145      204us        60002     466 Mb
+540000ms      3556639      204us        59277     466 Mb
 ────────────────────────────────────────────────────────
-Average      35960071      216us        59933
-Median                     216us
-  interval median 216us over 10 samples (as xmq_scn reports it), range 215-217us
-  server CPU   mean 284%, peak 345%
-  server RSS   460 Mb peak
+Average      35957719      205us        59929     465 Mb
+Median                     204us                  465 Mb
+  interval median 204us over 10 samples (as xmq_scn reports it), range 203-215us
+  server CPU   mean 296%, peak 356%
+  server RSS   466 Mb peak
   client NIC ens5: no dropped packets during the run
