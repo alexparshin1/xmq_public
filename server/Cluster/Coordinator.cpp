@@ -618,10 +618,11 @@ void Coordinator::step()
     }
     catch (const Exception&)
     {
-        // The connection is dropped, to be opened again next step. The node goes on serving until
-        // its lease would have expired: until then nobody may take over its sessions, so a Redis
-        // outage shorter than a lease costs its clients nothing.
-        m_redis.disconnect();
+        // Redis threw: the storage is gone, or its read timed out. The step waits on it (up to the
+        // read timeout, longer than a lease), so the node will stop serving as its already-held
+        // lease expires - reportState() sees it below. When the next step reaches Redis again, it
+        // renews the lease and the node serves again: the connection stays open, and a step that
+        // held it for its read timeout is what kept a node from coming back.
         m_coordinator = false;
     }
 }
