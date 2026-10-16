@@ -41,6 +41,9 @@ struct ConnectParameters
 {
     std::chrono::seconds               m_keepAliveInterval {60};
     std::chrono::seconds               m_connectTimeout {defaultConnectTimeout};
+    /// How long the server may take to answer CONNECT. A broker under a load test answers some
+    /// TLS handshakes late; that is slow, not dead, and the scenario engine waits longer.
+    std::chrono::seconds               m_connackTimeout {10};
     SLastWillInfo                      m_lastWillInfo;
     std::function<void(sptk::Buffer&)> m_tweakMessage {};
     uint16_t                           m_maxInflightMessages {0};

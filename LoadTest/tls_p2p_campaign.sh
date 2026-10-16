@@ -102,7 +102,7 @@ for broker in $BROKERS; do
         done
         continue
     fi
-    for rate in 50 75 100; do
+    for rate in ${RATES:-50 75 100}; do
         scenario=Point-To-Point-TLS-${rate}K.json
         if [ "$rate" != 50 ] && { [ -z "$previous" ] || [ "$previous" -ge "$LIMIT_US" ]; }; then
             say "$broker ${rate}K: not run - the median at the rate before was ${previous:-unknown} us, the limit is $LIMIT_US"
@@ -111,7 +111,11 @@ for broker in $BROKERS; do
               echo "Host:     $(host_note); $(settings "$broker")"; echo "Client:   ${CLIENT_NOTE:-$(hostname), xmq_scn $(xmq_scn --version 2>/dev/null | head -1 | awk '{print $NF}')}"
               echo "Date:     $(date +%F)"; echo; echo "Summary - not run"; echo
               echo "Scenario: Point-To-Point-TLS-${rate}K"
-              echo "NOT RUN - the median at the rate before was $(awk -v u="${previous:-0}" 'BEGIN { if (u >= 1000000) printf "%.1f s", u / 1e6; else printf "%d ms", u / 1000 }'), over the limit of $((LIMIT_US / 1000)) ms"
+              if [ -z "$previous" ]; then
+                  echo "NOT RUN - the scenario at the rate before did not finish"
+              else
+                  echo "NOT RUN - the median at the rate before was $(awk -v u="$previous" 'BEGIN { if (u >= 1000000) printf "%.1f s", u / 1e6; else printf "%d ms", u / 1000 }'), over the limit of $((LIMIT_US / 1000)) ms"
+              fi
             } > "$OUT/record-$broker-${rate}K.txt"
             continue
         fi
