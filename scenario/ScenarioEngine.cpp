@@ -164,7 +164,8 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
                                                        Semaphore& allConnected, RoundTripLatency& roundTripLatency,
                                                        const ConnectCredentials& connectCredentials,
                                                        const SMessageProperties& connectProperties,
-                                                       const shared_ptr<SSLKeys>& sslKeys) const
+                                                       const shared_ptr<SSLKeys>& sslKeys,
+                                                       const shared_ptr<atomic_bool>& counted) const
 {
     String bindAddress;
     if (!m_bindAddresses.empty())
@@ -177,7 +178,6 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
     // Once: the counters and the latency live in the caller's frame, which is gone by the time a
     // later CONNACK arrives - a client the broker disconnected (a cluster node handing the session
     // to another) connects again through the same callback, and crashed the run in the publish phase.
-    const auto counted = make_shared<atomic_bool>(false);
     const auto reasonCode = client->connectAsync(serverHost, connectCredentials, connectParameters, protocolVersion, connectProperties, sslKeys,
                                                  [this, &connectedCount, clientCount, &allConnected, &roundTripLatency, counted](const SMessage&)
                                                  {
@@ -270,6 +270,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
 {
     mutex                       amutex;
     vector<client::SMqttClient> clients;
+    vector<shared_ptr<atomic_bool>> clientCounted;
     atomic_size_t               connectedCount = 0;
     atomic_size_t               failedCount = 0;
     Semaphore                   allConnected;
@@ -349,7 +350,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     for (size_t i = 0; i < threadCount; ++i)
     {
         threads.emplace_back([this, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &serverHost, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
-                              clientCount, &clients, testEndTime, &roundTripLatency, &sslKeys]
+                              clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys]
                              {
                                  size_t clientIndex = 0;
                                  while (!clientIndices.empty() && clientIndices.pop_front(clientIndex, 100ms))
@@ -374,12 +375,14 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      // same way a successful connect would, so allConnected.wait() below still unblocks.
                                      try
                                      {
-                                         auto client = connectClientAsync(serverHost, connectParameters, protocolVersion, clientIndex, clientCount,
-                                                                          connectedCount, allConnected, roundTripLatency, connectCredentials,
-                                                                          connectProperties, sslKeys);
+                                         const auto counted = make_shared<atomic_bool>(false);
+                                         auto       client = connectClientAsync(serverHost, connectParameters, protocolVersion, clientIndex, clientCount,
+                                                                                connectedCount, allConnected, roundTripLatency, connectCredentials,
+                                                                                connectProperties, sslKeys, counted);
 
                                          const scoped_lock lock(amutex);
                                          clients.push_back(std::move(client));
+                                         clientCounted.push_back(counted);
                                      }
                                      catch (const std::exception& e)
                                      {
@@ -407,9 +410,26 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     if (constexpr seconds allConnectedTimeout {60};
         !allConnected.wait_for(allConnectedTimeout))
     {
+        // A few clients the broker never answered do not change what the others measure: the run
+        // goes on without them, and says so. More than one in a hundred is a broker that does not
+        // take the load, and the run stops.
         const auto connected = connectedCount.load();
-        throw Exception(format("Only {} of {} client connection(s) completed within {}s; {} connection(s) appear stalled (no response from server).",
-                               connected, clientCount, allConnectedTimeout.count(), clientCount - connected));
+        const auto stalled = clientCount - connected;
+        if (stalled * 100 > clientCount)
+        {
+            throw Exception(format("Only {} of {} client connection(s) completed within {}s; {} connection(s) appear stalled (no response from server).",
+                                   connected, clientCount, allConnectedTimeout.count(), stalled));
+        }
+        CERR(format("{} of {} client connection(s) got no CONNACK within {}s; the scenario goes on without them.",
+                    stalled, clientCount, allConnectedTimeout.count()));
+        const scoped_lock lock(amutex);
+        for (size_t i = 0; i < clients.size(); ++i)
+        {
+            if (!clientCounted[i]->load())
+            {
+                m_unanswered.insert(clients[i].get());
+            }
+        }
     }
 
     progress.stopAndJoin();
@@ -459,6 +479,14 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
         const auto latencyIndex = scenarioType == Type::FanIn ? 0 : clientIndex;
 
         auto subscriber = m_subscribers[clientIndex];
+        if (!answered(subscriber))
+        {
+            if (subscribedCount->fetch_add(1, std::memory_order_acq_rel) + 1 == subscriberCount)
+            {
+                allSubscribed->post();
+            }
+            continue;
+        }
         subscriber->onMessage([this, totalMessageCount, durationSeconds, testEndTime, &clientPublishLatency, latencyIndex](const auto& message)
                               {
                                   if (m_scenarioCompleted.load())
@@ -702,6 +730,9 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     ConnectCredentials subscriberCredentials("", subscriberServer.m_username.asString(), subscriberServer.m_password.asString());
 
     client::ConnectParameters connectParameters {};
+    // A late CONNACK is a slow connection, not a failed one: it still gets its place in the test.
+    // Under the 60s the engine waits for all the clients to connect.
+    connectParameters.m_connackTimeout = 50s;
     if (!m_scenario.m_parameters.m_keep_alive_sec.isNull())
     {
         connectParameters.m_keepAliveInterval = seconds(m_scenario.m_parameters.m_keep_alive_sec.asInteger());
@@ -815,6 +846,7 @@ void ScenarioEngine::disconnectClients()
 
     m_publishers.clear();
     m_subscribers.clear();
+    m_unanswered.clear();
 }
 
 const Topic* ScenarioEngine::substituteTopic(const String& topicTemplate, const size_t clientIndex, const string_view clientId)
@@ -997,6 +1029,16 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         auto        publisherIndex = sendMessageCount % publisherCount;
         const auto  publisher = m_publishers[publisherIndex];
         const auto* topic = topics[sendMessageCount % topicCount];
+
+        // Nothing from a client the broker never answered, nor to one: its turn is skipped, and
+        // the pace stays that of the others.
+        if (!m_unanswered.empty() &&
+            (!answered(publisher) ||
+             (testType == Type::PointToPoint && publisherIndex < m_subscribers.size() && !answered(m_subscribers[publisherIndex]))))
+        {
+            ++sendMessageCount;
+            continue;
+        }
 
         if (m_paceMaker)
         {

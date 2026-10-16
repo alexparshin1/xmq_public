@@ -202,7 +202,7 @@ ReasonCode Session::receiveConnect()
         // taken for none: under load, "Invalid response from server to CONNECT message" from a
         // server that had answered. What follows the CONNACK stays in the buffer for the receive
         // loop.
-        constexpr auto connackTimeout = 10s;
+        const auto     connackTimeout = m_connectProperties.m_connackTimeout;
         constexpr auto chunkBytes = 16u * 1024u;
         const auto     deadline = chrono::steady_clock::now() + connackTimeout;
         Buffer         chunk(chunkBytes);

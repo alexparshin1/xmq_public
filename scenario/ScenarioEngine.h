@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "ProgressBar.h"
 #include "RoundTripInterval.h"
 #include "client/MqttClient.h"
@@ -174,6 +176,13 @@ private:
     sptk::Strings                    m_bindAddresses;
     std::vector<client::SMqttClient> m_publishers;
     std::vector<client::SMqttClient> m_subscribers;
+    /// The clients the broker never answered CONNECT for: the run goes on without them (see
+    /// connectClientGroup()), so nothing is published from them, or, Point-To-Point, to them.
+    mutable std::set<const client::MqttClient*> m_unanswered;
+    bool answered(const client::SMqttClient& client) const
+    {
+        return !m_unanswered.contains(client.get());
+    }
     LatencyTraceTotal                m_latencyTraceTotal;
     std::atomic_bool                 m_scenarioCompleted;
     std::atomic_size_t               m_receivedMessageCount {0};
@@ -203,7 +212,7 @@ private:
     [[nodiscard]] const CHost&       groupServer(const CTestClientGroup& group) const;
 
     void                             probeConnection(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
-    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
+    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys, const std::shared_ptr<std::atomic_bool>& counted) const;
     std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
 
     /**
