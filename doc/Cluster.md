@@ -30,6 +30,10 @@
   that cannot reach the storage goes cluster-offline. Left: the URI is compared as a string, so the same storage at
   another endpoint - a failover, a proxy - is refused as if it were another storage.
 
+- [x] all cluster nodes share one accounts database at the same PostgreSQL or MySQL endpoint. A node whose
+  `authentication.database_uri` differs is refused at attach, because its users would be unknown to the rest
+  of the cluster. The `database_uri` is sent in the attach request and compared like `redis_uri`.
+
 - [x] any MQTT client can connect to arbitrary node of the cluster. The cluster automatically migrates the session
   from its previous owner to the node to which the client has connected.
 
@@ -101,6 +105,7 @@ broker, for what the cluster must not make worse.
 | a client may connect to any node | test cluster: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
 | encrypted internode links | unit: `clusterCredentialsRequireTls`, `unencryptedClusterJoinIsRejected`, `unencryptedPeerRecordIsRejected`, `clusterLinkRequiresTrustedCertificate`, `clusterLinkRefusesUntrustedCertificate`, `peerTlsUsesLocalKeys` |
 | one logical storage, no fallback | unit: `nodeWithoutStorageServesNoClients`, `standaloneNodeMayNotUseAClustersDatabase` |
+| one accounts database for the cluster | code: a node whose `authentication.database_uri` differs is refused at attach; test cluster: every node points at the same PostgreSQL on theater |
 | node identity, name, a clone | unit: `nodeMayNotTakeAnotherNodesName`, `nodeRunningElsewhereDoesNotStartAgain`, `restartedNodeKeepsItsIdentityAndRejoins`, `nodeThatLeavesFreesItsPlace` |
 | forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; test cluster: `test_cluster.sh up`, a node stopped and started again |
 | subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |
