@@ -1,8 +1,0 @@
-Server:   EMQX
-Version:  6.3.1
-Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; EMQX 6.3.1 (emqx-enterprise, community license) over TLS on port 8882, max_connections 2M, acceptors 64, backlog 8192
-Client:   thinker10, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-15
-
-Scenario: Point-To-Point-TLS-100K
-NOT RUN - the median at the rate before was 130.6 s, over the limit of 100 ms

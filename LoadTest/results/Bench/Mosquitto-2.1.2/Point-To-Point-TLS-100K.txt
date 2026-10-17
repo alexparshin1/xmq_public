@@ -1,8 +1,0 @@
-Server:   Mosquitto
-Version:  2.1.2
-Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; Mosquitto 2.1.2 over TLS on port 8883, persistence off, max_inflight_messages 65534, max_queued_messages unlimited
-Client:   thinker10, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-15
-
-Scenario: Point-To-Point-TLS-100K
-NOT RUN - the median at the rate before was 204.6 s, over the limit of 100 ms

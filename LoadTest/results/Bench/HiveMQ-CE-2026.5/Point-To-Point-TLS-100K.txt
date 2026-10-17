@@ -1,8 +1,0 @@
-Server:   HiveMQ CE
-Version:  2026.5
-Host:     thinker11, i7-8705G, 4 cores/8 threads, 32Gb RAM, Ubuntu 26.04, no CPU affinity; HiveMQ CE 2026.5 over TLS on port 8886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M, in-memory persistence
-Client:   thinker10, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-15
-
-Scenario: Point-To-Point-TLS-100K
-NOT RUN - the median at the rate before was 452 ms, over the limit of 100 ms
