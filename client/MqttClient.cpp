@@ -34,10 +34,13 @@ void MqttClient::useBrokerThreads()
     // with the client, and the client is released from inside its own callbacks (a node dropped in
     // its link's disconnect handler) - the destructor of the thread then waits for the thread it is
     // running on, "Resource deadlock avoided", terminate (debian-forky, 2026-10-15).
-    static SessionThreads brokerThreads(8);
+    // A heap object, so its destructor never runs and the threads are never joined in an order the
+    // compiler chooses: they live until the process takes them down, which is what "the pool outlives
+    // every client" means. The shared_ptr itself is static, so every call shares the same pool.
+    static const auto brokerThreads = std::make_shared<SessionThreads>(8);
     if (!m_ownThread)
     {
-        m_ownThread = brokerThreads.getNextThread();
+        m_ownThread = brokerThreads->getNextThread();
     }
 }
 
