@@ -3,7 +3,7 @@
 ```
 results/
   AWS/<version>/<test>.txt     the AWS set, one file per test
-  Bench/<version>/<test>.txt   the home bench set (thinker10 client, thinker11 broker)
+  Bench/<version>/<test>.txt   the home bench set (client-host client, server-host broker)
   raw/                         per-run logs; not kept in git
 ```
 

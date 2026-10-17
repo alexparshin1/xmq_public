@@ -337,7 +337,7 @@ the rest idle, the card's ring overflows, and the dropped frames come back as TC
 exponential backoff. A session stuck in backoff for 1.5 x its keep-alive looks silent to the broker,
 which closes it - and the client reports `Not connected`, although every session was carrying traffic.
 
-That is exactly how the 100k msg/s Point-To-Point run failed on thinker11 (e1000e, one queue) on
+That is exactly how the 100k msg/s Point-To-Point run failed on server-host (e1000e, one queue) on
 2026-09-13, after two client-side fixes aimed at the wrong cause. Measured during publishing:
 
 | | before | with RPS on CPUs 4-6 |
@@ -350,7 +350,7 @@ That is exactly how the 100k msg/s Point-To-Point run failed on thinker11 (e1000
 A bigger ring (`ethtool -G ... rx 4096`) changed nothing: the ring was not too small, it was drained
 too slowly.
 
-The bench no longer runs over that card: thinker11 has a second NIC with four receive queues, and the
+The bench no longer runs over that card: server-host has a second NIC with four receive queues, and the
 bench traffic goes through it. With four queues the card spreads interrupts itself (RSS), so RPS is not
 needed on the bench path. The e1000e record above stays as the reference for any single-queue host.
 
@@ -379,7 +379,7 @@ echo 32768 | sudo tee /sys/class/net/$IF/queues/rx-0/rps_flow_cnt
 
 Choosing the mask: CPUs that are idle under load, **not** the CPU the card's interrupt lands on (it is
 already busy draining the ring), preferably not the ones the broker's threads are pinned to, and on the
-card's NUMA node. On thinker11 CPU7 takes the interrupt and CPUs 4-6 are the idle SMT siblings of the
+card's NUMA node. On server-host CPU7 takes the interrupt and CPUs 4-6 are the idle SMT siblings of the
 cores the broker runs on, hence `70`.
 
 None of this survives a reboot. To keep it:

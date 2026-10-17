@@ -7,14 +7,14 @@
 #   ./tls_p2p_campaign.sh <results dir> [broker ...]       default: all five
 #
 # Brokers: xmq flashmq mosquitto emqx hivemq. Environment: HOST (ssh target of the broker machine,
-# thinker11), ADDR (its address for the client), LIMIT_US (the gate, 100000).
+# server-host), ADDR (its address for the client), LIMIT_US (the gate, 100000).
 #
 set -u
 OUT=${1:?results dir}; shift
 BROKERS=${*:-xmq flashmq mosquitto emqx hivemq}
-ENVIRONMENT=${ENVIRONMENT:-bench}     # bench (thinker10 -> thinker11) or aws (the client instance -> the server)
+ENVIRONMENT=${ENVIRONMENT:-bench}     # bench (client-host -> server-host) or aws (the client instance -> the server)
 case $ENVIRONMENT in
-    bench) HOST=${HOST:-thinker11};     ADDR=${ADDR:-10.1.1.243};   SUBNET=${SUBNET:-10.1.1};    NIC=${NIC:-enp86s0}
+    bench) HOST=${HOST:-server-host};     ADDR=${ADDR:-10.1.1.243};   SUBNET=${SUBNET:-10.1.1};    NIC=${NIC:-enp86s0}
            HIVEMQ_UNIT=hivemq-bench;    MOSQUITTO_PLAIN=1884 ;;
     aws)   HOST=${HOST:-172.31.13.230}; ADDR=${ADDR:-172.31.13.230}; SUBNET=${SUBNET:-172.31.14}; NIC=${NIC:-ens5}
            HIVEMQ_UNIT=hivemq;          MOSQUITTO_PLAIN=1883 ;;

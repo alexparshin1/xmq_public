@@ -22,7 +22,7 @@
 #
 # One accounts database for the whole cluster, not one per node: the nodes of a cluster share the
 # store, which is what makes them agree on who may connect rather than being configured one at a
-# time. theater's PostgreSQL already holds it.
+# time. farm-host's PostgreSQL already holds it.
 #
 # Usage:
 #   test_cluster.sh up                 prepare (dirs, certificates, configuration), start every node
@@ -66,7 +66,7 @@ CLIENT_USER CLIENT_PASSWORD USER_DATABASE_URI EXTENSION_LIBRARY"
 # the release gates measure, and a test cluster has no business replacing them. Laid down on every
 # machine the test cluster uses, which is why the path is the same everywhere.
 SERVER=${SERVER:-$HOME/cluster.run/xmq_server}
-REDIS_HOST=${REDIS_HOST:-theater}
+REDIS_HOST=${REDIS_HOST:-farm-host}
 REDIS_PORT=${REDIS_PORT:-6379}
 REDIS_DB=${REDIS_DB:-4}
 # Links each node opens to each other node; 4 is the server's own default.
@@ -85,7 +85,7 @@ CLIENT_PASSWORD=${CLIENT_PASSWORD:-User-Secret1}
 #   so an account made while the test cluster is up is there only after the next `up`. The cluster account
 #   above is the test cluster's own business, and its password has to match what the nodes present when
 #   they link.
-USER_DATABASE_URI=${USER_DATABASE_URI:-postgresql://xmq:xmq_secret@theater/xmq}
+USER_DATABASE_URI=${USER_DATABASE_URI:-postgresql://xmq:xmq_secret@farm-host/xmq}
 # The authenticator extension, beside the server on every machine: a broker with no extension that
 # authenticates admits nobody, and every cluster link arrives with an account and a password.
 EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster.run/lib/libxmq_user_database.so}
@@ -98,7 +98,7 @@ EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster.run/lib/libxmq_user_databas
 SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster.run/lib:$HOME/sptk/lib}
 # Two nodes on each machine, so that the links between them are links between hosts, and the test cluster
 # still leaves every machine able to carry its share of clients and traffic.
-NODES=${NODES:-"node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater"}
+NODES=${NODES:-"node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host"}
 
 HERE=$(dirname "$(readlink -f "$0")")
 LOCAL_HOST=$(hostname)
@@ -130,7 +130,7 @@ node_host_of() { node_host "$(node_spec "$1")"; }
 #
 # Both forms of a node are accepted everywhere - the plain name the test file writes, and the
 # `name@host` the loops of this script carry - because a function that took only one of them was
-# how the first status of a six-node test cluster answered "unknown node: node1@thinker10" six times.
+# how the first status of a six-node test cluster answered "unknown node: node1@client-host" six times.
 node_index() {
     local wanted index=0
     wanted=$(node_name "$1")
@@ -502,7 +502,7 @@ command_check_logs() {
 # stamp of the commit it was built from, which `up` compares across machines. Run on the machine the
 # build is on; the machines given have to be able to run it - the same distribution.
 # The machines `deploy <branch>` builds on: each one builds the branch itself and runs what it built.
-CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
+CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"server-host client-host farm-host"}
 # ~/cluster on every machine links to LoadTest/Cluster there, so the scripts a timeline step runs on
 # a machine are those of the branch the machine runs; the test cluster's data is in ~/cluster.run.
 # ~/workspace/xmq_public on each machine, at the branch as pushed, built in its build/ - the one
@@ -512,7 +512,7 @@ CLUSTER_DEPLOY_HOSTS=${CLUSTER_DEPLOY_HOSTS:-"thinker11 thinker10 theater"}
 BUILD_TREE=${BUILD_TREE:-'$HOME/workspace/xmq_public'}
 
 # Bring the build tree on this machine to origin/<branch> and build the server there; print the commit.
-# At the lowest priority, on half the cores, and not beside the farm: theater runs the smart home.
+# At the lowest priority, on half the cores, and not beside the farm: farm-host runs the smart home.
 build_branch_here() {
     local branch=$1 tree
     tree=$(eval echo "$BUILD_TREE")

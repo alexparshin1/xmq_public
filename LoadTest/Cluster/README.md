@@ -49,7 +49,7 @@ compares the string, so proxies and different spellings of the same storage are 
 database. Nodes are chosen by name and host:
 
 ```sh
-NODES="node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11" test_cluster.sh up
+NODES="node1@client-host node2@client-host node3@server-host node4@server-host" test_cluster.sh up
 ```
 
 ## The test file
@@ -64,7 +64,7 @@ NODES="node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11" test_clu
         "groups": [ { "name": "publishers", "node": "node3" },
                     { "name": "subscribers", "node": "node6", "servers": ["node1", "node3"] } ]
     },
-    "nodes": [ { "name": "node3", "host": "thinker11", "port": 2884,
+    "nodes": [ { "name": "node3", "host": "server-host", "port": 2884,
                  "stop": "~/cluster/test_cluster.sh stop {node}",
                  "start": "~/cluster/test_cluster.sh start {node}" } ],
     "timeline": [ { "at": 30, "action": "stop", "node": "node3" },
@@ -127,7 +127,7 @@ bytes - HAProxy's default buffers cost some 35 KB.
 
 ## Confirming a change
 
-After the unit tests, on the default test cluster (six nodes, two on each of thinker10, thinker11 and theater):
+After the unit tests, on the default test cluster (six nodes, two on each of client-host, server-host and farm-host):
 
 ```sh
 # every machine builds the pushed branch and runs what it built
@@ -137,12 +137,12 @@ xmq_scn_cluster --suite LoadTest/Cluster  # every test here; exit code 0 only if
 xmq_scn_cluster --suite LoadTest/Cluster --repeat 3   # for what shows in some runs only
 ```
 
-`deploy <branch>`: every machine in `CLUSTER_DEPLOY_HOSTS` (thinker11, thinker10, theater) builds the
+`deploy <branch>`: every machine in `CLUSTER_DEPLOY_HOSTS` (server-host, client-host, farm-host) builds the
 branch at once - over ssh, or directly on the machine `deploy` runs on - in `~/workspace/xmq_public`,
 brought to `origin/<branch>` and built in its `build/` (RelWithDebInfo): one tree and one build per
 machine, so a node never runs a binary from a build other than the one just made. A tree with
 changes not committed is refused rather than checked out over. The build runs at the lowest priority on
-half the cores - theater runs the smart home - and is refused on a machine where the farm is
+half the cores - farm-host runs the smart home - and is refused on a machine where the farm is
 running. The first build takes several minutes, later ones only what changed. Builds of different
 commits are refused; each machine builds against the SPTK installed in its `~/.local`. A build of
 one's own, not pushed, goes the old way: `test_cluster.sh deploy <server> <host>...`, on the machine that

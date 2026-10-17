@@ -18,7 +18,7 @@ set -u
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 cd "$here" || exit 1
-farm=${FARM:-theater}
+farm=${FARM:-farm-host}
 packages_dir=
 
 while [ $# -gt 0 ]; do

@@ -3,10 +3,10 @@
   "comments": [
     "A node is taken away under load and brought back: the load's subscribers are on it, so the",
     "cluster has to take their sessions back when it returns. On the default test cluster of test_cluster.sh -",
-    "six nodes, two on each of thinker10, thinker11 and theater - run from thinker10, where",
+    "six nodes, two on each of client-host, server-host and farm-host - run from client-host, where",
     "~/cluster/test_cluster.sh reaches every node by itself."
   ],
-  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
+  "cluster": "node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -27,13 +27,13 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
-      "host": "thinker11",
+      "host": "server-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }
@@ -58,14 +58,14 @@
     {
       "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "6"
     },
     {
       "name": "a coordinator is leading",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "GET cluster:coordinator",
       "nonempty": true
     },

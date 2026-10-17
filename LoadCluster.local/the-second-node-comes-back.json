@@ -2,7 +2,7 @@
   "name": "the second node is taken away and brought back under load",
   "comments": [
     "Run from the client host: the timeline's commands go to the machine the stand runs on, which is",
-    "why they are 'ssh thinker11 ...'. A test file owns its commands, so a stand on another host, a",
+    "why they are 'ssh server-host ...'. A test file owns its commands, so a stand on another host, a",
     "farm service or a container is the same file with different words here and nothing else.",
     "The nodes carry their own addresses, so the load and the checks name a node instead of repeating",
     "a port - pointing this file at another stand means editing the nodes and nothing else."
@@ -21,17 +21,17 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2884,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node2",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2885,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     }
   ],
   "timeline": [
@@ -43,14 +43,14 @@
     {
       "name": "both nodes are members",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://server-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "2"
     },
     {
       "name": "a coordinator is leading",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://server-host:6379/4",
       "command": "GET cluster:coordinator",
       "nonempty": true
     },

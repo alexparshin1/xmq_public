@@ -2,9 +2,9 @@
   "name": "Cluster-P2P-100K-lb",
   "type": "Point-To-Point",
   "comments": [
-    "Point-To-Point-50K-50K-50K-100K through a load balancer (test_cluster.sh lb up on thinker10), which",
+    "Point-To-Point-50K-50K-50K-100K through a load balancer (test_cluster.sh lb up on client-host), which",
     "spreads both groups over the nodes: with N nodes about (N-1)/N of the messages cross a cluster link.",
-    "node1 on thinker11, node2 on theater (NODES='node1@thinker11 node2@theater'), client thinker10."
+    "node1 on server-host, node2 on farm-host (NODES='node1@server-host node2@farm-host'), client client-host."
   ],
   "publishers": {
     "id_prefix": "test-publisher-",

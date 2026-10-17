@@ -1,18 +1,18 @@
 {
   "name": "six nodes on three machines",
   "comments": [
-    "Two nodes on each of thinker10, thinker11 and theater, so the cluster's links cross a real",
+    "Two nodes on each of client-host, server-host and farm-host, so the cluster's links cross a real",
     "network instead of loopback - the cheaper and the less honest of the two arrangements.",
     "",
-    "The load is the small point-to-point scenario: publishers on node3 (thinker11), subscribers on",
-    "node6 (theater), so every message in it crosses a machine boundary. node6 is taken away at 40s",
+    "The load is the small point-to-point scenario: publishers on node3 (server-host), subscribers on",
+    "node6 (farm-host), so every message in it crosses a machine boundary. node6 is taken away at 40s",
     "and brought back at 70s; the checks then ask whether the cluster is whole again, whether every",
     "machine still serves clients, and whether traffic crosses the hosts.",
     "",
     "Four messages are carried before anything is done to the cluster, written as the four corners of",
     "one question: whether a publication reaches a subscriber on another node, and if not, whether it",
-    "is the pair of machines, the direction, or the machine itself. thinker11 to theater; theater to",
-    "thinker10; theater to theater; theater to thinker11. A fifth is carried after node6 comes back.",
+    "is the pair of machines, the direction, or the machine itself. server-host to farm-host; farm-host to",
+    "client-host; farm-host to farm-host; farm-host to server-host. A fifth is carried after node6 comes back.",
     "One check in a corner is a curiosity; four of them say what the shape of the failure is.",
     "",
     "They run early and with short timeouts, so that a corner that does not answer cannot push the",
@@ -33,52 +33,52 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker10",
+      "host": "client-host",
       "port": 2884,
-      "stop": "ssh thinker10 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker10 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh client-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh client-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node2",
-      "host": "thinker10",
+      "host": "client-host",
       "port": 2885,
-      "stop": "ssh thinker10 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker10 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh client-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh client-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node3",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2886,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node4",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2887,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node5",
-      "host": "theater",
+      "host": "farm-host",
       "port": 2888,
-      "stop": "ssh theater /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh theater /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh farm-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh farm-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node6",
-      "host": "theater",
+      "host": "farm-host",
       "port": 2889,
-      "stop": "ssh theater /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh theater /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh farm-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh farm-host /home/alexeyp/cluster/stand.sh start {node}"
     }
   ],
   "timeline": [
-    { "at": 10, "action": "check", "check": "publish on thinker11, subscribe on theater" },
-    { "at": 14, "action": "check", "check": "publish on theater, subscribe on thinker10" },
-    { "at": 18, "action": "check", "check": "publish on theater, subscribe on theater" },
-    { "at": 22, "action": "check", "check": "publish on theater, subscribe on thinker11" },
+    { "at": 10, "action": "check", "check": "publish on server-host, subscribe on farm-host" },
+    { "at": 14, "action": "check", "check": "publish on farm-host, subscribe on client-host" },
+    { "at": 18, "action": "check", "check": "publish on farm-host, subscribe on farm-host" },
+    { "at": 22, "action": "check", "check": "publish on farm-host, subscribe on server-host" },
     { "at": 40, "action": "stop", "node": "node6" },
     { "at": 70, "action": "start", "node": "node6" },
     { "at": 100, "action": "check" }
@@ -87,33 +87,33 @@
     {
       "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "6"
     },
     {
       "name": "a coordinator is leading",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "GET cluster:coordinator",
       "nonempty": true
     },
     {
-      "name": "thinker10 serves clients",
+      "name": "client-host serves clients",
       "kind": "mqtt",
       "action": "connect",
       "node": "node1",
       "expect": true
     },
     {
-      "name": "thinker11 serves clients",
+      "name": "server-host serves clients",
       "kind": "mqtt",
       "action": "connect",
       "node": "node3",
       "expect": true
     },
     {
-      "name": "theater serves clients",
+      "name": "farm-host serves clients",
       "kind": "mqtt",
       "action": "connect",
       "node": "node5",
@@ -127,51 +127,51 @@
       "expect": true
     },
     {
-      "name": "publish on thinker11, subscribe on theater",
+      "name": "publish on server-host, subscribe on farm-host",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node3",
       "subscribe-node": "node6",
-      "topic": "cluster/test/thinker11-to-theater",
-      "payload": "thinker11-to-theater",
+      "topic": "cluster/test/server-host-to-farm-host",
+      "payload": "server-host-to-farm-host",
       "timeout": 5,
       "settle": 3
     },
     {
-      "name": "publish on theater, subscribe on thinker10",
+      "name": "publish on farm-host, subscribe on client-host",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node5",
       "subscribe-node": "node1",
-      "topic": "cluster/test/theater-to-thinker10",
-      "payload": "theater-to-thinker10",
+      "topic": "cluster/test/farm-host-to-client-host",
+      "payload": "farm-host-to-client-host",
       "timeout": 5,
       "settle": 3
     },
     {
-      "name": "publish on theater, subscribe on theater",
+      "name": "publish on farm-host, subscribe on farm-host",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node5",
       "subscribe-node": "node6",
-      "topic": "cluster/test/theater-to-theater",
-      "payload": "theater-to-theater",
+      "topic": "cluster/test/farm-host-to-farm-host",
+      "payload": "farm-host-to-farm-host",
       "timeout": 5,
       "settle": 3
     },
     {
-      "name": "publish on theater, subscribe on thinker11",
+      "name": "publish on farm-host, subscribe on server-host",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node6",
       "subscribe-node": "node3",
-      "topic": "cluster/test/theater-to-thinker11",
-      "payload": "theater-to-thinker11",
+      "topic": "cluster/test/farm-host-to-server-host",
+      "payload": "farm-host-to-server-host",
       "timeout": 5,
       "settle": 3
     },
     {
-      "name": "publish on thinker11, subscribe on theater after the restart",
+      "name": "publish on server-host, subscribe on farm-host after the restart",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node3",

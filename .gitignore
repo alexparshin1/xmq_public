@@ -45,7 +45,7 @@ LoadTest/results/raw/
 # addresses, so they live on the disk of the machines that run them and in neither git nor a package.
 # LoadTest/CMakeLists.txt keeps them out of the install for the same reason.
 LoadTest/aws_campaign.sh
-LoadTest/init_environment_thinker10.sh
+LoadTest/init_environment_client-host.sh
 LoadTest/.aws/
 
 # Written by the test suite and by a running broker, not by anybody. test.message is saved by

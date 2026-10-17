@@ -1,14 +1,14 @@
 {
   "name": "clients through a load balancer while a node goes",
   "comments": [
-    "The load reaches the cluster only through a load balancer - IPVS run by keepalived on thinker10,",
-    "test_cluster.sh lb up - which spreads the clients over all six nodes. node3 (thinker11) is taken",
+    "The load reaches the cluster only through a load balancer - IPVS run by keepalived on client-host,",
+    "test_cluster.sh lb up - which spreads the clients over all six nodes. node3 (server-host) is taken",
     "away under load: keepalived takes it out of the balancing, its clients reconnect through the",
     "balancer to the other nodes, and node3 comes back into the balancing when it serves again. On the",
-    "default test cluster of test_cluster.sh, run from thinker10, with sudo for keepalived and ipvsadm.",
-    "The balancer is named by its address: on thinker10 itself the name resolves to 127.0.1.1."
+    "default test cluster of test_cluster.sh, run from client-host, with sudo for keepalived and ipvsadm.",
+    "The balancer is named by its address: on client-host itself the name resolves to 127.0.1.1."
   ],
-  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
+  "cluster": "node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -37,13 +37,13 @@
     },
     {
       "name": "node1",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
-      "host": "thinker11",
+      "host": "server-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }
@@ -104,7 +104,7 @@
     {
       "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "6"
     }

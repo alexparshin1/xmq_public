@@ -185,7 +185,7 @@ private:
      * A check that reused an id would not be checking the cluster but asking it to move a session:
      * the id would be held by whichever node the previous user of it connected to, and a node that
      * meets a session another node owns either takes it over or refuses. The first run of this
-     * against six nodes found exactly that - the checks shared the load scenario's ids, and theater
+     * against six nodes found exactly that - the checks shared the load scenario's ids, and farm-host
      * answered "The MQTT server unavailable" for a session another machine held.
      */
     [[nodiscard]] std::string checkClientId(std::string_view checkName) const;

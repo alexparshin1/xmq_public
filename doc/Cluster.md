@@ -105,7 +105,7 @@ broker, for what the cluster must not make worse.
 | a client may connect to any node | test cluster: `six-nodes-on-three-machines.json`, publishing and subscribing from each machine |
 | encrypted internode links | unit: `clusterCredentialsRequireTls`, `unencryptedClusterJoinIsRejected`, `unencryptedPeerRecordIsRejected`, `clusterLinkRequiresTrustedCertificate`, `clusterLinkRefusesUntrustedCertificate`, `peerTlsUsesLocalKeys` |
 | one logical storage, no fallback | unit: `nodeWithoutStorageServesNoClients`, `standaloneNodeMayNotUseAClustersDatabase` |
-| one accounts database for the cluster | code: a node whose `authentication.database_uri` differs is refused at attach; test cluster: every node points at the same PostgreSQL on theater |
+| one accounts database for the cluster | code: a node whose `authentication.database_uri` differs is refused at attach; test cluster: every node points at the same PostgreSQL on farm-host |
 | node identity, name, a clone | unit: `nodeMayNotTakeAnotherNodesName`, `nodeRunningElsewhereDoesNotStartAgain`, `restartedNodeKeepsItsIdentityAndRejoins`, `nodeThatLeavesFreesItsPlace` |
 | forming and rejoining | unit: `enabledNodeJoinsByItself`, `attachAndDetachToCluster`; test cluster: `test_cluster.sh up`, a node stopped and started again |
 | subscriptions shared between nodes | unit: `effectiveSubscriptionsAreSharedAndDeduplicated`, `subscriptionsReachEveryNode`, `joiningNodeLearnsExistingSubscriptions`, `subscriptionBurstReachesThePeerWhole`, `unsubscribeStopsForwarding`, `overlappingFiltersForwardOneCopy`, `publicationGoesOnlyToNodesWithSubscribers`, `expiredSessionWithdrawsItsSubscription` |

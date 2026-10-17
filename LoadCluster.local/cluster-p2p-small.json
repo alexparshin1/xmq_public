@@ -16,7 +16,7 @@
     "clean_session": true,
     "topics": "cluster/topic$clientindex",
     "server": {
-      "hostname": "thinker11",
+      "hostname": "server-host",
       "port": 2884,
       "username": "user",
       "password": "User-Secret1"
@@ -33,14 +33,14 @@
     "reconnect_attempts": 30,
     "topics": "cluster/topic$clientindex",
     "server": {
-      "hostname": "thinker11",
+      "hostname": "server-host",
       "port": 2885,
       "username": "user",
       "password": "User-Secret1"
     }
   },
   "server": {
-    "hostname": "thinker11",
+    "hostname": "server-host",
     "port": 2884,
     "username": "user",
     "password": "User-Secret1"

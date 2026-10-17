@@ -19,17 +19,17 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2884,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     },
     {
       "name": "node2",
-      "host": "thinker11",
+      "host": "server-host",
       "port": 2885,
-      "stop": "ssh thinker11 /home/alexeyp/cluster/stand.sh stop {node}",
-      "start": "ssh thinker11 /home/alexeyp/cluster/stand.sh start {node}"
+      "stop": "ssh server-host /home/alexeyp/cluster/stand.sh stop {node}",
+      "start": "ssh server-host /home/alexeyp/cluster/stand.sh start {node}"
     }
   ],
   "timeline": [],
@@ -37,7 +37,7 @@
     {
       "name": "both nodes are members",
       "kind": "redis",
-      "uri": "redis://thinker11:6379/4",
+      "uri": "redis://server-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "2"
     },

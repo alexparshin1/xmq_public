@@ -1,13 +1,13 @@
 {
   "name": "the storage goes away from one machine and comes back",
   "comments": [
-    "thinker11 loses the shared storage for 40 seconds - the network drops what it sends there, as a",
+    "server-host loses the shared storage for 40 seconds - the network drops what it sends there, as a",
     "lost route does: nothing refuses, nothing answers. Its two nodes have to stop serving clients",
     "once their leases run out, and serve again soon after the storage is back; the other machines",
-    "carry on. On the default test cluster of test_cluster.sh, run from thinker10. The 'after' commands give the",
-    "route back whatever happened, so a failed run does not leave thinker11 without its storage."
+    "carry on. On the default test cluster of test_cluster.sh, run from client-host. The 'after' commands give the",
+    "route back whatever happened, so a failed run does not leave server-host without its storage."
   ],
-  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
+  "cluster": "node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -28,25 +28,25 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node2",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node3",
-      "host": "thinker11",
+      "host": "server-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node5",
-      "host": "theater",
+      "host": "farm-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }
@@ -58,29 +58,29 @@
     {
       "at": 20,
       "action": "run",
-      "command": "ssh thinker11 sudo -n iptables -I OUTPUT -p tcp -d theater --dport 6379 -j DROP"
+      "command": "ssh server-host sudo -n iptables -I OUTPUT -p tcp -d farm-host --dport 6379 -j DROP"
     },
     {
       "at": 30,
       "action": "check",
-      "check": "thinker10 carries on"
+      "check": "client-host carries on"
     },
     {
       "at": 30,
       "action": "check",
-      "check": "theater carries on"
+      "check": "farm-host carries on"
     },
     {
       "at": 36,
       "action": "check",
-      "check": "thinker11 refuses clients without its storage",
+      "check": "server-host refuses clients without its storage",
       "every": 4,
       "until": 56
     },
     {
       "at": 60,
       "action": "run",
-      "command": "ssh thinker11 'while sudo -n iptables -D OUTPUT -p tcp -d theater --dport 6379 -j DROP 2>/dev/null; do :; done'"
+      "command": "ssh server-host 'while sudo -n iptables -D OUTPUT -p tcp -d farm-host --dport 6379 -j DROP 2>/dev/null; do :; done'"
     },
     {
       "at": 75,
@@ -88,37 +88,37 @@
     }
   ],
   "after": [
-    "ssh thinker11 'while sudo -n iptables -D OUTPUT -p tcp -d theater --dport 6379 -j DROP 2>/dev/null; do :; done'",
+    "ssh server-host 'while sudo -n iptables -D OUTPUT -p tcp -d farm-host --dport 6379 -j DROP 2>/dev/null; do :; done'",
     "~/cluster/test_cluster.sh check-logs"
   ],
   "checks": [
     {
-      "name": "thinker11 refuses clients without its storage",
+      "name": "server-host refuses clients without its storage",
       "kind": "mqtt",
       "action": "connect",
       "node": "node3",
       "expect": false
     },
     {
-      "name": "thinker10 carries on",
+      "name": "client-host carries on",
       "kind": "mqtt",
       "action": "connect",
       "node": "node1"
     },
     {
-      "name": "theater carries on",
+      "name": "farm-host carries on",
       "kind": "mqtt",
       "action": "connect",
       "node": "node5"
     },
     {
-      "name": "thinker11 serves again",
+      "name": "server-host serves again",
       "kind": "mqtt",
       "action": "connect",
       "node": "node3"
     },
     {
-      "name": "a message reaches thinker11 again",
+      "name": "a message reaches server-host again",
       "kind": "mqtt",
       "action": "deliver",
       "publish-node": "node1",
@@ -131,7 +131,7 @@
     {
       "name": "a coordinator is leading",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "GET cluster:coordinator",
       "nonempty": true
     }

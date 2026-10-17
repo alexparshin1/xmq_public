@@ -1,14 +1,14 @@
 {
   "name": "the sessions of a node that is gone are adopted",
   "comments": [
-    "A persistent subscriber of node4 (thinker11) is away when node4 goes. While node4 is down, a",
-    "message is published for it on node1 (thinker10); then the subscriber comes back to node2. The",
+    "A persistent subscriber of node4 (server-host) is away when node4 goes. While node4 is down, a",
+    "message is published for it on node1 (client-host); then the subscriber comes back to node2. The",
     "message must be there: the cluster adopted node4's session as soon as node4's lease ran out, and",
     "kept collecting for it - not only when its client came back. On the default test cluster of test_cluster.sh,",
-    "run from thinker10. The grep is the check: xmq_sub -v prints each message it receives with its",
+    "run from client-host. The grep is the check: xmq_sub -v prints each message it receives with its",
     "payload in brackets."
   ],
-  "cluster": "node1@thinker10 node2@thinker10 node3@thinker11 node4@thinker11 node5@theater node6@theater",
+  "cluster": "node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host",
   "server": {
     "username": "user",
     "password": "User-Secret1"
@@ -29,19 +29,19 @@
   "nodes": [
     {
       "name": "node1",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node2",
-      "host": "thinker10",
+      "host": "client-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     },
     {
       "name": "node4",
-      "host": "thinker11",
+      "host": "server-host",
       "stop": "~/cluster/test_cluster.sh stop {node}",
       "start": "~/cluster/test_cluster.sh start {node}"
     }
@@ -53,7 +53,7 @@
     {
       "at": 5,
       "action": "run",
-      "command": "xmq_sub -h thinker11 -p 2887 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -W 2 --quiet"
+      "command": "xmq_sub -h server-host -p 2887 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -W 2 --quiet"
     },
     {
       "at": 10,
@@ -63,12 +63,12 @@
     {
       "at": 40,
       "action": "run",
-      "command": "xmq_pub -h thinker10 -p 2884 -u user -P User-Secret1 -V 5 -q 1 -i cluster-orphan-publisher -t cluster/test/orphan -m published-while-away --quiet"
+      "command": "xmq_pub -h client-host -p 2884 -u user -P User-Secret1 -V 5 -q 1 -i cluster-orphan-publisher -t cluster/test/orphan -m published-while-away --quiet"
     },
     {
       "at": 45,
       "action": "run",
-      "command": "xmq_sub -h thinker10 -p 2885 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -C 1 -W 10 -v | grep -q '\\[published-while-away\\]'"
+      "command": "xmq_sub -h client-host -p 2885 -u user -P User-Secret1 -V 5 -c -x 3600 -q 1 -i cluster-orphan -t cluster/test/orphan -C 1 -W 10 -v | grep -q '\\[published-while-away\\]'"
     },
     {
       "at": 60,
@@ -93,7 +93,7 @@
     {
       "name": "all six nodes are members",
       "kind": "redis",
-      "uri": "redis://theater:6379/4",
+      "uri": "redis://farm-host:6379/4",
       "command": "ZCARD cluster:members",
       "expect": "6"
     }

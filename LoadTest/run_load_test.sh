@@ -38,7 +38,7 @@ if [[ -z "${XMQ_SLEEP_INHIBITED:-}" ]] && command -v systemd-inhibit > /dev/null
          --why="a run in progress must not be suspended" --mode=block bash "$self" "$@"
   fi
   # Detached, the inhibitor is still to be had from root - and is needed most there: a run left to
-  # itself is the one nobody is at the desk to keep awake. KDE suspended thinker10 eighteen minutes
+  # itself is the one nobody is at the desk to keep awake. KDE suspended client-host eighteen minutes
   # into such a run on 2026-10-05. Held for as long as this script runs, and released with it.
   if sudo -n systemd-inhibit --what=sleep:idle --who="probe" --why="probe" --mode=block true > /dev/null 2>&1; then
     sudo -n systemd-inhibit --what=sleep:idle --who="MQTT load test" \

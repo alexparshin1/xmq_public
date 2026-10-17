@@ -3,9 +3,9 @@
   "type": "Point-To-Point",
   "comments": [
     "Point-To-Point-50K-50K-50K-100K at half the rate (50K messages/s) across a cluster: publishers on one node, subscribers on another, so",
-    "every message crosses a cluster link - what a cluster costs at worst. node3 on thinker11, node5 on",
-    "node1 on thinker11, node2 on theater (NODES='node1@thinker11 node2@theater' test_cluster.sh;",
-    "ports follow the position in NODES), client thinker10."
+    "every message crosses a cluster link - what a cluster costs at worst. node3 on server-host, node5 on",
+    "node1 on server-host, node2 on farm-host (NODES='node1@server-host node2@farm-host' test_cluster.sh;",
+    "ports follow the position in NODES), client client-host."
   ],
   "publishers": {
     "id_prefix": "test-publisher-",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs HiveMQ CE on the load-test server as it runs on the home bench (thinker11): the same
+# Installs HiveMQ CE on the load-test server as it runs on the home bench (server-host): the same
 # distribution, JVM options, connection limit and port (1886), as a systemd service that is not
 # started at boot - the scenario set starts and stops it like every other broker.
 #

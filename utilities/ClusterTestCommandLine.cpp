@@ -56,7 +56,7 @@ ClusterTestCommandLine::ClusterTestCommandLine(const vector<string>& args)
     defineParameter("redis", "", "URI", "", alwaysVisible, "",
                     "Run one Redis command against this storage, print the reply - one element per line - "
                     "and exit: the same reads the checks of kind redis make, from a shell, e.g. "
-                    "--redis redis://theater:6379/4 --redis-command 'KEYS cluster:*'. An error goes to "
+                    "--redis redis://farm-host:6379/4 --redis-command 'KEYS cluster:*'. An error goes to "
                     "stderr with exit status 1.");
     defineParameter("redis-command", "", "command", "", alwaysVisible, "",
                     "The command for --redis, as it would be typed: words separated by spaces.");
