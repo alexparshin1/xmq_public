@@ -16,8 +16,8 @@ export default class ServerLimitsScreen extends BasicScreen {
     }
 
     state = {
-        send_threads: 3,
-        receive_threads: 3,
+        send_threads: "auto",
+        receive_threads: "auto",
         delivery_threads: "auto",
         max_topic_alias: 128,
         max_packet_size: 256 * 1024 * 1024,

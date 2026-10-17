@@ -167,8 +167,8 @@ const char* defaultConfigurationText()
     "max_inflight_messages": 32768
   },
   "server_limits": {
-    "send_threads": 3,
-    "receive_threads": 3,
+    "send_threads": "auto",
+    "receive_threads": "auto",
     "max_topic_alias": 128
   },
   "authentication": {

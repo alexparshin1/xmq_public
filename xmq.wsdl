@@ -105,17 +105,17 @@
                     <xsd:documentation>Limits for server parameters</xsd:documentation>
                 </xsd:annotation>
                 <xsd:sequence>
-                    <xsd:element name="send_threads">
+                    <xsd:element name="send_threads" minOccurs="0">
                     	<xsd:simpleType>
                     		<xsd:restriction base="xsd:string">
-                    			<xsd:pattern value="^(auto|\d+)$"></xsd:pattern>
+                    			<xsd:pattern value="^(auto|\d+)?$"></xsd:pattern>
                     		</xsd:restriction>
                     	</xsd:simpleType>
                     </xsd:element>
-                    <xsd:element name="receive_threads">
+                    <xsd:element name="receive_threads" minOccurs="0">
                     	<xsd:simpleType>
                     		<xsd:restriction base="xsd:string">
-                    			<xsd:pattern value="^(auto|\d+)$"></xsd:pattern>
+                    			<xsd:pattern value="^(auto|\d+)?$"></xsd:pattern>
                     		</xsd:restriction>
                     	</xsd:simpleType>
                     </xsd:element>

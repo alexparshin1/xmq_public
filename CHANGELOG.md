@@ -8,7 +8,7 @@ This file starts at 0.9.14. Earlier releases are not described here; their histo
 Announcements published on the website live in `doc/news/` and are a different thing: they are written for readers who
 are not upgrading anything, and most releases do not get one.
 
-## 0.9.20 — unreleased
+## 0.9.20 — 2026-10-17
 
 Requires SPTK 5.6.14.
 
@@ -50,6 +50,18 @@ Requires SPTK 5.6.14.
 
 - **`xmq_server --set-password` asks for the password at a terminal**, and does not echo it,
   as `passwd` does. From a pipe it reads standard input as before.
+- **The thread counts behind `auto` are four send, six receive and four delivery.** They were a
+  logarithm of the host's physical core count, which came to three, four and two on the eight-core
+  machines the tests run on. A Point-To-Point over TLS at 100 000 connections is the case that got
+  wrong: TLS decryption happens on the receive path, and four receive threads left that scenario at
+  549 µs against FlashMQ's 254 µs, where six gave 273 µs, and on the eight-thread bench four gave
+  413 ms where eight gave 1.4 ms. The delivery count, two while the send and receive counts were
+  three and four, then became the one holding a Fan-Out back, and four workers recovered it: 1788 µs
+  on the bench against FlashMQ's 1807 µs. The trade is real and deliberate - the plain-text
+  scenarios are 3 to 18 per cent behind what the older counts managed - and a receive count that
+  follows the load rather than a setting is 1.0.0 work. `auto` no longer reads the core count and
+  the startup line no longer names one; a configuration that leaves the keys out gets four, six and
+  four as well.
 
 ### Removed
 

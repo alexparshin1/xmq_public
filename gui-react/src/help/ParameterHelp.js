@@ -369,19 +369,20 @@ const ParameterHelp = {
         title: "Message send threads",
         text: [
             "Threads delivering messages to subscribers.",
-            "Testing shows no thread group should exceed the number of physical cores on the " +
-            "server host. The groups share those cores, so count the send threads, the receive " +
-            "threads, the persistence threads, and the per-listener threads together, not each " +
-            "on its own.",
-            "XMQ pins its threads to physical cores by default, so adding threads beyond the core " +
-            "count buys contention rather than throughput."
+            "All the thread groups share the host's physical cores, so count the send threads, the " +
+            "receive threads, the delivery threads, the persistence threads, and the per-listener " +
+            "threads together, not one group at a time.",
+            "Use auto to run four, which is what the load-test campaign of 2026-10-17 settled on. " +
+            "Sending is not where a Point-To-Point over TLS at a hundred thousand connections " +
+            "spends its time, and more than four did not show up in the measurements."
         ],
-        range: "1 .. 64, and no more than the host's physical core count",
-        suggested: "3",
+        range: "1 .. 64",
+        suggested: "auto",
         min: 1,
         max: 64,
+        allowAuto: true,
         warning: (value) => value > 8
-                            ? "Check the host: thread groups should not exceed its physical core count."
+                            ? "Check the host: this is a lot of threads for one machine to share."
                             : null
     },
 
@@ -390,15 +391,20 @@ const ParameterHelp = {
         text: [
             "Threads reading messages published by clients. When the broker has no persistent store, " +
             "no bridge and no cluster node, they also match and deliver what they read.",
-            "The same rule as the send threads: no group should exceed the host's physical core " +
-            "count, and all the groups share those cores. Use auto to run four."
+            "All the thread groups share the host's physical cores, so count them together rather " +
+            "than one group at a time.",
+            "Use auto to run six. TLS decryption happens on the receive path, and a Point-To-Point " +
+            "over TLS at a hundred thousand connections put more on it than four threads could " +
+            "carry: six took the median from 549us to 273us on the test instance, which is where " +
+            "the whole of the gap to FlashMQ had been."
         ],
-        range: "1 .. 64, and no more than the host's physical core count",
-        suggested: "4",
+        range: "1 .. 64",
+        suggested: "auto",
         min: 1,
         max: 64,
+        allowAuto: true,
         warning: (value) => value > 8
-                            ? "Check the host: thread groups should not exceed its physical core count."
+                            ? "Check the host: this is a lot of threads for one machine to share."
                             : null
     },
 
@@ -406,9 +412,11 @@ const ParameterHelp = {
         title: "Message delivery threads",
         text: [
             "Threads delivering queued messages to subscribers.",
-            "The delivery pool is separate from the send and receive pools. Keep the count at or " +
-            "below the number of physical cores shared by all of the server's thread groups.",
-            "Use auto to run two delivery workers."
+            "The delivery pool is separate from the send and receive pools, and all of them share " +
+            "the host's physical cores.",
+            "Use auto to run four. Two was chosen when the send and receive counts were three and " +
+            "four; at four and six the delivery stage became the one holding a Fan-Out back, and " +
+            "four workers recovered it."
         ],
         range: "1 .. 256, or auto",
         suggested: "auto",
