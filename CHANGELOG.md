@@ -26,6 +26,10 @@ Requires SPTK 5.6.14.
   a member that starts again rejoins the same way. A node may not take another node's name, a node
   running elsewhere already does not start again, and a node that is not a cluster node refuses to
   start on a database a cluster uses.
+- **A node whose accounts database differs from the others' is refused at attach.** The URI of the
+  authentication database travels in the attach request and is compared, as the shared storage was
+  already: without it a node could keep a local SQLite of its own, and its users would be unknown to
+  the rest of the cluster.
 - **A session lives on one cluster node, and moves to the node its client connects to.** Redis
   records which node serves each session. A client connecting to another node takes its persistent
   session along - subscriptions and queued messages - and the node it leaves disconnects it and
@@ -85,6 +89,13 @@ Requires SPTK 5.6.14.
   its receiver returned. This could crash during reconnects and bridge rebuilds.
 - **RPM installation alongside SPTK.** Bundled SPTK libraries no longer create duplicate
   `/usr/lib/.build-id` links that conflict with the standalone SPTK packages.
+- **A cluster node whose coordinator step lost Redis never came back.** The step's catch block
+  disconnected, `connectRedis()` saw that and reconnected, and the next step could fail and do the
+  same again. The connection is kept open across failures now: the step waits its tick out and tries
+  again, and while it waits the node is offline with the lease it already held.
+- **The broker's thread pool is a static `shared_ptr` instead of a static object.** The order the
+  compiler chose for the static destructors ran the pool down while it was still in use, and the
+  cluster tests segfaulted on el9 and el10. The pool outlives its users now.
 
 ## 0.9.19 — 2026-09-30
 
