@@ -1,0 +1,57 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 1.0.0: persistence that holds on a slow disk, and TLS at the front
+  Date:  2026-10-17 (the date of the release - change it if the release moves)
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ 1.0.0 is out. It is the first release under a compatibility promise: the extension ABI,
+    the configuration keys and the control API stay as they are through 1.x. You can download it
+    <a href='/downloads'>here</a>.
+</p>
+<h3>Persistence that holds when the disk is slow</h3>
+<p>
+    Two changes, one problem. The broker looked a connecting client's stored session up with a
+    request that held a thread until Redis answered: with Redis syncing every write
+    (<code>appendfsync always</code>) on a USB hard disk, 0.9.19 refused 32,000 of 40,000
+    connections. The lookup is asynchronous now and CONNECT completes when the answer comes -
+    no refusals on the same disk.
+</p>
+<p>
+    And a message's persistence record waits 10&nbsp;ms before it is written, and is never written
+    at all if the message has been acknowledged by then. On that same disk, with every write
+    synced: <b>40,000 persistent messages a second at 159&nbsp;µs</b>. 0.9.19 managed 1,500 a
+    second.
+</p>
+<h3>TLS at the front</h3>
+<p>
+    The thread counts behind <code>auto</code> are four send, six receive and four delivery.
+    Decryption happens on the receive path, and the old counts - read from the core count - left
+    point-to-point over TLS at 100,000 messages a second at 549&nbsp;µs; at the new ones it is
+    273&nbsp;µs, against FlashMQ's 254&nbsp;µs. Fan-out on the bench is 1788&nbsp;µs, FlashMQ
+    1807&nbsp;µs. The trade is deliberate and not free: the plain-text scenarios give back 3 to
+    18 per cent.
+</p>
+<h3>Fixed</h3>
+<ul class='news'>
+    <li>On Windows a client that failed the TLS handshake could bring the broker down - a port
+        scanner on the TLS port was enough. The accepted socket was closed twice, the second time
+        in a way meant for files; it is closed once now, on every platform.</li>
+    <li>MQTT client shutdown could clear a callback while it was running, or destroy the client
+        before its receiver returned - a crash during reconnects and bridge rebuilds.</li>
+</ul>
+<h3>Smaller things worth knowing</h3>
+<ul class='news'>
+    <li><code>xmq_server --set-password</code> asks for the password at a terminal and does not
+        echo it. From a pipe it reads standard input as before.</li>
+    <li>RPM packages install beside the standalone SPTK packages without conflicting
+        <code>.build-id</code> links.</li>
+    <li>The Docker image no longer sets the administrator's password from
+        <code>XMQ_ADMIN_PASSWORD</code>; set it with <code>xmq_server --set-password</code>.</li>
+</ul>
