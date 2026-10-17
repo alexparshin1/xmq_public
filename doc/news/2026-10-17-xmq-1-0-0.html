@@ -53,5 +53,8 @@
     <li>RPM packages install beside the standalone SPTK packages without conflicting
         <code>.build-id</code> links.</li>
     <li>The Docker image no longer sets the administrator's password from
-        <code>XMQ_ADMIN_PASSWORD</code>; set it with <code>xmq_server --set-password</code>.</li>
+        <code>XMQ_ADMIN_PASSWORD</code>: it reset the password on every start and showed it in
+        <code>docker inspect</code>. Set it once with <code>xmq_server --set-password admin</code>
+        inside the container and keep <code>/etc/xmq</code> in a volume. A container that relied on
+        the variable and kept no volume has no administrator password after the upgrade.</li>
 </ul>
