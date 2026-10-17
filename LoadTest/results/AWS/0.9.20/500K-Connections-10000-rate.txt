@@ -1,0 +1,31 @@
+Server:   XMQ
+Version:  0.9.20
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; XMQ 0.9.20 (0.9.20 package of the farm) as systemd service on port 1884, send_threads=4, receive_threads=6, delivery_threads=4
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
+Date:     2026-10-17
+Started:  2026-10-17 11:33:20 AEDT
+Total execution time: 00:26:59
+
+Broker restarted before each scenario.
+
+Scenario: 500K-Connections-10000-rate
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms             49996      438us         9999     464 Mb
+5000ms          50000      379us        10000     571 Mb
+10000ms         50000      379us        10000     731 Mb
+15000ms         49999      373us         9999     838 Mb
+20000ms         50002      373us        10000     989 Mb
+25000ms         49999      378us         9999    1089 Mb
+30000ms         50000      375us        10000    1240 Mb
+35000ms         50000      376us        10000    1338 Mb
+40000ms         50000      377us        10000    1338 Mb
+45000ms         50001      380us        10000    1338 Mb
+50000ms             3      463us            0    1338 Mb
+────────────────────────────────────────────────────────
+Average        500000      383us         9090    1025 Mb
+Median                     378us                 1089 Mb
+  interval median 378us over 11 samples (as xmq_scn reports it), range 373-463us
+  server CPU   mean 115%, peak 122%
+  server RSS   1338 Mb peak
+  client NIC ens5: no dropped packets during the run

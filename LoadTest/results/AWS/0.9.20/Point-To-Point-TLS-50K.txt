@@ -1,0 +1,30 @@
+Server:   XMQ
+Version:  0.9.20
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; XMQ 0.9.20 over TLS on port 8884, send_threads=4, receive_threads=6, delivery_threads=4, no persistence
+Client:   ip-172-31-14-144, xmq_scn 0.9.20
+Date:     2026-10-17
+Started:  2026-10-17 12:10:56 AEDT
+Total execution time: 00:11:35
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-TLS-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           2999985      238us        49999    1656 Mb
+60000ms       3000004      238us        50000    1656 Mb
+120000ms      2999997      239us        49999    1656 Mb
+180000ms      2999998      238us        49999    1656 Mb
+240000ms      3000003      238us        50000    1656 Mb
+300000ms      3000000      239us        50000    1656 Mb
+360000ms      3000000      239us        50000    1657 Mb
+420000ms      3000000      238us        50000    1657 Mb
+480000ms      3000001      239us        50000    1657 Mb
+540000ms      2986036      239us        49767    1657 Mb
+────────────────────────────────────────────────────────
+Average      29986024      239us        49976    1656 Mb
+Median                     239us                 1656 Mb
+  interval median 239us over 10 samples (as xmq_scn reports it), range 238-239us
+  server CPU   mean 345%, peak 393%
+  server RSS   1657 Mb peak
+  client NIC ens5: no dropped packets during the run
