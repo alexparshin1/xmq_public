@@ -780,6 +780,76 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         return 0;
     }
 
+    const auto armExpiryIfUnattached = [this, &message]
+    {
+        // Queued for a session with no client attached, nothing will look at it again until the
+        // client returns - which it may never do. Any message that can expire arms the timer that
+        // drops it, including one that is already past its interval on arrival.
+        if (int64_t expiryInterval = 0;
+            !isConnected() && message->getProperties() &&
+            message->getProperties()->getProperty(Property::MessageExpiryInterval, expiryInterval) && expiryInterval != 0)
+        {
+            pruneExpiredMessages(true);
+        }
+    };
+
+    // A delivery a shared subscription chose for this session must reach a member: MQTT 5, section
+    // 4.8.2. The session may have ended between the choice and this call - its close collects the
+    // unacknowledged deliveries and clears the queue under m_mutex, and a message queued after that
+    // clear would be lost. The state check and the queueing are therefore one step under the same
+    // mutex: a message that passes the check is in the queue before the close can clear it, and one
+    // that sees the session gone goes to another member, exactly as the deliveries the close
+    // collected do. A persistent session is never Gone - it waits for its client, and a message
+    // posted to it waits in the queue with the session.
+    if (!sharedSubscriptions.empty())
+    {
+        MessageId deliveryId = 0;
+        bool      gone = false;
+        {
+            const unique_lock lock(m_mutex);
+
+            if (sessionState() == SessionState::Gone)
+            {
+                gone = true;
+            }
+            else
+            {
+                const auto& inflightQueue = inflightQueueUnlocked();
+                deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
+
+                const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
+                messageDelivery->setSharedSubscriptions(sharedSubscriptions);
+
+                if (inflightQueue)
+                {
+                    if (message->is(Message::Type::Publish))
+                    {
+                        incrementPublishScheduledCount();
+                    }
+
+                    inflightQueue->queueMessage(messageDelivery);
+                }
+            }
+        }
+
+        if (gone)
+        {
+            vector<pair<weak_ptr<Subscription>, SMessage>> messages;
+            messages.reserve(sharedSubscriptions.size());
+            for (const auto& sharedSubscription: sharedSubscriptions)
+            {
+                messages.emplace_back(sharedSubscription, message);
+            }
+            serverUnlocked().getSubscriptionManager()->reassignShared(messages, this);
+        }
+        else
+        {
+            armExpiryIfUnattached();
+        }
+
+        return deliveryId;
+    }
+
     const auto& inflightQueue = inflightQueueUnlocked();
 
     // Allocated up front, from the queue that owns this session's packet id space, because
@@ -789,10 +859,6 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     const MessageId deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
 
     const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
-    if (!sharedSubscriptions.empty())
-    {
-        messageDelivery->setSharedSubscriptions(sharedSubscriptions);
-    }
 
     if (inflightQueue)
     {
@@ -804,17 +870,7 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         inflightQueue->queueMessage(messageDelivery);
     }
 
-    // Queued for a session with no client attached, nothing will look at it again until the
-    // client returns - which it may never do. If it can expire, arm the timer that drops it.
-    // Queued for a session with no client attached, nothing will look at it again until the
-    // client returns - which it may never do. Any message that can expire arms the timer that
-    // drops it, including one that is already past its interval on arrival.
-    if (int64_t expiryInterval = 0;
-        !isConnected() && message->getProperties() &&
-        message->getProperties()->getProperty(Property::MessageExpiryInterval, expiryInterval) && expiryInterval != 0)
-    {
-        pruneExpiredMessages(true);
-    }
+    armExpiryIfUnattached();
 
     return deliveryId;
 }
