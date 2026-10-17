@@ -13,79 +13,26 @@
 
 #pragma once
 
-#include "base/CpuAffinity.h"
-
-#include <algorithm>
-#include <bit>
 #include <sptk5/String.h>
-#include <thread>
 
 namespace xmq {
 
 /**
- * @brief How many send or receive threads to run when the configuration says "auto".
+ * @brief How many send threads to run when the configuration says "auto".
  *
- * Logarithmic in the core count, not proportional to it: these threads do not divide the work so
- * much as hand it to one another, and every one added is another hand-off and another contender
- * for the same structures. Measured on AWS 2026-09-11, the difference is not a matter of tuning -
- * a 16-vCPU instance configured with eight send threads delivered a Fan-Out at **11 seconds** of
- * latency and dropped 8% of the messages, where two threads delivered the same load at 1788us with
- * nothing lost. The run-to-run spread fell from 27% to 1.1% at the same time.
- *
- * One per doubling of the physical cores: 4 cores answer 2, 8 answer 3, 16 answer 4. Measured on
- * the 8-core instance above, three interleaved runs a side: 3 threads 1756us, 2 threads 1791us,
- * 4 threads 1886us, 8 threads the collapse described. The curve is flat to the left of its optimum
- * and a cliff to the right, so where the answer has to be rounded it is rounded down: one thread
- * too few costs a few per cent, one too many can cost everything.
- *
- * Calibrated at exactly one point - the eight-core instance above - and floored at the other end.
- * Everything larger is extrapolation, and it is deliberately the safe kind: the collapse found was
- * eight threads on eight cores, one per core, and a logarithm walks away from that line as the
- * machine grows rather than towards it. Sixteen cores answer 4, not 16. The formula can therefore
- * be a little low on a big machine, which costs a few per cent, and cannot be the other thing,
- * which costs messages. Anyone it does not suit can write the number instead, and the startup log
- * says what it chose.
- *
- * Never fewer than three, whatever the arithmetic says. On a four-core machine, where the logarithm
- * asks for two, two is both slower and far less steady than three: scored by interval median, three
- * runs a side gave 2126us with a 69% spread at two threads against 2072us with 3% at three, and the
- * spread is the point - at two threads whole minutes of a run leave the 2ms band for 3.5-4.3ms and
- * come back. Four is no better than three there (2064us), so three costs nothing and buys the
- * stability. A single receive thread loses messages outright, which is the same argument one step
- * further down.
- *
- * The receive side answers the same number, and was measured separately on 2026-09-13. Fan-Out
- * cannot say anything about it - five publishers feed it - so the sweep ran on Fan-In, where 50000
- * publishers send into 500 subscribers and the receive path is what the run is made of. Scored by
- * interval median on a four-core bench: three threads 194 and 196us, four 195, 197 and 197us, six
- * 196, 198 and 199us. Flat. Both ends misbehave in the same way - two threads gave 194 and 225us,
- * eight gave 200 and 224us - which is the same shape as the send side and the same reason for the
- * floor. The template used to ship eight of each; on the receive side that is not an optimum but a
- * number somebody wrote down.
- *
- * Where the topology cannot be read the hardware threads are counted instead and one is subtracted,
- * which gives the same answer on everything with two threads to a core.
+ * Four, flat. The count used to be a logarithm of the physical core count, calibrated on a single
+ * eight-core machine; the 2026-10-17 AWS campaign (c5n.4xlarge, 16 vCPU, 8 physical cores) showed
+ * that the Point-To-Point over TLS at 100000 connections needs four on the send side to keep up
+ * with the receive side, and that this is also what the eight-thread bench answers. Flat, because
+ * the two machines agreed: the curve is flat either side of the optimum, and one thread too few
+ * costs a few per cent while one too many was measured to cost everything - eight send threads on
+ * eight cores collapsed a Fan-Out to eleven seconds of latency and dropped eight per cent of the
+ * messages on 2026-09-11. Anyone the four does not suit writes the number instead, and the startup
+ * log says what it chose.
  */
 [[nodiscard]] inline size_t automaticThreadCount()
 {
-    constexpr int fewestThreads = 3;
-
-    // bit_width(n) is floor(log2(n)) + 1 for any n > 0, and it returns int - so the subtraction is
-    // done in a signed type, where a single-core machine gives a negative the clamp can deal with
-    // rather than an enormous size_t.
-    if (const auto physicalCores = CpuAffinity::physicalCoreCount();
-        physicalCores > 0)
-    {
-        return static_cast<size_t>(std::max(fewestThreads, std::bit_width(physicalCores) - 1));
-    }
-
-    const auto hardwareThreads = std::thread::hardware_concurrency();
-    if (hardwareThreads == 0)
-    {
-        return fewestThreads; // Nothing to go on at all
-    }
-    return static_cast<size_t>(
-        std::max(fewestThreads, std::bit_width(static_cast<size_t>(hardwareThreads)) - 2));
+    return 4;
 }
 
 /**
@@ -103,14 +50,22 @@ namespace xmq {
 }
 
 /**
- * @brief Receive threads for "auto": no fewer than four.
+ * @brief Receive threads for "auto": six.
  *
- * A receive thread also matches and delivers what it reads when the broker runs alone, so it does more
- * than parse, and fewer threads leave that stage the narrowest one.
+ * Six, not four, since 2026-10-17. TLS decryption happens on the receive path, and a TLS
+ * Point-To-Point at 100000 connections put more on it than four threads could carry: on the
+ * eight-thread bench four threads gave a 413 ms median at 100K against 1.4 ms at eight, and on the
+ * AWS instance four gave 549us against FlashMQ's 254us while six gave 273us - seven per cent behind
+ * FlashMQ, and within a run of the eight-thread answer (267us). The count does not have to track the
+ * core count: on both machines six was enough, and the extra two buy the TLS headroom that four did
+ * not have.
+ *
+ * Higher than the send side because a receive thread also matches and delivers what it reads when
+ * the broker runs alone, so it does more than parse.
  */
 [[nodiscard]] inline size_t automaticReceiveThreadCount()
 {
-    return std::max<size_t>(4, automaticThreadCount());
+    return 6;
 }
 
 [[nodiscard]] inline size_t resolveReceiveThreadCount(const sptk::String& configured)
@@ -132,14 +87,17 @@ namespace xmq {
 }
 
 /**
- * @brief Use two delivery workers when the setting is "auto".
+ * @brief Delivery workers for "auto": four.
  *
- * On our load-test bench, two workers reduced P2P latency relative to the former default of four without
- * showing a regression in the other short scenario runs. An explicit setting still overrides this.
+ * Four since 2026-10-17, from two. Two was chosen when the send and receive counts were three and
+ * four; with them at four and six the delivery stage became the one that held a Fan-Out back, and
+ * four workers recovered it (1788us on the bench against FlashMQ's 1807us). Two was tried again on
+ * the AWS instance before this default was accepted, and four won there too: 1972us against 2032us.
+ * An explicit setting still overrides this.
  */
 [[nodiscard]] inline size_t automaticDeliveryThreadCount()
 {
-    return 2;
+    return 4;
 }
 
 [[nodiscard]] inline size_t resolveDeliveryThreadCount(const sptk::String& configured)

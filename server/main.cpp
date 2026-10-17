@@ -313,8 +313,8 @@ int main(int argc, const char* argv[])
         logger.info("Connection reserve:   " + to_string(possibleConnectionCount()) +
                     " sessions, from the file descriptor limit");
 
-        // What "auto" came to, because a machine with a different core count answers differently
-        // and nobody should have to work that out from the source to read a measurement.
+        // What "auto" came to, because the numbers are a choice and nobody should have to work it
+        // out from the source to read a measurement.
         {
             const auto sendThreads = settings->m_server_limits.m_send_threads.asString();
             const auto receiveThreads = settings->m_server_limits.m_receive_threads.asString();
@@ -324,9 +324,7 @@ int main(int argc, const char* argv[])
             logger.info("Threads:              " + to_string(resolveThreadCount(sendThreads)) + " send, " +
                         to_string(resolveReceiveThreadCount(receiveThreads)) + " receive" +
                         ", " + to_string(resolveDeliveryThreadCount(deliveryThreads)) + " delivery" +
-                        (automatic ? " (auto, from " + to_string(CpuAffinity::physicalCoreCount()) +
-                                         " physical core(s))"
-                                   : ""));
+                        (automatic ? " (auto)" : ""));
         }
 
         logger.info("Initialization completed");
