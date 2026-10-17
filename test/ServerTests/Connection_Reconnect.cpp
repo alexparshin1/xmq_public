@@ -568,11 +568,20 @@ void expectDeliveryAfterUnsubscribeAndOverlappingReconnect(const ProtocolVersion
                              << " 2s window, so they were delayed rather than lost (cycles: " << lateCycles << ")";
 }
 
-// Reconnect churn and nothing else: no subscribe, no publish, no delivery check. Used to find the
-// smallest shape that still reproduces the heap corruption seen under the full bridge-rebuild
-// reproducer, so the slower memory tools have as little to wade through as possible.
+// Reconnect churn: the same client id dropped and connected again, cycle after cycle, so the
+// teardown of the doomed connection overlaps the life of its replacement. The smallest shape that
+// still reproduced the heap corruption seen under the full bridge-rebuild reproducer, and the
+// delivery check the full reproducer has; without it the stress shape itself asserts nothing.
+//
+// The remaining loss the bridge-rebuild comment describes is what these tests exist to catch: a
+// clean takeover - no stray teardown of the new connection - still loses a publish now and then,
+// and there are rare aborts under this stress that predate the fixes. A run of the disabled set
+// under valgrind or a crash-rate loop is the way in: ./xmq_unit_tests
+// --gtest_also_run_disabled_tests --gtest_filter="*Churn*". The cycle counts here are those the
+// reproducer used; the suite keeps them, because the tests run in under a second each.
 void churnReconnects(const size_t cycles, const bool cleanSession, const bool concurrentDrop,
-                     const bool withSubscriptions = false, const bool withPublish = false)
+                     const bool withSubscriptions = false, const bool withPublish = false,
+                     size_t* lostCount = nullptr, size_t* lateCount = nullptr)
 {
     const string clientId = format("churn-{}-{}-{}{}", cleanSession ? "clean" : "persistent",
                                    concurrentDrop ? "concurrent" : "sequential",
@@ -631,7 +640,23 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
         {
             const auto publisher = connectClient("churn-publisher-" + clientId, true);
             publisher->publish(client::MqttClient::getTopic(topicName), Buffer("payload"), Qos::Qos1);
-            (void) received.wait_for(2000ms);
+
+            // Lost means the broker dropped a message, late means it was only slower than the
+            // window - the two are different bugs, and they are reported separately.
+            if (!received.wait_for(2000ms))
+            {
+                if (received.wait_for(15000ms))
+                {
+                    if (lateCount)
+                    {
+                        ++*lateCount;
+                    }
+                }
+                else if (lostCount)
+                {
+                    ++*lostCount;
+                }
+            }
             publisher->disconnect();
         }
     }
@@ -661,42 +686,50 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
 // What is left: at least one more mechanism. A captured trace of a residual failure shows a clean
 // takeover - no stray teardown of the new connection - so the remaining loss happens somewhere
 // else. Rare aborts under this stress are also unexplained and may predate these fixes.
-// Narrowing candidates for the crash. Disabled: they assert nothing, they exist to be run under
-// valgrind or a crash-rate loop.
+// Narrowing candidates for the crash, run under valgrind or a crash-rate loop:
 //     ./xmq_unit_tests --gtest_also_run_disabled_tests --gtest_filter="*Churn*"
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Persistent_Concurrent)
+//
+// The shapes without a publish assert nothing a hang does not already show; the publish shape
+// asserts on what it measures. Each runs in under a second, so the suite keeps all of them.
+TEST_F(XMQ_ReconnectTests, Churn_Persistent_Concurrent)
 {
     churnReconnects(500, false, true);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Persistent_Sequential)
+TEST_F(XMQ_ReconnectTests, Churn_Persistent_Sequential)
 {
     churnReconnects(500, false, false);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Clean_Concurrent)
+TEST_F(XMQ_ReconnectTests, Churn_Clean_Concurrent)
 {
     churnReconnects(500, true, true);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Persistent_Concurrent_Subs)
+TEST_F(XMQ_ReconnectTests, Churn_Persistent_Concurrent_Subs)
 {
     churnReconnects(500, false, true, true);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Persistent_Sequential_Subs)
+TEST_F(XMQ_ReconnectTests, Churn_Persistent_Sequential_Subs)
 {
     churnReconnects(500, false, false, true);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Clean_Concurrent_Subs)
+TEST_F(XMQ_ReconnectTests, Churn_Clean_Concurrent_Subs)
 {
     churnReconnects(500, true, true, true);
 }
 
-TEST_F(XMQ_ReconnectTests, DISABLED_Churn_Persistent_Concurrent_Subs_Publish)
+TEST_F(XMQ_ReconnectTests, Churn_Persistent_Concurrent_Subs_Publish)
 {
-    churnReconnects(200, false, true, true, true);
+    size_t lost = 0;
+    size_t late = 0;
+    churnReconnects(200, false, true, true, true, &lost, &late);
+
+    EXPECT_EQ(0U, lost) << lost << " of 200 publishes were never delivered";
+    EXPECT_EQ(0U, late) << late << " of 200 publishes arrived only after the 2s window, so they were"
+                           " delayed rather than lost";
 }
 
 TEST_F(XMQ_ReconnectTests, Delivery_AfterBridgeRebuild_Mqtt5)

@@ -110,25 +110,3 @@ TEST(XMQ_VerificationCache, resizingDropsWhatWasRemembered)
     EXPECT_EQ(VerificationCache::Answer::Unknown, cache.look("dave", "Sunflower7!"));
 }
 
-// Not run with the suite: it measures rather than asserts, and what it measures is the whole reason
-// the cache exists. Run it by name.
-TEST(XMQ_VerificationCache, DISABLED_lookupCost)
-{
-    VerificationCache cache;
-    cache.sizeFor(100000);
-    cache.remember("dave", "Sunflower7!", true);
-
-    constexpr size_t rounds = 200000;
-
-    const auto started = chrono::steady_clock::now();
-    size_t     hits = 0;
-    for (size_t round = 0; round < rounds; ++round)
-    {
-        hits += cache.look("dave", "Sunflower7!") == VerificationCache::Answer::Allowed ? 1 : 0;
-    }
-    const auto elapsed = chrono::duration<double>(chrono::steady_clock::now() - started).count();
-
-    ASSERT_EQ(rounds, hits);
-    cout << "cache hit: " << elapsed / rounds * 1e6 << " us, " << size_t(rounds / elapsed)
-         << " per second on one thread" << endl;
-}

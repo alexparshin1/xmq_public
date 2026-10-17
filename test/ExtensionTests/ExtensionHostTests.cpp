@@ -1357,60 +1357,6 @@ TEST_F(XMQ_ExtensionHostTests, anAnswerFromTheOldRulesIsNotCachedAfterTheyChange
     host.stop();
 }
 
-/// What a permission check costs, on the cache the broker actually uses. Disabled because it is a
-/// measurement and not an assertion - a threshold here would fail on whatever machine is busy.
-/// Run it with --gtest_also_run_disabled_tests when the claim needs checking again.
-TEST_F(XMQ_ExtensionHostTests, DISABLED_permissionCheckCost)
-{
-    ExtensionHost host(m_logEngine, "test");
-    host.start({authorizer()});
-
-    const auto group = groupOf(host, "ops-alice");
-    ASSERT_TRUE(group);
-
-    // A group that uses eight topics, all of them already asked about: the steady state, which is
-    // the state a broker is in for all but the first message on each topic.
-    const vector<string> topics{"site/ops/a", "site/ops/b", "site/ops/c", "site/ops/d",
-                                "site/ops/e", "site/ops/f", "site/ops/g", "site/ops/h"};
-    for (const auto& topic: topics)
-    {
-        EXPECT_EQ(AclDecision::Allow, group->authorize(topic, XMQ_ACL_PUBLISH));
-    }
-
-    for (const size_t threadCount: {size_t{1}, size_t{4}, size_t{8}})
-    {
-        constexpr size_t iterations = 20'000'000;
-        atomic<size_t>   allowed{0};
-
-        const auto started = chrono::steady_clock::now();
-        {
-            JoiningThreads threads;
-            for (size_t t = 0; t < threadCount; ++t)
-            {
-                threads.emplace_back(
-                    [&]
-                    {
-                        size_t local = 0;
-                        for (size_t i = 0; i < iterations / threadCount; ++i)
-                        {
-                            local += group->authorize(topics[i & 7U], XMQ_ACL_PUBLISH) == AclDecision::Allow
-                                         ? 1
-                                         : 0;
-                        }
-                        allowed += local;
-                    });
-            }
-        }
-        const auto elapsed = chrono::steady_clock::now() - started;
-
-        cout << threadCount << " thread(s): "
-            << double(chrono::duration_cast<chrono::nanoseconds>(elapsed).count()) / double(iterations)
-            << " ns per check, " << allowed.load() << " allowed" << endl;
-    }
-
-    host.stop();
-}
-
 TEST_F(XMQ_ExtensionHostTests, absentConfigurationMeansNoExtensions)
 {
     const auto configured = ExtensionHost::readConfiguration("/nonexistent/xmq_server.conf", m_logEngine);
