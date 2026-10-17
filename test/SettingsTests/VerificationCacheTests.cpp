@@ -30,15 +30,23 @@ TEST(XMQ_VerificationCache, answersUnknownUntilSomethingIsRemembered)
 
 TEST(XMQ_VerificationCache, remembersWhatVerifyingAnswered)
 {
-    VerificationCache cache;
-
-    cache.remember("dave", "Sunflower7!", true);
-    cache.remember("erin", "Marigold3?", false);
-
-    EXPECT_EQ(VerificationCache::Answer::Allowed, cache.look("dave", "Sunflower7!"));
+    // One pair per cache, deliberately. The table is direct-mapped and fixed in size, and two pairs
+    // that hash to the same slot evict each other - the design, since a miss only costs a
+    // verification. Whether the two pairs here share a slot depends on the key this process made at
+    // start-up, so a test that put both in one table failed once in a thousand runs. What this test
+    // is about is that what was remembered is answered again.
+    {
+        VerificationCache cache;
+        cache.remember("dave", "Sunflower7!", true);
+        EXPECT_EQ(VerificationCache::Answer::Allowed, cache.look("dave", "Sunflower7!"));
+    }
 
     // Refusals are kept too, so that wrong passwords cannot be used to spend the broker's cores.
-    EXPECT_EQ(VerificationCache::Answer::Refused, cache.look("erin", "Marigold3?"));
+    {
+        VerificationCache cache;
+        cache.remember("erin", "Marigold3?", false);
+        EXPECT_EQ(VerificationCache::Answer::Refused, cache.look("erin", "Marigold3?"));
+    }
 }
 
 TEST(XMQ_VerificationCache, anotherPasswordIsAnotherEntry)
