@@ -1,30 +1,30 @@
 Server:   HiveMQ CE
 Version:  2026.5
-Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; HiveMQ CE 2026.5 on port 1886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M; in-memory persistence except file persistence (empty at start) for Point-To-Point-60K-persistent
+Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; HiveMQ CE 2026.5 on port 1886, JVM -Xms2g -Xmx20g -XX:MaxDirectMemorySize=5g, max-connections 2M; in-memory persistence
 Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-07
-Started:  2026-10-07 16:17:50 AEDT
-Total execution time: 00:39:16
+Date:     2026-10-16
+Started:  2026-10-16 10:11:27 AEDT
+Total execution time: 00:27:33
 
 Broker restarted before each scenario.
 
 Scenario: Fan-Out-5-1000-5-250K-5min
 Interval        Count    Latency       Rate/s        RSS
 ────────────────────────────────────────────────────────
-0ms           7499614    20347us       249987    1614 Mb
-30000ms       7500032     3534us       250001    1618 Mb
-60000ms       7499980     3538us       249999    1618 Mb
-90000ms       7499966     3534us       249998    1618 Mb
-120000ms      7499932     3540us       249997    1618 Mb
-150000ms      7500064     3548us       250002    1619 Mb
-180000ms      7499980     3560us       249999    1619 Mb
-210000ms      7499935     3558us       249997    1619 Mb
-240000ms      7500094     3563us       250003    1619 Mb
-270000ms      7467512     3562us       248917    1619 Mb
+0ms           7499514    15642us       249983    1609 Mb
+30000ms       7500064     3452us       250002    1615 Mb
+60000ms       7500093     3453us       250003    1615 Mb
+90000ms       7499880     3469us       249996    1616 Mb
+120000ms      7500101     3469us       250003    1616 Mb
+150000ms      7499928     3479us       249997    1616 Mb
+180000ms      7500201     3479us       250006    1616 Mb
+210000ms      7499703     3484us       249990    1616 Mb
+240000ms      7500091     3483us       250003    1616 Mb
+270000ms      7472597     3490us       249086    1616 Mb
 ────────────────────────────────────────────────────────
-Average      74967109     5229us       249890
-Median                    3558us
-  interval median 3558us over 10 samples (as xmq_scn reports it), range 3534-20347us
-  server CPU   mean 1068%, peak 1508%
-  server RSS   1619 Mb peak
+Average      74972172     4690us       249907    1615 Mb
+Median                    3479us                 1616 Mb
+  interval median 3479us over 10 samples (as xmq_scn reports it), range 3452-15642us
+  server CPU   mean 1052%, peak 1263%
+  server RSS   1632 Mb peak
   client NIC ens5: no dropped packets during the run

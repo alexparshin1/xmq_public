@@ -157,6 +157,7 @@ shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
 void ServerNode::sendAttachNodeRequest()
 {
     m_server->getSettings()->m_cluster.m_redis_uri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
+    m_server->getSettings()->m_cluster.m_database_uri = m_server->getSettings()->m_authentication.m_database_uri.asString();
     publish(Command::AttachNodeRequest, m_server->getSettings()->m_cluster);
 }
 

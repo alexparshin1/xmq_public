@@ -820,6 +820,11 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
         throw Exception("Cluster nodes must use the same database.");
     }
 
+    if (!attachNodeRequest.m_database_uri.isNull() && attachNodeRequest.m_database_uri.asString() != m_settings->m_authentication.m_database_uri.asString())
+    {
+        throw Exception("Cluster nodes must share one accounts database.");
+    }
+
     // This node is in a cluster from now on, as its first member if it was alone. The joining node
     // has admitted itself through the storage before asking - unless this request forms the
     // cluster - and one that is not a member, refused there, gets no link back.
