@@ -54,10 +54,9 @@ Requires SPTK 5.6.14.
   logarithm of the host's physical core count, which came to three, four and two on the eight-core
   machines the tests run on. A Point-To-Point over TLS at 100 000 connections is the case that got
   wrong: TLS decryption happens on the receive path, and four receive threads left that scenario at
-  549 µs against FlashMQ's 254 µs, where six gave 273 µs, and on the eight-thread bench four gave
-  413 ms where eight gave 1.4 ms. The delivery count, two while the send and receive counts were
-  three and four, then became the one holding a Fan-Out back, and four workers recovered it: 1788 µs
-  on the bench against FlashMQ's 1807 µs. The trade is real and deliberate - the plain-text
+  549 µs against FlashMQ's 254 µs, where six gave 273 µs. The delivery count, two while the send and
+  receive counts were three and four, then became the one holding a Fan-Out back, and four workers
+  recovered it. The trade is real and deliberate - the plain-text
   scenarios are 3 to 18 per cent behind what the older counts managed - and a receive count that
   follows the load rather than a setting is 1.0.0 work. `auto` no longer reads the core count and
   the startup line no longer names one; a configuration that leaves the keys out gets four, six and
