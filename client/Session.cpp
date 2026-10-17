@@ -78,8 +78,8 @@ Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger
                  shared_ptr<SessionThread> sessionThread)
     : BaseClientSession(SessionType::Client)
     , m_bindAddress(bindAddress)
-    , m_logger(logger)
     , m_sessionThread(sessionThread ? std::move(sessionThread) : m_allClientThreads.getNextThread())
+    , m_logger(logger)
 {
     constexpr uint16_t maxInflightMessages = 32768;
     setInflightLimit(maxInflightMessages);

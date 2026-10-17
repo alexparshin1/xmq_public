@@ -1034,7 +1034,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         // the pace stays that of the others.
         if (!m_unanswered.empty() &&
             (!answered(publisher) ||
-             (testType == Type::PointToPoint && publisherIndex < m_subscribers.size() && !answered(m_subscribers[publisherIndex]))))
+             (testType == Type::PointToPoint && static_cast<size_t>(publisherIndex) < m_subscribers.size() &&
+              !answered(m_subscribers[publisherIndex]))))
         {
             ++sendMessageCount;
             continue;

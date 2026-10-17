@@ -54,6 +54,8 @@ public:
      * @param subscriptionIds   Subscription IDs, ignored.
      * @param retain            Retain flag, ignored.
      */
+    using ISubscriptionClient::postMessage;
+
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) override;
 
     void onMessage(MessageCallback messageCallback) override;

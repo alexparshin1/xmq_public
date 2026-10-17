@@ -82,6 +82,8 @@ public:
     {
     }
 
+    using ISubscriptionClient::postMessage;
+
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) override;
 
     void onMessage(MessageCallback) override
