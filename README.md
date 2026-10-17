@@ -39,6 +39,7 @@ XMQ and SPTK are tied:
 | 0.9.18            | 5.6.12                      |
 | 0.9.19            | 5.6.13                      |
 | 0.9.20            | 5.6.14                      |
+| 1.0.0             | 5.6.14                      |
 
 XMQ requires that exact version and links against SPTK's shared libraries. If you aren't
 sure about which SPTK version you need - CMake will ask for the exact version anyway.

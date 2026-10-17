@@ -1,0 +1,32 @@
+Server:   XMQ
+Version:  0.9.20
+Host:     thinker11, i7-8705G, 4 cores/8 threads, 30 GiB RAM, Ubuntu 26.04; MQTT1884; send3/receive4/delivery2; user-database extension
+Client:   thinker10, xmq_scn 0.9.20
+Date:     2026-10-04
+Started:  2026-10-04 16:42:45 AEDT
+Total execution time: 01:40:28
+
+0.9.20 in development: branch 2026-10-03-Cluster-development, SPTK 5.6.14. Compared with Bench/0.9.19 (574d9b4), Release; QoS1, MQTT 5 for Fan-In and MQTT 3.1 (protocol_version 3) for the other tests; 30 source addresses; persistence only for 60K with clean storage.
+
+Broker restarted before each scenario.
+
+Scenario: Point-To-Point-60K-persistent
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms          10800362      172us        60002
+180000ms     10800433      312us        60002
+360000ms     10800433      174us        60002
+540000ms     10800432      358us        60002
+720000ms     10800433      364us        60002
+900000ms     10800432      171us        60002
+1080000ms    10800432      357us        60002
+1260000ms    10800436      173us        60002
+1440000ms    10800429      338us        60002
+1620000ms    10756471      168us        59758
+─────────────────────────────────────────────
+Average     107960293      259us        59977
+Median                     312us
+  interval median 312us over 10 samples (as xmq_scn reports it), range 168-364us
+  server CPU   mean 286%, peak 363%
+  server RSS   468 Mb peak
+  client NIC enp86s0: no dropped packets during the run

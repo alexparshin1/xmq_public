@@ -8,7 +8,7 @@ This file starts at 0.9.14. Earlier releases are not described here; their histo
 Announcements published on the website live in `doc/news/` and are a different thing: they are written for readers who
 are not upgrading anything, and most releases do not get one.
 
-## 0.9.20 — 2026-10-17
+## 1.0.0 — 2026-10-17
 
 Requires SPTK 5.6.14.
 
@@ -111,7 +111,7 @@ Requires SPTK 5.6.13.
   test bench, with Redis writing its append-only file once a second, the median is 199 µs and no
   minute averages above 1.2 ms - twice the 30 000 a second where 0.9.17 stopped. With Redis syncing every write to disk (`appendfsync always`) it holds 40 000 a
   second at 237 µs on an NVMe disk; on a disk slow to flush, persistent clients connect too slowly -
-  issue #1, for 0.9.20. Three changes make up the difference:
+  issue #1, for 1.0.0. Three changes make up the difference:
   - SPTK 5.6.13 keeps many batches of Redis commands in flight on a connection instead of waiting for
     each batch's replies before sending the next;
   - the broker shares `persistence.max_redis_connections` Redis connections between its threads
