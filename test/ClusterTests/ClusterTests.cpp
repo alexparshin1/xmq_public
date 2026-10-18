@@ -37,7 +37,9 @@ void XMQ_ServerTestsLink::linkClusterTests()
 void XMQ_ClusterTests::SetUp()
 {
     printTitle(testName());
-    clearClusterState();
+    // The storage outlives each test's cluster, and a late thread of the last one can write into it
+    // after its TearDown cleared it: start from a database no test's cluster has ever seen.
+    TestServers::flushRedis();
 }
 
 void XMQ_ClusterTests::clearClusterState()

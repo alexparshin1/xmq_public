@@ -16,6 +16,7 @@
 
 #include "storage/RedisStorage.h"
 #include "test/ServerTests/ServerTestsLink.h"
+#include "test/TestServers.h"
 
 using namespace std;
 using namespace sptk;
@@ -31,6 +32,9 @@ void XMQ_PersistenceTests::SetUp()
     ServerTests_Suite::SetUp();
 
     stopServers();
+    // Sessions and queues of the last test are in the shared storage: a fresh server must start
+    // over a database that has none.
+    TestServers::flushRedis();
     createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, true);
 }
 

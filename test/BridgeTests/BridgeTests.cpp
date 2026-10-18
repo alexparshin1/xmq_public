@@ -13,6 +13,7 @@
 */
 
 #include "test/BridgeTests/BridgeTests.h"
+#include "test/TestServers.h"
 #include "common/mqtt/PublishMessage.h"
 
 using namespace std;
@@ -24,6 +25,10 @@ const Host XMQ_BridgeTests::m_otherServerHost("localhost", 1886);
 
 void XMQ_BridgeTests::SetUp()
 {
+    // Bridges queue through the shared storage: a database the last test left anything in would
+    // be this test's before its servers started.
+    TestServers::flushRedis();
+
     // Create two nodes: "primary" @ port 1880 and "other" @ port 1886.
     XMQ_ServerTests::SetUp();
 
