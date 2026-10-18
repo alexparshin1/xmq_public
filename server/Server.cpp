@@ -1307,6 +1307,21 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
     {
         // Cluster-offline: this node may not serve clients, whose sessions may be served by another
         // node meanwhile. Not the cluster links, which the node needs to get its lease back.
+        // Said out loud, with what the node knows of itself: a client turned away here has no way to
+        // tell this apart from a broker that is down, and the state that decided it - participating,
+        // holding its lease, or neither - is the whole diagnosis.
+        const auto cluster = m_cluster.load();
+        logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
+                   [this, &clientId, cluster]
+                   {
+                       const auto* coordinator = cluster ? cluster->coordinator() : nullptr;
+                       if (!coordinator)
+                       {
+                           return format("{}: refused, the cluster is offline, and no coordinator is running.", clientId);
+                       }
+                       return format("{}: refused, the cluster is offline: participating {}, lease held {}.",
+                                     clientId, coordinator->isParticipating(), coordinator->isOnline());
+                   });
         reasonCode = protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
                                                                 : ReasonCode::ErrorServerNotAvailable;
     }
