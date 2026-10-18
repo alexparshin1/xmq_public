@@ -137,7 +137,35 @@ TEST_F(XMQ_ServerTests, Connection_Properties_MaxPacketSize_MQTT5)
     };
 
     subscriber.subscribe(destinations);
-    this_thread::sleep_for(100ms);
+
+    // The SUBSCRIBE and the publishes below travel on different connections, and the broker may
+    // answer the publisher before the subscription is registered - which it does on a loaded
+    // machine often enough to fail this test one run in twenty. A fixed sleep was a guess at the
+    // machine's speed; the broker is asked instead, until it lists this subscriber on the topic.
+    const auto subscriberIsRegistered = [&subscriberClientId]
+    {
+        const auto subscriptions = server()->getSubscriptionManager()->getSubscriptions("topic1");
+        for (const auto& [topic, subscription]: subscriptions)
+        {
+            if (const auto shared = subscription.lock())
+            {
+                for (const auto& clientSession: shared->getClientSessions())
+                {
+                    if (clientSession->getClientId() == subscriberClientId)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+    const auto registrationDeadline = chrono::steady_clock::now() + 5s;
+    while (!subscriberIsRegistered() && chrono::steady_clock::now() < registrationDeadline)
+    {
+        this_thread::sleep_for(10ms);
+    }
+    ASSERT_TRUE(subscriberIsRegistered()) << "The broker did not register the subscription";
 
     client::MqttClient sender(logEngine());
 
