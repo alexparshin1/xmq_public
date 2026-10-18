@@ -298,14 +298,18 @@ bool MessageWriter::appendPublishToBuffer(Buffer& buffer, const PublishMessage& 
 
     constexpr auto maxRemainingLengthSize {4};
     const auto     dataOffset = buffer.bytes();
-    const auto     expectedPacketSize {dataOffset + packetLength + maxRemainingLengthSize};
+    const auto     packetSize {packetLength + maxRemainingLengthSize};
 
-    if (expectedPacketSize > maxPacketSize)
+    // The maximum is the client's, and it is about this one packet - not about what the buffer
+    // already carries: a SUBACK written and not yet sent ahead of the publish is not part of it.
+    // Counting it dropped publishes that were themselves within the maximum, which is how the
+    // maximum-packet-size test lost its one small message to the SUBACK that preceded it.
+    if (packetSize > maxPacketSize)
     {
         return false;
     }
 
-    buffer.reserve(expectedPacketSize); // Reserve space for up to four bytes of the remaining length
+    buffer.reserve(dataOffset + packetSize); // Reserve space for up to four bytes of the remaining length
     uint8_t* tail = buffer.data() + dataOffset;
 
     constexpr auto frameTypeShift {4};
