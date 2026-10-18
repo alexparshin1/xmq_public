@@ -175,6 +175,24 @@ void RetainedSync::run()
                             });
             if (m_stopping)
             {
+                // What was queued before the stop is what publishers were answered for: a retained
+                // message set and acknowledged must be in the storage once the server is gone, or a
+                // restart brings the broker back without it. Dropping the queue here is how
+                // Retained_SurvivesServerRestart lost its message on a busy machine - the test
+                // waited a hundred milliseconds for the write and the stop came first.
+                commits.assign(m_commits.begin(), m_commits.end());
+                m_commits.clear();
+                if (!commits.empty())
+                {
+                    try
+                    {
+                        commit(commits);
+                    }
+                    catch (const sptk::Exception&)
+                    {
+                        // Nothing left to tell: the storage is going away with this node.
+                    }
+                }
                 return;
             }
             // Commits stay queued until they are done: one that fails is tried again, in its place.
