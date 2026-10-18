@@ -156,9 +156,16 @@ shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
 
 void ServerNode::sendAttachNodeRequest()
 {
-    m_server->getSettings()->m_cluster.m_redis_uri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
-    m_server->getSettings()->m_cluster.m_database_uri = m_server->getSettings()->m_authentication.m_database_uri.asString();
-    publish(Command::AttachNodeRequest, m_server->getSettings()->m_cluster);
+    auto& clusterSettings = m_server->getSettings()->m_cluster;
+    clusterSettings.m_redis_uri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
+    clusterSettings.m_database_uri = m_server->getSettings()->m_authentication.m_database_uri.asString();
+
+    // A copy, taken under the cluster's lock: the connection handlers rewrite the node list while
+    // this thread serialises the settings, and an entry read half-written made the serialiser throw
+    // - out of the rejoin thread, std::terminate, a node that is gone. The copies of the settings
+    // are the ones the request is built from.
+    const auto cluster = m_server->getCluster();
+    publish(Command::AttachNodeRequest, cluster ? cluster->getClusterSettings() : clusterSettings);
 }
 
 void ServerNode::sendDetachNodeRequest()

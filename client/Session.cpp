@@ -74,11 +74,13 @@ SocketEvents<Session> Session::m_socketEvents(
     },
     100ms, clientSocketEventsMode);
 
-Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger>& logger, const std::string& bindAddress,
+Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger>& logger,
+                 shared_ptr<LogEngine> logEngine, const std::string& bindAddress,
                  shared_ptr<SessionThread> sessionThread)
     : BaseClientSession(SessionType::Client)
     , m_bindAddress(bindAddress)
     , m_sessionThread(sessionThread ? std::move(sessionThread) : m_allClientThreads.getNextThread())
+    , m_logEngine(std::move(logEngine))
     , m_logger(logger)
 {
     constexpr uint16_t maxInflightMessages = 32768;

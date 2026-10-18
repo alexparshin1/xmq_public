@@ -117,7 +117,8 @@ public:
      * @param sessionThread     The thread the session reads and writes on: its own, or, when null,
      *                          one of the threads all the process's clients share.
      */
-    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger, const std::string& bindAddress = "",
+    explicit Session(const MessageCallback& messageCallback, const std::shared_ptr<sptk::Logger>& logger,
+                     std::shared_ptr<sptk::LogEngine> logEngine, const std::string& bindAddress = "",
                      std::shared_ptr<SessionThread> sessionThread = nullptr);
 
     Session(const Session&) = delete;
@@ -283,6 +284,11 @@ private:
     ReadBufferSizer                    m_readBufferSizer;                                    ///< Keeps m_readBuffer about the size of what is read.
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.
     sptk::Buffer                       m_ackBatchBuffer;                                     ///< Acks accumulated during a drain, flushed with a single write. Guarded by m_mutex.
+    /// The engine the logger writes to, held so that it outlives the session: Logger keeps a
+    /// reference to it, and a session lives on in its thread after the client that made it is
+    /// gone - the thread holds the session while it reads or sends, and logs an error there.
+    /// Released with the client, the engine left the last such log walking freed memory.
+    std::shared_ptr<sptk::LogEngine>   m_logEngine;
     std::shared_ptr<sptk::Logger>      m_logger;                                             ///< Logger.
     MessageCallback                    m_onConnectCompleted;                                 ///< Optional callback called for completed connection.
     MessageCallback                    m_onDisconnect;                                       ///< Optional callback called for disconnection.

@@ -77,7 +77,7 @@ TEST(XMQ_ClientCallbackTests, clearingCallbackRetainsAnExecutingCallback)
     const weak_ptr<int> observed = sentinel;
     const auto entered = make_shared<Semaphore>();
     const auto resume = make_shared<Semaphore>();
-    client::Session session({}, {}, "");
+    client::Session session({}, {}, {}, "");
     session.onMessage([sentinel, entered, resume](const SMessage&)
                       {
                           entered->post();

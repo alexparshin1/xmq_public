@@ -154,6 +154,9 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
                                messageProperties, sslKeys, true});
     }
 
+    // The engine goes with the session, not merely with this client: a session outlives the client
+    // in its thread for as long as a read or a send is in progress there, and an error logged in
+    // that window would otherwise reach an engine this client has already released.
     auto session = make_shared<Session>(
         [this, callbackState = m_messageCallbackState](const SMessage& message)
         {
@@ -163,7 +166,7 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
                 previewMessage(message);
             }
         },
-        logger, m_bindAddress, m_ownThread);
+        logger, m_logEngine, m_bindAddress, m_ownThread);
 
     // The client's own handler rather than the caller's callback directly: a disconnection the
     // caller did not ask for is the moment to bring the client back, and this is the one place that

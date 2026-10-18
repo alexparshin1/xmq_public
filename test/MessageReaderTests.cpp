@@ -366,7 +366,7 @@ TEST_F(XMQ_MessageReaderTests, readAllMessageTypes_Socket)
         auto           messageCount = static_cast<size_t>(1);
         constexpr auto marker = m_commandStartMarker;
 
-        client::Session session(nullptr, nullptr);
+        client::Session session(nullptr, nullptr, nullptr);
 
         // What the socket has handed over and no packet has been taken from yet: a read returns
         // what is there, which can be a part of a packet or more than one.
