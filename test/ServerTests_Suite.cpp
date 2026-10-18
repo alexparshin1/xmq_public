@@ -146,6 +146,11 @@ void ServerTests_Suite::SetUp()
 
     if (m_servers.empty())
     {
+        // The database is shared - by the suites of this run, and by every run on this machine -
+        // and a server here joins the cluster by default: a session another node still owns, as
+        // the previous run's server does until its lease runs out, makes claimSession() refuse
+        // every CONNECT with "Server not available". A suite starts from a database of its own.
+        TestServers::flushRedis();
         createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, true, "primary",
                      "user", "secret", LogPriority::Info, true, bridgesNeeded());
         this_thread::sleep_for(100ms);
