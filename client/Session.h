@@ -247,6 +247,16 @@ protected:
     void autoAck(const Message* message) override;
 
 private:
+    /**
+     * @brief Log an error, if this session has a logger at all.
+     *
+     * A client built without a log engine has no logger, and that is the ordinary way to build
+     * one - the tests and most tools do. A socket failing in a way that is not a
+     * ConnectionException then reached the logger through an empty pointer and took the whole
+     * process down, from a thread that only meant to report that the client had lost its server.
+     */
+    void logError(const std::string& message) const;
+
     std::string                        m_clientId;                                           ///< Client id.
     std::string                        m_bindAddress;                                        ///< Bind address.
     std::string                        m_username;                                           ///< Username.

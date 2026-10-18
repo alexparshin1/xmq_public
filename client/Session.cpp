@@ -88,6 +88,14 @@ Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger
     BaseClientSession::onMessage(messageCallback);
 }
 
+void Session::logError(const string& message) const
+{
+    if (m_logger)
+    {
+        m_logger->error(message);
+    }
+}
+
 Session::~Session()
 {
     const unique_lock lock(m_mutex);
@@ -455,7 +463,7 @@ SendReceiveResult Session::receiveMessages()
             }
             catch (const Exception& e)
             {
-                m_logger->error(e.what());
+                logError(e.what());
                 connectionLost = true;
             }
         }
@@ -759,7 +767,7 @@ void Session::sendMessageUnlocked(const MessageDispatch& messageDispatch)
         }
         catch (const Exception& e)
         {
-            m_logger->error(e.what());
+            logError(e.what());
             closeSocketUnlocked();
         }
     }
@@ -920,7 +928,7 @@ void Session::flushAckBatchUnlocked()
         }
         catch (const Exception& e)
         {
-            m_logger->error(e.what());
+            logError(e.what());
             closeSocketUnlocked();
         }
 
