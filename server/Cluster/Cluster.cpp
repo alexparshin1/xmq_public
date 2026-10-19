@@ -434,6 +434,13 @@ void Cluster::keepLinks()
         {
             continue;
         }
+        if (!coordinator->isOnline())
+        {
+            // Offline, the node has no links: it neither forwards to the nodes it can reach nor
+            // takes their traffic as if it were a member. Opening one here would undo the close
+            // the state change made, one second later.
+            continue;
+        }
 
         vector<Coordinator::Member> members;
         try
@@ -591,6 +598,22 @@ Coordinator& Cluster::coordinatorForCluster()
             [this](const bool online)
             {
                 m_server->onClusterStateChanged(online);
+                if (!online)
+                {
+                    // An offline node is not a member: it neither forwards to the nodes it can reach
+                    // nor takes their forwarded traffic as if it were. Closing the links does both,
+                    // and keepLinks opens them again once the node holds its lease - it runs on the
+                    // rejoin thread and opens what is missing to the members it finds.
+                    vector<SNode> nodes;
+                    {
+                        const shared_lock lock(m_mutex);
+                        nodes = m_connectedNodes.nodes();
+                    }
+                    for (const auto& node: nodes)
+                    {
+                        node->disconnect();
+                    }
+                }
                 if (online)
                 {
                     // Reported only after being offline: what this node held may be another's now,

@@ -364,3 +364,66 @@ TEST_F(XMQ_ClusterTests, nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns)
     const auto again = cluster.connect(1, "client-of-a-hung-node", false);
     EXPECT_TRUE(again->isConnected());
 }
+
+/**
+ * Confirm that a node whose place in the cluster went away with the storage takes it back by itself.
+ *
+ * Setup: Two nodes; the cluster's keys in Redis are cleared while both are running - what a wiped
+ * or restored-from-backup storage looks like from the node's side.
+ *
+ * Verification: both nodes hold their leases again and link again, without a restart.
+ */
+TEST_F(XMQ_ClusterTests, aNodeWhoseMembershipWasClearedRejoinsByItself)
+{
+    TestCluster cluster(2);
+
+    clearClusterState();
+
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return cluster[0]->getCluster()->isOnline() && cluster[1]->getCluster()->isOnline();
+                                     },
+                                     Handover))
+        << "a node that lost its place with the storage did not take it back";
+
+    EXPECT_TRUE(cluster.waitForMesh()) << "the nodes did not link again after rejoining";
+}
+
+/**
+ * Confirm that an offline node closes its cluster links and opens them again when it returns.
+ *
+ * Setup: Two nodes; the storage of node 1 stops answering.
+ *
+ * Verification: node 1 goes offline with no links to node 0 - an offline node neither forwards to
+ * the nodes it can reach nor takes their traffic as if it were a member - and links again when the
+ * storage returns.
+ */
+TEST_F(XMQ_ClusterTests, anOfflineNodeClosesItsClusterLinks)
+{
+    TestCluster cluster(2);
+    ASSERT_TRUE(cluster.waitForMesh());
+
+    coordinatorOf(cluster, 1).simulateStorageHang(true);
+    EXPECT_TRUE(TestCluster::waitFor([&] { return !cluster[1]->getCluster()->isOnline(); }, Handover));
+
+    // Asked of the other end: the links node 1 opened are server sessions there, and an offline
+    // node closes the clients that carry them.
+    const auto linkFromNode1 = format("node_{}_{}", TestCluster::nodeName(1), TestCluster::nodeName(0));
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto link = cluster[0]->getClientSession(linkFromNode1);
+                                         return !link || !link->isConnected();
+                                     },
+                                     Handover))
+        << "an offline node kept its links to the nodes it could reach";
+
+    coordinatorOf(cluster, 1).simulateStorageHang(false);
+    EXPECT_TRUE(TestCluster::waitFor([&] { return cluster[1]->getCluster()->isOnline(); }, Handover));
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto link = cluster[0]->getClientSession(linkFromNode1);
+                                         return link && link->isConnected();
+                                     },
+                                     Handover))
+        << "a node that returned to the cluster did not link again";
+}

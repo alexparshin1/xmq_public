@@ -510,27 +510,50 @@ void Coordinator::step()
     const auto started = Clock::now();
     try
     {
-        const auto status = eval(StatusScript, {CoordinatorKey, MembersKey, AlivePrefix + m_nodeId},
-                                 {m_nodeId, m_runId, to_string(m_lease.count()), NodePrefix});
-        if (status.size() < 5)
+        const auto readStatus = [this]
         {
-            throw Exception("Unexpected cluster status from Redis.");
-        }
-        auto       coordinator = string(status[0].asString().c_str());
-        const auto rank = status[1].asInt64();
-        const auto coordinatorRank = status[2].asInt64();
-        auto       coordinatorName = string(status[3].asString().c_str());
-        const auto ownLease = status[4].asInt64() == 1;
+            const auto status = eval(StatusScript, {CoordinatorKey, MembersKey, AlivePrefix + m_nodeId},
+                                     {m_nodeId, m_runId, to_string(m_lease.count()), NodePrefix});
+            if (status.size() < 5)
+            {
+                throw Exception("Unexpected cluster status from Redis.");
+            }
+            return make_tuple(string(status[0].asString().c_str()), status[1].asInt64(), status[2].asInt64(),
+                              string(status[3].asString().c_str()), status[4].asInt64() == 1);
+        };
+
+        auto [coordinator, rank, coordinatorRank, coordinatorName, ownLease] = readStatus();
 
         if (rank < 0 || !ownLease)
         {
             // Not a member - removed while it was running, or the storage was wiped - or another
             // process runs this node and holds its lease. Either way it serves nothing in the
             // cluster's name.
-            m_coordinatorName.clear();
-            m_coordinator = false;
-            m_leaseUntil = 0;
-            return;
+            if (rank < 0)
+            {
+                // A node whose place went with the storage takes it back by itself. The
+                // alternative is a node that was cut off once and then serves nothing until
+                // somebody restarts it, which is the failure this cluster exists to avoid.
+                // JoinScript answers "running elsewhere" when another process holds this node's
+                // lease, so a clone still cannot come up beside its original: only a node whose
+                // own lease is absent, or its own, is let back in.
+                const auto joined = eval(JoinScript,
+                                         {MembersKey, AdmissionKey, NamesKey, NodePrefix + m_nodeId, AlivePrefix + m_nodeId},
+                                         {m_nodeId, m_nodeName, m_hostPort, to_string(MaxMembers), m_runId,
+                                          to_string(m_lease.count())});
+                if (!joined.empty() && joined[0].asInt64() == Joined)
+                {
+                    tie(coordinator, rank, coordinatorRank, coordinatorName, ownLease) = readStatus();
+                }
+            }
+
+            if (rank < 0 || !ownLease)
+            {
+                m_coordinatorName.clear();
+                m_coordinator = false;
+                m_leaseUntil = 0;
+                return;
+            }
         }
         m_leaseUntil = ticks(started + m_lease);
 

@@ -265,6 +265,15 @@ MessageId ServerNode::publish(const std::shared_ptr<PublishMessage>& message)
     // reports a write to a closed TLS connection this way where Linux does not.
     try
     {
+        // A node that is cluster-offline forwards nothing: the cluster has stopped expecting it to
+        // serve, its links are closed, and a delivery sent on a stale link is one the sender
+        // counts on a node that is not there.
+        const auto cluster = m_server->getCluster();
+        if (cluster && !cluster->isOnline())
+        {
+            return 0;
+        }
+
         // Cluster control messages: the first link.
         return m_links[0]->publish(*message);
     }
