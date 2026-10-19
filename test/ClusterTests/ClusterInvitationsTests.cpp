@@ -167,3 +167,42 @@ TEST_F(XMQ_ClusterTests, aPublicationFromAnotherUserIsNotAnInvitation)
 
     client->disconnect();
 }
+
+/**
+ * The whole invite from the inviter's side: ask the node who it is, then send the invitation.
+ * The inviter trusts the invited node's certificate first - an invitation goes only to a node
+ * whose certificate is trusted, exactly as a cluster link would.
+ */
+TEST_F(XMQ_ClusterTests, invitingANodeDeliversTheInvitation)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto invited = createNode("invited", 1886, true);
+    trustNodeCertificate(invited);
+
+    const auto result = primary->getCluster()->sendInvitation("localhost:8886", "invited");
+    ASSERT_TRUE(result.m_success) << result.m_error.c_str();
+
+    ASSERT_TRUE(TestCluster::waitFor([&] { return invited->getCluster()->invitations().current().has_value(); }))
+        << "the invited node did not hold the invitation";
+
+    const auto invitation = invited->getCluster()->invitations().current();
+    EXPECT_EQ(String("primary"), invitation->m_inviterName);
+    EXPECT_TRUE(invitation->m_rejectReason.empty()) << invitation->m_rejectReason.c_str();
+    EXPECT_EQ(String("redis://redis_server:6379/3"), invitation->m_redisUri);
+}
+
+/**
+ * An invitation to an address whose certificate is not trusted is refused at the inviter, before
+ * anything is sent.
+ */
+TEST_F(XMQ_ClusterTests, invitingANodeWhoseCertificateIsNotTrustedIsRefused)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto invited = createNode("invited", 1886, true);
+    distrustNodeCertificates();
+
+    const auto result = primary->getCluster()->sendInvitation("localhost:8886", "invited");
+    EXPECT_FALSE(result.m_success);
+    EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
+        << "an invitation reached a node whose certificate the inviter did not trust";
+}

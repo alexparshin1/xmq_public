@@ -725,6 +725,12 @@ void Settings::applyClusterConfigurationUnlocked()
     }
 }
 
+shared_ptr<DatabaseConnectionPool> Settings::accountsPool() const
+{
+    const ReadLock lock(m_mutex);
+    return m_accountsPool;
+}
+
 String Settings::clusterConfigurationError() const
 {
     const ReadLock lock(m_mutex);

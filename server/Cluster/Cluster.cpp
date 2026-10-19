@@ -14,6 +14,7 @@
 
 #include "Server.h"
 #include "NodeIdentity.h"
+#include "server/Settings/ClusterStore.h"
 #include "common/mqtt/PublishMessage.h"
 #include "service/CServerNode.h"
 
@@ -1497,6 +1498,182 @@ ClusterInvitations& Cluster::invitations()
 const ClusterInvitations& Cluster::invitations() const
 {
     return m_invitations;
+}
+
+void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
+{
+    std::string_view responseTopic;
+    const auto properties = message->getProperties();
+    if (!properties || !properties->getProperty(Property::ResponseTopic, responseTopic) || responseTopic.empty())
+    {
+        return;
+    }
+
+    // The GUID is the answer, with the name and the version so the inviter can refuse before
+    // inviting: a node joins a cluster of its own version.
+    auto answer = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic),
+                                                    String(R"({"node_id":")" + m_nodeId + R"(","name":")" + m_server->getNodeName()
+                                                           + R"(","xmq_version":")" + Server::getVersion() + R"("})"));
+    answer->setQos(Qos::Qos1);
+    m_server->publishMessage(answer);
+}
+
+Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName)
+{
+    InviteResult result;
+
+    try
+    {
+        const Host host(hostPort);
+        if (host.hostname().empty() || host.port() == 0)
+        {
+            result.m_error = format("'{}' is not an address a node listens on.", hostPort.c_str());
+            return result;
+        }
+
+        // The local node's certificate, verified against the peer bundle: an invitation goes only
+        // to a node whose certificate is trusted, exactly as a cluster link would.
+        const auto& settings = m_server->getSettings();
+        const auto& keysData = settings->m_connections.m_ssl_keys;
+        const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
+        const auto certificateFile = keysData.m_certfile.asString().empty() ? nodeCertificate.string() : keysData.m_certfile.asString();
+        const auto privateKeyFile = keysData.m_keyfile.asString().empty() ? nodeKey.string() : keysData.m_keyfile.asString();
+        auto authorityFile = keysData.m_cafile.asString();
+        if (authorityFile.empty())
+        {
+            authorityFile = Settings::buildPeerCertificateBundle().string();
+        }
+        const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
+
+        client::MqttClient client;
+        client.useBrokerThreads();
+
+        Semaphore replied;
+        String    answerPayload;
+        String    answerError;
+        const auto replyTopic = format("cluster/hello-reply/{}", m_nodeId);
+        client.onMessage([&replied, &answerPayload, &answerError](const SPublishMessage& message)
+                         {
+                             if (string_view(message->payload()).find(R"("node_id")") != string_view::npos)
+                             {
+                                 answerPayload = std::string(message->payload());
+                             }
+                             else
+                             {
+                                 answerError = std::string(message->payload());
+                             }
+                             replied.post();
+                         });
+
+        auto properties = make_shared<MessageProperties>();
+        properties->setProperty(Property::ResponseTopic, replyTopic);
+
+        const auto rc = client.connect(host, ConnectCredentials(format("xmq-invite-{}", m_nodeId), "cluster", settings->clusterPassword()),
+                                       {.m_cleanSession = true}, ProtocolVersion::MqttV5, properties,
+                                       make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
+                                                            authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth)));
+        if (rc != ReasonCode::Success)
+        {
+            result.m_error = format("Node '{}' refused the cluster user: {}.", invitedNodeName.c_str(), toString(rc).c_str());
+            return result;
+        }
+
+        // The reply must be in place before the question goes out.
+        client.subscribe(Destination(client::MqttClient::getTopic(replyTopic), SubscriptionOptions(Qos::Qos1)));
+
+        auto hello = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/hello"), String("{}"));
+        hello->setQos(Qos::Qos1);
+        hello->setProperties(properties);
+        client.publish(*hello);
+
+        if (!replied.wait_for(5s))
+        {
+            result.m_error = format("Node '{}' did not answer what it is.", invitedNodeName.c_str());
+            return result;
+        }
+        if (!answerError.empty())
+        {
+            result.m_error = answerError;
+            return result;
+        }
+
+        xdoc::Document document;
+        document.load(answerPayload);
+        const auto nodeIdNode = document.root()->findFirst("node_id");
+        const auto versionNode = document.root()->findFirst("xmq_version");
+        if (!nodeIdNode || nodeIdNode->getValue().isNull() || !versionNode || versionNode->getValue().isNull())
+        {
+            result.m_error = format("Node '{}' answered, but not with an identity.", invitedNodeName.c_str());
+            return result;
+        }
+        const String nodeId = nodeIdNode->getValue().asString();
+        const String version = versionNode->getValue().asString();
+        if (version != Server::getVersion())
+        {
+            result.m_error = format("Node '{}' runs XMQ {}, this node {} - a node joins a cluster of its own version.",
+                                    invitedNodeName.c_str(), version.c_str(), Server::getVersion().c_str());
+            return result;
+        }
+
+        // The node answered who it is: its row, whether the node made it itself or an
+        // administrator declared it, is keyed by its GUID from here on.
+        const auto database = m_server->getSettings()->userDatabaseUri();
+        const auto redisUri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
+        if (const auto pool = m_server->getSettings()->accountsPool(); pool)
+        {
+            ClusterStore store(pool);
+            store.createSchema();
+
+            auto row = store.node(nodeId);
+            if (!row)
+            {
+                // A node the administrator declared: its row carries the declaring GUID; the real
+                // one takes it over, with the settings the invitation carries.
+                ClusterStore::Node declared;
+                declared.m_nodeId = nodeId;
+                declared.m_name = invitedNodeName;
+                declared.m_hostPort = hostPort;
+                declared.m_state = "Invited";
+                declared.m_redisUri = redisUri;
+                declared.m_databaseUri = database;
+                store.insertNode(declared);
+            }
+            else
+            {
+                row->m_state = "Invited";
+                store.updateNode(*row);
+            }
+
+            ClusterStore::Invitation invitation;
+            invitation.m_nodeId = nodeId;
+            invitation.m_inviterHostPort = m_settings->m_cluster.m_this_node.m_host_port.asString();
+            invitation.m_expiresAt = DateTime::Now().isoDateTimeString(DateTime::PrintAccuracy::MILLISECONDS, true);
+            store.setInvitation(invitation);
+        }
+
+        // The invitation itself: what a standalone node has no other way to learn.
+        auto inviteProperties = make_shared<MessageProperties>();
+        inviteProperties->setUserProperty("origin-node", m_server->getNodeName());
+        const auto invitePayload = String(R"({
+            "inviter_host_port": ")") + m_settings->m_cluster.m_this_node.m_host_port.asString() + R"(",
+            "redis_uri": ")" + redisUri + R"(",
+            "database_uri": ")" + database + R"(",
+            "xmq_version": ")" + Server::getVersion() + R"("
+        })";
+        auto invite = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/invitation"), invitePayload);
+        invite->setQos(Qos::Qos1);
+        invite->setProperties(inviteProperties);
+        client.publish(*invite);
+        client.disconnect();
+
+        result.m_success = true;
+        return result;
+    }
+    catch (const Exception& e)
+    {
+        result.m_error = e.what();
+        return result;
+    }
 }
 
 CCluster Cluster::getClusterSettings() const

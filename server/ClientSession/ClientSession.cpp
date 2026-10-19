@@ -1377,7 +1377,13 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         return;
     }
 
-    if (publishMessage->destination()->fullName() == "cluster/invitation" && getUsername() == "cluster")
+    if (publishMessage->destination()->fullName() == "cluster/hello" && getUsername() == "cluster")
+    {
+        // Asked who it is, by an inviter that needs the GUID: the answer goes to the response
+        // topic the request names, as a server publication.
+        server().getCluster()->answerHello(publishMessage);
+    }
+    else if (publishMessage->destination()->fullName() == "cluster/invitation" && getUsername() == "cluster")
     {
         // An invitation is addressed to the server, which is its subscriber: only the cluster
         // user may send one, and it is not routed to any client.

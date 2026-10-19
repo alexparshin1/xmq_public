@@ -182,6 +182,34 @@ public:
     [[nodiscard]] ClusterInvitations& invitations();
     [[nodiscard]] const ClusterInvitations& invitations() const;
 
+    /// What inviting a node came to: it answered, and the invitation was sent, or the error that
+    /// stopped it - an address that does not speak, a password that does not match, a certificate
+    /// that is not trusted.
+    struct InviteResult
+    {
+        bool          m_success {false};
+        sptk::String  m_error;
+    };
+
+    /**
+     * @brief Answer a `cluster/hello` from the cluster user with this node's identity.
+     *
+     * The reply goes to the topic the request's Response Topic names, as a server publication:
+     * the inviter subscribed to it before it asked. The GUID is what the inviter came for - it
+     * keys the declared node's row.
+     */
+    void answerHello(const std::shared_ptr<PublishMessage>& message) const;
+
+    /**
+     * @brief Invite a node: ask its GUID over `cluster/hello`, key its declared row by it, send
+     * the invitation to `cluster/invitation`, and mark the row Invited.
+     *
+     * The connection is made as the `cluster` user over TLS with the local node's keys, against
+     * the peer certificate bundle - an address whose certificate is not trusted is refused here,
+     * not at the invited end.
+     */
+    InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName);
+
     /**
      * @brief Request a connection to a named cluster node.
      * @param nodeName          Name of the node to connect.

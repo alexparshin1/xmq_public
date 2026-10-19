@@ -381,6 +381,9 @@ public:
      * one is not starting a broker.
      */
     [[nodiscard]] sptk::String clusterConfigurationError() const;
+
+    /// The accounts database pool, when it opened; the cluster configuration reads through it.
+    [[nodiscard]] std::shared_ptr<sptk::DatabaseConnectionPool> accountsPool() const;
 private:
 
     /// The configured hashing cost, for callers that already hold the lock.
