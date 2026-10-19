@@ -136,7 +136,6 @@ void ClusterStore::createSchema()
         executeStatement(
             "CREATE TABLE " + String(invitationTable) + " ("
             "  node_id           varchar(36) NOT NULL,"
-            "  token             varchar(64) NOT NULL,"
             "  inviter_host_port varchar(255) NOT NULL,"
             "  expires_at        varchar(40) NOT NULL,"
             "  CONSTRAINT pk_xmq_cluster_invitation PRIMARY KEY (node_id))" + tableSuffix());
@@ -263,7 +262,7 @@ optional<ClusterStore::Invitation> ClusterStore::invitation(const String& nodeId
 {
     const AutoDatabaseConnection connection(*m_database);
     Query query(connection.connection(),
-                "SELECT node_id, token, inviter_host_port, expires_at FROM " + String(invitationTable)
+                "SELECT node_id, inviter_host_port, expires_at FROM " + String(invitationTable)
                     + " WHERE node_id = :node_id");
     query.param("node_id") = nodeId;
     query.open();
@@ -276,7 +275,6 @@ optional<ClusterStore::Invitation> ClusterStore::invitation(const String& nodeId
 
     Invitation result;
     result.m_nodeId = query["node_id"].asString();
-    result.m_token = query["token"].asString();
     result.m_inviterHostPort = query["inviter_host_port"].asString();
     result.m_expiresAt = query["expires_at"].asString();
     query.close();
@@ -294,10 +292,9 @@ void ClusterStore::setInvitation(const Invitation& invitation)
     const AutoDatabaseConnection connection(*m_database);
     Query insert(connection.connection(),
                  "INSERT INTO " + String(invitationTable) +
-                 " (node_id, token, inviter_host_port, expires_at)"
-                 " VALUES (:node_id, :token, :inviter_host_port, :expires_at)");
+                 " (node_id, inviter_host_port, expires_at)"
+                 " VALUES (:node_id, :inviter_host_port, :expires_at)");
     insert.param("node_id") = invitation.m_nodeId;
-    insert.param("token") = invitation.m_token;
     insert.param("inviter_host_port") = invitation.m_inviterHostPort;
     insert.param("expires_at") = invitation.m_expiresAt;
     insert.exec();

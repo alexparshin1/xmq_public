@@ -61,8 +61,7 @@ public:
     /// One invitation, as the database holds it. At most one per node.
     struct Invitation
     {
-        sptk::String m_nodeId;          ///< The invited node's GUID.
-        sptk::String m_token;           ///< One-time token, checked by the invited node.
+        sptk::String m_nodeId;          ///< The invited node's GUID - its identity, no token needed.
         sptk::String m_inviterHostPort; ///< The address the invitation came from.
         sptk::String m_expiresAt;       ///< ISO time, ten minutes from the invite.
     };

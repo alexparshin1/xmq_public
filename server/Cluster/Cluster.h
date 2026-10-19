@@ -18,6 +18,7 @@
 #include "RetainedSync.h"
 #include "../Subscription/Subscription.h"
 
+#include "ClusterInvitations.h"
 #include "ClusterTopics.h"
 #include "Coordinator.h"
 #include "ServerNodes.h"
@@ -175,6 +176,11 @@ public:
      * @return Cluster settings, including this node and its known peers.
      */
     CCluster getClusterSettings() const;
+
+    /// The invitation this node holds, received on `cluster/invitation`, shown on the Cluster
+    /// screen and answered there. One at a time; a later invitation replaces the earlier.
+    [[nodiscard]] ClusterInvitations& invitations();
+    [[nodiscard]] const ClusterInvitations& invitations() const;
 
     /**
      * @brief Request a connection to a named cluster node.
@@ -381,6 +387,7 @@ private:
     std::shared_ptr<sptk::LogEngine>     m_logEngine;              ///< Log engine.
     SServerNode                          m_thisNode;               ///< This node settings.
     ServerNodes                          m_connectedNodes;         ///< Connected nodes
+    ClusterInvitations                   m_invitations;            ///< The invitation this node holds, if one came.
     Topics                               m_clusterTopics;          ///< Cluster topics.
     SSubscriptionClient                  m_subscriptionClient;     ///< Cluster subscription client.
     sptk::Flag                           m_attachResponseReceived; ///< Flag: Attach request response received.

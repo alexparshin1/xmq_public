@@ -1377,7 +1377,18 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         return;
     }
 
-    if (publishMessage->destination()->isCluster())
+    if (publishMessage->destination()->fullName() == "cluster/invitation" && getUsername() == "cluster")
+    {
+        // An invitation is addressed to the server, which is its subscriber: only the cluster
+        // user may send one, and it is not routed to any client.
+        String inviterName;
+        if (const auto properties = publishMessage->getProperties())
+        {
+            inviterName = std::string(properties->getUserProperty("origin-node"));
+        }
+        server().getCluster()->invitations().offer(std::string(publishMessage->payload()), inviterName);
+    }
+    else if (publishMessage->destination()->isCluster())
     {
         server().acceptClusterMessage(publishMessage);
     }

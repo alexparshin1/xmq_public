@@ -1489,6 +1489,16 @@ size_t Cluster::getNodeCountUnlocked(const ServerNodes& nodes, const string& nod
     return count;
 }
 
+ClusterInvitations& Cluster::invitations()
+{
+    return m_invitations;
+}
+
+const ClusterInvitations& Cluster::invitations() const
+{
+    return m_invitations;
+}
+
 CCluster Cluster::getClusterSettings() const
 {
     scoped_lock lock(m_mutex);

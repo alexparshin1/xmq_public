@@ -224,25 +224,23 @@ TEST_F(XMQ_ClusterStoreTests, anInvitationReplacesTheOneBeforeIt)
 
         ClusterStore::Invitation first;
         first.m_nodeId = nodeId;
-        first.m_token = "token-one";
         first.m_inviterHostPort = "localhost:8883";
         first.m_expiresAt = "2026-10-19T20:00:00Z";
         store.setInvitation(first);
 
         const auto read = store.invitation(nodeId);
         ASSERT_TRUE(read.has_value()) << name;
-        EXPECT_EQ(String("token-one"), read->m_token) << name;
         EXPECT_EQ(String("localhost:8883"), read->m_inviterHostPort) << name;
 
         // The second invite is the administrator saying the first did not arrive: one per node,
         // the latest wins.
         ClusterStore::Invitation second = first;
-        second.m_token = "token-two";
+        second.m_inviterHostPort = "localhost:8884";
         store.setInvitation(second);
 
         const auto reread = store.invitation(nodeId);
         ASSERT_TRUE(reread.has_value()) << name;
-        EXPECT_EQ(String("token-two"), reread->m_token) << name;
+        EXPECT_EQ(String("localhost:8884"), reread->m_inviterHostPort) << name;
 
         store.clearInvitation(nodeId);
         EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": the invitation did not go away";
@@ -261,7 +259,6 @@ TEST_F(XMQ_ClusterStoreTests, removeNodeTakesItsInvitationWithIt)
 
         ClusterStore::Invitation invitation;
         invitation.m_nodeId = nodeId;
-        invitation.m_token = "token";
         invitation.m_inviterHostPort = "localhost:8883";
         invitation.m_expiresAt = "2026-10-19T20:00:00Z";
         store.setInvitation(invitation);
