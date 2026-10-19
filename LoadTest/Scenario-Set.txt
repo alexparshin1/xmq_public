@@ -1,7 +1,7 @@
 # Common comparison set for XMQ, FlashMQ, Mosquitto, EMQX and HiveMQ.
 # Run the same scenario JSONs, in this order, on client-host/server-host and on AWS.
-# Run them over TLS (xmq_scn --encrypted): since 2026-10-19 TLS is the standard, and a plain-TCP
-# run is a reference figure, not the result. Only the TLS numbers are compared between brokers.
+# Run each of them twice: plain TCP, and over TLS (xmq_scn --encrypted). Since 2026-10-19 TLS is a
+# standard part of the set, alongside TCP and not instead of it: both results are reported.
 # Restart the selected broker before every scenario, with all other brokers stopped.
 # Enable persistence only for the persistent scenario and start it with empty storage.
 # Record broker and client versions, effective configuration, host environment,
