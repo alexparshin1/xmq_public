@@ -24,8 +24,16 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$host" ] && [ -n "$unit" ] && [ -n "$port" ] || { echo "usage: $0 --host H --unit U --port P [-u U -P P]" >&2; exit 2; }
 
-ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" \
-    "sudo -n systemctl stop xmq_server flashmq mosquitto emqx nanomq hivemq hivemq-bench 2>/dev/null; sleep 2; sudo -n systemctl start $unit" || exit 1
+if [ "$unit" = "coreflux" ]; then
+    # Docker, not a systemd unit: every other broker stopped, this one's container restarted.
+    # The container is recreated from the image when its config was applied on the host; a
+    # restart returns it to the last applied configuration, which is what a scenario wants.
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" \
+        "sudo -n systemctl stop xmq_server flashmq mosquitto emqx nanomq hivemq hivemq-bench 2>/dev/null; sleep 2; sudo -n docker start coreflux_broker 2>/dev/null || sudo -n docker restart coreflux_broker" || exit 1
+else
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" \
+        "sudo -n systemctl stop xmq_server flashmq mosquitto emqx nanomq hivemq hivemq-bench 2>/dev/null; sleep 2; sudo -n systemctl start $unit" || exit 1
+fi
 
 credentials=()
 [ -n "$user" ] && credentials+=(-u "$user" -P "$password")
