@@ -8,6 +8,9 @@
 
 - [ ] from the outside, cluster behaves as a very large broker. If there is an external load balancer in the front,
   the illusion should be complete.
+  Done: a client connects to any node and takes its session along, so which node answered it is invisible; see the
+  load-balancer item below.
+  Left: `$SYS` is each node's own, and whether it should be a cluster-wide view is not decided.
 
 - [x] client id is unique within the cluster. For sequential connections using the same Client ID, the later connection takes over the
   session and the previous connection is closed. If connections with the same Client ID arrive concurrently at different nodes,
@@ -39,7 +42,9 @@
 
 - [x] any connections between cluster nodes are MQTT+SSL (encrypted).
 
-- [ ] an external load balancer can connect a client to any node in the cluster.
+- [x] an external load balancer can connect a client to any node in the cluster. It is the requirement above seen
+  through a load balancer: no session affinity is needed, because the session moves to the node the client connected
+  to. Tests: the same ones; there is no test with an actual load balancer in front.
 
 - [x] a node can be connected and disconnected to/from the cluster. When a node is disconnected (or crashed), one or more of the cluster
   nodes should load its sessions and be ready to migrate them to the clients re-connecting from disconnected node.
@@ -76,8 +81,9 @@
 - [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
   seen by clients. Client service resumes once the node reaches the storage again.
-  Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable").
-  Left: stopping cluster routing while offline; a restarted member rejoining by itself (see below).
+  Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable"), and a member
+  that starts again rejoins by itself - `restartedNodeKeepsItsIdentityAndRejoins`, `enabledNodeJoinsByItself`.
+  Left: stopping cluster routing while offline - an offline node still forwards to the nodes it can reach.
 
 - [x] a node is its GUID, made on its first start and kept in `xmq_node.id` beside its configuration; its name is for
   people and unique in the cluster. A node may not take another node's name, a node already running elsewhere (a
