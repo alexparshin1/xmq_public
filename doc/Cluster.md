@@ -85,7 +85,10 @@
   seen by clients. Client service resumes once the node reaches the storage again.
   Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable"), and a member
   that starts again rejoins by itself - `restartedNodeKeepsItsIdentityAndRejoins`, `enabledNodeJoinsByItself`.
-  Left: stopping cluster routing while offline - an offline node still forwards to the nodes it can reach.
+  Left: stopping cluster routing while offline - an offline node still forwards to the nodes it can reach; and a
+  node that lost its lease - removed from the membership while it was cut off - stays offline after the storage
+  returns, because nothing re-admits it. Both are what "the cluster recovers by itself" means, and the second is
+  the failure that made a real installation of another broker lose one or two nodes a day and never come back.
 
 - [x] a node is its GUID, made on its first start and kept in `xmq_node.id` beside its configuration; its name is for
   people and unique in the cluster. A node may not take another node's name, a node already running elsewhere (a
@@ -553,6 +556,23 @@ In this order - each step leaves the system working:
   and Review/Accept/Decline on the invited node.
 - [ ] Tests: the state machine and the checks as unit tests, invitation/accept/decline/expiry/rollback as cluster
   tests, and a `test_cluster.sh` scenario that invites a node and watches it join.
+
+### Recovery without an operator
+
+The holy grail of an MQTT cluster, and the reason XMQ exists: a real installation of another broker in 2014-2016
+lost one or two nodes a day and never came back, with two weeks of the vendor's own engineer. Throughput is not the
+test; a node that dies, is cut off, or loses its lease coming back by itself is.
+
+Likely after the 1.0.0 announcement rather than in it - but not optional:
+
+- [ ] A node that lost its lease while cut off from the shared storage rejoins the cluster by itself once the storage
+  returns, instead of staying cluster-offline until somebody restarts it. Today `Coordinator::step()` sets the lease
+  to zero when the node is no longer a member, and nothing re-admits it.
+- [ ] An offline node stops cluster routing: it neither forwards to the nodes it can reach nor accepts their
+  forwarded traffic as if it were still a member.
+- [ ] A chaos run on the test cluster: `kill -9` random nodes and cut one node off from Redis, over an hour, and the
+  cluster returns to full service with no operator action. This is the acceptance test for the two items above, and
+  it is what a night on the farm cannot show by itself.
 
 ### 1.0.1 tasks
 
