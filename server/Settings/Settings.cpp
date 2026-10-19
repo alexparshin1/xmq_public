@@ -13,8 +13,10 @@
 */
 
 #include "Settings.h"
+#include "ClusterStore.h"
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
+#include "Cluster/NodeIdentity.h"
 #include "server/SelfSignedCertificate.h"
 #include "PasswordHash.h"
 #include "UriSecret.h"
@@ -332,6 +334,10 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     // the file was in, what moves into the database is a verifier and never a readable password.
     openUserDatabaseUnlocked();
 
+    // After the accounts: the cluster's settings come from the same database, through the same
+    // pool, and one that cannot be read stops the start rather than being guessed at.
+    applyClusterConfigurationUnlocked();
+
     m_bridgeManager.initialize(m_changed);
     m_listenerManager.initialize(m_changed);
 
@@ -548,7 +554,8 @@ void Settings::openUserDatabaseUnlocked()
     try
     {
         constexpr size_t connections = 4;
-        auto             store = std::make_shared<UserStore>(std::make_shared<DatabaseConnectionPool>(uri, static_cast<unsigned>(connections)));
+        m_accountsPool = std::make_shared<DatabaseConnectionPool>(uri, static_cast<unsigned>(connections));
+        auto             store = std::make_shared<UserStore>(m_accountsPool);
         store->createSchema();
         const auto usersPath = usersPathUnlocked();
         if (const auto migrated = store->importUsersFrom(usersPath, passwordIterationsUnlocked());
@@ -619,9 +626,109 @@ void Settings::openUserDatabaseUnlocked()
     {
         // Said with the address so it can be fixed, and with the password taken out of it so the
         // log does not become the place the secret ends up.
+        m_accountsError = e.what();
         CERR("Cannot open the accounts database " << UriSecret::hidden(uri) << ": " << e.what()
             << ". The accounts read from the file are used instead.");
     }
+}
+
+void Settings::applyClusterConfigurationUnlocked()
+{
+    const auto uri = userDatabaseUriUnlocked();
+    if (uri.empty())
+    {
+        // No database at all: nothing is shared, and the file is the whole configuration.
+        return;
+    }
+
+    // Asked of the URI rather than of a connection: an unreachable database is exactly the case
+    // this decides about, and reaching out to learn the driver would fail with it.
+    const auto scheme = String(uri).toLowerCase().substr(0, String(uri).find(':'));
+    const auto isClusterDatabase = scheme.starts_with("postgres") || scheme.starts_with("mysql") || scheme.starts_with("mariadb");
+    if (!isClusterDatabase)
+    {
+        // SQLite is one machine's file; a cluster's configuration cannot live in one.
+        return;
+    }
+
+    m_clusterConfigurationError = "";
+    if (!m_accountsPool)
+    {
+        // Recorded, not thrown: loading a configuration is also what tools and tests do without
+        // starting anything, and failing there would take them down for a database they never
+        // wanted. The server refuses to start with this, before it serves a single client - a node
+        // that cannot read whether it belongs to a cluster has no safe guess.
+        stringstream message;
+        message << "The cluster configuration is kept in the database " << UriSecret::hidden(uri)
+                << ", and it cannot be opened: " << m_accountsError
+                << ". A node that cannot read whether it belongs to a cluster does not start.";
+        m_clusterConfigurationError = message.str();
+        return;
+    }
+
+    try
+    {
+        ClusterStore store(m_accountsPool);
+        store.createSchema();
+
+        // Read from the member, not through configurationPath(): this runs under the configuration's
+        // write lock, and that accessor takes the read lock of the same mutex - a lock this thread
+        // already holds, taken again as a reader, which waits for the writer to finish and never does.
+        const auto configuration = m_configurationPath;
+        if (configuration.empty())
+        {
+            // Built from a buffer, as the tests build one: nowhere to keep a GUID, so nothing to key
+            // the row on. A node the broker runs from always has a configuration path.
+            return;
+        }
+
+        const auto nodeId = cluster::NodeIdentity::load(filesystem::path(configuration).replace_filename(cluster::NodeIdentity::FileName));
+
+        if (const auto row = store.node(nodeId))
+        {
+            // The database is the configuration from here on. The accounts URI is not taken from the
+            // row: it is the address this node reached the database by, and a different one there
+            // says nothing about where this node is.
+            m_persistence.m_redis_uri = row->m_redisUri;
+            m_cluster.m_database_uri = row->m_databaseUri;
+            m_cluster.m_enabled = row->m_clusterEnabled;
+            m_cluster.m_lease_seconds = row->m_leaseSeconds;
+            m_cluster.m_links = row->m_links;
+            m_cluster.m_this_node.m_node_name = row->m_name;
+            m_cluster.m_this_node.m_host_port = row->m_hostPort;
+            return;
+        }
+
+        // First start on this database: the row is created from the configuration the node came with,
+        // so that the interface has something to edit and the next start has a row to read.
+        ClusterStore::Node row;
+        row.m_nodeId = nodeId;
+        row.m_name = m_cluster.m_this_node.m_node_name.asString();
+        row.m_hostPort = m_cluster.m_this_node.m_host_port.asString();
+        row.m_state = "Not Clustered";
+        row.m_redisUri = m_persistence.m_redis_uri.asString();
+        row.m_databaseUri = uri;
+        row.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
+        row.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
+        row.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
+        store.insertNode(row);
+    }
+    catch (const Exception& e)
+    {
+        // Recorded, as an unreachable database is: the configuration loads - tools and tests read
+        // one without starting a broker - and the server refuses to start with this reason.
+        stringstream message;
+        message << "The cluster configuration is kept in the database " << UriSecret::hidden(uri)
+                << ", and it cannot be read: " << e.what()
+                << ". A node that cannot read whether it belongs to a cluster does not start.";
+        m_clusterConfigurationError = message.str();
+    }
+}
+
+String Settings::clusterConfigurationError() const
+{
+    const ReadLock lock(m_mutex);
+    return m_clusterConfigurationError;
 }
 
 String Settings::clusterPassword() const

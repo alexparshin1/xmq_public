@@ -22,6 +22,7 @@
 #include "UserManager.h"
 #include "service/CInitialSetup.h"
 #include "service/CServerConfiguration.h"
+#include <sptk5/cdatabase>
 #include <sptk5/cutils>
 
 namespace xmq {
@@ -267,6 +268,14 @@ private:
     /// Whether the accounts live in a database. Kept here rather than asked of the manager: the
     /// manager asks this while holding its own lock, and asking it back would deadlock on it.
     bool                          m_accountsInDatabase {false};
+    /// The accounts database pool, kept so the cluster configuration reads through the same one,
+    /// and why it could not be opened, if it could not.
+    std::shared_ptr<sptk::DatabaseConnectionPool> m_accountsPool;
+    sptk::String                  m_accountsError;
+    /// Why the shared configuration could not be read, when it could not. The server refuses to
+    /// start with it; loading the configuration itself does not throw, because tools and tests read
+    /// a configuration without starting anything from it.
+    sptk::String                  m_clusterConfigurationError;
 
     /**
      * @brief Initialize internal data from the JSON object.
@@ -344,8 +353,35 @@ private:
      */
     void openUserDatabaseUnlocked();
 
+    /**
+     * @brief Reads this node's row from the shared database and takes the cluster settings from it.
+     *
+     * The settings that describe a cluster - the storage, the accounts database, the switches and
+     * this node's name and address - are shared data and live in the SQL database, one row per
+     * node keyed by the GUID. A node that has no row yet gets one, filled from the configuration
+     * it started with, so that the interface has something to edit and the next start has a row
+     * to read.
+     *
+     * SQLite is not a cluster database and is left alone: the file belongs to one machine. An SQL
+     * database of the kind a cluster uses that cannot be read stops the start here, with the
+     * reason - unlike the accounts, which fall back to the file in memory, there is no safe
+     * guess about whether this node belongs to a cluster.
+     */
+    void applyClusterConfigurationUnlocked();
+
     /// Where the accounts live, for callers that already hold the lock.
     [[nodiscard]] sptk::String userDatabaseUriUnlocked() const;
+
+public:
+    /**
+     * @brief Why the shared cluster configuration could not be read, or empty when it could.
+     *
+     * A server refuses to start with it: a node that cannot read whether it belongs to a cluster
+     * has no safe guess. Loading a configuration does not throw for it, since a tool that reads
+     * one is not starting a broker.
+     */
+    [[nodiscard]] sptk::String clusterConfigurationError() const;
+private:
 
     /// The configured hashing cost, for callers that already hold the lock.
     [[nodiscard]] int passwordIterationsUnlocked() const;

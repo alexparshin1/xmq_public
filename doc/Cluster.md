@@ -437,7 +437,7 @@ The node's GUID stays where it is - `xmq_node.id` beside the configuration, not 
 *Node identity and joining*.
 
 The SQL database (PostgreSQL or MySQL - SQLite does not apply to a cluster) holds what is shared and what an
-administrator edits. The configuration is one table, `xmq_node`, in which a column is a setting and a row is a node:
+administrator edits. The configuration is one table, `xmq_cluster_node`, in which a column is a setting and a row is a node:
 `node_id` (the GUID, primary key), `name`, `host_port`, `state`, `last_error`, and the settings that used to be in
 the file - the Redis URI, the users database URI, the listeners and TLS key paths, `cluster_enabled`,
 `cluster_lease_seconds`, `cluster_links`. A second table, `xmq_cluster_invitation`, holds at most one active row per
@@ -463,7 +463,7 @@ cannot tell whether it is a cluster node at all, and serving on a guess risks wr
 
 | State | Meaning |
 | --- | --- |
-| Not Clustered | declared in `xmq_node`, no invitation sent |
+| Not Clustered | declared in `xmq_cluster_node`, no invitation sent |
 | Invited | an invitation is active and the node has not answered |
 | Joining | accepted; the node is applying the configuration and restarting |
 | Clustered | in `cluster:members` and holding its lease |
@@ -529,9 +529,14 @@ administrator sees in the interface.
 
 In this order - each step leaves the system working:
 
-- [ ] Move the shared settings to SQL: `xmq_node` (a column is a setting, a row is a node, the GUID is the key) and
-  `xmq_cluster_invitation`; a bootstrap loader that reads the SQL URI from the file and everything else from the
-  database. Keep `node_id` in `xmq_node.id`. A node that cannot reach SQL refuses to start and says why.
+- [ ] Move the shared settings to SQL: `xmq_cluster_node` (a column is a setting, a row is a node, the GUID is the
+  key) and `xmq_cluster_invitation`; a bootstrap loader that reads the SQL URI from the file and everything else from
+  the database. Keep `node_id` in `xmq_node.id`. A node that cannot reach SQL refuses to start and says why.
+  Done: the tables, `ClusterStore`, and the loader - a node's row is created from its configuration on the first
+  start and read in place of it afterwards for the storage, the accounts database, the cluster switches and the
+  node's name and address; an unreachable database stops the start with the reason. The table is `xmq_cluster_node`,
+  not `xmq_node`: the older name belongs to the bridge-era node table still present in shared databases.
+  Left: the rest of the configuration - listeners, logging, limits, bridges - still comes from the file.
 - [ ] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
   removed from the cluster names nothing the cluster uses while it serves on the same Redis.
 - [ ] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.

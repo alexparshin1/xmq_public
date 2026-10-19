@@ -1,0 +1,211 @@
+/*
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       XMQ Message QUEUE                                      ║
+╟──────────────────────────────────────────────────────────────────────────────╢
+║  copyright            © 1999-2026 by Alexey Parshin                          ║
+║  email                alexeyp@gmail.com                                      ║
+║  code review                                                                 ║
+╟──────────────────────────────────────────────────────────────────────────────╢
+║  This Source Code Form is subject to the terms of the Mozilla Public         ║
+║  License, v. 2.0. If a copy of the MPL was not distributed with this         ║
+║  file, You can obtain one at https://mozilla.org/MPL/2.0/.                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+*/
+
+#include "common/DirectoryNames.h"
+#include "server/Settings/ClusterStore.h"
+
+#include <gtest/gtest.h>
+#include <sptk5/cdatabase>
+#include <sptk5/cutils>
+
+#include <filesystem>
+#include <vector>
+
+using namespace std;
+using namespace sptk;
+using namespace xmq;
+
+namespace {
+
+/// The databases a cluster can use, where a server answers. SQLite is deliberately not among them:
+/// the store reports it as not a cluster database, which is a test of its own.
+vector<pair<String, String>> reachableClusterDatabases()
+{
+    vector<pair<String, String>> databases;
+
+    vector<pair<String, String>> candidates {
+        {"PostgreSQL", "postgresql://gtest:test#123@dbhost_pg/xmq_test"}};
+
+#if !defined(_WIN32) || !defined(_DEBUG)
+    // Not in a Windows debug build: MySQL's client library is release-only there, and a failed
+    // connection across two C runtimes corrupts the heap instead of throwing.
+    candidates.emplace_back("MySQL", "mysql://gtest:test#123@dbhost_mysql/xmq_test");
+#endif
+
+    for (const auto& [name, uri]: candidates)
+    {
+        try
+        {
+            DatabaseConnectionPool       pool(uri, 1);
+            const AutoDatabaseConnection connection(pool);
+            Query                        probe(connection.connection(), "SELECT 1");
+            probe.open();
+            probe.close();
+            databases.emplace_back(name, uri);
+        }
+        catch (const Exception&)
+        {
+            // No server here; a test that cannot run is not a test that failed.
+        }
+    }
+
+    String covered;
+    for (const auto& [name, uri]: databases)
+    {
+        covered += (covered.empty() ? "" : ", ") + name;
+    }
+    COUT("            Cluster databases reached: " << covered << endl);
+
+    return databases;
+}
+
+/// Nothing of an earlier run, so that "created" means created.
+void dropClusterTables(DatabaseConnectionPool& pool)
+{
+    for (const auto* table: {"xmq_cluster_invitation", "xmq_cluster_node"})
+    {
+        try
+        {
+            const AutoDatabaseConnection connection(pool);
+            Query                        drop(connection.connection(), String("DROP TABLE ") + table);
+            drop.exec();
+        }
+        catch (const Exception&)
+        {
+            // Not there, which is where this wanted to get to.
+        }
+    }
+}
+
+/// One schema per test, on every cluster database that answers, and none left behind.
+class XMQ_ClusterStoreTests
+    : public ::testing::Test
+{
+protected:
+    static void SetUpTestSuite()
+    {
+        m_databases = reachableClusterDatabases();
+    }
+
+    static void TearDownTestSuite()
+    {
+        for (const auto& [name, uri]: m_databases)
+        {
+            DatabaseConnectionPool pool(uri, 1);
+            dropClusterTables(pool);
+        }
+    }
+
+    void SetUp() override
+    {
+        for (const auto& [name, uri]: m_databases)
+        {
+            DatabaseConnectionPool pool(uri, 1);
+            dropClusterTables(pool);
+        }
+    }
+
+    static vector<pair<String, String>> m_databases;
+};
+
+vector<pair<String, String>> XMQ_ClusterStoreTests::m_databases;
+
+ClusterStore::Node sampleNode(const String& nodeId)
+{
+    ClusterStore::Node node;
+    node.m_nodeId = nodeId;
+    node.m_name = "node-1";
+    node.m_hostPort = "localhost:8883";
+    node.m_state = "Not Clustered";
+    node.m_redisUri = "redis://localhost:6379";
+    node.m_databaseUri = "postgresql://db/xmq";
+    node.m_clusterEnabled = true;
+    node.m_leaseSeconds = 2;
+    node.m_links = 4;
+    return node;
+}
+
+} // namespace
+
+TEST_F(XMQ_ClusterStoreTests, createsItsSchemaOnEveryClusterDatabaseWeSupport)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        DatabaseConnectionPool pool(uri, 2);
+        ClusterStore           store(make_shared<DatabaseConnectionPool>(uri, 2));
+
+        EXPECT_TRUE(store.isClusterDatabase()) << name;
+        EXPECT_NO_THROW(store.createSchema()) << name;
+
+        // Called at every start, so it has to be safe when everything is already there.
+        EXPECT_NO_THROW(store.createSchema()) << name << ": creating twice must be harmless";
+
+        EXPECT_FALSE(store.node("00000000-0000-4000-8000-000000000000").has_value())
+            << name << ": an unknown node must read as absent";
+    }
+}
+
+TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+
+        const String nodeId = "6f1c2b7e-9a3d-4c55-8e21-0b7d5a9c4e10";
+        store.insertNode(sampleNode(nodeId));
+
+        const auto stored = store.node(nodeId);
+        ASSERT_TRUE(stored.has_value()) << name;
+        EXPECT_EQ(nodeId, stored->m_nodeId) << name;
+        EXPECT_EQ(String("node-1"), stored->m_name) << name;
+        EXPECT_EQ(String("localhost:8883"), stored->m_hostPort) << name;
+        EXPECT_EQ(String("Not Clustered"), stored->m_state) << name;
+        EXPECT_EQ(String("redis://localhost:6379"), stored->m_redisUri) << name;
+        EXPECT_EQ(String("postgresql://db/xmq"), stored->m_databaseUri) << name;
+        EXPECT_TRUE(stored->m_clusterEnabled) << name;
+        EXPECT_EQ(2, stored->m_leaseSeconds) << name;
+        EXPECT_EQ(4, stored->m_links) << name;
+
+        // What the interface edits is written back through the same row.
+        auto changed = *stored;
+        changed.m_name = "node-1-renamed";
+        changed.m_state = "Invited";
+        changed.m_clusterEnabled = false;
+        store.updateNode(changed);
+
+        const auto reread = store.node(nodeId);
+        ASSERT_TRUE(reread.has_value()) << name;
+        EXPECT_EQ(String("node-1-renamed"), reread->m_name) << name;
+        EXPECT_EQ(String("Invited"), reread->m_state) << name;
+        EXPECT_FALSE(reread->m_clusterEnabled) << name;
+
+        // One row per node, one node per name: the second declaration of a name is refused by the
+        // database, which is the only place that can decide it for every node at once.
+        auto duplicate = sampleNode("7a2d3c8f-0b4e-4d66-9f32-1c8e6b0d5a21");
+        duplicate.m_name = "node-1-renamed";
+        EXPECT_THROW(store.insertNode(duplicate), Exception) << name << ": a duplicate name was accepted";
+    }
+}
+
+TEST_F(XMQ_ClusterStoreTests, sqliteIsNotAClusterDatabase)
+{
+    const auto path = filesystem::temp_directory_path() / ("xmq_cluster_store_" + to_string(::getpid()) + ".db");
+    filesystem::remove(path);
+
+    ClusterStore store(make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(path), 1));
+    EXPECT_FALSE(store.isClusterDatabase()) << "a file on one machine cannot be a cluster's store";
+
+    filesystem::remove(path);
+}

@@ -131,6 +131,15 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     , m_cluster(make_shared<cluster::Cluster>(this))
     , m_extensions(*logEngine, getVersion())
 {
+    // Before anything serves: a node that could not read the cluster's configuration does not know
+    // whether it belongs to a cluster, and serving on a guess risks writing over the sessions of a
+    // node that owns them. Thrown here rather than while loading the configuration, because tools
+    // and tests read a configuration without starting a broker.
+    if (const auto clusterError = settings->clusterConfigurationError(); !clusterError.empty())
+    {
+        throw Exception(clusterError);
+    }
+
     // The statistics object has no way to reach the thread pools, so the broker hands it the
     // queue depths instead. Called once a second by the metrics scan, never from the message path:
     // reading a queue's size takes the same mutex its push and pop take.
