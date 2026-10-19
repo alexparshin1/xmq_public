@@ -394,7 +394,21 @@ public:
      * error text, or empty when the configuration is on disk.
      */
     sptk::String applyInvitationAccept(const sptk::String& redisUri, const sptk::String& databaseUri);
+
+    /**
+     * @brief A start after Accept succeeded: the node joined, and the previous configuration is
+     * no longer needed - the last-good copy is removed.
+     */
+    void clearPendingAccept();
+
+    /**
+     * @brief A start after Accept failed: the previous configuration is put back, the pending
+     * accept is gone, and the node's row in the cluster's database is marked Failed with the
+     * reason, as best it can be reached. Returns empty when the rollback happened.
+     */
+    sptk::String rollbackPendingAccept(const sptk::String& reason);
 private:
+    [[nodiscard]] std::filesystem::path lastGoodPath() const;
 
     /// The configured hashing cost, for callers that already hold the lock.
     [[nodiscard]] int passwordIterationsUnlocked() const;

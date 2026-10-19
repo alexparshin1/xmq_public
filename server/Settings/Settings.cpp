@@ -738,6 +738,18 @@ String Settings::applyInvitationAccept(const String& redisUri, const String& dat
     {
         const WriteLock lock(m_mutex);
 
+        // The previous configuration is the last-good one: kept beside the new one, so a start
+        // that cannot join the cluster has what it was serving to go back to.
+        if (!m_configurationPath.empty() && filesystem::exists(m_configurationPath))
+        {
+            error_code errorCode;
+            filesystem::copy_file(m_configurationPath, lastGoodPath(), filesystem::copy_options::overwrite_existing, errorCode);
+            if (errorCode)
+            {
+                return String("Cannot keep the previous configuration: ") + errorCode.message();
+            }
+        }
+
         m_persistence.m_redis_uri = redisUri;
         m_persistence.m_enabled = true;
         m_authentication.m_database_uri = databaseUri;
@@ -754,6 +766,64 @@ String Settings::applyInvitationAccept(const String& redisUri, const String& dat
         {
             return e.what();
         }
+    }
+    return "";
+}
+
+filesystem::path Settings::lastGoodPath() const
+{
+    return filesystem::path(m_configurationPath.string() + ".lastgood");
+}
+
+void Settings::clearPendingAccept()
+{
+    error_code errorCode;
+    filesystem::remove(lastGoodPath(), errorCode);
+}
+
+String Settings::rollbackPendingAccept(const String& reason)
+{
+    {
+        const WriteLock lock(m_mutex);
+
+        if (!filesystem::exists(lastGoodPath()))
+        {
+            return "There is no pending accept to roll back.";
+        }
+
+        // The row in the cluster's database says Failed, with why - as best it can be reached:
+        // the very failure being handled may be that the database is not.
+        if (m_accountsPool)
+        {
+            try
+            {
+                ClusterStore store(m_accountsPool);
+                store.createSchema();
+                const auto nodeId = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+                if (const auto row = store.node(nodeId))
+                {
+                    auto failed = *row;
+                    failed.m_state = "Failed";
+                    failed.m_lastError = reason;
+                    store.updateNode(failed);
+                }
+            }
+            catch (const Exception&)
+            {
+                // The rollback itself must go through; the Failed row is best-effort.
+            }
+        }
+
+        // The previous configuration, as it was: the last-good copy is written over the failed
+        // one, and the marker goes with it. The in-memory settings stay as they are - the next
+        // process reads the file, and this one is about to end.
+        Buffer previous;
+        previous.loadFromFile(lastGoodPath());
+        previous.saveToFile(m_configurationPath);
+        restrictToOwnerAndGroup(m_configurationPath);
+
+        error_code errorCode;
+        filesystem::remove(lastGoodPath(), errorCode);
     }
     return "";
 }

@@ -11,6 +11,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 #include "ServerController.h"
+#include "OSService.h"
 
 #include "SelfSignedCertificate.h"
 #include "common/DirectoryNames.h"
@@ -330,6 +331,10 @@ bool ServerController::startServing(string& reason)
     try
     {
         m_xmqServer = make_unique<Server>(m_settings, m_logEngine);
+
+        // The start after an Accept worked: the node is in the cluster, and the previous
+        // configuration is no longer what it would fall back to.
+        m_settings->clearPendingAccept();
         return true;
     }
     catch (const exception& exception)
@@ -339,6 +344,14 @@ bool ServerController::startServing(string& reason)
 
     // A server that threw partway through construction owns nothing that should linger.
     m_xmqServer.reset();
+
+    // A start right after Accept that cannot join the cluster goes back to what it was serving:
+    // the last-good configuration is put back, and the process restarts on it. The row in the
+    // cluster's database says Failed, with the reason, as best it can be reached.
+    if (const auto rollback = m_settings->rollbackPendingAccept(reason); rollback.empty())
+    {
+        OSService::requestRestart();
+    }
     return false;
 }
 

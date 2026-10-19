@@ -291,3 +291,41 @@ TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRe
     EXPECT_TRUE(String(configuration).contains("redis://redis_server:6379/3"))
         << "the accepted storage is not in the configuration on disk";
 }
+
+/**
+ * The last-good copy: Accept keeps the previous configuration beside the new one, a start that
+ * joins removes it, and a start that cannot - the rollback - puts the previous configuration
+ * back and leaves no marker.
+ */
+TEST_F(XMQ_ClusterTests, aFailedJoinRollsBackToTheLastGoodConfiguration)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto invited = createNode("invited", 1886, true);
+    trustNodeCertificate(invited);
+
+    const auto inviteResult = primary->getCluster()->sendInvitation("localhost:8886", "invited");
+    ASSERT_TRUE(inviteResult.m_success) << inviteResult.m_error.c_str();
+    ASSERT_TRUE(TestCluster::waitFor([&] { return invited->getCluster()->invitations().current().has_value(); }));
+
+    const auto configurationPath = invited->getSettings()->configurationPath();
+    Buffer before;
+    before.loadFromFile(configurationPath);
+
+    ASSERT_TRUE(invited->getCluster()->invitations().accept().empty());
+
+    // The last-good copy is the configuration as it was.
+    const auto lastGoodPath = filesystem::path(configurationPath.string() + ".lastgood");
+    ASSERT_TRUE(filesystem::exists(lastGoodPath)) << "accepting did not keep the previous configuration";
+    Buffer kept;
+    kept.loadFromFile(lastGoodPath);
+    EXPECT_EQ(String(before), String(kept)) << "the kept configuration is not the previous one";
+
+    // A join that failed: the previous configuration is put back, the marker is gone.
+    const auto rollback = invited->getSettings()->rollbackPendingAccept("the storage did not answer");
+    EXPECT_TRUE(rollback.empty()) << rollback.c_str();
+    EXPECT_FALSE(filesystem::exists(lastGoodPath)) << "the rollback left its marker";
+
+    Buffer after;
+    after.loadFromFile(configurationPath);
+    EXPECT_EQ(String(before), String(after)) << "the configuration was not rolled back to the previous one";
+}
