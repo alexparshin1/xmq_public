@@ -1383,6 +1383,11 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         // topic the request names, as a server publication.
         server().getCluster()->answerHello(publishMessage);
     }
+    else if (publishMessage->destination()->fullName() == "cluster/refusal" && getUsername() == "cluster")
+    {
+        // A node this one invited said no: mark its row and take the invitation away.
+        server().getCluster()->onRefusal(std::string(publishMessage->payload()));
+    }
     else if (publishMessage->destination()->fullName() == "cluster/invitation" && getUsername() == "cluster")
     {
         // An invitation is addressed to the server, which is its subscriber: only the cluster

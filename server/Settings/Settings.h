@@ -384,6 +384,16 @@ public:
 
     /// The accounts database pool, when it opened; the cluster configuration reads through it.
     [[nodiscard]] std::shared_ptr<sptk::DatabaseConnectionPool> accountsPool() const;
+
+    /**
+     * @brief Take the cluster an invitation offered: switch the storage and the accounts database
+     * to the cluster's, turn the cluster on, and write the configuration back.
+     *
+     * The bootstrap file is where the SQL URI lives, so accepting writes it there; the process
+     * restarts after this, and the next start reads the rest from the shared database. Returns an
+     * error text, or empty when the configuration is on disk.
+     */
+    sptk::String applyInvitationAccept(const sptk::String& redisUri, const sptk::String& databaseUri);
 private:
 
     /// The configured hashing cost, for callers that already hold the lock.

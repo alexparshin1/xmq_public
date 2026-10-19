@@ -13,7 +13,9 @@
 */
 
 #include "ClusterInvitations.h"
+#include "server/OSService.h"
 #include "server/Server.h"
+#include "server/Settings/Settings.h"
 
 #include <sptk5/xdoc/Node.h>
 #include <sptk5/cutils>
@@ -88,15 +90,62 @@ optional<ClusterInvitations::Invitation> ClusterInvitations::current() const
     return m_invitation;
 }
 
+optional<ClusterInvitations::Invitation> ClusterInvitations::current()
+{
+    const scoped_lock lock(m_mutex);
+    return m_invitation;
+}
+
+void ClusterInvitations::setSettings(shared_ptr<Settings> settings)
+{
+    const scoped_lock lock(m_mutex);
+    m_settings = std::move(settings);
+}
+
 void ClusterInvitations::decline()
 {
     const scoped_lock lock(m_mutex);
     m_invitation.reset();
 }
 
-String ClusterInvitations::refusalPayload(const String& reason)
+String ClusterInvitations::accept()
 {
-    return String(R"({"refused":true,"reason":")") + reason + R"("})";
+    Invitation invitation;
+    {
+        const scoped_lock lock(m_mutex);
+        if (!m_invitation)
+        {
+            return "There is no invitation to accept.";
+        }
+        if (!m_invitation->m_rejectReason.empty())
+        {
+            return m_invitation->m_rejectReason;
+        }
+        invitation = *m_invitation;
+    }
+
+    if (!m_settings)
+    {
+        return "The node has no configuration to apply the invitation to.";
+    }
+
+    const auto error = m_settings->applyInvitationAccept(invitation.m_redisUri, invitation.m_databaseUri);
+    if (!error.empty())
+    {
+        return error;
+    }
+
+    {
+        const scoped_lock lock(m_mutex);
+        m_invitation.reset();
+    }
+    OSService::requestRestart();
+    return "";
+}
+
+String ClusterInvitations::refusalPayload(const String& nodeId, const String& reason)
+{
+    return String(R"({"refused":true,"node_id":")") + nodeId + R"(","reason":")" + reason + R"("})";
 }
 
 } // namespace xmq::cluster

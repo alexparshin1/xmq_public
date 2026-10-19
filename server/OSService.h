@@ -79,6 +79,25 @@ public:
     static void requestReload();
 
     /**
+     * @brief The exit code a node exits with after accepting a cluster invitation: the
+     * configuration is applied and the process must restart to read it. The service manager
+     * (systemd Restart=always, FreeBSD daemon -r) brings it back; the code says why it went.
+     */
+    static constexpr int RestartExitCode = 78;
+
+    /**
+     * @brief Ask the service loop to end the process so that the service manager starts it again,
+     * as accepting a cluster invitation needs: the new configuration is on disk, and only a fresh
+     * process reads it whole.
+     */
+    static void requestRestart();
+
+    /**
+     * @brief Whether a restart was requested - the service loop's answer to how it ended.
+     */
+    static bool restartRequested();
+
+    /**
      * @brief Take the pending reload request, if there is one.
      *
      * Clears the flag as it reads it, so the service loop's next poll sees no request until
@@ -91,7 +110,11 @@ public:
     /**
      * @brief Execute service.
      */
-    void execute();
+    /**
+     * @brief Run the service until it is asked to stop. Returns the process exit code: 0 for a
+     * clean stop, RestartExitCode when the configuration changed and a restart is wanted.
+     */
+    int execute();
 
     /**
      * @brief Terminate service.

@@ -689,6 +689,14 @@ void Settings::applyClusterConfigurationUnlocked()
             // The database is the configuration from here on. The accounts URI is not taken from the
             // row: it is the address this node reached the database by, and a different one there
             // says nothing about where this node is.
+            if (row->m_state == "Invited")
+            {
+                // The accept happened, and this is the restart that follows it: the node is on its
+                // way into the cluster, and the screen shows Joining until Redis says Clustered.
+                auto joining = *row;
+                joining.m_state = "Joining";
+                store.updateNode(joining);
+            }
             m_persistence.m_redis_uri = row->m_redisUri;
             m_cluster.m_database_uri = row->m_databaseUri;
             m_cluster.m_enabled = row->m_clusterEnabled;
@@ -723,6 +731,31 @@ void Settings::applyClusterConfigurationUnlocked()
                 << ". A node that cannot read whether it belongs to a cluster does not start.";
         m_clusterConfigurationError = message.str();
     }
+}
+
+String Settings::applyInvitationAccept(const String& redisUri, const String& databaseUri)
+{
+    {
+        const WriteLock lock(m_mutex);
+
+        m_persistence.m_redis_uri = redisUri;
+        m_persistence.m_enabled = true;
+        m_authentication.m_database_uri = databaseUri;
+        m_cluster.m_enabled = true;
+
+        // The bootstrap file is where the SQL URI lives; the next start reads the rest from the
+        // shared database, by this node's GUID. Written now, so a crash between here and the
+        // restart still leaves the accepted configuration on disk.
+        try
+        {
+            saveConfigurationUnlocked();
+        }
+        catch (const Exception& e)
+        {
+            return e.what();
+        }
+    }
+    return "";
 }
 
 shared_ptr<DatabaseConnectionPool> Settings::accountsPool() const

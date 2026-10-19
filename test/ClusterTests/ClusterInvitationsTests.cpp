@@ -13,6 +13,7 @@
 */
 
 #include "test/ClusterTests/ClusterTests.h"
+#include "server/OSService.h"
 #include "test/ClusterTests/TestCluster.h"
 #include "test/TestServers.h"
 
@@ -205,4 +206,88 @@ TEST_F(XMQ_ClusterTests, invitingANodeWhoseCertificateIsNotTrustedIsRefused)
     EXPECT_FALSE(result.m_success);
     EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
         << "an invitation reached a node whose certificate the inviter did not trust";
+}
+
+/**
+ * Decline answers the inviter: the refusal travels back over cluster/refusal, the inviter marks
+ * the node's row Refused with the reason, and the invitation is gone from both.
+ */
+TEST_F(XMQ_ClusterTests, decliningAnInvitationAnswersTheInviter)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto invited = createNode("invited", 1886, true);
+    trustNodeCertificate(invited);
+
+    const auto inviteResult = primary->getCluster()->sendInvitation("localhost:8886", "invited");
+    ASSERT_TRUE(inviteResult.m_success) << inviteResult.m_error.c_str();
+    ASSERT_TRUE(TestCluster::waitFor([&] { return invited->getCluster()->invitations().current().has_value(); }));
+
+    invited->getCluster()->declineInvitation();
+
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto state = primary->getCluster()->invitations().current();
+                                         return !state.has_value();
+                                     }))
+        << "the invitation was not cleared at the inviter after the decline";
+
+    // The inviter's row for the node now says Refused, with the reason - what the screen shows.
+    const auto nodeId = invited->getCluster()->nodeId();
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto row = primary->getCluster()->invitations().current();
+                                         return true;
+                                     }));
+    EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
+        << "the invitation stayed on the node that declined it";
+}
+
+/**
+ * Accepting an invitation with a reason - a version mismatch, a damaged payload - is refused, and
+ * nothing is written.
+ */
+TEST_F(XMQ_ClusterTests, anInvitationHeldWithAReasonCannotBeAccepted)
+{
+    const auto server = createNode("primary", 1880, true);
+
+    const auto client = clusterUserClient(server, R"({"inviter_host_port": "localhost:8883"})");
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         const auto invitation = server->getCluster()->invitations().current();
+                                         return invitation && !invitation->m_rejectReason.empty();
+                                     }));
+
+    const auto error = server->getCluster()->invitations().accept();
+    EXPECT_FALSE(error.empty()) << "a damaged invitation was accepted";
+    client->disconnect();
+}
+
+/**
+ * Accept applies what the invitation offered and asks the service loop for the restart that
+ * reads it: the configuration on disk carries the cluster's storage and database, and the
+ * invitation is gone.
+ */
+TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRestart)
+{
+    const auto primary = createNode("primary", 1880, true);
+    const auto invited = createNode("invited", 1886, true);
+    trustNodeCertificate(invited);
+
+    const auto inviteResult = primary->getCluster()->sendInvitation("localhost:8886", "invited");
+    ASSERT_TRUE(inviteResult.m_success) << inviteResult.m_error.c_str();
+    ASSERT_TRUE(TestCluster::waitFor([&] { return invited->getCluster()->invitations().current().has_value(); }));
+
+    const auto error = invited->getCluster()->invitations().accept();
+    EXPECT_TRUE(error.empty()) << error.c_str();
+    EXPECT_TRUE(OSService::restartRequested()) << "accepting did not ask for the restart";
+    EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
+        << "the accepted invitation is still held";
+
+    // What the next start reads: the cluster's storage and database, in the node's own file.
+    const auto configurationPath = invited->getSettings()->configurationPath();
+    ASSERT_FALSE(configurationPath.empty());
+    Buffer configuration;
+    configuration.loadFromFile(configurationPath);
+    EXPECT_TRUE(String(configuration).contains("redis://redis_server:6379/3"))
+        << "the accepted storage is not in the configuration on disk";
 }

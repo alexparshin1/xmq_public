@@ -27,6 +27,20 @@ std::atomic_bool   OSService::s_reloadRequested {false};
 // Stored from a signal handler, which is only safe for an atomic that never takes a lock.
 static_assert(std::atomic_int::is_always_lock_free);
 
+namespace {
+std::atomic<bool> restartRequestedFlag {false};
+}
+
+void OSService::requestRestart()
+{
+    restartRequestedFlag = true;
+}
+
+bool OSService::restartRequested()
+{
+    return restartRequestedFlag;
+}
+
 void OSService::requestTermination(const int signal)
 {
     // The signal first: the service loop reads it once it has seen the flag.
@@ -216,7 +230,7 @@ void OSService::runService()
     // execute() never comes here. See the note in main.cpp about the fork this used to do.
 }
 
-void OSService::execute()
+int OSService::execute()
 {
     m_logger.info("Starting");
     if (m_runAsService)
@@ -256,6 +270,13 @@ void OSService::execute()
         }
         m_controlledServer->stopService();
     }
+
+    if (restartRequested())
+    {
+        m_logger.info("The configuration changed; exiting to restart and read it.");
+        return RestartExitCode;
+    }
+    return 0;
 }
 
 void OSService::terminate()

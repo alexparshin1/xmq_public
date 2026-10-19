@@ -211,6 +211,18 @@ public:
     InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName);
 
     /**
+     * @brief Answer the invitation this node holds with a refusal, to the inviter, on
+     * cluster/refusal: the refused node's GUID and the reason. The held invitation is cleared.
+     */
+    void declineInvitation();
+
+    /**
+     * @brief Take a refusal from a node this one invited: mark its row Refused with the reason,
+     * and take the invitation away - the invitation is answered.
+     */
+    void onRefusal(const sptk::String& payload);
+
+    /**
      * @brief Request a connection to a named cluster node.
      * @param nodeName          Name of the node to connect.
      * @note This method is not implemented yet.

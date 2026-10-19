@@ -34,6 +34,7 @@ Cluster::Cluster(Server* server)
     , m_clusterTopics(server->getTopicManager())
     , m_subscriptionClient(make_shared<SubscriptionClient>(server))
 {
+    m_invitations.setSettings(m_settings);
     auto& thisNodeSettings = m_settings->m_cluster.m_this_node;
     thisNodeSettings.m_xmq_version = Server::getVersion();
     thisNodeSettings.m_encrypted = true;
@@ -1516,6 +1517,85 @@ void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
                                                            + R"(","xmq_version":")" + Server::getVersion() + R"("})"));
     answer->setQos(Qos::Qos1);
     m_server->publishMessage(answer);
+}
+
+void Cluster::declineInvitation()
+{
+    const auto invitation = m_invitations.current();
+    if (!invitation)
+    {
+        return;
+    }
+    m_invitations.decline();
+
+    try
+    {
+        const Host host(invitation->m_inviterHostPort);
+        const auto& settings = m_server->getSettings();
+        const auto& keysData = settings->m_connections.m_ssl_keys;
+        const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
+        const auto certificateFile = keysData.m_certfile.asString().empty() ? nodeCertificate.string() : keysData.m_certfile.asString();
+        const auto privateKeyFile = keysData.m_keyfile.asString().empty() ? nodeKey.string() : keysData.m_keyfile.asString();
+        auto authorityFile = keysData.m_cafile.asString();
+        if (authorityFile.empty())
+        {
+            authorityFile = Settings::buildPeerCertificateBundle().string();
+        }
+        const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
+
+        client::MqttClient client;
+        client.useBrokerThreads();
+        const auto rc = client.connect(host, ConnectCredentials(format("xmq-decline-{}", m_nodeId), "cluster", settings->clusterPassword()),
+                                       {.m_cleanSession = true}, ProtocolVersion::MqttV5, {},
+                                       make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
+                                                            authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth)));
+        if (rc == ReasonCode::Success)
+        {
+            const auto reason = invitation->m_rejectReason.empty() ? String("The administrator declined.") : invitation->m_rejectReason;
+            auto message = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/refusal"),
+                                                             ClusterInvitations::refusalPayload(m_nodeId, reason));
+            message->setQos(Qos::Qos1);
+            client.publish(*message);
+        }
+    }
+    catch (const Exception&)
+    {
+        // The refusal did not arrive; the inviter's invitation expires on its own.
+    }
+}
+
+void Cluster::onRefusal(const String& payload)
+{
+    try
+    {
+        xdoc::Document document;
+        document.load(payload);
+        const auto nodeIdNode = document.root()->findFirst("node_id");
+        const auto reasonNode = document.root()->findFirst("reason");
+        if (!nodeIdNode || nodeIdNode->getValue().isNull())
+        {
+            return;
+        }
+        const String nodeId = nodeIdNode->getValue().asString();
+
+        if (const auto pool = m_settings->accountsPool())
+        {
+            ClusterStore store(pool);
+            store.createSchema();
+            if (const auto row = store.node(nodeId))
+            {
+                auto refused = *row;
+                refused.m_state = "Refused";
+                refused.m_lastError = reasonNode && !reasonNode->getValue().isNull() ? reasonNode->getValue().asString() : String();
+                store.updateNode(refused);
+            }
+            store.clearInvitation(nodeId);
+        }
+    }
+    catch (const Exception&)
+    {
+        // A damaged refusal names no node; nothing to mark.
+    }
 }
 
 Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName)

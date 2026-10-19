@@ -361,7 +361,7 @@ int main(int argc, const char* argv[])
         }
 #endif
 
-        osService.execute();
+        return osService.execute();
     }
     catch (const DatabaseException& exception)
     {

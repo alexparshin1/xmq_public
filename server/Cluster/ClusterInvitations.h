@@ -19,7 +19,11 @@
 #include <mutex>
 #include <optional>
 
-namespace xmq::cluster {
+namespace xmq {
+
+class Settings;
+
+namespace cluster {
 
 /**
  * @brief The invitation a node holds, and the checks it must pass before it may accept.
@@ -56,18 +60,40 @@ public:
     /// The active invitation, if one is held.
     [[nodiscard]] std::optional<Invitation> current() const;
 
-    /// Refuse it: the invitation is gone, and the reply is the caller's business.
+    /**
+     * @brief Refuse it: the invitation is gone, and the inviter is told on cluster/refusal -
+     * the caller passes the connection the reply is published over.
+     */
     void decline();
 
-    /// The reply the Decline sends, built here so the format has one owner.
-    [[nodiscard]] static sptk::String refusalPayload(const sptk::String& reason);
+    /**
+     * @brief Accept it: apply the configuration the invitation offered and ask the service loop
+     * to end the process for the restart that reads it.
+     *
+     * Returns an error text, or empty when the configuration is on disk and the restart is
+     * requested. An invitation held with a reason cannot be accepted.
+     */
+    sptk::String accept();
+
+    /// The reply the Decline sends, built here so the format has one owner: the refused node's
+    /// GUID and the reason, as the inviter reads them from cluster/refusal.
+    [[nodiscard]] static sptk::String refusalPayload(const sptk::String& nodeId, const sptk::String& reason);
+
+    /// The invitation as the caller works with it, while it is held.
+    [[nodiscard]] std::optional<Invitation> current();
 
 private:
     /// What the invited node answers to, and whether the answer is a refusal.
     void check(Invitation& invitation);
 
+    /// The node's own settings, for applying the accept; set once, by Cluster.
+    friend class Cluster;
+    void setSettings(std::shared_ptr<Settings> settings);
+
     mutable std::mutex m_mutex;
     std::optional<Invitation> m_invitation;
+    std::shared_ptr<Settings> m_settings;
 };
 
-} // namespace xmq::cluster
+} // namespace cluster
+} // namespace xmq
