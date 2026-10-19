@@ -30,8 +30,10 @@
   to the cluster and remains unchanged on coordinator succession. Access to that storage is required for client service;
   a node must not fall back to an independent Redis instance.
   Done: a node whose `persistence.redis_uri` differs is refused and one without it does not start on a cluster; a node
-  that cannot reach the storage goes cluster-offline. Left: the URI is compared as a string, so the same storage at
-  another endpoint - a failover, a proxy - is refused as if it were another storage.
+  that cannot reach the storage goes cluster-offline. Left: the URIs are compared as strings, which is wrong in both
+  directions - the same storage reached at another endpoint (a failover, a proxy, a DNS name) is refused as another
+  storage, and two different storages behind the same address (`redis://127.0.0.1:6379` on every node) are accepted.
+  The comparison is to be made on what the storage itself holds, its `storage:id`; see *What lives where*.
 
 - [x] all cluster nodes share one accounts database at the same PostgreSQL or MySQL endpoint. A node whose
   `authentication.database_uri` differs is refused at attach, because its users would be unknown to the rest
@@ -450,6 +452,13 @@ keys, sessions, queues and retained messages. Those are written several times pe
 The cluster has an identity of its own - `cluster:id`, a GUID created when the cluster is formed - so that a node can
 tell "the same cluster" from "another cluster on the same storage" or "the same addresses, different cluster".
 
+The storage has one too: `storage:id`, a GUID written into Redis when XMQ initializes it, the counterpart of MySQL's
+`server_uuid`. Membership compares that and not the URI, because an address proves nothing in either direction: the
+same Redis reached by a DNS name, a proxy or after a failover has one id under every address, and two Redis instances
+behind the same address - each node's own `redis://127.0.0.1:6379` - have two. A node compares `storage:id` first
+and is refused as being on another storage; then `cluster:id`, and is refused as belonging to another cluster.
+Resolved addresses are compared only to say which address answered in the error message.
+
 A node that cannot reach the SQL database at start does not start, and says why. Without the shared configuration it
 cannot tell whether it is a cluster node at all, and serving on a guess risks writing over another node's sessions.
 
@@ -514,7 +523,9 @@ In this order - each step leaves the system working:
 - [ ] Move the shared settings to SQL: schema for the cluster settings, `xmq_cluster_node` and
   `xmq_cluster_invitation`; a bootstrap loader that reads the SQL URI from the file and everything else from the
   database. Keep `node_id` in `xmq_node.id`. A node that cannot reach SQL refuses to start and says why.
-- [ ] Add `cluster:id`, created with the cluster, and use it for the "same cluster" check.
+- [ ] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.
+  Compare a joining node's storage and cluster by those ids instead of by the URI, and keep the resolved address only
+  for the error message.
 - [ ] Implement the state machine behind the screen: declared, invited, joining, refused, expired, failed; the
   computed `Clustered`/`Offline` from Redis. One active invitation per node, ten-minute lifetime.
 - [ ] Invitation transport: the server-level subscription to `cluster/invitation`, authentication as the `cluster`
