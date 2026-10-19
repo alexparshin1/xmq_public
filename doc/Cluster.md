@@ -550,11 +550,16 @@ In this order - each step leaves the system working:
   for the error message.
 - [ ] Implement the state machine behind the screen: declared, invited, joining, refused, expired, failed; the
   computed `Clustered`/`Offline` from Redis. One active invitation per node, ten-minute lifetime.
-- [ ] Invitation transport: the server-level subscription to `cluster/invitation`, authentication as the `cluster`
-  user (same password on every node, checked by connecting before sending), the one-time token, the Redis and users
-  database URIs in the invitation, and the refusal reply.
-- [ ] Accept on the invited node: the change set for the confirmation, applying it, restart and join, and the
-  rollback to the last-good configuration with `Failed` when the join does not happen.
+- [x] Invitation transport: the server-level subscription to `cluster/invitation` (the server itself, not a client),
+  authentication as the `cluster` user over TLS (the password checked by connecting before sending), the Redis and
+  users database URIs in the invitation, and the refusal reply. `anInvitationFromTheClusterUserIsHeld` and its
+  siblings; the inviter's side is `invitingANodeDeliversTheInvitation`, including the `cluster/hello` by which it
+  learns the invited node's GUID.
+- [x] Accept on the invited node, at the server level: the offered configuration is written into the node's own
+  file, the process exits with the restart code 78, and the row goes Invited to Joining at the next start.
+  `acceptingAnInvitationAppliesTheConfigurationAndAsksToRestart`; Decline answers the inviter on cluster/refusal and
+  the inviter marks the row Refused - `decliningAnInvitationAnswersTheInviter`. Left: the confirmation the screen
+  shows before Accept, and the rollback to the last-good configuration with `Failed` when the join does not happen.
 - [ ] Interface: the dashboard mode, the Cluster Configuration screen with the states, Add node, the Invite dialog,
   and Review/Accept/Decline on the invited node.
 - [ ] Tests: the state machine and the checks as unit tests, invitation/accept/decline/expiry/rollback as cluster
