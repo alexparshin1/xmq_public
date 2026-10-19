@@ -705,7 +705,7 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_nodeId = nodeId;
         row.m_name = m_cluster.m_this_node.m_node_name.asString();
         row.m_hostPort = m_cluster.m_this_node.m_host_port.asString();
-        row.m_state = "Not Clustered";
+        row.m_state = "Standalone";
         row.m_redisUri = m_persistence.m_redis_uri.asString();
         row.m_databaseUri = uri;
         row.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();

@@ -73,7 +73,7 @@ vector<pair<String, String>> reachableClusterDatabases()
 /// Nothing of an earlier run, so that "created" means created.
 void dropClusterTables(DatabaseConnectionPool& pool)
 {
-    for (const auto* table: {"xmq_cluster_invitation", "xmq_cluster_node"})
+    for (const auto* table: {"xmq_cluster_invitation", "xmq_node"})
     {
         try
         {
@@ -306,5 +306,27 @@ TEST_F(XMQ_ClusterStoreTests, theStoredStateIsKeptApartFromTheComputedOne)
         store.removeNode(nodeId);
         tie(state, error) = store.stateOf(nodeId);
         EXPECT_TRUE(state.empty() && error.empty()) << name << ": a removed node has no stored state";
+    }
+}
+
+TEST_F(XMQ_ClusterStoreTests, theBridgeEraTableIsDroppedWhenTheSchemaIsCreated)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        DatabaseConnectionPool pool(uri, 2);
+        {
+            const AutoDatabaseConnection connection(pool);
+            Query create(connection.connection(),
+                         "CREATE TABLE xmq_node (id int primary key, node_state int, node_name varchar(128),"
+                         " settings varchar(4096), connected_nodes varchar(4096), updated timestamp)");
+            create.exec();
+        }
+
+        // The old shape cannot be read as the new one; creating the schema replaces it, so a
+        // database that saw the bridge era comes out with today's table and no leftovers.
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        EXPECT_NO_THROW(store.createSchema()) << name;
+        EXPECT_NO_THROW(store.insertNode(sampleNode("9b1e5d7a-4c28-4f76-8e03-6a2d0c9b4e57"))) << name;
+        EXPECT_TRUE(store.node("9b1e5d7a-4c28-4f76-8e03-6a2d0c9b4e57").has_value()) << name;
     }
 }

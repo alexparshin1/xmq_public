@@ -116,7 +116,7 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
         EXPECT_EQ(String("bootstrap-node"), row->m_name) << "the row was not filled from the configuration";
         EXPECT_EQ(String("localhost:8883"), row->m_hostPort);
         EXPECT_EQ(String("redis://from-the-file:6379"), row->m_redisUri);
-        EXPECT_EQ(String("Not Clustered"), row->m_state);
+        EXPECT_EQ(String("Standalone"), row->m_state);
     }
 
     // What the interface would do: change the row.
@@ -144,7 +144,7 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
     {
         DatabaseConnectionPool       cleanup(pgUri, 1);
         const AutoDatabaseConnection connection(cleanup);
-        Query                        remove(connection.connection(), "DELETE FROM xmq_cluster_node WHERE node_id = :node_id");
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
         remove.param("node_id") = nodeId;
         remove.exec();
     }

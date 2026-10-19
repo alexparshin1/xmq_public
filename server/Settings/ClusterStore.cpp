@@ -25,7 +25,7 @@ namespace xmq {
 
 namespace {
 
-const char* const nodeTable = "xmq_cluster_node";
+const char* const nodeTable = "xmq_node";
 const char* const invitationTable = "xmq_cluster_invitation";
 
 constexpr string_view nodeColumns =
@@ -108,6 +108,31 @@ void ClusterStore::executeStatement(const String& sql)
 
 void ClusterStore::createSchema()
 {
+    if (tableExists(String(nodeTable)))
+    {
+        // The name xmq_node belonged to the bridge-era node table first, and shared databases
+        // still hold it: id, node_state, node_name, settings. Nothing reads it any more, and its
+        // shape is not this one's - so it is dropped, asked by its own columns, and the new table
+        // takes the name. A probe that fails for any other reason falls through to the same drop:
+        // the schema is rebuilt at every start either way.
+        try
+        {
+            const AutoDatabaseConnection connection(*m_database);
+            Query                        probe(connection.connection(),
+                                               "SELECT node_id, name, host_port, state FROM " + String(nodeTable) + " LIMIT 1");
+            probe.open();
+            probe.close();
+        }
+        catch (const Exception&)
+        {
+            // CASCADE on PostgreSQL: the bridge era left a function taking the table's row type,
+            // and a table with dependents is not dropped without it. MySQL drops with neither.
+            const auto driver = m_database->driverName().toLowerCase();
+            const String cascade = driver.starts_with("postgres") ? " CASCADE" : "";
+            executeStatement("DROP TABLE IF EXISTS " + String(nodeTable) + cascade);
+            executeStatement(String("DROP TABLE IF EXISTS xmq_node_state") + cascade);
+        }
+    }
     if (!tableExists(String(nodeTable)))
     {
         // One row per node, one column per setting, the GUID as the key: the shape the interface
@@ -125,8 +150,8 @@ void ClusterStore::createSchema()
             "  cluster_lease_seconds int NOT NULL DEFAULT 0,"
             "  cluster_links         int NOT NULL DEFAULT 0,"
             "  updated_at            varchar(40),"
-            "  CONSTRAINT pk_xmq_cluster_node PRIMARY KEY (node_id),"
-            "  CONSTRAINT uq_xmq_cluster_node_name UNIQUE (name))" + tableSuffix());
+            "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
+            "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
     }
 
     if (!tableExists(String(invitationTable)))
