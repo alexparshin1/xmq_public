@@ -498,6 +498,12 @@ SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const ui
         }
 
         // Create default cluster settings:
+        //
+        // Standalone unless the test asks for more: the setting defaults to on, so every server
+        // these suites started has been a cluster node - joining the shared Redis on start, holding
+        // a lease, and refusing clients as "Server not available" whenever that lease was not held.
+        // A test that wants a cluster turns it on itself (XMQ_ClusterTests::createNode does).
+        settings->m_cluster.m_enabled = false;
         settings->m_cluster.m_this_node.m_node_name = nodeName;
         settings->m_cluster.m_this_node.m_host_port = "localhost:" + to_string(listenerPortSsl ? listenerPortSsl : listenerPortTcp);
         settings->m_cluster.m_this_node.m_encrypted = listenerPortSsl != 0;
