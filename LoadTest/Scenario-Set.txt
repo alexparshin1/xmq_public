@@ -1,7 +1,5 @@
 # Common comparison set for XMQ, FlashMQ, Mosquitto, EMQX and HiveMQ.
-# Run the same scenario JSONs, in this order, on client-host/server-host and on AWS.
-# Run each of them twice: plain TCP, and over TLS (xmq_scn --encrypted). Since 2026-10-19 TLS is a
-# standard part of the set, alongside TCP and not instead of it: both results are reported.
+# Run the scenario JSONs of both groups, in this order, on client-host/server-host and on AWS.
 # Restart the selected broker before every scenario, with all other brokers stopped.
 # Enable persistence only for the persistent scenario and start it with empty storage.
 # Record broker and client versions, effective configuration, host environment,
@@ -9,10 +7,15 @@
 # Environment-specific host, port, credentials, setup, and restart commands belong
 # to the run invocation, not to this set.
 
+# TCP
 Fan-Out-5-1000-5-250K-5min.json
 Fan-In-50K-500-50K-50K.json
 Point-To-Point-50K-50K-50K-100K.json
 Point-To-Point-60K-persistent.json
-
 # Last because the connection run leaves the broker at peak RSS.
 500K-Connections-5000-rate.json
+
+# TLS
+Point-To-Point-TLS-50K.json
+Point-To-Point-TLS-75K.json
+Point-To-Point-TLS-100K.json
