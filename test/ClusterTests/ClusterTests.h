@@ -39,6 +39,9 @@ public:
      *
      * Most tests want a TestCluster instead, which starts and joins the nodes as well.
      * @param clusterEnabled    Set cluster.enabled: the node joins the cluster in its storage by itself.
+     *                          On by default: a node made by these tests is a cluster node unless
+     *                          the test is about what happens to one that is not (the standalone
+     *                          test passes false). The server tests' own default is the opposite.
      */
     static SServer createNode(const std::string& nodeName, uint16_t                         portNumber,
                               bool               cleanStart, const std::vector<LogSubject>& logSubjects = {},

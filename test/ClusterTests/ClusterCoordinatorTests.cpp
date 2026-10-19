@@ -264,7 +264,7 @@ TEST_F(XMQ_ClusterTests, nodeRunningElsewhereDoesNotStartAgain)
     vector<Variant> results;
     redis.executeCommand(hold, results);
 
-    EXPECT_THROW(createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false), Exception);
+    EXPECT_THROW(createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false, {}, true), Exception);
 }
 
 /**
