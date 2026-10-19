@@ -211,4 +211,104 @@ void ClusterStore::updateNode(const Node& node)
     update.exec();
 }
 
+void ClusterStore::removeNode(const String& nodeId)
+{
+    // The invitation goes with the node: a declared node with an invitation outstanding is not a
+    // member, so Remove is what the interface offers it, and the invitation must not outlive it.
+    clearInvitation(nodeId);
+
+    const AutoDatabaseConnection connection(*m_database);
+    Query                        remove(connection.connection(), "DELETE FROM " + String(nodeTable) + " WHERE node_id = :node_id");
+    remove.param("node_id") = nodeId;
+    remove.exec();
+}
+
+vector<ClusterStore::Node> ClusterStore::nodes()
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(),
+                "SELECT " + String(string(nodeColumns)) + " FROM " + String(nodeTable) + " ORDER BY name");
+    query.open();
+
+    vector<Node> result;
+    while (!query.eof())
+    {
+        result.push_back(readNode(query));
+        query.next();
+    }
+    query.close();
+    return result;
+}
+
+pair<String, String> ClusterStore::stateOf(const String& nodeId)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(),
+                "SELECT state, last_error FROM " + String(nodeTable) + " WHERE node_id = :node_id");
+    query.param("node_id") = nodeId;
+    query.open();
+
+    if (query.eof())
+    {
+        query.close();
+        return {};
+    }
+
+    auto result = make_pair(query["state"].asString(), query["last_error"].asString());
+    query.close();
+    return result;
+}
+
+optional<ClusterStore::Invitation> ClusterStore::invitation(const String& nodeId)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(),
+                "SELECT node_id, token, inviter_host_port, expires_at FROM " + String(invitationTable)
+                    + " WHERE node_id = :node_id");
+    query.param("node_id") = nodeId;
+    query.open();
+
+    if (query.eof())
+    {
+        query.close();
+        return nullopt;
+    }
+
+    Invitation result;
+    result.m_nodeId = query["node_id"].asString();
+    result.m_token = query["token"].asString();
+    result.m_inviterHostPort = query["inviter_host_port"].asString();
+    result.m_expiresAt = query["expires_at"].asString();
+    query.close();
+    return result;
+}
+
+void ClusterStore::setInvitation(const Invitation& invitation)
+{
+    // Replaced rather than refused as a duplicate: a second invite is the administrator saying
+    // the first one did not arrive, and the one that did arrive first must not answer to a token
+    // that no longer exists. Delete-then-insert reads the same on every driver, where an upsert
+    // is a different sentence on each.
+    clearInvitation(invitation.m_nodeId);
+
+    const AutoDatabaseConnection connection(*m_database);
+    Query insert(connection.connection(),
+                 "INSERT INTO " + String(invitationTable) +
+                 " (node_id, token, inviter_host_port, expires_at)"
+                 " VALUES (:node_id, :token, :inviter_host_port, :expires_at)");
+    insert.param("node_id") = invitation.m_nodeId;
+    insert.param("token") = invitation.m_token;
+    insert.param("inviter_host_port") = invitation.m_inviterHostPort;
+    insert.param("expires_at") = invitation.m_expiresAt;
+    insert.exec();
+}
+
+void ClusterStore::clearInvitation(const String& nodeId)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query                        remove(connection.connection(), "DELETE FROM " + String(invitationTable) + " WHERE node_id = :node_id");
+    remove.param("node_id") = nodeId;
+    remove.exec();
+}
+
 } // namespace xmq

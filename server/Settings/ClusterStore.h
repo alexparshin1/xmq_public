@@ -58,6 +58,15 @@ public:
         int          m_links {0};       ///< 0 means the default, as in cluster.links.
     };
 
+    /// One invitation, as the database holds it. At most one per node.
+    struct Invitation
+    {
+        sptk::String m_nodeId;          ///< The invited node's GUID.
+        sptk::String m_token;           ///< One-time token, checked by the invited node.
+        sptk::String m_inviterHostPort; ///< The address the invitation came from.
+        sptk::String m_expiresAt;       ///< ISO time, ten minutes from the invite.
+    };
+
     explicit ClusterStore(std::shared_ptr<sptk::DatabaseConnectionPool> database);
 
     /**
@@ -76,6 +85,25 @@ public:
 
     /// Writes what an administrator changes; the row must exist.
     void updateNode(const Node& node);
+
+    /// Takes a node's row away - the Remove of the interface, after a member has been detached.
+    void removeNode(const sptk::String& nodeId);
+
+    /// Every declared node, for the Cluster Configuration screen.
+    [[nodiscard]] std::vector<Node> nodes();
+
+    /// The node's stored state only, with the error text of its last attempt; both empty when
+    /// there is no row. The states that come from Redis - Clustered, Offline - are not here.
+    [[nodiscard]] std::pair<sptk::String, sptk::String> stateOf(const sptk::String& nodeId);
+
+    /// The invitation a node has, if one is active.
+    [[nodiscard]] std::optional<Invitation> invitation(const sptk::String& nodeId);
+
+    /// Puts an invitation in place of the one a node had, if any - one per node, the latest wins.
+    void setInvitation(const Invitation& invitation);
+
+    /// Takes a node's invitation away: accepted, declined, or expired.
+    void clearInvitation(const sptk::String& nodeId);
 
     /// True when the driver is PostgreSQL or MySQL - what a cluster configuration needs.
     [[nodiscard]] bool isClusterDatabase() const;

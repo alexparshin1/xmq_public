@@ -209,3 +209,105 @@ TEST_F(XMQ_ClusterStoreTests, sqliteIsNotAClusterDatabase)
 
     filesystem::remove(path);
 }
+
+TEST_F(XMQ_ClusterStoreTests, anInvitationReplacesTheOneBeforeIt)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+
+        const String nodeId = "5e2f1a9d-7c4b-4e68-9d30-2a8c7f6b1d04";
+        store.insertNode(sampleNode(nodeId));
+
+        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": a new node has an invitation";
+
+        ClusterStore::Invitation first;
+        first.m_nodeId = nodeId;
+        first.m_token = "token-one";
+        first.m_inviterHostPort = "localhost:8883";
+        first.m_expiresAt = "2026-10-19T20:00:00Z";
+        store.setInvitation(first);
+
+        const auto read = store.invitation(nodeId);
+        ASSERT_TRUE(read.has_value()) << name;
+        EXPECT_EQ(String("token-one"), read->m_token) << name;
+        EXPECT_EQ(String("localhost:8883"), read->m_inviterHostPort) << name;
+
+        // The second invite is the administrator saying the first did not arrive: one per node,
+        // the latest wins.
+        ClusterStore::Invitation second = first;
+        second.m_token = "token-two";
+        store.setInvitation(second);
+
+        const auto reread = store.invitation(nodeId);
+        ASSERT_TRUE(reread.has_value()) << name;
+        EXPECT_EQ(String("token-two"), reread->m_token) << name;
+
+        store.clearInvitation(nodeId);
+        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": the invitation did not go away";
+    }
+}
+
+TEST_F(XMQ_ClusterStoreTests, removeNodeTakesItsInvitationWithIt)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+
+        const String nodeId = "3c8b6a2e-9d17-4f53-8e24-1b7c5d9f0a36";
+        store.insertNode(sampleNode(nodeId));
+
+        ClusterStore::Invitation invitation;
+        invitation.m_nodeId = nodeId;
+        invitation.m_token = "token";
+        invitation.m_inviterHostPort = "localhost:8883";
+        invitation.m_expiresAt = "2026-10-19T20:00:00Z";
+        store.setInvitation(invitation);
+
+        store.removeNode(nodeId);
+
+        EXPECT_FALSE(store.node(nodeId).has_value()) << name << ": the node is still declared";
+        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": the invitation outlived the node";
+        EXPECT_EQ(0U, store.nodes().size()) << name << ": the node is still listed";
+    }
+}
+
+TEST_F(XMQ_ClusterStoreTests, theStoredStateIsKeptApartFromTheComputedOne)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+
+        const String nodeId = "8d4c1f3b-2e67-4a95-9f08-5c3d7b1e6a24";
+        store.insertNode(sampleNode(nodeId));
+
+        auto [state, error] = store.stateOf(nodeId);
+        EXPECT_EQ(String("Not Clustered"), state) << name;
+        EXPECT_TRUE(error.empty()) << name;
+
+        // The state the interface writes: Invited while the invitation is out, Failed with the
+        // reason once a join does not happen. Clustered and Offline never reach the table - the
+        // screen computes those from Redis.
+        auto row = store.node(nodeId);
+        row->m_state = "Invited";
+        store.updateNode(*row);
+
+        tie(state, error) = store.stateOf(nodeId);
+        EXPECT_EQ(String("Invited"), state) << name;
+
+        row->m_state = "Failed";
+        row->m_lastError = "the storage did not answer";
+        store.updateNode(*row);
+
+        tie(state, error) = store.stateOf(nodeId);
+        EXPECT_EQ(String("Failed"), state) << name;
+        EXPECT_EQ(String("the storage did not answer"), error) << name;
+
+        store.removeNode(nodeId);
+        tie(state, error) = store.stateOf(nodeId);
+        EXPECT_TRUE(state.empty() && error.empty()) << name << ": a removed node has no stored state";
+    }
+}
