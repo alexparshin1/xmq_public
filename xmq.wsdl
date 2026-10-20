@@ -720,6 +720,108 @@
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
+            <xsd:element name="ClusterControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <!-- What the Cluster Configuration screen does. -->
+                                    <xsd:enumeration value="get"></xsd:enumeration>
+                                    <!-- Standalone to Cluster: the node becomes the first member of the cluster
+                                         whose storage redis_uri names, and restarts into it. A storage that
+                                         already holds another cluster is refused, and the answer says to ask
+                                         for an invitation. -->
+                                    <xsd:enumeration value="enable"></xsd:enumeration>
+                                    <!-- Cluster to Standalone: the node leaves the cluster and restarts. -->
+                                    <xsd:enumeration value="disable"></xsd:enumeration>
+                                    <!-- Declare a node: a name and a TLS address, nothing contacted. -->
+                                    <xsd:enumeration value="add"></xsd:enumeration>
+                                    <!-- Take a declared node away. A member is refused for now: it is detached
+                                         from its own screen first. -->
+                                    <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <!-- Invite the selected node: the invitation is published to its
+                                         cluster/invitation topic as the cluster user. -->
+                                    <xsd:enumeration value="invite"></xsd:enumeration>
+                                    <!-- Answer the invitation this node holds. -->
+                                    <xsd:enumeration value="accept"></xsd:enumeration>
+                                    <xsd:enumeration value="decline"></xsd:enumeration>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="node" type="tns:ClusterMember" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The node add, remove and invite act on. Add takes the name
+                                    and the address; the other two take the node_id; remove also accepts the
+                                    name.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="password" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The cluster account's password, as the Invite dialog asked
+                                    for it. The inviting node checks it by connecting as the cluster user, so
+                                    an authentication refusal is reported before the invitation is sent.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>For enable: the storage the cluster will keep its state in.
+                                    Must be reachable; a storage that already holds another cluster is refused
+                                    here, before anything is written.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="ClusterControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The node's mode: true when it is a cluster node.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="on_cluster_database" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>True when the node's rows live in a PostgreSQL or MySQL
+                                    database, which is what a cluster configuration needs. False means the
+                                    screen shows nothing to edit and says why: SQLite is one machine's file.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>This node's shared storage, and the accounts database it
+                                    shares - what the interface shows as the cluster's own settings.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        </xsd:element>
+                        <xsd:element name="this_node" type="tns:ClusterMember" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>This node's own row.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="nodes" type="tns:ClusterMember" maxOccurs="unbounded" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The declared nodes with their states, for the Cluster
+                                    Configuration list.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="coordinator" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The coordinator's name as this node last saw it, or empty.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="invitation" type="tns:ClusterInvitation" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>The invitation this node holds, if one came. The screen shows it
+                                    as a button; Review opens the confirmation built from it.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
             <xsd:element name="SSLKeysControl">
                 <xsd:complexType>
                     <xsd:sequence>
@@ -1347,6 +1449,112 @@
                 </xsd:sequence>
             </xsd:complexType>
 
+            <xsd:complexType name="ClusterMember">
+                <xsd:sequence>
+                    <xsd:element name="node_id" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The node's GUID: the identity every other value follows. Absent
+                                only before the Invite has asked a declared node who it is.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="name" type="xsd:string">
+                        <xsd:annotation>
+                            <xsd:documentation>The node's name, for people. Unique in the cluster.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="host_port" type="xsd:string">
+                        <xsd:annotation>
+                            <xsd:documentation>The TLS address the other nodes link to.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="state" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The state the Cluster Configuration screen shows: Not Clustered,
+                                Standalone, Invited, Joining, Refused, Expired, Failed - or Clustered and
+                                Offline, which are computed from the shared storage and never stored.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="last_error" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Why the last attempt ended as it did.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="is_this_node" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>True for the row of the node serving this interface.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="is_coordinator" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>True for the cluster's coordinator, as this node last saw it.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="is_alive" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>True while the node holds its lease in the shared storage: it is
+                                running and can reach the storage.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="links" type="xsd:int" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>How many connections this node has open to that one, as this node
+                                knows. Zero for a node that is not linked.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <xsd:complexType name="ClusterInvitation">
+                <xsd:sequence>
+                    <xsd:element name="inviter_name" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Who invited, for people.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="inviter_host_port" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The address the invitation came from and the reply goes to.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The storage the cluster works against.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The accounts database every node shares.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="xmq_version" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The inviter's version; a mismatch is a refusal.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="received_at" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>When it arrived, for the ten-minute lifetime.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="reject_reason" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Why the node may not accept it; empty when it may. Accept is
+                                disabled while this stands.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="current_persistence" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>What the Review confirmation names beside the offered value: whether
+                                this node persists now, and where its accounts are now.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="current_redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="current_database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
             <xsd:simpleType name="Name">
                 <xsd:restriction base="xsd:string">
                     <xsd:pattern value="^\w[\w\._\-]+$"></xsd:pattern>
@@ -1627,6 +1835,12 @@
     <wsdl:message name="PersistenceControlResponse">
         <wsdl:part name="parameters" element="tns:PersistenceControlResponse"></wsdl:part>
     </wsdl:message>
+    <wsdl:message name="ClusterControlRequest">
+        <wsdl:part name="parameters" element="tns:ClusterControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="ClusterControlResponse">
+        <wsdl:part name="parameters" element="tns:ClusterControlResponse"></wsdl:part>
+    </wsdl:message>
     <wsdl:message name="SSLKeysControlRequest">
         <wsdl:part name="parameters" element="tns:SSLKeysControl"></wsdl:part>
     </wsdl:message>
@@ -1711,6 +1925,10 @@
         <wsdl:operation name="PersistenceControl">
             <wsdl:input message="tns:PersistenceControlRequest"></wsdl:input>
             <wsdl:output message="tns:PersistenceControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ClusterControl">
+            <wsdl:input message="tns:ClusterControlRequest"></wsdl:input>
+            <wsdl:output message="tns:ClusterControlResponse"></wsdl:output>
         </wsdl:operation>
         <wsdl:operation name="SSLKeysControl">
             <wsdl:input message="tns:SSLKeysControlRequest"></wsdl:input>
@@ -1830,6 +2048,16 @@
         <wsdl:operation name="PersistenceControl">
             <soap:operation
                     soapAction="http://www.sptk.net/xmq/PersistenceControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="ClusterControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/ClusterControl"/>
             <wsdl:input>
                 <soap:body use="literal"/>
             </wsdl:input>

@@ -76,6 +76,17 @@ public:
     bool isConnected() const;
 
     /**
+     * @return How many connections this node has to that one; 0 when it has none. The Cluster
+     * Configuration screen shows it: a node whose links are all open is one the cluster can carry
+     * traffic to.
+     */
+    [[nodiscard]] size_t linkCount() const
+    {
+        const std::shared_lock lock(m_mutex);
+        return m_links.size();
+    }
+
+    /**
      * @brief Get the name of the node.
      * Provides the name of the server node as defined in its configuration.
      * @return The name of the node as a string.

@@ -27,6 +27,8 @@
 
 namespace xmq {
 
+class ClusterStore;
+
 class XMQ_EXPORT Settings final : public CServerConfiguration
 {
     friend class Server;
@@ -384,6 +386,39 @@ public:
 
     /// The accounts database pool, when it opened; the cluster configuration reads through it.
     [[nodiscard]] std::shared_ptr<sptk::DatabaseConnectionPool> accountsPool() const;
+
+    /// This node's GUID, as kept in `xmq_node.id` beside the configuration file; empty when the
+    /// configuration came from no file and there is nowhere to keep one.
+    [[nodiscard]] sptk::String nodeIdentity() const;
+
+    /// The cluster's own store, shared through the accounts database, or null when the node has
+    /// no database to share. Callers ask isClusterDatabase() before trusting a row to it: a SQLite
+    /// file is one machine's, and a cluster's configuration cannot live in one.
+    [[nodiscard]] std::shared_ptr<ClusterStore> clusterStore() const;
+
+    /**
+     * @brief Make this node the first member of a cluster whose state lives in the named storage.
+     *
+     * The mode change of the dashboard, Standalone to Cluster. What it writes is what the accept of
+     * an invitation writes, minus the accounts database: the storage is turned on, the cluster is
+     * enabled, and the previous configuration is kept as the last-good copy. The process must
+     * restart after this for the node to take its place in the cluster.
+     *
+     * Returns an error text, or empty when the configuration is on disk. The storage having been
+     * checked for another cluster is the caller's business: this only writes.
+     */
+    sptk::String applyClusterEnable(const sptk::String& redisUri);
+
+    /**
+     * @brief Take this node out of its cluster: the row and the configuration say the node is not a
+     * cluster node, and the next start serves standalone on the storage it keeps.
+     *
+     * The memberships are the caller's business: the node leaves the cluster before this, so that
+     * the next start finds it gone rather than rejoining by this node's own membership.
+     *
+     * Returns an error text, or empty when the configuration is on disk.
+     */
+    sptk::String applyClusterDisable();
 
     /**
      * @brief Take the cluster an invitation offered: switch the storage and the accounts database

@@ -651,6 +651,16 @@ void Cluster::startCoordinator()
     m_retainedSyncView.load()->start();
 }
 
+size_t Cluster::linkCountOf(const std::string& nodeName) const
+{
+    const shared_lock lock(m_mutex);
+    if (const auto node = m_connectedNodes.findNode(nodeName))
+    {
+        return node->linkCount();
+    }
+    return 0;
+}
+
 SNode Cluster::findClusterNode(const std::string& nodeName) const
 {
     return m_connectedNodes.findNode(nodeName);
@@ -1598,7 +1608,8 @@ void Cluster::onRefusal(const String& payload)
     }
 }
 
-Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName)
+Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName,
+                                               const String& clusterPassword)
 {
     InviteResult result;
 
@@ -1648,7 +1659,11 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         auto properties = make_shared<MessageProperties>();
         properties->setProperty(Property::ResponseTopic, replyTopic);
 
-        const auto rc = client.connect(host, ConnectCredentials(format("xmq-invite-{}", m_nodeId), "cluster", settings->clusterPassword()),
+        // The password the administrator typed into the Invite dialog, or the configured one when
+        // there is none to type: the invited node authenticates the cluster user against its own
+        // verifier, so presenting the wrong secret is refused here, before anything is sent.
+        const auto password = clusterPassword.empty() ? settings->clusterPassword() : clusterPassword;
+        const auto rc = client.connect(host, ConnectCredentials(format("xmq-invite-{}", m_nodeId), "cluster", password),
                                        {.m_cleanSession = true}, ProtocolVersion::MqttV5, properties,
                                        make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
                                                             authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth)));
@@ -1696,7 +1711,9 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         }
 
         // The node answered who it is: its row, whether the node made it itself or an
-        // administrator declared it, is keyed by its GUID from here on.
+        // administrator declared it, is keyed by its GUID from here on. The invitation is the
+        // admission, so the row it leaves behind carries the cluster's storage and database and
+        // the cluster enabled - what the invited node reads after the restart an accept asks for.
         const auto database = m_server->getSettings()->userDatabaseUri();
         const auto redisUri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
         if (const auto pool = m_server->getSettings()->accountsPool(); pool)
@@ -1704,24 +1721,39 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
             ClusterStore store(pool);
             store.createSchema();
 
-            auto row = store.node(nodeId);
-            if (!row)
+            // A declaration left behind by an earlier Add: the node's real row takes its name, and
+            // the database keeps names unique - so the declaration goes, whichever branch is taken.
+            if (const auto declared = store.nodeByName(invitedNodeName);
+                declared && declared->m_nodeId != nodeId)
             {
-                // A node the administrator declared: its row carries the declaring GUID; the real
-                // one takes it over, with the settings the invitation carries.
-                ClusterStore::Node declared;
-                declared.m_nodeId = nodeId;
-                declared.m_name = invitedNodeName;
-                declared.m_hostPort = hostPort;
-                declared.m_state = "Invited";
-                declared.m_redisUri = redisUri;
-                declared.m_databaseUri = database;
-                store.insertNode(declared);
+                store.removeNode(declared->m_nodeId);
+            }
+
+            if (const auto row = store.node(nodeId))
+            {
+                auto invited = *row;
+                invited.m_state = "Invited";
+                invited.m_redisUri = redisUri;
+                invited.m_databaseUri = database;
+                invited.m_clusterEnabled = true;
+
+                // The name the node answers to now is the real one: an administrator may have
+                // declared another, and the row is the node's own.
+                invited.m_name = invitedNodeName;
+                invited.m_hostPort = hostPort;
+                store.updateNode(invited);
             }
             else
             {
-                row->m_state = "Invited";
-                store.updateNode(*row);
+                ClusterStore::Node invited;
+                invited.m_nodeId = nodeId;
+                invited.m_name = invitedNodeName;
+                invited.m_hostPort = hostPort;
+                invited.m_state = "Invited";
+                invited.m_redisUri = redisUri;
+                invited.m_databaseUri = database;
+                invited.m_clusterEnabled = true;
+                store.insertNode(invited);
             }
 
             ClusterStore::Invitation invitation;

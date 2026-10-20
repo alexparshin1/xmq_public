@@ -834,6 +834,127 @@ shared_ptr<DatabaseConnectionPool> Settings::accountsPool() const
     return m_accountsPool;
 }
 
+String Settings::nodeIdentity() const
+{
+    const ReadLock lock(m_mutex);
+
+    if (m_configurationPath.empty())
+    {
+        return {};
+    }
+
+    return cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+}
+
+shared_ptr<ClusterStore> Settings::clusterStore() const
+{
+    const ReadLock lock(m_mutex);
+
+    if (!m_accountsPool)
+    {
+        return {};
+    }
+
+    return make_shared<ClusterStore>(m_accountsPool);
+}
+
+String Settings::applyClusterEnable(const String& redisUri)
+{
+    {
+        const WriteLock lock(m_mutex);
+
+        // The way back, as after an accept: a start that cannot join - the storage holds another
+        // cluster, the Redis is gone - puts the previous configuration back and says why.
+        if (!m_configurationPath.empty() && filesystem::exists(m_configurationPath))
+        {
+            error_code errorCode;
+            filesystem::copy_file(m_configurationPath, lastGoodPath(), filesystem::copy_options::overwrite_existing, errorCode);
+            if (errorCode)
+            {
+                return String("Cannot keep the previous configuration: ") + errorCode.message();
+            }
+        }
+
+        m_persistence.m_redis_uri = redisUri;
+        m_persistence.m_enabled = true;
+        m_cluster.m_enabled = true;
+
+        try
+        {
+            saveConfigurationUnlocked();
+        }
+        catch (const Exception& e)
+        {
+            return e.what();
+        }
+    }
+
+    // The row says the same thing, so that the next start and the screen read it from the shared
+    // database like every other cluster setting.
+    if (const auto pool = accountsPool(); pool)
+    {
+        try
+        {
+            ClusterStore store(pool);
+            store.createSchema();
+            if (const auto row = store.node(nodeIdentity()))
+            {
+                auto enabled = *row;
+                enabled.m_redisUri = redisUri;
+                enabled.m_clusterEnabled = true;
+                store.updateNode(enabled);
+            }
+        }
+        catch (const Exception& e)
+        {
+            return String("The node's row was not updated: ") + e.what();
+        }
+    }
+
+    return "";
+}
+
+String Settings::applyClusterDisable()
+{
+    {
+        const WriteLock lock(m_mutex);
+
+        m_cluster.m_enabled = false;
+
+        try
+        {
+            saveConfigurationUnlocked();
+        }
+        catch (const Exception& e)
+        {
+            return e.what();
+        }
+    }
+
+    // The row as well as the file: the storage stays as it is, because a node that leaves keeps
+    // the storage it knows - only its membership goes.
+    if (const auto pool = accountsPool(); pool)
+    {
+        try
+        {
+            ClusterStore store(pool);
+            store.createSchema();
+            if (const auto row = store.node(nodeIdentity()))
+            {
+                auto disabled = *row;
+                disabled.m_clusterEnabled = false;
+                store.updateNode(disabled);
+            }
+        }
+        catch (const Exception& e)
+        {
+            return String("The node's row was not updated: ") + e.what();
+        }
+    }
+
+    return "";
+}
+
 String Settings::clusterConfigurationError() const
 {
     const ReadLock lock(m_mutex);

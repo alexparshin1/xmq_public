@@ -186,6 +186,25 @@ optional<ClusterStore::Node> ClusterStore::node(const String& nodeId)
     return result;
 }
 
+optional<ClusterStore::Node> ClusterStore::nodeByName(const String& name)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(),
+                "SELECT " + String(string(nodeColumns)) + " FROM " + String(nodeTable) + " WHERE name = :name");
+    query.param("name") = name;
+    query.open();
+
+    if (query.eof())
+    {
+        query.close();
+        return nullopt;
+    }
+
+    auto result = readNode(query);
+    query.close();
+    return result;
+}
+
 void ClusterStore::insertNode(const Node& node)
 {
     const AutoDatabaseConnection connection(*m_database);

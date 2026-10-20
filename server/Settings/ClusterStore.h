@@ -79,6 +79,10 @@ public:
     /// The node's row, if it has one.
     [[nodiscard]] std::optional<Node> node(const sptk::String& nodeId);
 
+    /// The row known by a name, if there is one. Names are unique in the cluster, so this is the
+    /// declaration an administrator made with Add, before the node itself was asked its GUID.
+    [[nodiscard]] std::optional<Node> nodeByName(const sptk::String& name);
+
     /// Adds a row for a node that has none yet.
     void insertNode(const Node& node);
 

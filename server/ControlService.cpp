@@ -16,6 +16,11 @@
 
 #include "SelfSignedCertificate.h"
 #include "ServerController.h"
+#include "Settings/ClusterStore.h"
+#include "Settings/UriSecret.h"
+#include "Cluster/Coordinator.h"
+#include "Cluster/NodeIdentity.h"
+#include "OSService.h"
 #include "storage/RedisStorage.h"
 
 #include <sptk5/net/RedisCommand.h>
@@ -756,6 +761,398 @@ void ControlService::PersistenceControl(const CPersistenceControl& input, CPersi
         output.m_result.m_success = false;
         output.m_result.m_description = e.what();
     }
+}
+
+namespace {
+/**
+ * @brief The member list entry for a name, if the coordinator's last step named it.
+ * @param members           Members as the coordinator last saw them.
+ * @param name              Node name.
+ * @return the entry, or null.
+ */
+const cluster::Coordinator::Member* memberNamed(const vector<cluster::Coordinator::Member>& members, const String& name)
+{
+    for (const auto& member: members)
+    {
+        if (member.m_name == std::string(name.c_str()))
+        {
+            return &member;
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * @brief What the database holds of a node, as the screen takes it.
+ * @param row               The node's row.
+ * @param member            Receives the name, the address, the stored state and the error.
+ */
+void fillClusterMember(const ClusterStore::Node& row, CClusterMember& member)
+{
+    member.m_node_id = row.m_nodeId;
+    member.m_name = row.m_name;
+    member.m_host_port = row.m_hostPort;
+    member.m_state = row.m_state;
+    member.m_last_error = row.m_lastError;
+}
+
+/// The store the cluster's settings live in, required to be one a cluster can use.
+shared_ptr<ClusterStore> requireClusterStore(const shared_ptr<Settings>& settings)
+{
+    const auto store = settings->clusterStore();
+    if (!store || !store->isClusterDatabase())
+    {
+        throw Exception("The cluster's configuration is kept in a PostgreSQL or MySQL database shared by "
+                        "the nodes; this node's accounts are in a database that cannot be one.");
+    }
+    store->createSchema();
+    return store;
+}
+} // namespace
+
+void ControlService::ClusterControl(const CClusterControl& input, CClusterControlResponse& output, HttpAuthentication* authentication)
+{
+    try
+    {
+        CUser user;
+        authenticate(authentication, user);
+
+        const String action = input.m_action.asString();
+        if (action == "get")
+        {
+            reportClusterState(output);
+        }
+        else if (action == "enable")
+        {
+            enableClusterMode(input, output);
+        }
+        else if (action == "add")
+        {
+            addClusterNode(input, output);
+        }
+        else if (action == "remove")
+        {
+            removeClusterNode(input, output);
+        }
+        else if (action == "invite")
+        {
+            inviteClusterNode(input, output);
+        }
+        else if (action == "accept")
+        {
+            const auto error = requireServer().getCluster()->invitations().accept();
+            if (!error.empty())
+            {
+                throw Exception(error);
+            }
+            reportClusterState(output);
+        }
+        else if (action == "decline")
+        {
+            requireServer().getCluster()->declineInvitation();
+            reportClusterState(output);
+        }
+        else
+        {
+            throw Exception("Unknown ClusterControl action '" + action + "'.");
+        }
+
+        output.m_result.m_success = true;
+    }
+    catch (const Exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.message();
+    }
+    catch (const std::exception& e)
+    {
+        // Backstop: anything thrown here that is not an sptk::Exception would otherwise escape
+        // the handler and leave the caller waiting for a response that never comes.
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.what();
+    }
+}
+
+void ControlService::reportClusterState(CClusterControlResponse& output) const
+{
+    const auto& settings = getSettings();
+    const auto  store = settings->clusterStore();
+    const bool  onClusterDatabase = store && store->isClusterDatabase();
+
+    output.m_on_cluster_database = onClusterDatabase;
+    output.m_enabled = !settings->m_cluster.m_enabled.isNull() && settings->m_cluster.m_enabled.asBool();
+    output.m_redis_uri = settings->m_persistence.m_redis_uri.asString();
+    output.m_database_uri = settings->userDatabaseUri();
+
+    // This node's own row from the database, or the node itself when there is no row to hold it:
+    // the settings say what the node started with, and the row is what the next start reads.
+    const auto nodeId = settings->nodeIdentity();
+    if (onClusterDatabase)
+    {
+        if (const auto row = store->node(nodeId))
+        {
+            fillClusterMember(*row, output.m_this_node);
+        }
+        else
+        {
+            output.m_this_node.m_name = settings->m_cluster.m_this_node.m_node_name.asString();
+            output.m_this_node.m_host_port = settings->m_cluster.m_this_node.m_host_port.asString();
+            output.m_this_node.m_state = "Standalone";
+        }
+
+        output.m_nodes.clear();
+        for (const auto& row: store->nodes())
+        {
+            CClusterMember member;
+            fillClusterMember(row, member);
+            member.m_is_this_node = row.m_nodeId == nodeId;
+            output.m_nodes.push_back(member);
+        }
+    }
+    else
+    {
+        // No shared database, so no rows: the node is itself, standalone.
+        output.m_this_node.m_name = settings->m_cluster.m_this_node.m_node_name.asString();
+        output.m_this_node.m_host_port = settings->m_cluster.m_this_node.m_host_port.asString();
+        output.m_this_node.m_state = "Standalone";
+    }
+    output.m_this_node.m_is_this_node = true;
+
+    // What only the shared storage knows: who is alive, who coordinates, and how many connections
+    // this node has to each of them. Read from the running server; a stopped one has no coordinator
+    // and no links, and the screen shows the stored states alone.
+    String                               coordinatorName;
+    vector<cluster::Coordinator::Member> liveMembers;
+    const auto                           runningCluster = [this]() -> cluster::SCluster
+    {
+        const auto* runningServer = server();
+        return runningServer ? runningServer->getCluster() : nullptr;
+    }();
+
+    if (runningCluster)
+    {
+        if (auto* coordinator = runningCluster->coordinator(); coordinator && coordinator->isParticipating())
+        {
+            try
+            {
+                liveMembers = coordinator->members();
+                coordinatorName = coordinator->coordinatorName();
+            }
+            catch (const Exception&)
+            {
+                // The storage is unreachable at this moment: the stored states are what is known.
+            }
+        }
+
+        if (const auto invitation = runningCluster->invitations().current())
+        {
+            // What the Review confirmation names beside what the invitation offers: where the
+            // node's accounts and its persistence are now.
+            output.m_invitation.m_inviter_name = invitation->m_inviterName;
+            output.m_invitation.m_inviter_host_port = invitation->m_inviterHostPort;
+            output.m_invitation.m_redis_uri = invitation->m_redisUri;
+            output.m_invitation.m_database_uri = invitation->m_databaseUri;
+            output.m_invitation.m_xmq_version = invitation->m_xmqVersion;
+            output.m_invitation.m_received_at = invitation->m_receivedAt;
+            output.m_invitation.m_reject_reason = invitation->m_rejectReason;
+            output.m_invitation.m_current_persistence =
+                !settings->m_persistence.m_enabled.isNull() && settings->m_persistence.m_enabled.asBool();
+            output.m_invitation.m_current_redis_uri = settings->m_persistence.m_redis_uri.asString();
+            output.m_invitation.m_current_database_uri = settings->userDatabaseUri();
+        }
+    }
+    output.m_coordinator = coordinatorName;
+
+    // The computed states, over the stored ones: Clustered and Offline come from the storage and
+    // are never written anywhere.
+    const auto computedState = [&](CClusterMember& node)
+    {
+        const String name = node.m_name.asString();
+        if (const auto* member = memberNamed(liveMembers, name))
+        {
+            node.m_is_alive = member->m_alive;
+            node.m_state = member->m_alive ? "Clustered" : "Offline";
+        }
+        node.m_is_coordinator = !coordinatorName.empty() && name == coordinatorName;
+        if (runningCluster)
+        {
+            node.m_links = static_cast<int>(runningCluster->linkCountOf(std::string(name.c_str())));
+        }
+    };
+
+    for (size_t index = 0; index < output.m_nodes.size(); ++index)
+    {
+        computedState(output.m_nodes[index]);
+    }
+    computedState(output.m_this_node);
+}
+
+void ControlService::enableClusterMode(const CClusterControl& input, CClusterControlResponse& output) const
+{
+    const auto& settings = getSettings();
+    const auto  redisUri = input.m_redis_uri.asString();
+    if (redisUri.empty())
+    {
+        throw Exception("Name the storage the cluster will keep its state in.");
+    }
+
+    // Required before anything is written: the node becomes the first member of the cluster on
+    // this storage, and a storage that already holds a cluster is joined by invitation instead.
+    // A node pointed at another cluster's storage would go on serving on that cluster's sessions.
+    // Checked by connecting, so that something else listening on the port is caught too.
+    {
+        RedisConnect redis;
+        redis.connect(URL(redisUri));
+        const auto membership = cluster::Coordinator::membership(redis, settings->nodeIdentity());
+        redis.disconnect();
+
+        if (membership == 0)
+        {
+            throw Exception("The storage " + UriSecret::hidden(redisUri) +
+                            " belongs to a cluster, and this node is not one of its members. A cluster is joined "
+                            "by invitation: ask its administrator to invite this node.");
+        }
+    }
+
+    requireClusterStore(settings);
+
+    const auto error = settings->applyClusterEnable(redisUri);
+    if (!error.empty())
+    {
+        throw Exception(error);
+    }
+
+    // The node takes its place in the cluster on the next start, which reads the configuration
+    // written above - the same restart an accepted invitation asks for.
+    OSService::requestRestart();
+    reportClusterState(output);
+}
+
+void ControlService::addClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
+{
+    const auto& settings = getSettings();
+    const auto  store = requireClusterStore(settings);
+
+    const String name = input.m_node.m_name.asString().trim();
+    const String hostPort = input.m_node.m_host_port.asString().trim();
+    if (name.empty() || hostPort.empty())
+    {
+        throw Exception("A node is declared by a name and the TLS address the others link to.");
+    }
+
+    // Read as host:port before Host is built: a Host resolves what it is given, and an address
+    // that cannot be one must be refused, not looked up.
+    const auto colon = hostPort.rfind(':');
+    const auto port = colon == String::npos ? 0 : String(hostPort.substr(colon + 1)).toInt();
+    if (colon == String::npos || colon == 0 || port <= 0 || port > 65535)
+    {
+        throw Exception("'" + hostPort + "' is not an address a node listens on. Give host:port.");
+    }
+
+    const Host host(hostPort);
+    if (host.hostname().empty() || host.port() == 0)
+    {
+        throw Exception("'" + hostPort + "' is not an address a node listens on. Give host:port.");
+    }
+
+    if (const auto existing = store->nodeByName(name))
+    {
+        throw Exception("A node named '" + name + "' is declared already.");
+    }
+
+    // The GUID is the inviter's until the Invite asks the node its own and re-keys the row: the
+    // declaration is a place in the list, and the node's identity is not known yet.
+    ClusterStore::Node declared;
+    declared.m_nodeId = cluster::NodeIdentity::generate();
+    declared.m_name = name;
+    declared.m_hostPort = hostPort;
+    declared.m_state = "Not Clustered";
+    declared.m_redisUri = settings->m_persistence.m_redis_uri.asString();
+    declared.m_databaseUri = settings->m_cluster.m_database_uri.asString();
+    store->insertNode(declared);
+
+    reportClusterState(output);
+}
+
+void ControlService::removeClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
+{
+    const auto& settings = getSettings();
+    const auto  store = requireClusterStore(settings);
+
+    const String nodeId = input.m_node.m_node_id.asString();
+    const String name = input.m_node.m_name.asString();
+    const auto   row = !nodeId.empty() ? store->node(nodeId) : store->nodeByName(name);
+    if (!row)
+    {
+        throw Exception("No such node in the cluster's configuration.");
+    }
+
+    if (row->m_nodeId == settings->nodeIdentity())
+    {
+        throw Exception("This is the node serving this interface. Take it out of the cluster from its own "
+                        "dashboard, where the mode switches to Standalone.");
+    }
+
+    // A member is detached before it is removed, and detaching is the node's own to do - its
+    // sessions have to be handed over, which this node cannot command yet.
+    String state = row->m_state;
+    if (const auto* runningServer = server(); runningServer && runningServer->getCluster())
+    {
+        if (auto* coordinator = runningServer->getCluster()->coordinator(); coordinator && coordinator->isParticipating())
+        {
+            try
+            {
+                if (const auto* member = memberNamed(coordinator->members(), row->m_name))
+                {
+                    state = member->m_alive ? "Clustered" : "Offline";
+                }
+            }
+            catch (const Exception&)
+            {
+                // The storage is unreachable; the stored state decides.
+            }
+        }
+    }
+    if (state == "Clustered" || state == "Offline")
+    {
+        throw Exception("Node '" + row->m_name + "' is a member of the cluster. It is detached, with its sessions "
+                        "handed over, before it is removed - and that is not done from here yet. Take it out of the "
+                        "cluster from its own dashboard, then remove it.");
+    }
+
+    store->removeNode(row->m_nodeId);
+    reportClusterState(output);
+}
+
+void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
+{
+    const auto& settings = getSettings();
+    const auto  store = requireClusterStore(settings);
+
+    const String nodeId = input.m_node.m_node_id.asString();
+    const String name = input.m_node.m_name.asString();
+    const auto   row = !nodeId.empty() ? store->node(nodeId) : store->nodeByName(name);
+    if (!row)
+    {
+        throw Exception("Select the node to invite: no such node in the cluster's configuration.");
+    }
+
+    if (row->m_nodeId == settings->nodeIdentity())
+    {
+        throw Exception("This is the node serving this interface; it is not invited to its own cluster.");
+    }
+
+    // The password the Invite dialog asked for. The invited node authenticates the cluster user
+    // against its own verifier, so a wrong password is refused by the connect, before anything is
+    // sent; the configured secret is the fallback when the dialog sent none.
+    const auto result = requireServer().getCluster()->sendInvitation(row->m_hostPort, row->m_name,
+                                                                     input.m_password.asString());
+    if (!result.m_success)
+    {
+        throw Exception(result.m_error);
+    }
+
+    reportClusterState(output);
 }
 
 namespace {

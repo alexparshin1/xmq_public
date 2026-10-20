@@ -208,7 +208,8 @@ public:
      * the peer certificate bundle - an address whose certificate is not trusted is refused here,
      * not at the invited end.
      */
-    InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName);
+    InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName,
+                                const sptk::String& clusterPassword = {});
 
     /**
      * @brief Answer the invitation this node holds with a refusal, to the inviter, on
@@ -310,6 +311,13 @@ public:
      * Runs on the rejoin thread, after rejoin(), until stop().
      */
     void keepLinks();
+
+    /**
+     * @return How many connections this node has open to the named one; 0 when it has none. What
+     * the Cluster Configuration screen shows beside a node: the links carry what this node
+     * publishes for that node's subscribers.
+     */
+    [[nodiscard]] size_t linkCountOf(const std::string& nodeName) const;
 
     [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName, std::string_view topicName) const;
 

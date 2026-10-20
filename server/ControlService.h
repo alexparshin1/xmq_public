@@ -61,6 +61,8 @@ public:
     void applyGroups(const CUser& user) const;
     void BridgeControl(const CBridgeControl& input, CBridgeControlResponse& output, sptk::HttpAuthentication* authentication) override;
 
+    void ClusterControl(const CClusterControl& input, CClusterControlResponse& output, sptk::HttpAuthentication* authentication) override;
+
     /**
      * @brief The running server.
      * @return The server, or nullptr while MQTT is stopped - every caller must check.
@@ -162,6 +164,57 @@ private:
      * @return true if this is the administrator of a server with no password set.
      */
     [[nodiscard]] bool isUnconfiguredAdministrator(const sptk::String& username, const sptk::String& password) const;
+
+    /**
+     * @brief Answer the Cluster Configuration screen: the mode, the declared nodes with their
+     *        states, the coordinator, the links, and the invitation this node holds.
+     * @param output            Receives the picture.
+     */
+    void reportClusterState(CClusterControlResponse& output) const;
+
+    /**
+     * @brief Standalone to Cluster: this node is about to become the first member of a cluster on
+     *        the named storage.
+     *
+     * The storage is required to be reachable and to hold no cluster yet, and both are checked
+     * before anything is written: a storage that already holds a cluster is joined by invitation,
+     * never by pointing a node at it. The configuration is written and the process ends with the
+     * restart code; the next start takes the node's place in the cluster.
+     *
+     * @param input             Carries the storage URI.
+     * @param output            Receives the picture after the change.
+     */
+    void enableClusterMode(const CClusterControl& input, CClusterControlResponse& output) const;
+
+    /**
+     * @brief Declare a node: a name and a TLS address in the shared database, nothing contacted.
+     *
+     * @param input             Carries the node.
+     * @param output            Receives the picture after the change.
+     */
+    void addClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
+
+    /**
+     * @brief Take a declared node away. A member is refused: it is detached from its own screen
+     *        first, which is not this node's to command yet.
+     *
+     * @param input             Carries the node to remove.
+     * @param output            Receives the picture after the change.
+     */
+    void removeClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
+
+    /**
+     * @brief Invite the selected node: the invitation is published to its cluster/invitation
+     *        topic as the cluster user over TLS, and its row goes Invited.
+     *
+     * The cluster account's password, from the Invite dialog, is what the connection to the
+     * invited node is made with: the node checks it against its own verifier, so a wrong password
+     * is refused before anything is sent.
+     *
+     * @param input             Carries the node and the password.
+     * @param output            Receives the picture after the change.
+     */
+    void inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
 
     /**
      * @brief Refuse a setup naming a Redis that cannot be reached, before anything is written.

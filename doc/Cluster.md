@@ -558,10 +558,21 @@ In this order - each step leaves the system working:
 - [x] Accept on the invited node, at the server level: the offered configuration is written into the node's own
   file, the process exits with the restart code 78, and the row goes Invited to Joining at the next start.
   `acceptingAnInvitationAppliesTheConfigurationAndAsksToRestart`; Decline answers the inviter on cluster/refusal and
-  the inviter marks the row Refused - `decliningAnInvitationAnswersTheInviter`. Left: the confirmation the screen
-  shows before Accept, and the rollback to the last-good configuration with `Failed` when the join does not happen.
-- [ ] Interface: the dashboard mode, the Cluster Configuration screen with the states, Add node, the Invite dialog,
-  and Review/Accept/Decline on the invited node.
+  the inviter marks the row Refused - `decliningAnInvitationAnswersTheInviter`. The rollback to the last-good
+  configuration with `Failed` when the join does not happen is in place too, wired into the start that follows the
+  accept. Left: the confirmation the screen shows before Accept - the Review dialog.
+- [x] The server side of the interface: `ClusterControl` with get, enable, add, remove, invite, accept and decline.
+  `get` answers the whole picture - the mode, the declared nodes with states computed from the storage over the
+  stored ones, the coordinator, the open links and the invitation the node holds with what accepting it would
+  change. `add` declares a row with a GUID the inviter generates; `invite` takes the cluster account's password
+  from its dialog and publishes the invitation, the invited node's own GUID taking the declared row's place;
+  `remove` takes a declared node away and refuses a member, which is detached from its own screen first; `enable`
+  makes this node the first member of a cluster on the storage it names, refusing a storage that already holds a
+  cluster - a cluster is joined by invitation - and asking for the restart. What the screen still owes: the
+  `disable` direction, which waits for the per-GUID session namespace below - a node that leaves would otherwise
+  serve on the storage its cluster uses - and a member's Remove, which waits for the same.
+- [ ] The React side: the dashboard mode, the Cluster Configuration screen over `ClusterControl`, the Add and
+  Invite dialogs, and Review/Accept/Decline on the invited node.
 - [ ] Tests: the state machine and the checks as unit tests, invitation/accept/decline/expiry/rollback as cluster
   tests, and a `test_cluster.sh` scenario that invites a node and watches it join.
 
