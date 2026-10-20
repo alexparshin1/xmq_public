@@ -18,6 +18,7 @@ import SSLKeysScreen from "./screen/SSLKeysScreen";
 import ServerLimitsScreen from "./screen/ServerLimitsScreen";
 import LoggingScreen from "./screen/LoggingScreen";
 import BridgesScreen from "./screen/BridgesScreen";
+import ClusterScreen from "./screen/ClusterScreen";
 import XmqServiceScreen from "./screen/XmqServiceScreen";
 import InitialSetupScreen from "./screen/InitialSetupScreen";
 import UserManualScreen from "./screen/UserManualScreen";
@@ -84,6 +85,7 @@ class App extends React.Component {
                                     <Route path="/logging" element={<RequireAuth><LoggingScreen/></RequireAuth>}/>
                                     <Route path="/service" element={<RequireAuth><XmqServiceScreen/></RequireAuth>}/>
                                     <Route path="/bridges" element={<RequireAuth><BridgesScreen/></RequireAuth>}/>
+                                    <Route path="/cluster" element={<RequireAuth><ClusterScreen/></RequireAuth>}/>
                                     <Route path="/setup" element={<RequireAuth><InitialSetupScreen/></RequireAuth>}/>
                                 </Routes>
                             </div>

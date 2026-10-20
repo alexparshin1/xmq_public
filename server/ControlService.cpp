@@ -826,6 +826,15 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         {
             enableClusterMode(input, output);
         }
+        else if (action == "disable")
+        {
+            // Honest until the per-GUID session namespace lands: a node that leaves keeps the
+            // storage it knows (doc/Cluster.md), and while it shares that storage with the
+            // cluster, its sessions and the cluster's would be written to the same keys.
+            throw Exception("A node cannot be taken out of its cluster from here yet: it keeps the storage "
+                            "it knows, and a node serving on the storage its cluster uses would write its "
+                            "sessions over the cluster's. The per-GUID session namespace comes first.");
+        }
         else if (action == "add")
         {
             addClusterNode(input, output);

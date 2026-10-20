@@ -5,7 +5,8 @@ import BasicScreen from "./BasicScreen";
 import StatPanel, {Gauge, Stat, formatBytes, formatCount, formatDuration} from "../components/StatPanel";
 import PowerSwitch from "../components/PowerSwitch";
 import PageTitle from "../components/PageTitle";
-import {confirmationWindow, errorWindow} from "../components/MessageWindow";
+import DialogWindow from "../components/DialogWindow";
+import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
 
 /**
  * Dashboard.
@@ -26,12 +27,15 @@ export default class DashboardScreen extends BasicScreen {
         cleanStart: null,   // null until read: "not known" is not "no", and this one guards a database
         statistics: null,   // last GetStatistics reply
         rates: null,        // messages per second, worked out between polls
-        pollSeconds: 10
+        pollSeconds: 10,
+        cluster: null,      // last ClusterControl reply: the mode and what it works against
+        clusterDialog: false // the storage dialog, while the mode is being switched to Cluster
     }
 
     componentDidMount() {
         this.refreshStatus();
         this.readStatistics();
+        this.readCluster();
         this.startPolling();
     }
 
@@ -133,6 +137,86 @@ export default class DashboardScreen extends BasicScreen {
                 const cleanStart = persistence.enabled === true && persistence.clean_start === true;
                 this.setState({cleanStart: cleanStart});
                 return cleanStart;
+            });
+    }
+
+    /**
+     * Reads the cluster mode and what it works against.
+     *
+     * Quietly, and with the same rule as the other reads of this page: a failure only means the
+     * mode cannot be shown, which is not worth a window over the screen.
+     */
+    readCluster() {
+        return ControlAPI.asyncMakeAPICall("ClusterControl", {action: "get"}, true)
+            .then(result => {
+                if (!result || ControlAPI.apiError(result)) {
+                    return null;
+                }
+                this.setState({cluster: result});
+                return result;
+            });
+    }
+
+    /**
+     * Switches the cluster mode.
+     *
+     * Standalone to Cluster asks for the storage and turns the node into the first member of a
+     * cluster on it; the node then restarts into the cluster. Cluster to Standalone is answered by
+     * the server with what still has to come first, and the switch stays where it was.
+     * @param {string} mode  The chosen mode.
+     */
+    changeClusterMode(mode) {
+        const cluster = this.state.cluster;
+        if (!cluster) {
+            return;
+        }
+        if (mode === "Cluster" && cluster.enabled !== true) {
+            if (cluster.on_cluster_database !== true) {
+                errorWindow("This node keeps its accounts in a file of its own (SQLite), and a cluster's " +
+                            "configuration is kept in a PostgreSQL or MySQL database shared by the nodes. " +
+                            "A node joins a cluster by invitation.");
+                return;
+            }
+            this.setState({clusterDialog: true});
+            return;
+        }
+        if (mode === "Standalone" && cluster.enabled === true) {
+            ControlAPI.asyncMakeAPICall("ClusterControl", {action: "disable"})
+                .then(result => {
+                    if (result === null) {
+                        return;
+                    }
+                    const error = ControlAPI.apiError(result);
+                    if (error) {
+                        errorWindow("Can't leave the cluster: " + error);
+                        return;
+                    }
+                    informationWindow("The node is restarting as a standalone server. This interface will " +
+                                      "be unavailable while it does; reload the page afterwards.");
+                    this.readCluster();
+                });
+        }
+    }
+
+    /**
+     * Turns this node into the first member of a cluster whose state lives in the named storage.
+     * @param {string} redisUri  The shared storage.
+     */
+    enableCluster(redisUri) {
+        ControlAPI.asyncMakeAPICall("ClusterControl", {action: "enable", redis_uri: redisUri})
+            .then(result => {
+                if (result === null) {
+                    return;
+                }
+                const error = ControlAPI.apiError(result);
+                if (error) {
+                    errorWindow("Can't make this node a cluster node: " + error);
+                    return;
+                }
+                informationWindow("This node is becoming the first member of the cluster on " + redisUri +
+                                  ", and is restarting into it. This interface will be unavailable for a " +
+                                  "moment; reload the page afterwards.");
+                this.readCluster();
             });
     }
 
@@ -246,8 +330,57 @@ export default class DashboardScreen extends BasicScreen {
                 </p>
             </fieldset>
 
+            {this.renderCluster()}
+
             {this.renderPanels()}
         </div>;
+    }
+
+    renderCluster() {
+        const cluster = this.state.cluster;
+        if (!cluster) {
+            return null;
+        }
+
+        return <fieldset>
+            <legend>Cluster</legend>
+
+            <div className="inputScreenRow">
+                <label htmlFor="clusterMode" className="inputScreenLabel">Mode:</label>
+                <select id="clusterMode" className="inputScreenSelect"
+                        value={cluster.enabled === true ? "Cluster" : "Standalone"}
+                        onChange={(event) => this.changeClusterMode(event.target.value)}>
+                    <option value="Standalone">Standalone</option>
+                    <option value="Cluster">Cluster</option>
+                </select>
+                <span className="inputScreenHint">
+                    {cluster.enabled === true
+                        ? "This node works with " + (cluster.redis_uri || "no storage") +
+                          " and the accounts database " + (cluster.database_uri || "—") + "."
+                        : "A standalone node keeps its state to itself."}
+                </span>
+            </div>
+
+            <p style={{color: "#666", fontSize: "0.9em", maxWidth: "46em"}}>
+                Switching to Cluster asks for the storage, and turns this node into the first member
+                of a cluster on it; it restarts into the cluster. A node is added to a cluster that
+                exists by invitation, from the Cluster Configuration page.
+            </p>
+
+            {this.state.clusterDialog &&
+                <DialogWindow windowTitle="Start a Cluster"
+                              fields={[
+                                  {headerName: "Shared storage (Redis URI)", field: "redis_uri"}
+                              ]}
+                              values={{redis_uri: cluster.redis_uri || ""}}
+                              windowWidth={620} windowHeight={220}
+                              onSubmit={(result, values) => {
+                                  if (result === "Ok") {
+                                      this.enableCluster(values.redis_uri);
+                                  }
+                              }}
+                              closeModal={() => this.setState({clusterDialog: false})}/>}
+        </fieldset>;
     }
 
     renderPanels() {

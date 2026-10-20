@@ -67,6 +67,7 @@ export default class MainMenu extends React.Component {
             "/logging": "Logging",
             "/service": "Service",
             "/bridges": "Bridges",
+            "/cluster": "Cluster",
             "/extensions": "Extensions"
         };
         // Documentation is available before signing in: installing and tuning the host are
