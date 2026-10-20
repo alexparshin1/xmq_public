@@ -23,7 +23,8 @@ export default class UserManualScreen extends React.Component {
             ["basic-setup", "Basic MQTT setup"],
             ["advanced-setup", "Advanced setup"],
             ["testing-suite", "MQTT testing suite"],
-            ["testing-setup", "Testing your setup"]
+            ["testing-setup", "Testing your setup"],
+            ["cluster-setup", "Setting up a Cluster"]
         ];
 
         return <div className="userManualContents">
@@ -1317,6 +1318,347 @@ xmq_pub -h localhost -p 1883 -u user --password secret -t bridged/test -m "over 
         </div>;
     }
 
+    renderCluster() {
+        return <div>
+            <h4 id="cluster-setup">Setting up a Cluster</h4>
+
+            <p>
+                A cluster is a set of XMQ nodes that share one Redis storage and one accounts
+                database (PostgreSQL or MySQL), so that a client connecting to any node sees the
+                same sessions, the same accounts and the same retained messages. A node joins a
+                cluster by invitation: the administrator of a running cluster adds the new node
+                by its name and its TLS address, invites it, and the invited node reviews and
+                accepts &mdash; the node restarts into the cluster.
+            </p>
+
+            <p>
+                The steps below set up two nodes on one machine, at the ports given. The commands
+                assume the package was installed from a <code>.deb</code> or <code>.rpm</code>,
+                which puts the server at <code>/usr/local/bin/xmq_server</code> and creates the
+                <code>xmq</code> user. A build from source works the same way once installed
+                under <code>/usr/local</code>.
+            </p>
+
+            <h5>Prerequisites</h5>
+
+            <p>
+                A cluster needs four things besides XMQ itself:
+            </p>
+
+            <ul>
+                <li><b>PostgreSQL</b> (or MySQL) &mdash; the shared configuration. The table
+                    <code>xmq_node</code> holds what an administrator edits; a row is a node,
+                    a column is a setting. A node that cannot reach the database does not start.</li>
+                <li><b>Redis</b> &mdash; the shared runtime storage: membership, leases, sessions
+                    and retained messages. No particular configuration is needed; the cluster
+                    keys the database by number (as in <code>redis://host:6379/5</code>).</li>
+                <li><b>A TLS certificate and key</b> &mdash; every cluster link, and the
+                    invitation itself, is made over TLS with mandatory peer verification. A
+                    self-signed certificate is enough, provided every node trusts it. Each node
+                    keeps its own key and certificate under <code>/etc/xmq/certs/</code>.</li>
+                <li><b>Two XMQ installations</b> &mdash; at least version 1.0.0. The node
+                    that is already a cluster member keeps its accounts in the shared database;
+                    the node that is joining can keep them in a file of its own until the
+                    invitation is accepted.</li>
+            </ul>
+
+            <p>
+                In the steps below node A listens on ports 13000 (MQTT), 13800 (MQTT+SSL) and
+                13083 (the configuration interface). Node B listens on 13001, 13801 and 13084.
+                Both run on the same machine; the only ports that must be reachable between
+                them are the TLS ones &mdash; 13800 for A and 13801 for B.
+            </p>
+
+            <h5>1. Create the certificates</h5>
+
+            <p>
+                A self-signed certificate for both nodes (they are on the same machine, so one
+                certificate serves for both). The <code>certs</code> directory and the peers
+                bundle are where the cluster links expect them:
+            </p>
+
+            <pre className="userManualCode">{`sudo mkdir -p /etc/xmq/certs /etc/xmq/certs/peers
+cd /etc/xmq/certs
+
+# One self-signed certificate, good for ten years.
+openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt \
+    -days 3650 -nodes -subj "/O=XMQ/OU=XMQ node/CN=localhost"
+
+# The bundle the cluster links verify against: a copy of the certificate itself.
+cp server.crt peers/cluster-node.crt`}</pre>
+
+            <p>
+                <b>Verify:</b> the certificate exists and is self-signed.
+            </p>
+
+            <pre className="userManualCode">{`openssl x509 -in /etc/xmq/certs/server.crt -noout -subject -issuer
+# subject= /O=XMQ/OU=XMQ node/CN=localhost
+# issuer=  /O=XMQ/OU=XMQ node/CN=localhost`}</pre>
+
+            <h5>2. Create the accounts database</h5>
+
+            <p>
+                The cluster's configuration and its accounts are kept in the same PostgreSQL
+                database. Create it, and a role that can reach it:
+            </p>
+
+            <pre className="userManualCode">{`sudo -u postgres psql -c "CREATE ROLE xmq LOGIN PASSWORD 'xmq'"
+sudo -u postgres createdb -O xmq xmq_cluster
+# Verify: connect and list the (empty) tables.
+PGPASSWORD=xmq psql -h 127.0.0.1 -U xmq -d xmq_cluster -c '\\dt'`}</pre>
+
+            <h5>3. Prepare the configurations</h5>
+
+            <p>
+                Each node starts from a configuration file of its own, with an accounts file
+                beside it. Below are the two files for node A and node B, written into
+                <code>/etc/xmq/</code>. Node A is the first cluster member: its accounts
+                and its persistence are the shared ones. Node B starts standalone, its
+                accounts in a local SQLite file, and will be invited into the cluster.
+            </p>
+
+            <p>
+                The three accounts in each file &mdash; <code>admin</code>,
+                <code>user</code>, and <code>cluster</code> &mdash; are stored as verifiers.
+                The passwords are the account names: <code>admin</code>, <code>secret</code>,
+                and <code>cluster</code> respectively. Change them after the cluster is up.
+            </p>
+
+            <pre className="userManualCode">{`# Node A: the first member (save as /etc/xmq/xmq_server-cluster-a.conf)
+{
+    "connections": {
+        "ssl_keys": {
+            "cafile": "/etc/xmq/certs/peers/cluster-node.crt",
+            "keyfile": "/etc/xmq/certs/server.key",
+            "certfile": "/etc/xmq/certs/server.crt",
+            "verify_depth": 2
+        },
+        "listener": [
+            {"id": 1, "name": "Not Encrypted", "protocol": "MQTT",
+             "bind_ip": "0.0.0.0", "port": 13000, "threads": 4, "enable": true},
+            {"id": 2, "name": "Encrypted", "protocol": "MQTT+SSL",
+             "bind_ip": "0.0.0.0", "port": 13800, "threads": 2, "enable": true}
+        ]
+    },
+    "server_limits": { "send_threads": "auto", "receive_threads": "auto", "delivery_threads": "auto" },
+    "queue_limits": { "max_size": 16384, "max_inflight_messages": 128 },
+    "authentication": { "allow_anonymous": false,
+                        "database_uri": "postgresql://xmq:xmq@127.0.0.1/xmq_cluster" },
+    "persistence": { "enabled": true, "redis_uri": "redis://127.0.0.1:6379/5", "clean_start": true },
+    "web_service": { "listener_port": 13083 },
+    "bridges": [],
+    "cluster": {
+        "this_node": { "node_name": "node-a", "host_port": "localhost:13800" },
+        "nodes": []
+    }
+}`}</pre>
+
+            <pre className="userManualCode">{`# Node B: joins by invitation (save as /etc/xmq/xmq_server-cluster-b.conf)
+{
+    "connections": {
+        "ssl_keys": {
+            "cafile": "/etc/xmq/certs/peers/cluster-node.crt",
+            "keyfile": "/etc/xmq/certs/server.key",
+            "certfile": "/etc/xmq/certs/server.crt",
+            "verify_depth": 2
+        },
+        "listener": [
+            {"id": 1, "name": "Not Encrypted", "protocol": "MQTT",
+             "bind_ip": "0.0.0.0", "port": 13001, "threads": 4, "enable": true},
+            {"id": 2, "name": "Encrypted", "protocol": "MQTT+SSL",
+             "bind_ip": "0.0.0.0", "port": 13801, "threads": 2, "enable": true}
+        ]
+    },
+    "server_limits": { "send_threads": "auto", "receive_threads": "auto", "delivery_threads": "auto" },
+    "queue_limits": { "max_size": 16384, "max_inflight_messages": 128 },
+    "authentication": { "allow_anonymous": false },
+    "web_service": { "listener_port": 13084 },
+    "bridges": [],
+    "cluster": {
+        "this_node": { "node_name": "node-b", "host_port": "localhost:13801" },
+        "nodes": []
+    }
+}`}</pre>
+
+            <p>
+                Both nodes must be able to authenticate MQTT clients. The user-database
+                extension does that; it is installed with the package at
+                <code>/usr/local/lib/xmq-extensions/libxmq_user_database.so</code>.
+                Enable it for each node by writing an extension configuration fragment
+                beside the configuration file &mdash; the directory and the file name
+                are the same for both, but each lives beside its own configuration:
+            </p>
+
+            <pre className="userManualCode">{`# For node A: /etc/xmq/xmq_extensions.d/node-a/50-user-database.conf
+# For node B: /etc/xmq/xmq_extensions.d/node-b/50-user-database.conf
+{
+    "extensions": [{
+        "name": "user-database",
+        "library": "/usr/local/lib/xmq-extensions/libxmq_user_database.so",
+        "enabled": true,
+        "required": false,
+        "settings": { "username": "", "password": "", "unknown_user": "deny" }
+    }]
+}`}</pre>
+
+            <p>
+                The empty <code>username</code> and <code>password</code> tell the extension
+                to use the broker's own authentication database &mdash; the PostgreSQL one for
+                node A, and for node B the default SQLite file beside its configuration.
+            </p>
+
+            <h5>4. Start node A and make it the first cluster member</h5>
+
+            <p>
+                Start the server with the configuration for A. The server needs a systemd-style
+                runner that restarts it when the configuration changes, because becoming a
+                cluster member and accepting an invitation both write the configuration and
+                exit with the restart code (78):
+            </p>
+
+            <pre className="userManualCode">{`# Runner (save as /usr/local/bin/xmq-runner, chmod +x):
+#!/usr/bin/env bash
+node_conf="$1"
+while true; do
+    /usr/local/bin/xmq_server --configuration-file "$node_conf"
+    code=$?
+    [ $code -eq 78 ] || break
+    sleep 1
+done
+
+# Start node A:
+xmq-runner /etc/xmq/xmq_server-cluster-a.conf &`}</pre>
+
+            <p>
+                <b>Verify:</b> the interface is listening. Open
+                <code>http://localhost:13083</code> and sign in as <code>admin</code> /
+                <code>admin</code>. The Dashboard shows the MQTT server running.
+            </p>
+
+            <p>
+                Node A is not yet a cluster member: it has the shared database and storage
+                configured, but the mode is still Standalone. Switch it to Cluster on the
+                Dashboard &mdash; the mode select opens a dialog asking for the shared
+                Redis URI, which the configuration already has. Confirm, and the node
+                restarts into the cluster.
+            </p>
+
+            <p>
+                <b>Verify:</b> after the restart, open the Cluster Configuration page
+                (<code>/cluster</code>). The mode is Cluster, the state of node-a is
+                <b>Clustered</b>, and it is the coordinator. The node list shows one row.
+            </p>
+
+            <h5>5. Start node B</h5>
+
+            <p>
+                Node B starts standalone: it has no shared database and no Redis.
+                Its accounts are the local SQLite file.
+            </p>
+
+            <pre className="userManualCode">{`xmq-runner /etc/xmq/xmq_server-cluster-b.conf &
+# Verify: the interface is listening.
+curl -s http://127.0.0.1:13084/ServerControl \
+    -H 'Content-Type: application/json' -d '{"action":"status"}' \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin)["running"])'
+# prints: true`}</pre>
+
+            <p>
+                Open <code>http://localhost:13084</code>, sign in as
+                <code>admin</code> / <code>admin</code>. The Dashboard shows the
+                MQTT server running. The Cluster Configuration page says
+                &ldquo;this node keeps its accounts in a file of its own (SQLite)&rdquo;
+                &mdash; there is nothing to declare yet.
+            </p>
+
+            <h5>6. Declare node B on node A</h5>
+
+            <p>
+                On node A's Cluster Configuration page, press <b>Add</b>.
+                Give it the name <code>node-b</code> and the TLS address
+                <code>localhost:13801</code>. The row appears with the state
+                <b>Not Clustered</b>.
+            </p>
+
+            <p>
+                <b>Verify:</b> the row is there &mdash; the node list shows two rows,
+                <code>node-a</code> (Clustered) and <code>node-b</code> (Not Clustered).
+            </p>
+
+            <h5>7. Invite node B</h5>
+
+            <p>
+                Select <code>node-b</code> in the list and press <b>Invite</b>.
+                The dialog asks for the password of the <code>cluster</code> user
+                &mdash; the account every node shares, and the one the inviting node
+                connects as. The password was set in the accounts file earlier:
+                <code>cluster</code>. Press Ok.
+            </p>
+
+            <p>
+                Node A connects to node B as the cluster user over TLS, asks it who
+                it is, and publishes the invitation to B's <code>cluster/invitation</code>
+                topic. If the password is wrong, or the TLS certificate is not trusted,
+                the invitation is refused and the reason is shown.
+            </p>
+
+            <p>
+                <b>Verify:</b> the row of <code>node-b</code> now says <b>Invited</b>.
+                And on node B's Cluster Configuration page, an invitation box has
+                appeared: it names the inviter, the storage and the accounts database
+                the cluster works against.
+            </p>
+
+            <h5>8. Accept the invitation on node B</h5>
+
+            <p>
+                On node B's Cluster Configuration page, press <b>Review and Accept</b>.
+                The confirmation names every change the accept would make: the persistence
+                is turned on and pointed at the cluster's storage, the accounts move to the
+                shared database, the cluster is enabled, and the node restarts. Local
+                sessions, queued messages and local accounts are not carried over.
+            </p>
+
+            <p>Confirm, then press Accept.</p>
+
+            <p>
+                Node B writes the new configuration to disk and exits with code 78;
+                the runner brings it back. On the next start it reads its row from
+                the shared database &mdash; the row that the invitation created, with
+                the state Invited &mdash; marks it Joining, and takes its place in
+                the cluster.
+            </p>
+
+            <p>
+                <b>Verify:</b> on node A's Cluster Configuration page, both rows now
+                say <b>Clustered</b>, and both are alive. The coordinator is
+                <code>node-a</code>. Node B's own page shows the same.
+            </p>
+
+            <p>
+                The cluster is up. A client that connects to port 13000 and publishes
+                a retained message sees it on port 13001, and the other way around.
+            </p>
+
+            <h5>9. Check that the cluster carries traffic</h5>
+
+            <p>
+                Publish a retained message through one node and read it through the other:
+            </p>
+
+            <pre className="userManualCode">{`# Publish to node A
+xmq_pub -h localhost -p 13000 -u admin --password admin -t cluster/test \
+    -m "hello from node-a" -q 1 -r
+
+# Read from node B (retained messages are synchronised)
+xmq_sub -h localhost -p 13001 -u admin --password admin -t cluster/test -C 1 -W 5`}</pre>
+
+            <p>
+                If the message arrives, the cluster is whole.
+            </p>
+        </div>;
+    }
+
     render() {
         return <div className="userManual">
             <h3 style={{textAlign: 'Left'}}>XMQ User Manual</h3>
@@ -1335,6 +1677,7 @@ xmq_pub -h localhost -p 1883 -u user --password secret -t bridged/test -m "over 
             {this.renderAdvancedSetup()}
             {this.renderTestingSuite()}
             {this.renderTestingSetup()}
+            {this.renderCluster()}
         </div>;
     }
 }
