@@ -828,12 +828,22 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         }
         else if (action == "disable")
         {
-            // Honest until the per-GUID session namespace lands: a node that leaves keeps the
-            // storage it knows (doc/Cluster.md), and while it shares that storage with the
-            // cluster, its sessions and the cluster's would be written to the same keys.
-            throw Exception("A node cannot be taken out of its cluster from here yet: it keeps the storage "
-                            "it knows, and a node serving on the storage its cluster uses would write its "
-                            "sessions over the cluster's. The per-GUID session namespace comes first.");
+            // The node leaves the cluster, its sessions written under its own GUID from here on
+            // so that it stays on the storage it knows and names nothing the cluster uses.
+            requireServer().getCluster()->detachCluster();
+
+            auto& runningServer = requireServer();
+            const auto guid = runningServer.getCluster()->nodeId();
+            runningServer.getStorage()->setSessionNamespace(guid + ":");
+
+            const auto error = getSettings()->applyClusterDisable();
+            if (!error.empty())
+            {
+                throw Exception(error);
+            }
+
+            OSService::requestRestart();
+            reportClusterState(output);
         }
         else if (action == "add")
         {

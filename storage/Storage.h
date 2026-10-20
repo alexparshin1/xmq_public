@@ -116,6 +116,22 @@ public:
         return m_redis;
     }
 
+    /**
+     * @brief The prefix every session key is written under while the node is not a cluster
+     *        member and shares the same Redis with a cluster that is.
+     *
+     * When the node is a cluster member this is empty: the keys are the cluster's own, and the
+     * node writes them as theirs. When it is not, the keys are its own normalised by the GUID, so
+     * that the cluster's and the node's both live on the same Redis and neither overwrites the
+     * other - a client connecting to either sees its sessions, not those of an unaffiliated node.
+     *
+     * Set by the cluster on startup, and on leaving the cluster, from the coordinator. The
+     * namespace is the node's GUID (with a colon separator following, so that the keys read
+     * <guid>:<key>), or empty when the node is a full member.
+     */
+    void setSessionNamespace(const std::string& ns) { m_sessionNamespace = ns; }
+    [[nodiscard]] const std::string& sessionNamespace() const { return m_sessionNamespace; }
+
 private:
     /**
      * @brief Offset from the host clock to the storage clock, re-sampled when stale.
@@ -130,6 +146,12 @@ private:
     mutable std::mutex                m_clockMutex;      ///< Guards the sampled clock offset.
     mutable std::chrono::milliseconds m_clockOffset {0}; ///< Host-to-storage clock offset.
     mutable sptk::DateTime            m_clockSampledAt;  ///< Host time the offset was last sampled, epoch if never.
+
+    // Non-empty when this node writes session keys under a prefix of its own: its GUID with a
+    // colon after it, set on start while it is not a cluster member and the storage it serves on
+    // is the very same Redis a cluster uses. Empty in a member, and on a Redis a cluster has
+    // never touched.
+    std::string                       m_sessionNamespace;
 };
 
 /**

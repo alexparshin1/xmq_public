@@ -141,11 +141,11 @@ void RedisStorage::cleanupSessionAsync(const string& clientId, const string& nod
     // worker thread (pipelined). Failures don't reach these callbacks; they are reported to the
     // async error handler registered in the constructor, which logs them.
     const auto redisConnection = m_cleanupConnection;
-    const auto sessionKey = "session_" + clientId;
+    const auto sessionKey = this->sessionKey("session_" + clientId);
 
     redisConnection->getValueAsync(
         sessionKey,
-        [redisConnection, sessionKey, clientId, nodeName](const Variant& sessionInfo)
+        [redisConnection, sessionKey, clientId, nodeName, this](const Variant& sessionInfo)
         {
             // Nothing persisted for this client: nothing to clean up.
             if (sessionInfo.isNull())
@@ -162,7 +162,8 @@ void RedisStorage::cleanupSessionAsync(const string& clientId, const string& nod
 
             // Drop the session record, its queued messages and its membership in the node's session
             // set. The messages hash (see sessionMessagesHash()) would otherwise be orphaned.
-            const auto sessionMessagesKey = "session_" + clientId + "_messages";
+            const auto messagesBaseKey = "session_" + clientId + "_messages";
+            const auto sessionMessagesKey = this->sessionKey(messagesBaseKey);
             const auto nodeSessionsKey = "node_" + nodeName + "_sessions";
             redisConnection->deleteKeysAsync({sessionKey, sessionMessagesKey}, [](size_t)
                                              {
@@ -176,4 +177,10 @@ void RedisStorage::cleanupSessionAsync(const string& clientId, const string& nod
 std::string RedisStorage::sessionMessagesHash(const SClientSession& session)
 {
     return format("session_{}_messages", session->getClientId());
+}
+
+string RedisStorage::sessionKey(const string& base) const
+{
+    const auto& ns = m_server->getStorage()->sessionNamespace();
+    return ns.empty() ? base : (ns + ":" + base);
 }

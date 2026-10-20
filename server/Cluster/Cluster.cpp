@@ -14,6 +14,7 @@
 
 #include "Server.h"
 #include "NodeIdentity.h"
+#include "storage/RedisConnection.h"
 #include "server/Settings/ClusterStore.h"
 #include "common/mqtt/PublishMessage.h"
 #include "service/CServerNode.h"
@@ -382,9 +383,26 @@ void Cluster::startup()
 
     if (membership == 0)
     {
-        throw Exception(format("The Redis database {} belongs to a cluster, and this node is not one of its members. "
-                               "Set cluster.enabled to join it, or give this node a database of its own.",
-                               storage->getRedis()->getRedisUrl().toString()));
+        // The storage is shared with a cluster, and this node is not a member. What has been
+        // enabled is the one thing that could join it, and it is off: the node serves standalone.
+        // Its sessions are written under its own GUID so that the cluster never reads them, and
+        // what the cluster writes does not interfere with what this node is serving.
+        const auto nodeId = m_server->getCluster()->nodeId();
+        storage->setSessionNamespace(nodeId + ":");
+        m_server->logMessage(LogSubject::ServerEvents, LogPriority::Info,
+                             format("The storage {} is shared with a cluster, and this node is not a member. "
+                                    "Serving standalone under the namespace {}.",
+                                    storage->getRedis()->getRedisUrl().toString(), nodeId));
+
+        // A clean start already ran, against the non-namespaced keys. With the namespace now
+        // set, the node's sessions - including any stored from a separate standalone run -
+        // live under it, so the clean start must reach them too.
+        if (!m_settings->m_persistence.m_clean_start.isNull() && m_settings->m_persistence.m_clean_start.asBool())
+        {
+            RedisConnection::clearNodeState(storage->getRedis(), m_server->getNodeName(),
+                                            storage->sessionNamespace());
+        }
+        return;
     }
 }
 

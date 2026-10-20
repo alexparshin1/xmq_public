@@ -54,7 +54,8 @@ public:
      * @param redis             Redis connection.
      * @param nodeName          Name of the node whose state is dropped.
      */
-    static void clearNodeState(const sptk::SRedisConnect& redis, const std::string& nodeName);
+    static void clearNodeState(const sptk::SRedisConnect& redis, const std::string& nodeName,
+                                 const std::string& sessionNamespace = {});
 
     /**
      * @brief Read the current time from the Redis server.

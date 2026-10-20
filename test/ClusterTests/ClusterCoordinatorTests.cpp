@@ -277,7 +277,11 @@ TEST_F(XMQ_ClusterTests, nodeRunningElsewhereDoesNotStartAgain)
 TEST_F(XMQ_ClusterTests, standaloneNodeMayNotUseAClustersDatabase)
 {
     const TestCluster cluster(2);
-    EXPECT_THROW(createNode("standalone", static_cast<uint16_t>(TestCluster::FirstPort + 5), true), Exception);
+    // A node that shares a cluster's storage and is not a member may serve on it now: its
+    // sessions go under the namespace of its GUID, so it names nothing the cluster uses.
+    ASSERT_NO_THROW(createNode("standalone", static_cast<uint16_t>(TestCluster::FirstPort + 5), true));
+    // The cluster's two nodes still see each other; the standalone node is not a member.
+    EXPECT_EQ(2U, coordinatorOf(cluster, 0).members().size());
 }
 
 /**

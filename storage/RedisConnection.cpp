@@ -48,7 +48,8 @@ void RedisConnection::initialize(const SRedisConnect& redis, const bool reset)
     (void) reset;
 }
 
-void RedisConnection::clearNodeState(const SRedisConnect& redis, const std::string& nodeName)
+void RedisConnection::clearNodeState(const SRedisConnect& redis, const std::string& nodeName,
+                                     const std::string& sessionNamespace)
 {
     const auto nodeSessionsKey = "node_" + nodeName + "_sessions";
 
@@ -58,10 +59,14 @@ void RedisConnection::clearNodeState(const SRedisConnect& redis, const std::stri
     std::vector<std::string> keys;
     keys.reserve(batchSize * 2 + 1);
 
+    const auto prefix = [&](const std::string& base) {
+        return sessionNamespace.empty() ? base : (sessionNamespace + ":" + base);
+    };
+
     for (const auto& clientId: redis->getSetMembers(nodeSessionsKey))
     {
-        keys.push_back("session_" + clientId);
-        keys.push_back("session_" + clientId + "_messages");
+        keys.push_back(prefix(std::string("session_") + clientId));
+        keys.push_back(prefix(std::string("session_") + clientId + "_messages"));
         if (keys.size() >= batchSize * 2)
         {
             (void) redis->deleteKeys(keys);

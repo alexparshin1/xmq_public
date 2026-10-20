@@ -82,6 +82,16 @@ public:
     [[nodiscard]] static std::string sessionMessagesHash(const SClientSession& session);
 
     /**
+     * @brief The full Redis key for a session-scoped record, with the node's GUID if it is
+     *        not a cluster member on a shared storage. Callers that build session keys themselves
+     *        - the coordinator - only run while the node is a cluster member, so they are not
+     *        affected; the namespace is empty then.
+     * @param base              The base part of the key: "session_id" or "session_id_messages".
+     * @return The key as it is written in Redis.
+     */
+    [[nodiscard]] std::string sessionKey(const std::string& base) const;
+
+    /**
      * @brief Redis server host and port, without the credentials.
      */
     [[nodiscard]] sptk::Host host() const
