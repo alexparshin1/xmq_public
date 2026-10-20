@@ -1134,9 +1134,8 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
     }
     if (state == "Clustered" || state == "Offline")
     {
-        throw Exception("Node '" + row->m_name + "' is a member of the cluster. It is detached, with its sessions "
-                        "handed over, before it is removed - and that is not done from here yet. Take it out of the "
-                        "cluster from its own dashboard, then remove it.");
+        throw Exception("Node '" + row->m_name + "' is a member of the cluster. Take it out of the cluster "
+                        "from its own dashboard (the mode switch to Standalone), then remove its row from here.");
     }
 
     store->removeNode(row->m_nodeId);
