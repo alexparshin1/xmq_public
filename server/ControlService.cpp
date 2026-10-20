@@ -1015,6 +1015,32 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
         throw Exception("Name the storage the cluster will keep its state in.");
     }
 
+    // The accounts database the cluster shares. Written into the node's own configuration - the
+    // bootstrap file keeps the SQL URI and the GUI port, and everything else comes from the
+    // database - so it is required here, and required to be one a cluster can use: SQLite is a
+    // file on one machine.
+    const auto databaseUri = input.m_database_uri.asString();
+    if (databaseUri.empty())
+    {
+        throw Exception("Name the accounts database every node of the cluster will share "
+                        "(PostgreSQL or MySQL).");
+    }
+    {
+        DatabaseConnectionPool pool(databaseUri, 1);
+        const AutoDatabaseConnection connection(pool);
+        Query probe(connection.connection(), "SELECT 1");
+        probe.open();
+        probe.close();
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(databaseUri, 1));
+        if (!store.isClusterDatabase())
+        {
+            throw Exception("The accounts database of a cluster is a PostgreSQL or MySQL database shared "
+                            "by the nodes; SQLite is one machine's file, and a cluster's configuration "
+                            "cannot live in one.");
+        }
+    }
+
     // Required before anything is written: the node becomes the first member of the cluster on
     // this storage, and a storage that already holds a cluster is joined by invitation instead.
     // A node pointed at another cluster's storage would go on serving on that cluster's sessions.
@@ -1033,9 +1059,7 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
         }
     }
 
-    requireClusterStore(settings);
-
-    const auto error = settings->applyClusterEnable(redisUri);
+    const auto error = settings->applyClusterEnable(redisUri, databaseUri);
     if (!error.empty())
     {
         throw Exception(error);

@@ -770,6 +770,17 @@
                                     here, before anything is written.</xsd:documentation>
                             </xsd:annotation>
                         </xsd:element>
+                        <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>For enable: the accounts database every node will share, as
+                                    postgresql://user:password@host/database or the MySQL form of the same. It is
+                                    written into the node's own configuration - the bootstrap file keeps the SQL
+                                    URI and the GUI port, and everything else comes from the database. Must be
+                                    reachable and a PostgreSQL or MySQL database: SQLite is one machine's file,
+                                    and a cluster's configuration cannot live in one. Refused before anything
+                                    is written.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

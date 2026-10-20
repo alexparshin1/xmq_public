@@ -1335,10 +1335,8 @@ xmq_pub -h localhost -p 1883 -u user --password secret -t bridged/test -m "over 
 
             <p>
                 The steps below set up two nodes, <code>node-a</code> and <code>node-b</code>, on
-                two hosts. Everything is done from the configuration interface; the only file
-                edited by hand is the shared database address, which is what a node starts from
-                (see the wording on the <a href="#basic-setup">Basic MQTT setup</a> page about the
-                configuration staying close to a bootstrap file).
+                two hosts. Everything is done from the configuration interface: a cluster is
+                declared by an administrator there, not by editing a file on each node.
             </p>
 
             <h5>Prerequisites</h5>
@@ -1470,8 +1468,8 @@ cat /etc/xmq/certs/node.crt`}</pre>
 
             <p>
                 On the PostgreSQL host, create a role and a database for the cluster. Both nodes
-                will be pointed at it; node B is given the address by the invitation, so only
-                node A needs it entered by hand.
+                will be pointed at it: node A by the interface, node B by the invitation - so the
+                address is entered once.
             </p>
 
             <pre className="userManualCode">{`sudo -u postgres psql -c "CREATE ROLE xmq LOGIN PASSWORD 'yourpassword'"
@@ -1481,37 +1479,30 @@ sudo -u postgres createdb -O xmq xmq_cluster
 psql "postgresql://xmq:yourpassword@db-host/xmq_cluster" -c '\\dt'
 # (no tables yet - the node creates them on its first start)`}</pre>
 
-            <h5>6. Point node A at the database, and make it the first member</h5>
+            <h5>6. Make node A the first member of a cluster</h5>
 
             <p>
-                The shared database address is what a node starts from, and it is the one setting
-                kept in the configuration file rather than in the database: stop node A, put the
-                address into its <code>authentication</code> section, and start it again.
+                On node A open the <b>Dashboard</b> and switch the mode from <b>Standalone</b> to
+                <b>Cluster</b>. The dialog asks for the two settings every node of the cluster
+                shares: the storage, as a Redis URI such as
+                <code>redis://redis-host:6379/5</code>, and the accounts database, as the address
+                created in step 5 (<code>postgresql://xmq:yourpassword@db-host/xmq_cluster</code>).
             </p>
 
-            <pre className="userManualCode">{`sudo systemctl stop xmq_server
-
-# In /etc/xmq/xmq_server.conf:
-#   "authentication": {
-#       "allow_anonymous": false,
-#       "database_uri": "postgresql://xmq:yourpassword@db-host/xmq_cluster"
-#   }
-
-sudo systemctl start xmq_server`}</pre>
-
             <p>
-                On this start node A moves its accounts into the database, creates its row there
-                (state <code>Standalone</code>), and carries on serving. Now open the
-                <b>Dashboard</b> and switch the mode from <b>Standalone</b> to <b>Cluster</b>:
-                the dialog asks for the shared storage - the Redis URI, for example
-                <code>redis://redis-host:6379/5</code>. Confirm, and the node restarts into the
-                cluster as its first member and its coordinator.
+                Both are written into the node's own configuration - the bootstrap file keeps the
+                SQL URI and the interface port, and everything else a cluster shares comes from
+                the database - and the node restarts. On that start it moves its accounts into
+                the database, creates its row there, and takes its place in the cluster as its
+                first member and its coordinator. The storage and the database are checked before
+                anything is written: an address that does not answer, or a storage that already
+                belongs to another cluster, is refused with the reason.
             </p>
 
             <p>
                 <b>Verify:</b> the <b>Cluster Configuration</b> page now shows the node's own row,
-                state <b>Clustered</b>, with the coordinator named <code>node-a</code>. And in the
-                database:
+                state <b>Clustered</b>, and names <code>node-a</code> as the coordinator. And in
+                the database:
             </p>
 
             <pre className="userManualCode">{`psql "postgresql://xmq:yourpassword@db-host/xmq_cluster" \

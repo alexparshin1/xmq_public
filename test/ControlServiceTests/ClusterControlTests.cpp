@@ -14,6 +14,7 @@
 #include "ControlServiceTests.h"
 #include "server/Cluster/NodeIdentity.h"
 #include "server/OSService.h"
+#include "common/DirectoryNames.h"
 #include "server/Settings/ClusterStore.h"
 #include "test/TestServers.h"
 
@@ -397,11 +398,20 @@ TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
 {
     TestServers::flushRedis();
 
-    const auto enabled = clusterControl("enable", [](CClusterControl& input)
+    const auto enabled = clusterControl("enable", [this](CClusterControl& input)
                                         {
                                             input.m_redis_uri = TestServers::redisUri();
+                                            input.m_database_uri = m_databaseUri;
                                         });
     ASSERT_TRUE(enabled.m_result.m_success == true) << enabled.m_result.m_description.asString().c_str();
+
+    // The configuration on disk carries the accounts database as well: the bootstrap file keeps
+    // the SQL URI, and the next start reads everything else from it.
+    {
+        Buffer configuration;
+        configuration.loadFromFile(m_configurationPath);
+        EXPECT_NE(String::npos, String(configuration).find(std::string(m_databaseUri.c_str())));
+    }
 
     EXPECT_TRUE(m_settings->m_cluster.m_enabled.asBool());
     EXPECT_TRUE(enabled.m_enabled == true);
@@ -438,9 +448,10 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
         redis.disconnect();
     }
 
-    const auto refused = clusterControl("enable", [](CClusterControl& input)
+    const auto refused = clusterControl("enable", [this](CClusterControl& input)
                                         {
                                             input.m_redis_uri = TestServers::redisUri();
+                                            input.m_database_uri = m_databaseUri;
                                         });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("by invitation"));
@@ -450,13 +461,51 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
 }
 
 /**
+ * An accounts database nothing answers at is refused before anything is written, as an unreachable
+ * storage is.
+ */
+TEST_F(XMQ_ClusterControlTests, enableRefusesADatabaseThatIsNotThere)
+{
+    const auto refused = clusterControl("enable", [](CClusterControl& input)
+                                        {
+                                            input.m_redis_uri = TestServers::redisUri();
+                                            input.m_database_uri = "postgresql://xmq:xmq@127.0.0.1:1/xmq_cluster";
+                                        });
+    EXPECT_FALSE(refused.m_result.m_success == true);
+    EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
+    EXPECT_FALSE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")));
+}
+
+/**
+ * SQLite is one machine's file, and a cluster's configuration cannot live in one: the enable that
+ * was given one says so rather than taking the node to a storage it could not share.
+ */
+TEST_F(XMQ_ClusterControlTests, enableRefusesASqliteAccountsDatabase)
+{
+    const auto path = filesystem::temp_directory_path() / ("xmq_cluster_control_" + to_string(::getpid()) + ".db");
+    filesystem::remove(path);
+
+    const auto refused = clusterControl("enable", [&path](CClusterControl& input)
+                                        {
+                                            input.m_redis_uri = TestServers::redisUri();
+                                            input.m_database_uri = DirectoryNames::sqliteUri(path);
+                                        });
+    EXPECT_FALSE(refused.m_result.m_success == true);
+    EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("SQLite is one machine's file"));
+    EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
+
+    filesystem::remove(path);
+}
+
+/**
  * A storage nothing answers at is refused before anything is written.
  */
 TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatIsNotThere)
 {
-    const auto refused = clusterControl("enable", [](CClusterControl& input)
+    const auto refused = clusterControl("enable", [this](CClusterControl& input)
                                         {
                                             input.m_redis_uri = "redis://127.0.0.1:1";
+                                            input.m_database_uri = m_databaseUri;
                                         });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());

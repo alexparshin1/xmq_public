@@ -171,12 +171,8 @@ export default class DashboardScreen extends BasicScreen {
             return;
         }
         if (mode === "Cluster" && cluster.enabled !== true) {
-            if (cluster.on_cluster_database !== true) {
-                errorWindow("This node keeps its accounts in a file of its own (SQLite), and a cluster's " +
-                            "configuration is kept in a PostgreSQL or MySQL database shared by the nodes. " +
-                            "A node joins a cluster by invitation.");
-                return;
-            }
+            // The dialog asks for both shared settings, the accounts database included: a node
+            // whose accounts are a file of its own becomes the first member by being given one.
             this.setState({clusterDialog: true});
             return;
         }
@@ -199,11 +195,14 @@ export default class DashboardScreen extends BasicScreen {
     }
 
     /**
-     * Turns this node into the first member of a cluster whose state lives in the named storage.
-     * @param {string} redisUri  The shared storage.
+     * Turns this node into the first member of a cluster whose state lives in the named storage
+     * and whose accounts live in the named database.
+     * @param {string} redisUri     The shared storage.
+     * @param {string} databaseUri  The shared accounts database (PostgreSQL or MySQL).
      */
-    enableCluster(redisUri) {
-        ControlAPI.asyncMakeAPICall("ClusterControl", {action: "enable", redis_uri: redisUri})
+    enableCluster(redisUri, databaseUri) {
+        ControlAPI.asyncMakeAPICall("ClusterControl",
+                                    {action: "enable", redis_uri: redisUri, database_uri: databaseUri})
             .then(result => {
                 if (result === null) {
                     return;
@@ -214,8 +213,8 @@ export default class DashboardScreen extends BasicScreen {
                     return;
                 }
                 informationWindow("This node is becoming the first member of the cluster on " + redisUri +
-                                  ", and is restarting into it. This interface will be unavailable for a " +
-                                  "moment; reload the page afterwards.");
+                                  ", with its accounts in " + databaseUri + ", and is restarting into it. " +
+                                  "This interface will be unavailable for a moment; reload the page afterwards.");
                 this.readCluster();
             });
     }
@@ -362,21 +361,24 @@ export default class DashboardScreen extends BasicScreen {
             </div>
 
             <p style={{color: "#666", fontSize: "0.9em", maxWidth: "46em"}}>
-                Switching to Cluster asks for the storage, and turns this node into the first member
-                of a cluster on it; it restarts into the cluster. A node is added to a cluster that
-                exists by invitation, from the Cluster Configuration page.
+                Switching to Cluster asks for the two things every node of a cluster shares - the
+                storage and the accounts database - and turns this node into the first member of a
+                cluster on them; it restarts into the cluster. A node is added to a cluster that
+                already exists by invitation, from the Cluster Configuration page.
             </p>
 
             {this.state.clusterDialog &&
                 <DialogWindow windowTitle="Start a Cluster"
                               fields={[
-                                  {headerName: "Shared storage (Redis URI)", field: "redis_uri"}
+                                  {headerName: "Shared storage (Redis URI)", field: "redis_uri"},
+                                  {headerName: "Shared accounts database (PostgreSQL or MySQL)", field: "database_uri"}
                               ]}
-                              values={{redis_uri: cluster.redis_uri || ""}}
-                              windowWidth={620} windowHeight={220}
+                              values={{redis_uri: cluster.redis_uri || "",
+                                       database_uri: cluster.on_cluster_database ? (cluster.database_uri || "") : ""}}
+                              windowWidth={720} windowHeight={280}
                               onSubmit={(result, values) => {
                                   if (result === "Ok") {
-                                      this.enableCluster(values.redis_uri);
+                                      this.enableCluster(values.redis_uri, values.database_uri);
                                   }
                               }}
                               closeModal={() => this.setState({clusterDialog: false})}/>}

@@ -858,7 +858,7 @@ shared_ptr<ClusterStore> Settings::clusterStore() const
     return make_shared<ClusterStore>(m_accountsPool);
 }
 
-String Settings::applyClusterEnable(const String& redisUri)
+String Settings::applyClusterEnable(const String& redisUri, const String& databaseUri)
 {
     {
         const WriteLock lock(m_mutex);
@@ -877,6 +877,7 @@ String Settings::applyClusterEnable(const String& redisUri)
 
         m_persistence.m_redis_uri = redisUri;
         m_persistence.m_enabled = true;
+        m_authentication.m_database_uri = databaseUri;
         m_cluster.m_enabled = true;
 
         try

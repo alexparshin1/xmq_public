@@ -399,15 +399,19 @@ public:
     /**
      * @brief Make this node the first member of a cluster whose state lives in the named storage.
      *
-     * The mode change of the dashboard, Standalone to Cluster. What it writes is what the accept of
-     * an invitation writes, minus the accounts database: the storage is turned on, the cluster is
-     * enabled, and the previous configuration is kept as the last-good copy. The process must
-     * restart after this for the node to take its place in the cluster.
+     * The mode change of the dashboard, Standalone to Cluster: it writes what the accept of an
+     * invitation writes - the storage turned on, the accounts database pointed at the cluster's,
+     * the cluster enabled - and keeps the previous configuration as the last-good copy. The process
+     * must restart after this for the node to take its place in the cluster, and it is the start
+     * that creates the node's row in the database and moves its accounts into it.
+     *
+     * @param redisUri          The shared storage.
+     * @param databaseUri       The shared accounts database (PostgreSQL or MySQL).
      *
      * Returns an error text, or empty when the configuration is on disk. The storage having been
      * checked for another cluster is the caller's business: this only writes.
      */
-    sptk::String applyClusterEnable(const sptk::String& redisUri);
+    sptk::String applyClusterEnable(const sptk::String& redisUri, const sptk::String& databaseUri);
 
     /**
      * @brief Take this node out of its cluster: the row and the configuration say the node is not a
