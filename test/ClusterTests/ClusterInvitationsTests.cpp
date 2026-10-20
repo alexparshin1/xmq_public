@@ -189,7 +189,7 @@ TEST_F(XMQ_ClusterTests, invitingANodeDeliversTheInvitation)
     const auto invitation = invited->getCluster()->invitations().current();
     EXPECT_EQ(String("primary"), invitation->m_inviterName);
     EXPECT_TRUE(invitation->m_rejectReason.empty()) << invitation->m_rejectReason.c_str();
-    EXPECT_EQ(String("redis://redis_server:6379/3"), invitation->m_redisUri);
+    EXPECT_EQ(TestServers::redisUri(), invitation->m_redisUri);
 }
 
 /**
@@ -288,7 +288,7 @@ TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRe
     ASSERT_FALSE(configurationPath.empty());
     Buffer configuration;
     configuration.loadFromFile(configurationPath);
-    EXPECT_TRUE(String(configuration).contains("redis://redis_server:6379/3"))
+    EXPECT_TRUE(String(configuration).contains(TestServers::redisUri()))
         << "the accepted storage is not in the configuration on disk";
 }
 
