@@ -512,6 +512,16 @@ sudo systemctl disable --now rps.service       # back to one CPU`}</pre>
             </p>
 
             <p>
+                The interface is HTTPS with a certificate the server issued itself, so the first
+                visit is met with the browser's <b>Your connection is not private</b> warning
+                (Chrome: <code>NET::ERR_CERT_AUTHORITY_INVALID</code>): press <b>Advanced</b> and
+                <b>Proceed to ... (unsafe)</b>. Nothing is wrong - no browser trusts a
+                certificate it has never seen, and a fresh installation has nothing else to
+                offer yet. The <b>SSL Keys</b> page installs a certificate that a browser does
+                trust when one exists, and reissues the self-signed pair when it does not.
+            </p>
+
+            <p>
                 On a server being set up for the first time, that password does one more thing: it
                 is what moves the interface off the loopback address. Until it is set the interface
                 accepts connections from the server&apos;s own machine only, because an account
@@ -1373,6 +1383,25 @@ sudo systemctl enable --now xmq_server
 # The interface is on the loopback address until a password is set. From the
 # host itself, or through a tunnel:  ssh -L 18883:127.0.0.1:18883 node-a
 #   -> https://127.0.0.1:18883`}</pre>
+
+            <p>
+                The first visit is met with the browser's <b>Your connection is not private</b>
+                warning (Chrome: <code>NET::ERR_CERT_AUTHORITY_INVALID</code>). That is expected
+                and not a fault: the interface serves HTTPS with a certificate it issued itself,
+                and no browser trusts a certificate it has never seen. Press <b>Advanced</b> and
+                then <b>Proceed to 127.0.0.1 (unsafe)</b> to carry on - the warning is the
+                browser telling you it cannot verify who is at the other end, which is true of
+                every self-signed certificate, this installation's included.
+            </p>
+
+            <p>
+                After the setup page is submitted the warning appears once more: that is the
+                node's own certificate, issued by the setup a moment ago, which the browser has
+                not seen either. Accept it the same way. The certificate is worth replacing with
+                one a certificate authority has signed once the installation stops being a test
+                one - the <b>SSL Keys</b> page installs one, and the same page is where the
+                nodes trust each other's certificates (step 4).
+            </p>
 
             <p>
                 On the <b>Initial Setup</b> page fill in: the administrator password, the node
