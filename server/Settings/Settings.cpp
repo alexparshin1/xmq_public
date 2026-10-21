@@ -704,6 +704,25 @@ void Settings::applyClusterConfigurationUnlocked()
             m_cluster.m_links = row->m_links;
             m_cluster.m_this_node.m_node_name = row->m_name;
             m_cluster.m_this_node.m_host_port = row->m_hostPort;
+
+            // Write this node's certificate to the shared database so other nodes find it
+            // there. Kept up to date on every start, so a reissued certificate is picked up.
+            const auto [certFile, _ignored] = nodeKeyFiles();
+            if (error_code ec; filesystem::exists(certFile, ec))
+            {
+                Buffer pem;
+                pem.loadFromFile(certFile);
+                if (const String pemContent(pem.c_str(), pem.size());
+                    row->m_certificate != pemContent)
+                {
+                    auto updated = *row;
+                    updated.m_certificate = pemContent;
+                    store.updateNode(updated);
+                }
+            }
+
+            // Synchronise certificates: every other node's PEM becomes a trusted peer file.
+            syncPeerCertificates(store, nodeId);
             return;
         }
 
@@ -719,7 +738,19 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
         row.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
         row.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
+        {
+            const auto [certFile, _ignored] = nodeKeyFiles();
+            if (error_code ec; filesystem::exists(certFile, ec))
+            {
+                Buffer pem;
+                pem.loadFromFile(certFile);
+                row.m_certificate = String(pem.c_str(), pem.size());
+            }
+        }
         store.insertNode(row);
+
+        // Synchronise certificates: every other node's PEM becomes a trusted peer file.
+        syncPeerCertificates(store, nodeId);
     }
     catch (const Exception& e)
     {
@@ -730,6 +761,44 @@ void Settings::applyClusterConfigurationUnlocked()
                 << ", and it cannot be read: " << e.what()
                 << ". A node that cannot read whether it belongs to a cluster does not start.";
         m_clusterConfigurationError = message.str();
+    }
+}
+
+
+void Settings::syncPeerCertificates(ClusterStore& store, const String& nodeId)
+{
+    const auto peersDir = peerCertificatesDirectory();
+    error_code ec;
+    if (!filesystem::exists(peersDir, ec))
+    {
+        filesystem::create_directories(peersDir, ec);
+    }
+
+    size_t written = 0;
+    for (const auto& other : store.nodes())
+    {
+        if (other.m_nodeId == nodeId || other.m_certificate.empty())
+        {
+            continue;
+        }
+        const auto peerFile = peersDir / (other.m_name.c_str() + String(".crt"));
+        if (filesystem::exists(peerFile, ec))
+        {
+            Buffer existing;
+            existing.loadFromFile(peerFile);
+            if (String(existing.c_str(), existing.size()) == other.m_certificate)
+            {
+                continue;
+            }
+        }
+        Buffer certData(other.m_certificate.c_str(), other.m_certificate.size());
+        certData.saveToFile(peerFile);
+        ++written;
+    }
+
+    if (written > 0)
+    {
+        buildPeerCertificateBundle();
     }
 }
 
@@ -1450,6 +1519,14 @@ void checkInitialSetup(const CInitialSetup& setup)
         throw Exception("The Redis port must be between 1 and " + to_string(highestPort) + ".");
     }
 
+    // The accounts database, for users and cluster configuration. Empty means the default
+    // SQLite, which is always reachable. A given URI means a shared database that must respond.
+    const auto databaseUri = String(setup.m_database_uri.asString()).trim();
+    if (!databaseUri.empty() && setup.m_redis_host.asString().empty())
+    {
+        throw Exception("A shared accounts database needs shared storage: provide the Redis host.");
+    }
+
     // The ports are asked for separately and appended to this, so a host that carries one of its
     // own would produce an address with two. Said plainly rather than quietly stripped: someone
     // who typed a port meant something by it.
@@ -1652,6 +1729,17 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
         persistence->set("redis_uri", "redis://" + redisHost + ":" +
                                       to_string(setup.m_redis_port.asInteger()));
         persistence->set("enabled", true);
+    }
+
+    // When a database URI is given, this node is being set up as part of a cluster from the
+    // start. The accounts and the cluster configuration live in the shared database rather than
+    // in a local file. The URI and the cluster mode go into the configuration, and the next
+    // start opens the database and creates the node's row in it.
+    const auto setupDatabaseUri = setup.m_database_uri.asString();
+    if (!setupDatabaseUri.empty())
+    {
+        section(root, "authentication")->set("database_uri", setupDatabaseUri);
+        section(root, "cluster")->set("enabled", true);
     }
 
     // A certificate of this installation's own, made out to the address just given. Issued here

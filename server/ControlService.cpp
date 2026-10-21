@@ -17,6 +17,8 @@
 #include "SelfSignedCertificate.h"
 #include "ServerController.h"
 #include "Settings/ClusterStore.h"
+#include "Settings/PasswordHash.h"
+#include "Settings/UserStore.h"
 #include "Settings/UriSecret.h"
 #include "Cluster/Coordinator.h"
 #include "Cluster/NodeIdentity.h"
@@ -104,6 +106,68 @@ void ControlService::requireReachableRedis(const CInitialSetup& setup)
         throw Exception("Redis at " + redisHost + ":" + to_string(redisPort) + " cannot be reached: " +
                         String(exception.message()).trim() + " Correct the address, or leave it "
                         "empty to run without persistence.");
+    }
+}
+
+void ControlService::requireReachableDatabase(const CInitialSetup& setup)
+{
+    const auto databaseUri = String(setup.m_database_uri.asString()).trim();
+    if (databaseUri.empty())
+    {
+        // No URI means the default SQLite, which is always reachable and nothing to check.
+        return;
+    }
+
+    // Really reached, for the same reason as Redis: a URI that does not answer now produces
+    // a broker that cannot start, and the person who just pressed Submit is not reading the
+    // log. Asked before anything is written, so a wrong address leaves the current configuration
+    // as it was.
+    try
+    {
+        auto pool = make_shared<DatabaseConnectionPool>(databaseUri, 1);
+        {
+            const AutoDatabaseConnection connection(*pool);
+            Query probe(connection.connection(), "SELECT 1");
+            probe.open();
+            probe.close();
+        }
+
+        // A cluster's configuration lives in a PostgreSQL or MySQL database: SQLite is one
+        // machine's file. Checked here rather than discovered at the next startup.
+        {
+            ClusterStore store(pool);
+            if (!store.isClusterDatabase())
+            {
+                throw Exception("SQLite is one machine's file, and a cluster's configuration cannot "
+                                "live in one. The accounts database must be a PostgreSQL or MySQL database.");
+            }
+        }
+
+        // If the database already holds accounts from another node, the administrator password
+        // must match: a wrong one would overwrite an account the cluster is already using, and
+        // the person who just submitted it is the only one who can correct it.
+        {
+            UserStore users(pool);
+            if (const auto admin = users.findUser("admin"))
+            {
+                const auto enteredPassword = setup.m_admin_password.asString();
+                if (!PasswordHash::verify(enteredPassword, admin->m_password))
+                {
+                    throw Exception("The admin password does not match the one in the shared "
+                                    "database. Enter the password that was set on the first node.");
+                }
+            }
+        }
+    }
+    catch (const Exception&)
+    {
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        throw Exception("The accounts database at " + UriSecret::hidden(databaseUri) +
+                        " cannot be reached: " + e.what() +
+                        " Correct the URI, or leave it empty to keep the accounts on this machine.");
     }
 }
 
@@ -794,6 +858,7 @@ void fillClusterMember(const ClusterStore::Node& row, CClusterMember& member)
     member.m_host_port = row.m_hostPort;
     member.m_state = row.m_state;
     member.m_last_error = row.m_lastError;
+    member.m_certificate = row.m_certificate;
 }
 
 /// The store the cluster's settings live in, required to be one a cluster can use.
@@ -2001,6 +2066,7 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
             const auto previousServicePort = settings->m_web_service.m_listener_port.asInteger();
 
             requireReachableRedis(input.m_setup);
+            requireReachableDatabase(input.m_setup);
             settings->applyInitialSetup(input.m_setup);
 
             // Anything that went wrong after the configuration was written. Collected rather than

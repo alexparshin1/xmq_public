@@ -31,6 +31,7 @@ export default class InitialSetupScreen extends BasicScreen {
         web_service_port: 18883,
         redis_host: "",
         redis_port: 6379,
+        database_uri: "",
         // Set while the request is in flight: applying replaces the configuration and restarts
         // the server, which is not something to have two of running at once.
         busy: false,
@@ -126,6 +127,11 @@ export default class InitialSetupScreen extends BasicScreen {
             if (!redisPort || redisPort < 1 || redisPort > 65535) {
                 return "The Redis port must be between 1 and 65535.";
             }
+
+        if (this.state.database_uri && !this.state.redis_host) {
+            return "A shared accounts database needs shared storage. "
+                 + "Provide the Redis host or leave the database URI empty.";
+        }
         }
 
         return null;
@@ -357,6 +363,26 @@ export default class InitialSetupScreen extends BasicScreen {
                            value={this.state.redis_port}
                            onChange={(e) => this.setState({redis_port: e.target.value})}/>
                     <HelpButton helpKey="persistence.redis_host"/>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Accounts Database</legend>
+                <div className="inputScreenIntro">
+                    <p>
+                        Optional. A PostgreSQL or MySQL database shared by every node in a
+                        cluster. Leave empty for a standalone server that keeps its accounts
+                        in a local SQLite database. When set, the administrator password must
+                        match the one already in the shared database.
+                    </p>
+                </div>
+                <div className="inputScreenRow">
+                    <label htmlFor="database_uri" className="inputScreenLabel">Database URI:</label>
+                    <input name="database_uri" type="text" style={{width: "420px"}}
+                           value={this.state.database_uri}
+                           placeholder="e.g., postgresql://user:pass@host/xmq_accounts"
+                           onChange={(e) => this.setState({database_uri: e.target.value})}/>
+                    <HelpButton helpKey="authentication.database_uri"/>
                 </div>
             </fieldset>
 

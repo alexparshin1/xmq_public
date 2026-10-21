@@ -56,6 +56,7 @@ public:
         bool         m_clusterEnabled {false};
         int          m_leaseSeconds {0};///< 0 means the default, as in cluster.lease_seconds.
         int          m_links {0};       ///< 0 means the default, as in cluster.links.
+        sptk::String m_certificate;        ///< The node's PEM certificate, for automatic trust.
     };
 
     /// One invitation, as the database holds it. At most one per node.

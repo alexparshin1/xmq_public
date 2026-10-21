@@ -30,7 +30,7 @@ const char* const invitationTable = "xmq_cluster_invitation";
 
 constexpr string_view nodeColumns =
     "node_id, name, host_port, state, last_error, redis_uri, database_uri,"
-    " cluster_enabled, cluster_lease_seconds, cluster_links";
+    " cluster_enabled, cluster_lease_seconds, cluster_links, certificate";
 
 String nowUtc()
 {
@@ -50,6 +50,7 @@ ClusterStore::Node readNode(Query& query)
     node.m_clusterEnabled = query["cluster_enabled"].asInteger() != 0;
     node.m_leaseSeconds = query["cluster_lease_seconds"].asInteger();
     node.m_links = query["cluster_links"].asInteger();
+    node.m_certificate = query["certificate"].asString();
     return node;
 }
 
@@ -149,9 +150,22 @@ void ClusterStore::createSchema()
             "  cluster_enabled       int NOT NULL DEFAULT 0,"
             "  cluster_lease_seconds int NOT NULL DEFAULT 0,"
             "  cluster_links         int NOT NULL DEFAULT 0,"
+            "  certificate           TEXT,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
+    }
+
+    // Added in XMQ 1.1: each node stores its PEM certificate so other nodes can trust it
+    // without a manual upload. A column that already exists makes the ALTER TABLE throw, and
+    // the exception is caught here -- the schema is already current.
+    try {
+        const AutoDatabaseConnection connection(*m_database);
+        Query alter(connection.connection(),
+                    "ALTER TABLE " + String(nodeTable) + " ADD COLUMN certificate TEXT");
+        alter.exec();
+    } catch (const Exception&) {
+        // Column already exists.
     }
 
     if (!tableExists(String(invitationTable)))
@@ -211,9 +225,9 @@ void ClusterStore::insertNode(const Node& node)
     Query insert(connection.connection(),
                  "INSERT INTO " + String(nodeTable) +
                  " (node_id, name, host_port, state, last_error, redis_uri, database_uri,"
-                 "  cluster_enabled, cluster_lease_seconds, cluster_links, updated_at)"
+                 "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
-                 "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :updated_at)");
+                 "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -225,6 +239,7 @@ void ClusterStore::insertNode(const Node& node)
     insert.param("cluster_enabled") = node.m_clusterEnabled ? 1 : 0;
     insert.param("cluster_lease_seconds") = node.m_leaseSeconds;
     insert.param("cluster_links") = node.m_links;
+    insert.param("certificate") = node.m_certificate;
     insert.param("updated_at") = nowUtc();
     insert.exec();
 }
@@ -237,7 +252,7 @@ void ClusterStore::updateNode(const Node& node)
                  " SET name = :name, host_port = :host_port, state = :state, last_error = :last_error,"
                  "  redis_uri = :redis_uri, database_uri = :database_uri,"
                  "  cluster_enabled = :cluster_enabled, cluster_lease_seconds = :cluster_lease_seconds,"
-                 "  cluster_links = :cluster_links, updated_at = :updated_at"
+                 "  cluster_links = :cluster_links, certificate = :certificate, updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 
     update.param("name") = node.m_name;
@@ -249,6 +264,7 @@ void ClusterStore::updateNode(const Node& node)
     update.param("cluster_enabled") = node.m_clusterEnabled ? 1 : 0;
     update.param("cluster_lease_seconds") = node.m_leaseSeconds;
     update.param("cluster_links") = node.m_links;
+    update.param("certificate") = node.m_certificate;
     update.param("updated_at") = nowUtc();
     update.param("node_id") = node.m_nodeId;
     update.exec();

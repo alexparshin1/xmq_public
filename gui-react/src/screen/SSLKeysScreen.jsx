@@ -47,6 +47,7 @@ export default class SSLKeysScreen extends React.Component {
         // in PEM form - what the other nodes have to be given.
         peers: [],
         nodeCertificate: "",
+        nodeName: "",           // this node's own name, for the label naming whose certificate is shown
         peerName: "",
         peerCertificate: "",
         peerFileName: "",
@@ -58,6 +59,18 @@ export default class SSLKeysScreen extends React.Component {
     componentDidMount() {
         ControlAPI.asyncMakeAPICall("SSLKeysControl", {action: "get"})
             .then(result => this.applyResult(result));
+
+        // This node's name, for the label that says whose certificate the PEM below is - the
+        // certificate belongs to one node, and the same screen open on two of them shows the
+        // same thing. Read with the cluster state, which carries the name in either mode, and
+        // quietly: a name that cannot be read leaves the label without it.
+        ControlAPI.asyncMakeAPICall("ClusterControl", {action: "get"}, true)
+            .then(result => {
+                if (!result || ControlAPI.apiError(result) || !result.this_node) {
+                    return;
+                }
+                this.setState({nodeName: result.this_node.name || ""});
+            });
     }
 
     /**
@@ -387,7 +400,9 @@ export default class SSLKeysScreen extends React.Component {
             </div>
 
             <div className="inputScreenRow">
-                <label className="inputScreenLabel">This node&apos;s certificate:</label>
+                <label className="inputScreenLabel">
+                    This node&apos;s {this.state.nodeName ? "(" + this.state.nodeName + ") " : ""}certificate:
+                </label>
                 <textarea readOnly rows={4} style={{width: "460px", fontFamily: "monospace",
                                                     fontSize: "11px"}}
                           value={this.state.nodeCertificate}

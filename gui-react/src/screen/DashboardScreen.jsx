@@ -295,6 +295,12 @@ export default class DashboardScreen extends BasicScreen {
 
     render() {
         const {running, version, message, busy} = this.state;
+        // The node name belongs beside the version: the screen looks the same on every node, and
+        // this is what says which one is being looked at. It comes with the cluster state, which
+        // carries it whether the server is running or not - the settings know it either way.
+        const nodeName = this.state.cluster && this.state.cluster.this_node
+            ? this.state.cluster.this_node.name
+            : "";
 
         return <div className="InputScreen">
             <PageTitle>Dashboard</PageTitle>
@@ -307,7 +313,13 @@ export default class DashboardScreen extends BasicScreen {
                                  busy={busy}
                                  onStart={() => this.startServer()}
                                  onStop={() => this.sendAction("stop")}/>
-                    {version ? <div style={{color: "#666"}}>version {version}</div> : null}
+                    {(nodeName || version)
+                        ? <div style={{color: "#666"}}>
+                            {nodeName ? <>node <b>{nodeName}</b></> : null}
+                            {nodeName && version ? "  ·  " : null}
+                            {version ? "version " + version : null}
+                        </div>
+                        : null}
                 </div>
 
                 {message

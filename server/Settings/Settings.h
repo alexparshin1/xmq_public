@@ -371,6 +371,18 @@ private:
      */
     void applyClusterConfigurationUnlocked();
 
+    /**
+     * @brief Synchronises peer certificates from the shared database to the trust store.
+     *
+     * Each node writes its own PEM certificate to the shared database at startup;
+     * this method reads every other node's certificate from the database and writes it
+     * to the peers directory, replacing the manual upload on the SSL Keys screen for
+     * cluster members. Nodes without a certificate in the database are skipped.
+     * @param store    The cluster store, already opened on the shared database.
+     * @param nodeId   This node's GUID, to skip its own certificate.
+     */
+    static void syncPeerCertificates(ClusterStore& store, const sptk::String& nodeId);
+
     /// Where the accounts live, for callers that already hold the lock.
     [[nodiscard]] sptk::String userDatabaseUriUnlocked() const;
 

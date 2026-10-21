@@ -1026,6 +1026,14 @@
                          set up with persistence turned off. -->
                     <xsd:element name="redis_host" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="redis_port" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Optional. The PostgreSQL or MySQL database for shared
+                                accounts and cluster configuration. Leave empty for the default
+                                SQLite database in '/etc/xmq'.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>
 
@@ -1510,6 +1518,13 @@
                         <xsd:annotation>
                             <xsd:documentation>How many connections this node has open to that one, as this node
                                 knows. Zero for a node that is not linked.</xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="certificate" type="xsd:string" maxOccurs="1" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>The node's PEM certificate, as stored in the shared database.
+                                Absent when the node has not written one yet or does not use a
+                                shared database.</xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
                 </xsd:sequence>

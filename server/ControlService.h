@@ -228,6 +228,7 @@ private:
      * @throws sptk::Exception when an address is given and nothing answers as Redis.
      */
     static void requireReachableRedis(const CInitialSetup& setup);
+    static void requireReachableDatabase(const CInitialSetup& setup);
 };
 
 } // namespace xmq
