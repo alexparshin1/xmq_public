@@ -489,8 +489,8 @@ sudo systemctl disable --now rps.service       # back to one CPU`}</pre>
                 on. It is administered through the <code>admin</code> account. A server that has
                 never been set up is the exception in two ways: it answers at{" "}
                 <code>https://127.0.0.1:18883</code> and nowhere else, and <code>admin</code> has
-                no password yet &mdash; sign in with the password field left empty, and set one on
-                the <b>Initial Setup</b> page that opens.
+                no password yet &mdash; the interface signs the administrator in by itself and
+                opens the <b>Initial Setup</b> page, which is where the password is set.
             </p>
 
             <h5>Starting from scratch</h5>
@@ -1373,8 +1373,8 @@ xmq_pub -h localhost -p 1883 -u user --password secret -t bridged/test -m "over 
                 Install the package on the first host, start the server, and open the
                 configuration interface. A server that has never been set up answers on the
                 loopback address only, and its <code>admin</code> account has no password yet:
-                sign in with the password field left empty, and the <b>Initial Setup</b> page
-                opens.
+                the interface signs the administrator in by itself, and the <b>Initial Setup</b>
+                page opens.
             </p>
 
             <pre className="userManualCode">{`# On node-a, after installing the package:
