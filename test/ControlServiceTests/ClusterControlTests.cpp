@@ -71,9 +71,16 @@ vector<pair<String, String>> reachableClusterDatabases()
 }
 
 /// Nothing of an earlier run, so that "created" means created.
+///
+/// The accounts table is dropped with the cluster's own: the database is shared by every suite
+/// that runs against it, and an account left there by one of them is a row this node's users file
+/// then cannot migrate - the migration keeps a name that is taken, and the password of the row
+/// that stayed is not the one the test signs in with. That is what made these tests fail on the
+/// farm while they passed on a machine whose database happened to be clean.
 void dropClusterTables(DatabaseConnectionPool& pool)
 {
-    for (const auto* table: {"xmq_cluster_invitation", "xmq_node"})
+    for (const auto* table: {"xmq_user_to_user_group", "xmq_user_group", "xmq_user",
+                             "xmq_cluster_invitation", "xmq_node"})
     {
         try
         {
