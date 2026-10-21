@@ -264,9 +264,9 @@ sudo service xmq_server status`}</pre>
                 Once the server runs, the configuration interface is reachable on port 18883 by
                 default. On a server that has just been installed it answers on that machine only,
                 at <code>https://127.0.0.1:18883</code>, and the <code>admin</code> account it
-                created has no password: sign in as <code>admin</code> leaving the password empty.
-                The <b>Initial Setup</b> page opens straight away, and the password set there is
-                what opens the interface to the rest of the network.
+                created has no password: the interface signs the administrator in by itself and
+                opens the <b>Initial Setup</b> page, and the password set there is what opens
+                the interface to the rest of the network.
             </p>
 
             <div className="userManualNote">
