@@ -687,7 +687,7 @@ SET(XMQ_CONF_PERMISSIONS PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ)
 # Letting the broker create it is better than declaring it a config file in two packaging systems:
 # there is then nothing for a packager to own, and the same thing happens on a platform that has no
 # packaging at all.
-INSTALL(FILES xmq_server.conf DESTINATION ${XMQ_CONF_INSTALL_DESTINATION} RENAME xmq_server.conf.template
+INSTALL(FILES xmq_server.conf.template DESTINATION ${XMQ_CONF_INSTALL_DESTINATION}
         ${XMQ_CONF_PERMISSIONS})
 # The extension list is a template only. A broker with no extensions needs no such file, and
 # installing a live one would have every upgrade re-answer a question the operator answered.

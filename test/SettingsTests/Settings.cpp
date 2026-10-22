@@ -362,6 +362,19 @@ TEST(XMQ_Settings, applyInitialSetup)
     EXPECT_FALSE(settings.userManager().authenticate("user", "secret"));
 }
 
+TEST(XMQ_Settings, initialSetupKeepsAutomaticThreadsFromTheShippedTemplate)
+{
+    const TemporaryCertificateDirectory certificates;
+    const auto templateFile = filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+                              "xmq_server.conf.template";
+    Settings settings;
+    settings.loadConfiguration(Buffer(g_testConfig));
+    settings.applyInitialSetup(testInitialSetup(), templateFile);
+
+    EXPECT_EQ("auto", settings.m_server_limits.m_send_threads.asString());
+    EXPECT_EQ("auto", settings.m_server_limits.m_receive_threads.asString());
+}
+
 TEST(XMQ_Settings, applyInitialSetupUsesTheAddressItWasGiven)
 {
     const TemporaryCertificateDirectory certificates;

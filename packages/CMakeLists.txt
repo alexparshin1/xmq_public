@@ -18,11 +18,11 @@ set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 # What a freshly installed broker still needs doing, in one place for all three package formats.
 # The port is read out of the configuration that is installed beside it rather than written out a
 # second time here: a message naming a port nothing listens on is worse than no message at all.
-FILE(READ "${CMAKE_CURRENT_LIST_DIR}/../xmq_server.conf" xmqServerConfiguration)
+FILE(READ "${CMAKE_CURRENT_LIST_DIR}/../xmq_server.conf.template" xmqServerConfiguration)
 STRING(REGEX MATCH "\"listener_port\"[ \t]*:[ \t]*([0-9]+)" matchedPort "${xmqServerConfiguration}")
 SET(XMQ_WEB_INTERFACE_PORT "${CMAKE_MATCH_1}")
 IF (NOT XMQ_WEB_INTERFACE_PORT)
-    MESSAGE(FATAL_ERROR "No web_service.listener_port in xmq_server.conf to tell the installer about.")
+    MESSAGE(FATAL_ERROR "No web_service.listener_port in xmq_server.conf.template to tell the installer about.")
 ENDIF ()
 
 # Twice through configure_file: once to put the port into the message, and once to put the
