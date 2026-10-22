@@ -258,6 +258,7 @@ public:
      * @param content           Optional message content.
      */
     void notifyAllNodes(Command clusterCommand, const std::string& content = {}) const;
+    void notifyAccountsChanged() const;
 
     /**
      * @brief Accepts and processes an incoming cluster message.

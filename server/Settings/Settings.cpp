@@ -502,6 +502,19 @@ String Settings::userDatabaseUriUnlocked() const
     return DirectoryNames::sqliteUri(filesystem::path(usersPath).replace_filename("xmq_users.db"));
 }
 
+void Settings::setAccountDatabaseUri(const std::string& uri)
+{
+    const WriteLock lock(m_mutex);
+
+    if (m_authentication.m_database_uri.asString() == sptk::String(uri))
+    {
+        return;
+    }
+
+    m_authentication.m_database_uri = uri;
+    saveConfigurationUnlocked();
+}
+
 int Settings::passwordIterations() const
 {
     const ReadLock lock(m_mutex);
@@ -1680,6 +1693,7 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     setup.m_web_service_port = static_cast<int>(section(root, "web_service")->getInteger("listener_port"));
     setup.m_redis_host = redisHost;
     setup.m_redis_port = redisPort;
+    setup.m_database_uri = section(root, "authentication")->getString("database_uri");
 
     return setup;
 }

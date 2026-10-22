@@ -168,6 +168,20 @@ const ParameterHelp = {
         max: 65535
     },
 
+    "initial_setup.database_uri": {
+        title: "Accounts database URI",
+        text: [
+            "A database shared by every node in a cluster, so that any node can authenticate " +
+            "a client.",
+            "The format is driver://user:password@host/database:",
+            "SQLite (standalone): sqlite3://localhost/path/to/xmq_users.db",
+            "PostgreSQL:         postgresql://xmq:password@db-host/xmq_accounts",
+            "MySQL:              mysql://xmq:password@db-host/xmq_accounts",
+            "Leave empty for a standalone server that keeps its accounts in a local SQLite file " +
+            "under the configuration directory."
+        ]
+    },
+
     "ssl_keys.verify_depth": {
         title: "Verify depth",
         text: [

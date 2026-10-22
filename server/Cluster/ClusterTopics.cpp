@@ -30,6 +30,7 @@ constexpr string_view SubscriptionSnapshot = "$CLUSTER/request/subscription_snap
 constexpr string_view SubscriptionUpdate = "$CLUSTER/request/subscription_update";
 constexpr string_view RetainedUpdate = "$CLUSTER/request/retained";
 constexpr string_view ReleaseSession = "$CLUSTER/request/release_session";
+constexpr string_view AccountsChanged = "$CLUSTER/request/accounts_changed";
 } // namespace
 
 Topics::Topics(const STopicManager& topicManager)
@@ -44,6 +45,7 @@ Topics::Topics(const STopicManager& topicManager)
           {SubscriptionUpdate, Command::SubscriptionUpdate},
           {RetainedUpdate, Command::RetainedUpdate},
           {ReleaseSession, Command::ReleaseSession},
+          {AccountsChanged, Command::AccountsChanged},
       }
     , m_commandTopic {
           {Command::AttachNodeRequest, topicManager->getTopic(AttachNodeRequest)},
@@ -56,6 +58,7 @@ Topics::Topics(const STopicManager& topicManager)
           {Command::SubscriptionUpdate, topicManager->getTopic(SubscriptionUpdate)},
           {Command::RetainedUpdate, topicManager->getTopic(RetainedUpdate)},
           {Command::ReleaseSession, topicManager->getTopic(ReleaseSession)},
+          {Command::AccountsChanged, topicManager->getTopic(AccountsChanged)},
       }
 {
 }

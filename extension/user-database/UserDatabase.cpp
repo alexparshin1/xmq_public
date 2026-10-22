@@ -63,8 +63,9 @@
 
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
+#include <thread>
+#include <charconv>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -617,7 +618,7 @@ public:
         std::string shown;
         int64_t     accounts = 0;
         bool        created = false;
-        auto        pool = openFor(userDatabaseUri(), setting("username"), setting("password"),
+        auto        pool = openFor(effectiveDatabaseUri(), setting("username"), setting("password"),
                                    problem, shown, accounts, created);
         if (pool == nullptr)
         {
@@ -634,6 +635,7 @@ public:
         }
 
         announce(shown, accounts, created);
+        startPollingIfNeeded();
         return true;
     }
 
@@ -665,7 +667,7 @@ public:
         std::string shown;
         int64_t     accounts = 0;
         bool        created = false;
-        auto        pool = openFor(userDatabaseUri(), setting("username"), setting("password"),
+        auto        pool = openFor(effectiveDatabaseUri(), setting("username"), setting("password"),
                                    problem, shown, accounts, created);
         if (pool == nullptr)
         {
@@ -708,6 +710,11 @@ public:
         // The answers belonged to the store that has just been replaced.
         m_cache.forget();
 
+        // Changed from a local file to a shared database, or the other way: polling
+        // follows, restarted from the new URI.
+        stopPolling();
+        startPollingIfNeeded();
+
         if (copied > 0)
         {
             log(XMQ_LOG_INFO, "copied " + std::to_string(copied) + " account(s) into " + shown);
@@ -721,6 +728,7 @@ public:
 
     bool stop() override
     {
+        stopPolling();
         log(XMQ_LOG_INFO, "admitted " + std::to_string(m_admitted) + ", refused " +
                               std::to_string(m_refused) + " connection(s)");
         const std::scoped_lock lock(m_databaseLock);
@@ -812,6 +820,121 @@ public:
         return XMQ_AUTH_ALLOW;
     }
 
+/// @brief Polls xmq_store_version in the shared database for changes made by another node.
+    ///
+    /// The version is bumped every time an account is added, modified, or removed. A version
+    /// that went up means another node sharing this database has changed what this extension
+    /// caches, so the cache is dropped.
+    ///
+    /// This runs on its own thread, with its own database connection, separate from the
+    /// authentication pool. The broker's own control path calls accountsChanged() too; this is
+    /// the fallback for standalone nodes that share a database with no cluster links.
+    void pollVersionChanges()
+    {
+        const auto interval = std::chrono::seconds(std::max(1, pollInterval()));
+        const auto dbUri = std::string(effectiveDatabaseUri());
+
+        while (!m_stopPolling.load(std::memory_order_acquire))
+        {
+            std::this_thread::sleep_for(interval);
+            if (m_stopPolling.load(std::memory_order_acquire))
+            {
+                break;
+            }
+
+            // One read, on a connection that lives just long enough for it.
+            try
+            {
+                sptk::DatabaseConnectionPool pool(dbUri, 1);
+                const sptk::AutoDatabaseConnection held(pool);
+                sptk::Query query(held.connection(), "SELECT version FROM xmq_store_version");
+                query.open();
+                const auto version = query.eof() ? 0 : query[uint32_t {0}].asInt64();
+                query.close();
+
+                const auto previous = m_lastDatabaseVersion.exchange(version);
+                if (version > previous)
+                {
+                    log(XMQ_LOG_INFO, std::string("database version changed from ") +
+                                          std::to_string(previous) + " to " +
+                                          std::to_string(version) + "; clearing cache");
+                    m_cache.forget();
+                }
+            }
+            catch (const std::exception& exception)
+            {
+                // Lost connectivity or a database that has no version table yet. Either
+                // way, there is nothing to poll and no cached answer to distrust - the
+                // next authentication will find out by itself.
+                log(XMQ_LOG_DEBUG, std::string("version poll skipped: ") + exception.what());
+            }
+        }
+    }
+
+    /// @brief Seconds between polls of xmq_store_version, from the extension settings.
+    int pollInterval() const
+    {
+        const auto value = setting("poll_interval");
+        if (value.empty())
+        {
+            return 5;
+        }
+        return std::max(1, std::atoi(value.c_str()));
+    }
+
+    /// @brief Whether the configured database URI names a shared database.
+    ///
+    /// SQLite is local to the filesystem and cannot be shared between nodes, so polling
+    /// it for changes made elsewhere is pointless. PostgreSQL and MySQL can be shared.
+    static bool isSharedDatabase(const std::string_view uri)
+    {
+        return !uri.starts_with("sqlite3://");
+    }
+
+    /// @brief The database URI this extension actually uses.
+    ///
+    /// When the administrator gave one on the Extensions page, it is here; otherwise the
+    /// broker's own authentication.database_uri is the answer. Kept separate so the two
+    /// cannot disagree — the broker's own setting is the fallback, not a second source.
+    std::string effectiveDatabaseUri() const
+    {
+        const auto own = setting("database_uri");
+        if (!own.empty())
+        {
+            return own;
+        }
+        return std::string(effectiveDatabaseUri());
+    }
+
+    void startPollingIfNeeded()
+    {
+        const auto uri = effectiveDatabaseUri();
+        if (uri.empty() || !isSharedDatabase(uri))
+        {
+            return;
+        }
+        const auto interval = pollInterval();
+        if (interval <= 0)
+        {
+            return;
+        }
+
+        log(XMQ_LOG_INFO, std::string("polling database version every ") +
+                              std::to_string(interval) + " seconds for changes by other nodes");
+        m_stopPolling.store(false, std::memory_order_release);
+        m_pollThread = std::thread(&UserDatabase::pollVersionChanges, this);
+    }
+
+    void stopPolling()
+    {
+        if (!m_pollThread.joinable())
+        {
+            return;
+        }
+        m_stopPolling.store(true, std::memory_order_release);
+        m_pollThread.join();
+    }
+
 private:
     // reload() replaces the pool while authenticate() is running on the broker's threads - the
     // host does not quiesce an extension to reconfigure it. The lock is held only long enough to
@@ -822,6 +945,9 @@ private:
     std::atomic<bool>                             m_unknownIsDenied {true};
     uint64_t                                      m_admitted {0};
     uint64_t                                      m_refused {0};
+    std::atomic<bool>                             m_stopPolling {false};
+    std::thread                                   m_pollThread;
+    std::atomic<int64_t>                          m_lastDatabaseVersion {0};
 };
 
 } // namespace
@@ -835,6 +961,18 @@ const xmq_setting userDatabaseSettings[] {
     // the interface would be saved, listed, and admit nobody - with no error on either side to say
     // so. The credentials stay, because they are this extension's account in that database and not
     // its address.
+    {.name = "database_uri",
+     .label = "Database URI",
+     .description = "The database that holds user accounts. Same as the one given on the "
+                    "Initial Setup page. Changing it on a running server copies the accounts "
+                    "across to the new database, creating the tables if they are not there. "
+                    "Format: sqlite3://localhost/path, postgresql://user:pass@host/db, or "
+                    "mysql://user:pass@host/db",
+     .type = XMQ_SETTING_STRING,
+     .default_value = nullptr,
+     .choices = nullptr,
+     .required = 0},
+
     {.name = "username",
      .label = "Database user",
      .description = "The account this extension opens the database with - not an MQTT client. "
@@ -862,6 +1000,16 @@ const xmq_setting userDatabaseSettings[] {
      .type = XMQ_SETTING_CHOICE,
      .default_value = "deny",
      .choices = "deny,abstain",
+     .required = 0},
+
+    {.name = "poll_interval",
+     .label = "Version poll interval (seconds)",
+     .description = "How often to check the xmq_store_version table for changes made by another "
+                    "node sharing this database. Only used with PostgreSQL/MySQL, not SQLite. "
+                    "Default 5; set to 0 to disable polling entirely.",
+     .type = XMQ_SETTING_INTEGER,
+     .default_value = "5",
+     .choices = nullptr,
      .required = 0}};
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(UserDatabase, "user-database", "1.0", XMQ_CAP_AUTHENTICATOR,

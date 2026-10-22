@@ -858,10 +858,18 @@ void Cluster::notifyAllNodes(const Command clusterCommand, const string& content
             case DisconnectClient:
                 node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(DisconnectClient), string_view(content)));
                 break;
+            case AccountsChanged:
+                node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(AccountsChanged), string_view{}));
+                break;
             default:
                 break;
         }
     }
+}
+
+void Cluster::notifyAccountsChanged() const
+{
+    notifyAllNodes(Command::AccountsChanged);
 }
 
 void Cluster::onAttachNodeRequest(const SPublishMessage& message)
@@ -1481,6 +1489,9 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
                                return format("Damaged retained messages from node '{}'.", sender);
                            });
             }
+            break;
+        case AccountsChanged:
+            m_server->extensions().accountsChanged();
             break;
         case Unknown:
             logMessage(LogPriority::Error, [&message]

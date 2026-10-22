@@ -618,6 +618,10 @@ void ControlService::UserGroupControl(const CUserGroupControl& input, CUserGroup
             if (const auto runningServer = server())
             {
                 runningServer->extensions().accountsChanged();
+                if (const auto cluster = runningServer->cluster())
+                {
+                    cluster->notifyAccountsChanged();
+                }
             }
         }
 
@@ -709,6 +713,10 @@ void ControlService::UserControl(const CUserControl& input, CUserControlResponse
             if (const auto runningServer = server())
             {
                 runningServer->extensions().accountsChanged();
+                if (const auto cluster = runningServer->cluster())
+                {
+                    cluster->notifyAccountsChanged();
+                }
             }
         }
 

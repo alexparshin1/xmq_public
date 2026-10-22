@@ -30,7 +30,8 @@ enum class Command
     SubscriptionSnapshot,
     SubscriptionUpdate,
     RetainedUpdate,
-    ReleaseSession
+    ReleaseSession,
+    AccountsChanged
 };
 
 /**

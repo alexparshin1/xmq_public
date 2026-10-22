@@ -1609,6 +1609,17 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
         return report;
     }
 
+    // The user-database extension's database_uri is also the broker's authentication.database_uri:
+    // the two must agree, or accounts written on the Users page go to a different database than
+    // the one the extension authenticates against.
+    if (name == "user-database")
+    {
+        if (const auto it = settings.find("database_uri"); it != settings.end())
+        {
+            getSettings()->setAccountDatabaseUri(it->second);
+        }
+    }
+
     // Applied by re-reading the file that was just written, rather than from what arrived over the
     // wire: what the broker runs is then what is on disk, and the two cannot disagree.
     report += reloadExtensions();

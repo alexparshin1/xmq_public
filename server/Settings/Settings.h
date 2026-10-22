@@ -81,6 +81,8 @@ public:
         return m_userManager;
     }
 
+    void setAccountDatabaseUri(const std::string& uri);
+
     uint64_t     bridgeControl(const std::string& action, const CBridge& bridge);
     uint64_t     listenerControl(const std::string& action, const CListener& listener);
     CPersistence persistenceControl(const std::string& action, const CPersistence& persistence);

@@ -178,7 +178,8 @@ export default class InitialSetupScreen extends BasicScreen {
                 mqtt_ssl_port: parseInt(this.state.mqtt_ssl_port),
                 web_service_port: servicePort,
                 redis_host: this.state.redis_host,
-                redis_port: this.state.redis_host ? parseInt(this.state.redis_port) : 0
+                redis_port: this.state.redis_host ? parseInt(this.state.redis_port) : 0,
+                database_uri: this.state.database_uri
             }
         }).then(result => {
             if (result === null) {
@@ -204,10 +205,8 @@ export default class InitialSetupScreen extends BasicScreen {
                     return;
                 }
 
-                this.setState({
-                    busy: false, failed: true,
-                    message: "The configuration was not replaced: " + failure
-                });
+                errorWindow("The configuration was not replaced: " + failure);
+                this.setState({busy: false, failed: true, message: ""});
                 return;
             }
 
@@ -382,7 +381,7 @@ export default class InitialSetupScreen extends BasicScreen {
                            value={this.state.database_uri}
                            placeholder="e.g., postgresql://user:pass@host/xmq_accounts"
                            onChange={(e) => this.setState({database_uri: e.target.value})}/>
-                    <HelpButton helpKey="authentication.database_uri"/>
+                    <HelpButton helpKey="initial_setup.database_uri"/>
                 </div>
             </fieldset>
 
