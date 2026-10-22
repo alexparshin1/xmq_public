@@ -82,6 +82,8 @@ class Session final
     friend class MqttClient;
 
 public:
+    using BaseClientSession::postMessage;
+
     enum class State : uint8_t
     {
         Disconnected = 0,
