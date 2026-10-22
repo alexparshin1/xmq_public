@@ -22,7 +22,7 @@ XMQ_ScenarioTests::ScenarioMap XMQ_ScenarioTests::m_encryptedTestScenarios;
 
 void XMQ_ScenarioTests::loadScenarioGroup(const path& scenarioDirectory, map<ScenarioEngine::Type, shared_ptr<ScenarioEngine>>& scenarios)
 {
-    for (auto const& dir_entry: directory_iterator {scenarioDirectory})
+    for (auto const& dir_entry: directory_iterator{scenarioDirectory})
     {
         try
         {
@@ -133,7 +133,7 @@ TEST_F(XMQ_ScenarioTests, FanInPublishesToEachPublisherTopic)
 {
     ScenarioEngine engine;
     engine.load(path(XMQ_TEST_SCENARIO_DIRECTORY) / "Basic" / "Fan-In-1K-5-1K-1K.json");
-    auto& scenario = engine.scenario();
+    auto&      scenario = engine.scenario();
     const auto [publisherId, observerId, topicRoot] = makeTestNames();
     scenario.m_publishers.m_client_count = 3;
     scenario.m_publishers.m_id_prefix = publisherId;
@@ -144,24 +144,24 @@ TEST_F(XMQ_ScenarioTests, FanInPublishesToEachPublisherTopic)
     scenario.m_parameters.m_message_count = 6;
     scenario.m_parameters.m_publish_rate = 10;
 
-    mutex receivedMutex;
-    set<string> receivedTopics;
-    size_t receivedCount = 0;
-    Semaphore allReceived;
+    mutex              receivedMutex;
+    set<string>        receivedTopics;
+    size_t             receivedCount = 0;
+    Semaphore          allReceived;
     client::MqttClient observer;
     observer.onMessage([&](const SPublishMessage& message)
-                       {
-                           const scoped_lock lock(receivedMutex);
-                           receivedTopics.emplace(message->destination()->toString());
-                           if (++receivedCount == 6)
-                           {
-                               allReceived.post();
-                           }
-                       });
+    {
+        const scoped_lock lock(receivedMutex);
+        receivedTopics.emplace(message->destination()->toString());
+        if (++receivedCount == 6)
+        {
+            allReceived.post();
+        }
+    });
     ASSERT_EQ(ReasonCode::Success,
-              observer.connect(Host(scenario.m_server.m_hostname.asString(), scenario.m_server.m_port.asInteger()),
-                               ConnectCredentials(observerId, "user", "secret"),
-                               {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+              observer.connect(Host(scenario.m_server.m_hostname.asString().c_str(), static_cast<uint16_t>(scenario.m_server.m_port.asInteger())),
+                  ConnectCredentials(observerId, "user", "secret"),
+                  {.m_cleanSession = true}, ProtocolVersion::MqttV5));
     observer.subscribe(topicRoot + "/#");
 
     vector<RoundTripLatency> latencies;

@@ -67,7 +67,7 @@ String generatedClusterPassword()
 {
     static constexpr std::string_view alphabet =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    static constexpr size_t        passwordLength = 24;
+    static constexpr size_t passwordLength = 24;
     // 248 is the largest multiple of 62 below 256. Bytes above it are drawn again rather than
     // folded with %, which would make the first eight letters of the alphabet slightly likelier.
     static constexpr unsigned char largestUnbiasedByte = 248;
@@ -555,7 +555,7 @@ void Settings::openUserDatabaseUnlocked()
     {
         constexpr size_t connections = 4;
         m_accountsPool = std::make_shared<DatabaseConnectionPool>(uri, static_cast<unsigned>(connections));
-        auto             store = std::make_shared<UserStore>(m_accountsPool);
+        auto store = std::make_shared<UserStore>(m_accountsPool);
         store->createSchema();
         const auto usersPath = usersPathUnlocked();
         if (const auto migrated = store->importUsersFrom(usersPath, passwordIterationsUnlocked());
@@ -660,8 +660,8 @@ void Settings::applyClusterConfigurationUnlocked()
         // that cannot read whether it belongs to a cluster has no safe guess.
         stringstream message;
         message << "The cluster configuration is kept in the database " << UriSecret::hidden(uri)
-                << ", and it cannot be opened: " << m_accountsError
-                << ". A node that cannot read whether it belongs to a cluster does not start.";
+            << ", and it cannot be opened: " << m_accountsError
+            << ". A node that cannot read whether it belongs to a cluster does not start.";
         m_clusterConfigurationError = message.str();
         return;
     }
@@ -758,8 +758,8 @@ void Settings::applyClusterConfigurationUnlocked()
         // one without starting a broker - and the server refuses to start with this reason.
         stringstream message;
         message << "The cluster configuration is kept in the database " << UriSecret::hidden(uri)
-                << ", and it cannot be read: " << e.what()
-                << ". A node that cannot read whether it belongs to a cluster does not start.";
+            << ", and it cannot be read: " << e.what()
+            << ". A node that cannot read whether it belongs to a cluster does not start.";
         m_clusterConfigurationError = message.str();
     }
 }
@@ -775,7 +775,7 @@ void Settings::syncPeerCertificates(ClusterStore& store, const String& nodeId)
     }
 
     size_t written = 0;
-    for (const auto& other : store.nodes())
+    for (const auto& other: store.nodes())
     {
         if (other.m_nodeId == nodeId || other.m_certificate.empty())
         {
@@ -798,7 +798,7 @@ void Settings::syncPeerCertificates(ClusterStore& store, const String& nodeId)
 
     if (written > 0)
     {
-        buildPeerCertificateBundle();
+        (void) buildPeerCertificateBundle();
     }
 }
 
@@ -1598,7 +1598,7 @@ filesystem::path Settings::buildPeerCertificateBundle()
     // at the files again only once a second, so a bundle rewritten under the same name could
     // still be checked against the certificates it held before - a peer just removed from the
     // trusted ones trusted a while longer. A new name is a new context, at once.
-    const auto contentHash = std::hash<string_view> {}(string_view(bundle.c_str(), bundle.size()));
+    const auto contentHash = std::hash<string_view>{}(string_view(bundle.c_str(), bundle.size()));
     const auto bundleName = format("peers-{:016x}.crt", contentHash);
     const auto bundleFile = DirectoryNames::certsDirectory() / bundleName;
     if (!filesystem::exists(bundleFile, errorCode))
