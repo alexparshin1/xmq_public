@@ -31,7 +31,11 @@ export default class InitialSetupScreen extends BasicScreen {
         web_service_port: 18883,
         redis_host: "",
         redis_port: 6379,
-        database_uri: "",
+        database_type: "",
+        database_host: "",
+        database_name: "xmq",
+        database_username: "xmq",
+        database_password: "",
         // Set while the request is in flight: applying replaces the configuration and restarts
         // the server, which is not something to have two of running at once.
         busy: false,
@@ -65,9 +69,31 @@ export default class InitialSetupScreen extends BasicScreen {
                     return;
                 }
                 if (result.setup) {
-                    this.setState({...result.setup});
+                    const {database_uri, ...setup} = result.setup;
+                    if (database_uri && !database_uri.startsWith("sqlite3://")) {
+                        const uri = new URL(database_uri);
+                        Object.assign(setup, {
+                            database_type: uri.protocol.slice(0, -1),
+                            database_host: uri.host,
+                            database_name: decodeURIComponent(uri.pathname.slice(1)) || "xmq",
+                            database_username: decodeURIComponent(uri.username),
+                            database_password: decodeURIComponent(uri.password)
+                        });
+                    }
+                    this.setState(setup);
                 }
             });
+    }
+
+    databaseUri() {
+        if (!this.state.database_type) {
+            return "";
+        }
+        const username = encodeURIComponent(this.state.database_username);
+        const password = encodeURIComponent(this.state.database_password);
+        const credentials = username || password ? `${username}:${password}@` : "";
+        return `${this.state.database_type}://${credentials}${this.state.database_host.trim()}/` +
+               encodeURIComponent(this.state.database_name.trim());
     }
 
     /**
@@ -128,10 +154,31 @@ export default class InitialSetupScreen extends BasicScreen {
                 return "The Redis port must be between 1 and 65535.";
             }
 
-        if (this.state.database_uri && !this.state.redis_host) {
-            return "A shared accounts database needs shared storage. "
-                 + "Provide the Redis host or leave the database URI empty.";
         }
+
+        if (this.state.database_type && !this.state.redis_host) {
+            return "A shared accounts database needs shared storage. "
+                 + "Provide the Redis host or select SQLite for the user database.";
+        }
+
+        if (this.state.database_type) {
+            if (!this.state.database_host.trim()) {
+                return "The user database hostname is required.";
+            }
+            try {
+                if (/[\s/]/.test(this.state.database_host.trim())) {
+                    return "Enter a user database hostname, optionally followed by a port.";
+                }
+                const host = new URL(`http://${this.state.database_host.trim()}`);
+                if (host.username || host.password || host.pathname !== "/" || host.search || host.hash) {
+                    return "Enter a user database hostname, optionally followed by a port.";
+                }
+            } catch {
+                return "Enter a valid user database hostname, optionally followed by a port.";
+            }
+            if (!this.state.database_name.trim()) {
+                return "The user database name is required.";
+            }
         }
 
         return null;
@@ -179,7 +226,7 @@ export default class InitialSetupScreen extends BasicScreen {
                 web_service_port: servicePort,
                 redis_host: this.state.redis_host,
                 redis_port: this.state.redis_host ? parseInt(this.state.redis_port) : 0,
-                database_uri: this.state.database_uri
+                database_uri: this.databaseUri()
             }
         }).then(result => {
             if (result === null) {
@@ -370,19 +417,47 @@ export default class InitialSetupScreen extends BasicScreen {
                 <div className="inputScreenIntro">
                     <p>
                         Optional. A PostgreSQL or MySQL database shared by every node in a
-                        cluster. Leave empty for a standalone server that keeps its accounts
-                        in a local SQLite database. When set, the administrator password must
+                        cluster. Select SQLite for a standalone server that keeps its accounts
+                        in a local database. For a shared database, the administrator password must
                         match the one already in the shared database.
                     </p>
                 </div>
                 <div className="inputScreenRow">
-                    <label htmlFor="database_uri" className="inputScreenLabel">Database URI:</label>
-                    <input name="database_uri" type="text" style={{width: "420px"}}
-                           value={this.state.database_uri}
-                           placeholder="e.g., postgresql://user:pass@host/xmq_accounts"
-                           onChange={(e) => this.setState({database_uri: e.target.value})}/>
+                    <label htmlFor="database_type" className="inputScreenLabel">User Database URI:</label>
+                    <span className="initialSetupDatabaseFields">
+                        <select id="database_type" name="database_type" aria-label="Database server type"
+                                className="inputScreenSelect" value={this.state.database_type}
+                                onChange={(e) => this.setState({database_type: e.target.value})}>
+                            <option value="">SQLite (local)</option>
+                            <option value="postgresql">PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                        </select>
+                        <label htmlFor="database_host">host</label>
+                        <input id="database_host" name="database_host" type="text" aria-label="Database hostname"
+                               placeholder="hostname" disabled={!this.state.database_type}
+                               value={this.state.database_host}
+                               onChange={(e) => this.setState({database_host: e.target.value})}/>
+                        <label htmlFor="database_name">database</label>
+                        <input id="database_name" name="database_name" type="text" aria-label="Database name"
+                               disabled={!this.state.database_type} value={this.state.database_name}
+                               onChange={(e) => this.setState({database_name: e.target.value})}/>
+                    </span>
                     <HelpButton helpKey="initial_setup.database_uri"/>
                 </div>
+                {this.state.database_type && <>
+                    <div className="inputScreenRow">
+                        <label htmlFor="database_username" className="inputScreenLabel">Database user:</label>
+                        <input id="database_username" name="database_username" type="text"
+                               autoComplete="off" value={this.state.database_username}
+                               onChange={(e) => this.setState({database_username: e.target.value})}/>
+                    </div>
+                    <div className="inputScreenRow">
+                        <label htmlFor="database_password" className="inputScreenLabel">Database password:</label>
+                        <input id="database_password" name="database_password" type="password"
+                               autoComplete="new-password" value={this.state.database_password}
+                               onChange={(e) => this.setState({database_password: e.target.value})}/>
+                    </div>
+                </>}
             </fieldset>
 
             <div className="inputScreenRow">

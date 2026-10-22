@@ -169,16 +169,15 @@ const ParameterHelp = {
     },
 
     "initial_setup.database_uri": {
-        title: "Accounts database URI",
+        title: "User Database URI",
         text: [
             "A database shared by every node in a cluster, so that any node can authenticate " +
             "a client.",
-            "The format is driver://user:password@host/database:",
-            "SQLite (standalone): sqlite3://localhost/path/to/xmq_users.db",
-            "PostgreSQL:         postgresql://xmq:password@db-host/xmq_accounts",
-            "MySQL:              mysql://xmq:password@db-host/xmq_accounts",
-            "Leave empty for a standalone server that keeps its accounts in a local SQLite file " +
-            "under the configuration directory."
+            "Select PostgreSQL or MySQL, enter the hostname (optionally with a port) and " +
+            "database name. The default database name is xmq. Enter the database user and " +
+            "password in the fields below; the connection URI is built automatically.",
+            "Select SQLite (local) for a standalone server that keeps its accounts in a local " +
+            "SQLite file under the configuration directory."
         ]
     },
 

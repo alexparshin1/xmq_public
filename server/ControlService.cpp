@@ -148,6 +148,9 @@ void ControlService::requireReachableDatabase(const CInitialSetup& setup)
         // the person who just submitted it is the only one who can correct it.
         {
             UserStore users(pool);
+            // A fresh database has no accounts table yet. Initialise the schema before looking
+            // for an administrator; existing accounts are left untouched by createSchema().
+            users.createSchema();
             if (const auto admin = users.findUser("admin"))
             {
                 const auto enteredPassword = setup.m_admin_password.asString();

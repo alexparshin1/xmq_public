@@ -15,7 +15,9 @@
 #include "ControlServiceTests.h"
 
 #include "server/Settings/UserStore.h"
+#include "server/Settings/PasswordHash.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include "common/DirectoryNames.h"
 
@@ -66,6 +68,56 @@ TEST_F(XMQ_ControlServiceTests, login)
 
     // As regular user:
     EXPECT_ANY_THROW({ token = Login("user", "secret"); });
+}
+
+TEST_F(XMQ_ControlServiceTests, initialSetupInitialisesAnEmptySharedUserDatabase)
+{
+    const auto* uri = std::getenv("XMQ_TEST_SETUP_DATABASE_URI");
+    if (uri == nullptr || *uri == '\0')
+    {
+        GTEST_SKIP() << "Set XMQ_TEST_SETUP_DATABASE_URI to an empty PostgreSQL/MySQL test database";
+    }
+
+    const auto pool = make_shared<DatabaseConnectionPool>(uri, 2);
+    {
+        const AutoDatabaseConnection connection(*pool);
+        const auto schema = pool->driverName().toLowerCase().starts_with("postgres")
+                                ? "current_schema()" : "DATABASE()";
+        Query tables(connection.connection(),
+                     String("SELECT count(*) AS table_count FROM information_schema.tables ") +
+                     "WHERE table_name = 'xmq_user' AND table_schema = " + schema);
+        // The test database is dedicated to this test. UserStore must not be initialised here:
+        // the setup preflight is the operation whose handling of a fresh database is under test.
+        tables.open();
+        ASSERT_EQ(0, tables["table_count"].asInteger());
+        tables.close();
+    }
+
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    CInitialSetupControl request;
+    request.m_action = "set";
+    request.m_setup.m_admin_password = "Sunflower7!";
+    request.m_setup.m_database_uri = uri;
+    // Stop after the database preflight, before applying any configuration or certificate changes.
+    request.m_setup.m_mqtt_port = 0;
+    CInitialSetupControlResponse response;
+    m_controlService->InitialSetupControl(request, response, &authentication);
+    EXPECT_FALSE(response.m_result.m_success.asBool());
+    EXPECT_NE(String::npos, response.m_result.m_description.asString().find("MQTT port"))
+        << response.m_result.m_description.asString();
+
+    UserStore users(pool);
+    EXPECT_FALSE(users.findUser("admin").has_value());
+    users.addUser({.m_username = "admin", .m_password = PasswordHash::hash("Marigold3?", 1000)});
+
+    CInitialSetupControlResponse mismatch;
+    m_controlService->InitialSetupControl(request, mismatch, &authentication);
+    EXPECT_FALSE(mismatch.m_result.m_success.asBool());
+    EXPECT_NE(String::npos, mismatch.m_result.m_description.asString().find("does not match"))
+        << mismatch.m_result.m_description.asString();
+    const auto admin = users.findUser("admin");
+    ASSERT_TRUE(admin.has_value());
+    EXPECT_TRUE(PasswordHash::verify("Marigold3?", admin->m_password));
 }
 
 TEST_F(XMQ_ControlServiceTests, adminWithoutAPasswordIsAdmittedByTheInterfaceOnly)

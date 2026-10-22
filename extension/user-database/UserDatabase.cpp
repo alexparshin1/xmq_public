@@ -903,7 +903,7 @@ public:
         {
             return own;
         }
-        return std::string(effectiveDatabaseUri());
+        return userDatabaseUri();
     }
 
     void startPollingIfNeeded()

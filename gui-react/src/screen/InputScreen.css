@@ -57,6 +57,23 @@
     padding-left: 8px;
 }
 
+.initialSetupDatabaseFields {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    vertical-align: middle;
+    max-width: 100%;
+}
+
+.initialSetupDatabaseFields input {
+    width: 150px;
+}
+
+.initialSetupDatabaseFields input[name="database_name"] {
+    width: 100px;
+}
+
 /* Same reason as in the dialog: the password field counts its width from the outside, because the
    room for the show-password button is taken out of it, so the fields it stands among have to be
    measured the same way or they no longer line up. */
