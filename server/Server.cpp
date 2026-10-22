@@ -264,8 +264,6 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
                });
     restoreServerState();
 
-    createMqttListeners(settings, sslKeysLoaded, startupMessagesLogPriority);
-
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
     signal(SIGABRT, SIG_IGN);
@@ -283,6 +281,11 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
 
     // Before the listeners: a node the cluster refuses does not start at all.
     m_cluster.load()->startup();
+
+    // addListener() starts accepting immediately, before FastTCPServer::start(). A refused
+    // lease must therefore be detected before creating listeners: otherwise incoming cluster
+    // links leave sessions running against a Server whose constructor has thrown.
+    createMqttListeners(settings, sslKeysLoaded, startupMessagesLogPriority);
 
     FastTCPServer::start();
 

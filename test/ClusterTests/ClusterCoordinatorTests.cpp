@@ -12,6 +12,8 @@
 #include <sptk5/net/RedisCommand.h>
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
 
 using namespace std;
 using namespace sptk;
@@ -264,7 +266,31 @@ TEST_F(XMQ_ClusterTests, nodeRunningElsewhereDoesNotStartAgain)
     vector<Variant> results;
     redis.executeCommand(hold, results);
 
-    EXPECT_THROW(createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false, {}, true), Exception);
+    // A listener starts accepting when it is added, not when FastTCPServer::start() is called.
+    // Probe throughout the lease wait: a refused node must never admit sessions whose receive
+    // threads would outlive its failed constructor.
+    atomic<bool> accepted {false};
+    {
+        jthread probe([&](const stop_token stop)
+        {
+            while (!stop.stop_requested())
+            {
+                try
+                {
+                    TCPSocket socket;
+                    socket.open(TestCluster::host(1));
+                    accepted = true;
+                    socket.close();
+                }
+                catch (const Exception&)
+                {
+                }
+                this_thread::sleep_for(10ms);
+            }
+        });
+        EXPECT_THROW(createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false, {}, true), Exception);
+    }
+    EXPECT_FALSE(accepted.load()) << "A node waiting for its lease must not accept MQTT connections";
 }
 
 /**
