@@ -43,7 +43,7 @@ vector<pair<String, String>> reachableClusterDatabases()
 {
     vector<pair<String, String>> databases;
 
-    vector<pair<String, String>> candidates {
+    vector<pair<String, String>> candidates{
         {"PostgreSQL", "postgresql://gtest:test#123@dbhost_pg/xmq_test"}};
 
 #if !defined(_WIN32) || !defined(_DEBUG)
@@ -169,7 +169,7 @@ protected:
             "queue_limits": {"max_size": 16384, "max_inflight_messages": 128},
             "authentication": {
                 "allow_anonymous": false,
-                "database_uri": ")" ) + m_databaseUri + R"("
+                "database_uri": ")") + m_databaseUri + R"("
             },
             "persistence": {"enabled": false, "redis_uri": "", "clean_start": true},
             "logging": {
@@ -199,7 +199,7 @@ protected:
         m_settings->loadConfiguration(m_configurationPath, usersPath);
 
         m_controller = make_shared<TestServerController>(nullptr, m_settings);
-        m_controlService = make_shared<ControlService>(m_controller.get());
+        m_controlService = make_shared<xmq::ControlService>(m_controller.get());
     }
 
     void TearDown() override
@@ -247,8 +247,8 @@ protected:
             fill(input);
         }
 
-        HttpAuthentication         authentication("bearer " + signIn());
-        CClusterControlResponse    output;
+        HttpAuthentication      authentication("bearer " + signIn());
+        CClusterControlResponse output;
         m_controlService->ClusterControl(input, output, &authentication);
         return output;
     }
@@ -260,12 +260,12 @@ protected:
         return store.nodeByName(name);
     }
 
-    filesystem::path                              m_directory;
-    filesystem::path                              m_configurationPath;
-    String                                        m_databaseUri;
-    shared_ptr<Settings>                          m_settings;
-    shared_ptr<TestServerController>              m_controller;
-    shared_ptr<ControlService>                    m_controlService;
+    filesystem::path                 m_directory;
+    filesystem::path                 m_configurationPath;
+    String                           m_databaseUri;
+    shared_ptr<Settings>             m_settings;
+    shared_ptr<TestServerController> m_controller;
+    shared_ptr<xmq::ControlService>  m_controlService;
 };
 
 /**
@@ -298,10 +298,10 @@ TEST_F(XMQ_ClusterControlTests, aNodeOnAClusterDatabaseListsItself)
 TEST_F(XMQ_ClusterControlTests, addDeclaresANodeInTheSharedDatabase)
 {
     const auto added = clusterControl("add", [](CClusterControl& input)
-                                      {
-                                          input.m_node.m_name = "node-2";
-                                          input.m_node.m_host_port = "localhost:13801";
-                                      });
+    {
+        input.m_node.m_name = "node-2";
+        input.m_node.m_host_port = "localhost:13801";
+    });
     ASSERT_TRUE(added.m_result.m_success == true) << added.m_result.m_description.asString().c_str();
 
     const auto declared = storedNode("node-2");
@@ -318,19 +318,19 @@ TEST_F(XMQ_ClusterControlTests, addDeclaresANodeInTheSharedDatabase)
 
     // A name belongs to one node: the second declaration of it is refused, and nothing is written.
     const auto again = clusterControl("add", [](CClusterControl& input)
-                                      {
-                                          input.m_node.m_name = "node-2";
-                                          input.m_node.m_host_port = "localhost:13802";
-                                      });
+    {
+        input.m_node.m_name = "node-2";
+        input.m_node.m_host_port = "localhost:13802";
+    });
     EXPECT_FALSE(again.m_result.m_success == true);
     EXPECT_NE(String::npos, again.m_result.m_description.asString().find("declared already"));
 
     // An address nobody could link to is refused as well.
     const auto badAddress = clusterControl("add", [](CClusterControl& input)
-                                           {
-                                               input.m_node.m_name = "node-3";
-                                               input.m_node.m_host_port = "not-an-address";
-                                           });
+    {
+        input.m_node.m_name = "node-3";
+        input.m_node.m_host_port = "not-an-address";
+    });
     EXPECT_FALSE(badAddress.m_result.m_success == true);
     EXPECT_FALSE(storedNode("node-3").has_value());
 }
@@ -342,24 +342,24 @@ TEST_F(XMQ_ClusterControlTests, addDeclaresANodeInTheSharedDatabase)
 TEST_F(XMQ_ClusterControlTests, removeTakesADeclaredNodeAway)
 {
     ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
-                               {
-                                   input.m_node.m_name = "node-2";
-                                   input.m_node.m_host_port = "localhost:13801";
-                               })
-                    .m_result.m_success == true);
+            {
+            input.m_node.m_name = "node-2";
+            input.m_node.m_host_port = "localhost:13801";
+            })
+        .m_result.m_success == true);
 
     const auto removed = clusterControl("remove", [](CClusterControl& input)
-                                        {
-                                            input.m_node.m_name = "node-2";
-                                        });
+    {
+        input.m_node.m_name = "node-2";
+    });
     ASSERT_TRUE(removed.m_result.m_success == true) << removed.m_result.m_description.asString().c_str();
     EXPECT_FALSE(storedNode("node-2").has_value());
     EXPECT_EQ(1U, removed.m_nodes.size());
 
     const auto own = clusterControl("remove", [](CClusterControl& input)
-                                    {
-                                        input.m_node.m_name = "control-node";
-                                    });
+    {
+        input.m_node.m_name = "control-node";
+    });
     EXPECT_FALSE(own.m_result.m_success == true);
     EXPECT_NE(String::npos, own.m_result.m_description.asString().find("serving this interface"));
     EXPECT_TRUE(storedNode("control-node").has_value());
@@ -372,11 +372,11 @@ TEST_F(XMQ_ClusterControlTests, removeTakesADeclaredNodeAway)
 TEST_F(XMQ_ClusterControlTests, removeRefusesAMember)
 {
     ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
-                               {
-                                   input.m_node.m_name = "node-2";
-                                   input.m_node.m_host_port = "localhost:13801";
-                               })
-                    .m_result.m_success == true);
+            {
+            input.m_node.m_name = "node-2";
+            input.m_node.m_host_port = "localhost:13801";
+            })
+        .m_result.m_success == true);
 
     // A member, as the storage knows one: the stored state is what the check falls back on when
     // there is no coordinator to ask.
@@ -389,9 +389,9 @@ TEST_F(XMQ_ClusterControlTests, removeRefusesAMember)
     }
 
     const auto refused = clusterControl("remove", [](CClusterControl& input)
-                                        {
-                                            input.m_node.m_name = "node-2";
-                                        });
+    {
+        input.m_node.m_name = "node-2";
+    });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("member of the cluster"));
     EXPECT_TRUE(storedNode("node-2").has_value());
@@ -406,10 +406,10 @@ TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
     TestServers::flushRedis();
 
     const auto enabled = clusterControl("enable", [this](CClusterControl& input)
-                                        {
-                                            input.m_redis_uri = TestServers::redisUri();
-                                            input.m_database_uri = m_databaseUri;
-                                        });
+    {
+        input.m_redis_uri = TestServers::redisUri();
+        input.m_database_uri = m_databaseUri;
+    });
     ASSERT_TRUE(enabled.m_result.m_success == true) << enabled.m_result.m_description.asString().c_str();
 
     // The configuration on disk carries the accounts database as well: the bootstrap file keeps
@@ -448,7 +448,7 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
         RedisConnect redis;
         redis.connect(URL(TestServers::redisUri()));
         vector<Variant> results;
-        RedisCommand command("ZADD", "cluster:members");
+        RedisCommand    command("ZADD", "cluster:members");
         command.emplace_back("1");
         command.emplace_back(std::string_view("11111111-2222-4333-8444-555555555555"));
         redis.executeCommand(command, results);
@@ -456,10 +456,10 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
     }
 
     const auto refused = clusterControl("enable", [this](CClusterControl& input)
-                                        {
-                                            input.m_redis_uri = TestServers::redisUri();
-                                            input.m_database_uri = m_databaseUri;
-                                        });
+    {
+        input.m_redis_uri = TestServers::redisUri();
+        input.m_database_uri = m_databaseUri;
+    });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("by invitation"));
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool()) << "the mode must not change";
@@ -474,10 +474,10 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
 TEST_F(XMQ_ClusterControlTests, enableRefusesADatabaseThatIsNotThere)
 {
     const auto refused = clusterControl("enable", [](CClusterControl& input)
-                                        {
-                                            input.m_redis_uri = TestServers::redisUri();
-                                            input.m_database_uri = "postgresql://xmq:xmq@127.0.0.1:1/xmq_cluster";
-                                        });
+    {
+        input.m_redis_uri = TestServers::redisUri();
+        input.m_database_uri = "postgresql://xmq:xmq@127.0.0.1:1/xmq_cluster";
+    });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
     EXPECT_FALSE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")));
@@ -493,10 +493,10 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesASqliteAccountsDatabase)
     filesystem::remove(path);
 
     const auto refused = clusterControl("enable", [&path](CClusterControl& input)
-                                        {
-                                            input.m_redis_uri = TestServers::redisUri();
-                                            input.m_database_uri = DirectoryNames::sqliteUri(path);
-                                        });
+    {
+        input.m_redis_uri = TestServers::redisUri();
+        input.m_database_uri = DirectoryNames::sqliteUri(path);
+    });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("SQLite is one machine's file"));
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
@@ -510,10 +510,10 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesASqliteAccountsDatabase)
 TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatIsNotThere)
 {
     const auto refused = clusterControl("enable", [this](CClusterControl& input)
-                                        {
-                                            input.m_redis_uri = "redis://127.0.0.1:1";
-                                            input.m_database_uri = m_databaseUri;
-                                        });
+    {
+        input.m_redis_uri = "redis://127.0.0.1:1";
+        input.m_database_uri = m_databaseUri;
+    });
     EXPECT_FALSE(refused.m_result.m_success == true);
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
     EXPECT_FALSE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")));

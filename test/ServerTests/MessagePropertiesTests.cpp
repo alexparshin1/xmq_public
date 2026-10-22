@@ -77,7 +77,7 @@ TEST_P(XMQ_ServerTests, MessageProperties_EncodeDecode)
     EXPECT_TRUE(properties2.getProperty(AuthenticationData, binaryValue));
     EXPECT_EQ("test", binaryValue);
 
-    int64_t value {0};
+    int64_t value{0};
     EXPECT_TRUE(properties2.getProperty(MaximumPacketSize, value));
     EXPECT_EQ(testMaximumPacketSize, value);
 
@@ -146,7 +146,7 @@ TEST_P(XMQ_ServerTests, MessageProperties_ConnectPerformance)
 
     constexpr auto oneThousand = 1000.0;
     COUT("Encoded " << fixed << setprecision(1) << iterations << " message properties in "
-                    << stopwatch.milliseconds() << " ms: " << iterations / stopwatch.seconds() / oneThousand << "K messages per second");
+        << stopwatch.milliseconds() << " ms: " << iterations / stopwatch.seconds() / oneThousand << "K messages per second");
 
     stopwatch.start();
     for (size_t i = 0; i < iterations; i++)
@@ -156,7 +156,7 @@ TEST_P(XMQ_ServerTests, MessageProperties_ConnectPerformance)
     }
     stopwatch.stop();
     COUT("Decoded " << fixed << setprecision(1) << iterations << " message properties in "
-                    << stopwatch.milliseconds() << " ms: " << iterations / stopwatch.seconds() / oneThousand << "K messages per second");
+        << stopwatch.milliseconds() << " ms: " << iterations / stopwatch.seconds() / oneThousand << "K messages per second");
 }
 
 // Test of the Request-Response scenario.
@@ -167,8 +167,8 @@ TEST_P(XMQ_ServerTests, MessageProperties_ConnectPerformance)
 // 5. The test ends when the requester gets the "World" message in the ResponseTopic.
 TEST_F(XMQ_ServerTests, MessageProperties_RequestResponse)
 {
-    auto logger = debugLog(true);
-    const auto [publisherClientId, responderClientId, topicName] = makeTestNames();
+    auto           logger = debugLog(true);
+    const auto     [publisherClientId, responderClientId, topicName] = makeTestNames();
     constexpr auto protocolVersion = ProtocolVersion::MqttV5;
 
     // Connect two clients: publisher and responder
@@ -205,10 +205,10 @@ TEST_F(XMQ_ServerTests, MessageProperties_RequestResponse)
             string_view gotResponseTopicName;
             string_view gotCorrelationData;
 
-            requestMessage->getProperties()->getProperty(ResponseTopic, gotResponseTopicName);
+            ASSERT_TRUE(requestMessage->getProperties()->getProperty(ResponseTopic, gotResponseTopicName));
             ASSERT_EQ(responseTopicName, gotResponseTopicName);
 
-            requestMessage->getProperties()->getProperty(CorrelationData, gotCorrelationData);
+            ASSERT_TRUE(requestMessage->getProperties()->getProperty(CorrelationData, gotCorrelationData));
             ASSERT_EQ(correlationData, gotCorrelationData);
 
             requestReceived.post();
