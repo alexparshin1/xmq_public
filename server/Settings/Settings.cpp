@@ -1750,8 +1750,8 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     }
 
     CInitialSetup setup;
-    const auto    thisNode = section(section(root, "cluster"), "this_node");
-    setup.m_node_name = thisNode->getString("node_name");
+    const auto thisNode = section(section(root, "cluster"), "this_node");
+    setup.m_node_name = thisHostName();
 
     // The template says "localhost", which is a placeholder rather than an answer: it is the one
     // address certain to be wrong for every other node in a cluster, because it names each node's
@@ -1780,6 +1780,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // Setting up another node against shared accounts must not reset everybody's
     // passwords. Verify the supplied credentials before changing any local settings.
     bool existingSharedAccounts = false;
+    bool initializeSharedPasswords = false;
     const auto setupUri = setup.m_database_uri.asString();
     if (!setupUri.empty() && !setupUri.toLowerCase().starts_with("sqlite"))
     {
@@ -1789,14 +1790,8 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
         existingSharedAccounts = !store.users().empty();
         if (existingSharedAccounts)
         {
-            for (const auto& entry: {pair<String, String>("admin", setup.m_admin_password.asString()),
-                                     pair<String, String>("cluster", setup.m_cluster_password.asString())})
-            {
-                const auto account = store.findUser(entry.first);
-                if (!account || !account->m_enabled || !PasswordHash::verify(entry.second, account->m_password))
-                    throw Exception("Initial Setup must use the existing " + entry.first +
-                                    " password for this shared accounts database. Its accounts were not changed.");
-            }
+            initializeSharedPasswords = store.checkSetupPasswords(
+                setup.m_admin_password.asString(), setup.m_cluster_password.asString());
         }
     }
 
@@ -1884,7 +1879,19 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
         resetUsersUnlocked(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
     if (m_accountsPool)
     {
-        UserStore(m_accountsPool).setClusterSecret(setup.m_cluster_password.asString());
+        UserStore store(m_accountsPool);
+        if (initializeSharedPasswords)
+        {
+            store.initializeSetupPasswords(setup.m_admin_password.asString(), setup.m_cluster_password.asString(),
+                                          passwordIterationsUnlocked());
+            const auto [defaultGroup, administratorsGroup] = store.createStandardGroups();
+            const auto admin = store.findUser("admin");
+            store.addUserToGroup(admin->m_id, defaultGroup);
+            store.addUserToGroup(admin->m_id, administratorsGroup);
+            store.addUserToGroup(store.findUser("cluster")->m_id, defaultGroup);
+            m_userManager.reload();
+        }
+        store.setClusterSecret(setup.m_cluster_password.asString());
         m_cluster.m_password = "";
     }
 

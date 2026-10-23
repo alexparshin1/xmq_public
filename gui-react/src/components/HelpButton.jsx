@@ -43,7 +43,7 @@ export default class HelpButton extends React.Component
                     {this.renderHelpFact("Suggested", help.suggested)}
                 </div>
                 <div className="modalFooter">
-                    <button className="modalOkButton"
+                    <button type="button" className="modalOkButton"
                             onClick={() => this.setState({showHelp: false})}>
                         Ok
                     </button>

@@ -96,7 +96,8 @@ void ControlService::requireReachableRedis(const CInitialSetup& setup)
     try
     {
         RedisConnect probe;
-        (void) probe.connect(redisHost.c_str(), static_cast<uint16_t>(redisPort));
+        probe.setReadTimeout(chrono::milliseconds(1500));
+        (void) probe.connect(redisHost.c_str(), static_cast<uint16_t>(redisPort), "", "", "", chrono::milliseconds(1500));
         probe.disconnect();
     }
     catch (const Exception& exception)
@@ -151,23 +152,8 @@ void ControlService::requireReachableDatabase(const CInitialSetup& setup)
             // A fresh database has no accounts table yet. Initialise the schema before looking
             // for an administrator; existing accounts are left untouched by createSchema().
             users.createSchema();
-            if (const auto admin = users.findUser("admin"))
-            {
-                const auto enteredPassword = setup.m_admin_password.asString();
-                if (!PasswordHash::verify(enteredPassword, admin->m_password))
-                {
-                    throw Exception("The admin password does not match the one in the shared "
-                                    "database. Enter the password that was set on the first node.");
-                }
-            }
-            if (const auto cluster = users.findUser("cluster"))
-            {
-                if (!PasswordHash::verify(setup.m_cluster_password.asString(), cluster->m_password))
-                {
-                    throw Exception("The cluster password does not match the one in the shared "
-                                    "database. Enter the cluster password set on the first node.");
-                }
-            }
+            if (!users.users().empty())
+                (void) users.checkSetupPasswords(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
         }
     }
     catch (const Exception&)
@@ -2281,6 +2267,18 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
         {
             output.m_setup = settings->initialSetup();
             output.m_running = m_controller->isServing();
+        }
+        else if (action == "check-redis")
+        {
+            const auto port = input.m_redis_port.asInteger();
+            if (String(input.m_redis_host.asString()).trim().empty())
+                throw Exception("Enter a Redis hostname to check its availability.");
+            if (port < 1 || port > 65535)
+                throw Exception("The Redis port must be between 1 and 65535.");
+            CInitialSetup probe;
+            probe.m_redis_host = input.m_redis_host;
+            probe.m_redis_port = input.m_redis_port;
+            requireReachableRedis(probe);
         }
         else if (action == "set")
         {

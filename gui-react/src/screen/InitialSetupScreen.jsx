@@ -5,6 +5,7 @@ import HelpButton from "../components/HelpButton";
 import "./InputScreen.css"
 import BasicScreen from "./BasicScreen";
 import PageTitle from "../components/PageTitle";
+import PasswordInput from "../components/PasswordInput";
 
 /**
  * Initial setup screen.
@@ -24,6 +25,8 @@ export default class InitialSetupScreen extends BasicScreen {
         admin_password_confirmation: "",
         cluster_password: "",
         cluster_password_confirmation: "",
+        admin_confirmation_checked: false,
+        cluster_confirmation_checked: false,
         node_name: "",
         // The address other machines reach this server at, which is not the same as the name it
         // is labelled with. Filled in from the server, which offers this machine's host name.
@@ -33,6 +36,7 @@ export default class InitialSetupScreen extends BasicScreen {
         web_service_port: 18883,
         redis_host: "",
         redis_port: 6379,
+        redisCheck: null,
         database_type: "",
         database_host: "",
         database_name: "xmq",
@@ -103,6 +107,45 @@ export default class InitialSetupScreen extends BasicScreen {
      * @return {?string} the reason, or null.
      */
     passwordRef = React.createRef();
+    redisProbeId = 0;
+
+    componentWillUnmount() { this.redisProbeId++; }
+
+    changeRedis(field, value) {
+        this.redisProbeId++;
+        this.setState({[field]: value, redisCheck: null});
+    }
+
+    async checkRedis() {
+        const host = this.state.redis_host.trim();
+        const port = Number(this.state.redis_port);
+        if (!host) {
+            this.redisProbeId++;
+            this.setState({redisCheck: null});
+            return;
+        }
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            this.redisProbeId++;
+            this.setState({redisCheck: {status: "error", message: "The Redis port must be between 1 and 65535."}});
+            return;
+        }
+        const address = `${host}:${port}`;
+        if (this.state.redisCheck?.status === "checking" && this.state.redisCheck.address === address) return;
+        const id = ++this.redisProbeId;
+        this.setState({redisCheck: {status: "checking", address, message: `Checking Redis at ${address}…`}});
+        let error;
+        try {
+            const result = await ControlAPI.asyncMakeAPICall("InitialSetupControl", {
+                action: "check-redis", redis_host: host, redis_port: port
+            }, true);
+            error = result ? ControlAPI.apiError(result) : "The server did not answer the Redis check. Try again.";
+        } catch {
+            error = "The Redis check could not be completed. Try again.";
+        }
+        if (id !== this.redisProbeId) return;
+        this.setState({redisCheck: {status: error ? "error" : "success", address,
+            message: error || `Redis at ${address} is reachable.`}});
+    }
 
     /**
      * Whether the server refused what was typed as a password rather than something else.
@@ -199,6 +242,7 @@ export default class InitialSetupScreen extends BasicScreen {
      * away rather than changing them, and it does so the moment the button is pressed.
      */
     async submit() {
+        if (this.state.busy) return;
         const error = this.validationError();
         if (error) {
             errorWindow(error);
@@ -281,7 +325,14 @@ export default class InitialSetupScreen extends BasicScreen {
     }
 
     render() {
-        return <div className="inputScreen">
+        const adminMismatch = this.state.admin_confirmation_checked &&
+            this.state.admin_password !== this.state.admin_password_confirmation;
+        const clusterMismatch = this.state.cluster_confirmation_checked &&
+            this.state.cluster_password !== this.state.cluster_password_confirmation;
+        return <form className="inputScreen" noValidate onSubmit={event => {
+            event.preventDefault();
+            this.submit();
+        }}>
             <PageTitle>Initial Setup</PageTitle>
 
             {this.state.firstRun
@@ -356,7 +407,7 @@ export default class InitialSetupScreen extends BasicScreen {
                 </div>
                 <div className="inputScreenRow">
                     <label htmlFor="admin_password" className="inputScreenLabel">Password:</label>
-                    <input name="admin_password" type="password" autoComplete="new-password"
+                    <PasswordInput id="admin_password" name="admin_password" autoComplete="new-password"
                            ref={this.passwordRef}
                            value={this.state.admin_password}
                            onChange={(e) => this.setState({admin_password: e.target.value})}/>
@@ -365,9 +416,15 @@ export default class InitialSetupScreen extends BasicScreen {
                     <label htmlFor="admin_password_confirmation" className="inputScreenLabel">
                         Repeat password:
                     </label>
-                    <input name="admin_password_confirmation" type="password" autoComplete="new-password"
+                    <PasswordInput id="admin_password_confirmation" name="admin_password_confirmation" autoComplete="new-password"
                            value={this.state.admin_password_confirmation}
+                           onBlur={() => this.setState({admin_confirmation_checked: true})}
+                           aria-invalid={adminMismatch}
+                           aria-describedby={adminMismatch ? "admin_password_mismatch" : undefined}
                            onChange={(e) => this.setState({admin_password_confirmation: e.target.value})}/>
+                    {adminMismatch && <span id="admin_password_mismatch" role="alert" style={{color: "#c62828", marginLeft: 8}}>
+                        The two administrator passwords do not match.
+                    </span>}
                 </div>
             </fieldset>
 
@@ -378,15 +435,21 @@ export default class InitialSetupScreen extends BasicScreen {
                     enable Cluster mode on the first node, then use Join cluster for additional nodes.</p>
                 <div className="inputScreenRow">
                     <label htmlFor="cluster_password" className="inputScreenLabel">Cluster password:</label>
-                    <input id="cluster_password" name="cluster_password" type="password" autoComplete="new-password"
+                    <PasswordInput id="cluster_password" name="cluster_password" autoComplete="new-password"
                            value={this.state.cluster_password}
                            onChange={(e) => this.setState({cluster_password: e.target.value})}/>
                 </div>
                 <div className="inputScreenRow">
                     <label htmlFor="cluster_password_confirmation" className="inputScreenLabel">Repeat cluster password:</label>
-                    <input id="cluster_password_confirmation" name="cluster_password_confirmation" type="password"
+                    <PasswordInput id="cluster_password_confirmation" name="cluster_password_confirmation"
                            autoComplete="new-password" value={this.state.cluster_password_confirmation}
+                           onBlur={() => this.setState({cluster_confirmation_checked: true})}
+                           aria-invalid={clusterMismatch}
+                           aria-describedby={clusterMismatch ? "cluster_password_mismatch" : undefined}
                            onChange={(e) => this.setState({cluster_password_confirmation: e.target.value})}/>
+                    {clusterMismatch && <span id="cluster_password_mismatch" role="alert" style={{color: "#c62828", marginLeft: 8}}>
+                        The two cluster passwords do not match.
+                    </span>}
                 </div>
             </fieldset>
 
@@ -394,7 +457,7 @@ export default class InitialSetupScreen extends BasicScreen {
                 <legend>This Server</legend>
                 <div className="inputScreenRow">
                     <label htmlFor="node_name" className="inputScreenLabel">Node name:</label>
-                    <input name="node_name" type="text" style={{width: '200px'}}
+                    <input id="node_name" name="node_name" type="text" style={{width: '200px'}}
                            value={this.state.node_name}
                            onChange={(e) => this.setState({node_name: e.target.value})}/>
                     <HelpButton helpKey="initial_setup.node_name"/>
@@ -427,17 +490,23 @@ export default class InitialSetupScreen extends BasicScreen {
                 </div>
                 <div className="inputScreenRow">
                     <label htmlFor="redis_host" className="inputScreenLabel">Redis host:</label>
-                    <input name="redis_host" type="text"
+                    <input id="redis_host" name="redis_host" type="text"
                            value={this.state.redis_host}
-                           onChange={(e) => this.setState({redis_host: e.target.value})}/>
+                           onBlur={() => this.checkRedis()}
+                           onChange={(e) => this.changeRedis("redis_host", e.target.value)}/>
 
                     <label htmlFor="redis_port" className="inputScreenLabel"
                            style={{width: '50px'}}>port:</label>
-                    <input name="redis_port" type="number" style={{width: '80px'}}
+                    <input id="redis_port" name="redis_port" type="number" style={{width: '80px'}}
                            value={this.state.redis_port}
-                           onChange={(e) => this.setState({redis_port: e.target.value})}/>
+                           onBlur={() => this.checkRedis()}
+                           onChange={(e) => this.changeRedis("redis_port", e.target.value)}/>
                     <HelpButton helpKey="persistence.redis_host"/>
                 </div>
+                {this.state.redisCheck && <p role={this.state.redisCheck.status === "error" ? "alert" : "status"}
+                    style={{color: this.state.redisCheck.status === "error" ? "#c62828" : "#666"}}>
+                    {this.state.redisCheck.message}
+                </p>}
             </fieldset>
 
             <fieldset>
@@ -447,7 +516,12 @@ export default class InitialSetupScreen extends BasicScreen {
                         Optional. A PostgreSQL or MySQL database shared by every node in a
                         cluster. Select SQLite for a standalone server that keeps its accounts
                         in a local database. For a shared database, the administrator password must
-                        match the one already in the shared database.
+                        match the one already in the shared database if it has been set.
+                        If the enabled admin account has no password yet, Setup sets the first
+                        administrator and cluster passwords together and preserves other users.
+                        Submit and restart checks the PostgreSQL or MySQL connection using the
+                        database name and credentials below before applying settings. If the
+                        connection fails, the current configuration stays unchanged.
                     </p>
                 </div>
                 <div className="inputScreenRow">
@@ -490,10 +564,9 @@ export default class InitialSetupScreen extends BasicScreen {
 
             <div className="inputScreenRow">
                 <label className="inputScreenLabel"/>
-                <button className="inputScreenSaveButton" style={{width: "180px"}}
-                        disabled={this.state.busy}
-                        onClick={() => this.submit()}>
-                    {this.state.busy ? "Working..." : "Submit and restart"}
+                <button type="submit" className="inputScreenSaveButton" style={{width: "180px"}}
+                        disabled={this.state.busy}>
+                    {this.state.busy ? "Checking connections and applying setup..." : "Submit and restart"}
                 </button>
             </div>
 
@@ -505,6 +578,6 @@ export default class InitialSetupScreen extends BasicScreen {
                     {this.state.message}
                 </div>
                 : null}
-        </div>;
+        </form>;
     }
 }

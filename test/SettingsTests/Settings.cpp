@@ -302,7 +302,7 @@ TEST(XMQ_Settings, initialSetupDefaults)
 
     const auto defaults = settings.initialSetup(templateFile);
 
-    EXPECT_STREQ("xmq-1880", defaults.m_node_name.asString().c_str());
+    EXPECT_EQ(thisHostName(), defaults.m_node_name.asString());
     EXPECT_EQ(1880, defaults.m_mqtt_port.asInteger());
     EXPECT_EQ(8880, defaults.m_mqtt_ssl_port.asInteger());
     EXPECT_EQ(18880, defaults.m_web_service_port.asInteger());

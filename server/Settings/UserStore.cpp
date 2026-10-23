@@ -15,6 +15,7 @@
 #include "UserStore.h"
 
 #include "PasswordHash.h"
+#include <sptk5/db/Transaction.h>
 #include "service/CUsers.h"
 
 #include <sptk5/JWT.h>
@@ -532,6 +533,61 @@ size_t UserStore::importUsersFrom(const std::filesystem::path& usersFile, const 
     }
 
     return imported;
+}
+
+bool UserStore::checkSetupPasswords(const String& adminPassword, const String& clusterPassword)
+{
+    const auto admin = findUser("admin");
+    if (!admin || !admin->m_enabled)
+        throw Exception("The shared database needs an enabled admin account before Initial Setup.");
+    const auto cluster = findUser("cluster");
+    if (cluster && !cluster->m_enabled)
+        throw Exception("The shared cluster account is disabled. Initial Setup did not change it.");
+    if (admin->m_password.empty()) return true;
+    if (!PasswordHash::verify(adminPassword, admin->m_password))
+        throw Exception("The admin password does not match the one in the shared database. Initial Setup must use the existing admin password.");
+    if (!cluster || !PasswordHash::verify(clusterPassword, cluster->m_password))
+        throw Exception("The cluster password does not match the one in the shared database. Initial Setup must use the existing cluster password.");
+    return false;
+}
+
+void UserStore::initializeSetupPasswords(const String& adminPassword, const String& clusterPassword, const int iterations)
+{
+    const auto connection = make_shared<AutoDatabaseConnection>(*m_database);
+    Transaction transaction(connection);
+    transaction.begin();
+    const bool sqlite = m_database->driverName().toLowerCase().starts_with("sqlite");
+    Query admin(connection->connection(), String("SELECT password, is_enabled FROM xmq_user WHERE username = 'admin'") +
+                                        (sqlite ? "" : " FOR UPDATE"));
+    admin.open();
+    if (admin.eof() || !admin["password"].asString().empty() || admin["is_enabled"].asInteger() == 0)
+        throw Exception("The shared administrator was already initialized or disabled. Retry Initial Setup with its existing password.");
+    admin.close();
+    Query cluster(connection->connection(), String("SELECT is_enabled FROM xmq_user WHERE username = 'cluster'") +
+                                          (sqlite ? "" : " FOR UPDATE"));
+    cluster.open();
+    const bool hasCluster = !cluster.eof();
+    if (hasCluster && cluster["is_enabled"].asInteger() == 0)
+        throw Exception("The shared cluster account is disabled. Initial Setup did not change it.");
+    cluster.close();
+    for (const auto& [username, password]: {pair<String, String>("admin", adminPassword), pair<String, String>("cluster", clusterPassword)})
+    {
+        const bool insert = username == "cluster" && !hasCluster;
+        Query update(connection->connection(), insert
+            ? "INSERT INTO xmq_user (username, password, is_enabled, revision, updated_at, updated_by) VALUES (:username, :password, 1, 1, :now, 'initial-setup')"
+            : "UPDATE xmq_user SET password = :password, revision = revision + 1, updated_at = :now, updated_by = 'initial-setup' WHERE username = :username");
+        update.param("username") = username;
+        update.param("password") = PasswordHash::hash(password, iterations);
+        update.param("now") = nowUtc();
+        update.exec();
+    }
+    const auto driver = m_database->driverName().toLowerCase();
+    const auto suffix = driver.starts_with("mysql") || driver.starts_with("mariadb")
+        ? " ON DUPLICATE KEY UPDATE secret = VALUES(secret)" : " ON CONFLICT (id) DO UPDATE SET secret = excluded.secret";
+    Query credential(connection->connection(), String("INSERT INTO xmq_cluster_credential (id, secret) VALUES (1, :secret)") + suffix);
+    credential.param("secret") = clusterPassword;
+    credential.exec();
+    transaction.commit();
 }
 
 String UserStore::clusterSecret()

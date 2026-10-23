@@ -61,7 +61,8 @@ psql "postgresql://xmq:yourpassword@db-host/xmq" -c '\\dt'
 
             <p>
                 Install the package on the first host, start the server, and open the
-                configuration interface. A server that has never been set up answers on the
+                configuration interface in a browser at <code>https://localhost:18883</code>.
+                A server that has never been set up answers on the
                 loopback address only, and its <code>admin</code> account has no password yet:
                 the interface signs the administrator in by itself, and the <b>Initial Setup</b>
                 page opens.
@@ -120,10 +121,12 @@ sudo systemctl enable --now xmq_server
                 The database <b>host</b> may include a port. <b>Database user</b> and
                 <b> Database password</b> are the SQL credentials, separate from the administrator
                 password above. The interface builds the URI from these fields. If the database
-                already holds an <code>admin</code> account, enter that account's password in
+                already holds an <code>admin</code> account with a password, enter that password in
                 the <b>Administrator</b> section. Enter the shared cluster password in the
                 <b> Cluster account</b> section. Configuring the shared database and Redis
                 registers the node for discovery; it does not enable cluster mode or join a cluster.
+                If the enabled admin account has no password yet, Initial Setup assigns the first
+                administrator and cluster passwords together; other user accounts are preserved.
             </p>
 
             <p>

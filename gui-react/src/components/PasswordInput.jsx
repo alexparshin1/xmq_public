@@ -17,6 +17,10 @@ import './PasswordInput.css';
 export default class PasswordInput extends React.Component {
 
     state = {visible: false};
+    inputRef = React.createRef();
+
+    focus() { this.inputRef.current?.focus(); }
+    select() { this.inputRef.current?.select(); }
 
     render() {
         // The wrapper is what positions the button, so it takes the class name a caller means for
@@ -27,6 +31,7 @@ export default class PasswordInput extends React.Component {
 
         return <span className={"passwordInput" + (wrapperClassName ? " " + wrapperClassName : "")}>
             <input {...inputProps}
+                   ref={this.inputRef}
                    type={visible ? "text" : "password"}
                    className={"passwordInputField" + (className ? " " + className : "")}/>
             {/* type="button": several of these live inside a <form>, and a button without it is a

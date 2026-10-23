@@ -177,6 +177,60 @@ TEST_F(XMQ_UserStoreTests, clusterCredentialIsSharedAndMustMatchTheAccount)
     }
 }
 
+TEST_F(XMQ_UserStoreTests, setupInitializesBlankAdministratorAndClusterTogether)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+        store.addUser({.m_username = "admin", .m_password = ""});
+        store.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("Generated-Secret1", 1000)});
+        store.addUser({.m_username = "client", .m_password = PasswordHash::hash("Client-Secret1", 1000)});
+        const auto client = *store.findUser("client");
+        EXPECT_TRUE(store.checkSetupPasswords("Admin-Secret1", "Cluster-Secret1"));
+        store.initializeSetupPasswords("Admin-Secret1", "Cluster-Secret1", 1000);
+        EXPECT_TRUE(PasswordHash::verify("Admin-Secret1", store.findUser("admin")->m_password));
+        EXPECT_TRUE(PasswordHash::verify("Cluster-Secret1", store.findUser("cluster")->m_password));
+        EXPECT_EQ("Cluster-Secret1", store.clusterSecret());
+        EXPECT_EQ(client.m_password, store.findUser("client")->m_password);
+        const auto adminHash = store.findUser("admin")->m_password;
+        const auto clusterHash = store.findUser("cluster")->m_password;
+        EXPECT_FALSE(store.checkSetupPasswords("Admin-Secret1", "Cluster-Secret1"));
+        EXPECT_THROW(store.checkSetupPasswords("Wrong-Secret1", "Cluster-Secret1"), Exception);
+        EXPECT_THROW(store.initializeSetupPasswords("Later-Secret1", "Later-Secret1", 1000), Exception);
+        EXPECT_EQ(adminHash, store.findUser("admin")->m_password);
+        EXPECT_EQ(clusterHash, store.findUser("cluster")->m_password);
+        auto disabled = *store.findUser("admin");
+        disabled.m_password = "";
+        disabled.m_enabled = false;
+        store.updateUser(disabled);
+        EXPECT_THROW(store.checkSetupPasswords("Admin-Secret1", "Cluster-Secret1"), Exception);
+        EXPECT_THROW(store.initializeSetupPasswords("Admin-Secret1", "Cluster-Secret1", 1000), Exception);
+        EXPECT_EQ(clusterHash, store.findUser("cluster")->m_password);
+    }
+}
+
+TEST_F(XMQ_UserStoreTests, bootstrapPasswordFailureRollsBackBothAccounts)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+        store.addUser({.m_username = "admin", .m_password = ""});
+        store.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("Generated-Secret1", 1000)});
+        const auto original = store.findUser("cluster")->m_password;
+        {
+            DatabaseConnectionPool pool(uri, 1);
+            const AutoDatabaseConnection connection(pool);
+            Query drop(connection.connection(), "DROP TABLE xmq_cluster_credential");
+            drop.exec();
+        }
+        EXPECT_THROW(store.initializeSetupPasswords("Admin-Secret1", "Cluster-Secret1", 1000), Exception);
+        EXPECT_TRUE(store.findUser("admin")->m_password.empty());
+        EXPECT_EQ(original, store.findUser("cluster")->m_password);
+    }
+}
+
 TEST_F(XMQ_UserStoreTests, initialSetupDoesNotResetExistingSharedAccounts)
 {
     for (const auto& [name, uri]: m_databases)
@@ -228,6 +282,22 @@ TEST_F(XMQ_UserStoreTests, initialSetupDoesNotResetExistingSharedAccounts)
         EXPECT_EQ(admin.m_password, store.findUser("admin")->m_password);
         EXPECT_EQ(cluster.m_password, store.findUser("cluster")->m_password);
         EXPECT_EQ("Cluster-Secret1", store.clusterSecret());
+        EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+
+        // Reproduce an accounts store seeded by first startup: admin has no
+        // password and cluster has a generated verifier nobody typed in Setup.
+        auto bootstrapAdmin = *store.findUser("admin");
+        bootstrapAdmin.m_password = "";
+        store.updateUser(bootstrapAdmin);
+        auto bootstrapCluster = *store.findUser("cluster");
+        bootstrapCluster.m_password = PasswordHash::hash("Generated-Secret1", 1000);
+        store.updateUser(bootstrapCluster);
+        store.addUser({.m_username = "retained-client", .m_password = PasswordHash::hash("Client-Secret1", 1000)});
+        settings.applyInitialSetup(setup, configuration);
+        EXPECT_TRUE(settings.userManager().authenticate("admin", "Admin-Secret1"));
+        EXPECT_TRUE(settings.userManager().isAdministrator("admin"));
+        EXPECT_TRUE(settings.userManager().authenticate("cluster", "Cluster-Secret1"));
+        EXPECT_TRUE(store.findUser("retained-client").has_value());
         EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
     }
 }

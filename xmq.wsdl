@@ -1055,6 +1055,7 @@
                                 <xsd:restriction base="xsd:string">
                                     <!-- The values a new configuration would start from. -->
                                     <xsd:enumeration value="get"></xsd:enumeration>
+                                    <xsd:enumeration value="check-redis"></xsd:enumeration>
                                     <!-- Replace the configuration and restart the MQTT server. -->
                                     <xsd:enumeration value="set"></xsd:enumeration>
                                 </xsd:restriction>
@@ -1063,6 +1064,8 @@
                         <xsd:element name="setup"
                                      type="tns:InitialSetup" maxOccurs="1" minOccurs="0">
                         </xsd:element>
+                        <xsd:element name="redis_host" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="redis_port" type="xsd:int" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

@@ -16,6 +16,7 @@
 
 #include "server/Settings/UserStore.h"
 #include "server/Settings/PasswordHash.h"
+#include "test/TestServers.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -68,6 +69,67 @@ TEST_F(XMQ_ControlServiceTests, login)
 
     // As regular user:
     EXPECT_ANY_THROW({ token = Login("user", "secret"); });
+}
+
+TEST_F(XMQ_ControlServiceTests, initialSetupChecksRedisWithoutApplyingConfiguration)
+{
+    const auto settings = server()->getSettings();
+    Buffer before;
+    before.loadFromFile(settings->configurationPath());
+    const auto serving = m_controller->isServing();
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    const URL redis(TestServers::redisUri());
+    const auto& [host, port] = redis.hostAndPort();
+    CInitialSetupControl request;
+    request.m_action = "check-redis";
+    request.m_redis_host = host;
+    request.m_redis_port = port;
+    CInitialSetupControlResponse response;
+    m_controlService->InitialSetupControl(request, response, &authentication);
+    ASSERT_TRUE(response.m_result.m_success.asBool()) << response.m_result.m_description.asString();
+    request.m_redis_host = "127.0.0.1";
+    request.m_redis_port = 1;
+    CInitialSetupControlResponse unavailable;
+    m_controlService->InitialSetupControl(request, unavailable, &authentication);
+    EXPECT_FALSE(unavailable.m_result.m_success.asBool());
+    EXPECT_NE(String::npos, unavailable.m_result.m_description.asString().find("cannot be reached"));
+    request.m_redis_port = 65536;
+    CInitialSetupControlResponse invalid;
+    m_controlService->InitialSetupControl(request, invalid, &authentication);
+    EXPECT_FALSE(invalid.m_result.m_success.asBool());
+    Buffer after;
+    after.loadFromFile(settings->configurationPath());
+    EXPECT_EQ(String(before), String(after));
+    EXPECT_EQ(serving, m_controller->isServing());
+}
+
+TEST_F(XMQ_ControlServiceTests, initialSetupRefusesUnavailablePostgresOrMysqlBeforeApplying)
+{
+    const auto settings = server()->getSettings();
+    Buffer before;
+    before.loadFromFile(settings->configurationPath());
+    const auto serving = m_controller->isServing();
+    const auto listenerPort = settings->m_web_service.m_listener_port.asInteger();
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    for (const auto* type: {"postgresql", "mysql"})
+    {
+        SCOPED_TRACE(type);
+        CInitialSetupControl request;
+        request.m_action = "set";
+        request.m_setup.m_admin_password = "Sunflower7!";
+        request.m_setup.m_cluster_password = "Cluster-Secret1";
+        request.m_setup.m_database_uri = String(type) + "://probe:Secret7@127.0.0.1:1/unavailable";
+        CInitialSetupControlResponse response;
+        m_controlService->InitialSetupControl(request, response, &authentication);
+        EXPECT_FALSE(response.m_result.m_success.asBool());
+        EXPECT_NE(String::npos, response.m_result.m_description.asString().find("127.0.0.1"))
+            << response.m_result.m_description.asString();
+        Buffer after;
+        after.loadFromFile(settings->configurationPath());
+        EXPECT_EQ(String(before), String(after));
+        EXPECT_EQ(serving, m_controller->isServing());
+        EXPECT_EQ(listenerPort, settings->m_web_service.m_listener_port.asInteger());
+    }
 }
 
 TEST_F(XMQ_ControlServiceTests, initialSetupInitialisesAnEmptySharedUserDatabase)

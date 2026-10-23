@@ -45,6 +45,11 @@ public:
     /// Reading and writing both require it to match the enabled cluster account's verifier.
     [[nodiscard]] sptk::String clusterSecret();
     void setClusterSecret(const sptk::String& secret);
+    /// True for an enabled bootstrap administrator whose password has never been set.
+    /// Otherwise validates both existing shared passwords without changing accounts.
+    bool checkSetupPasswords(const sptk::String& adminPassword, const sptk::String& clusterPassword);
+    /// Atomically assigns the first admin/cluster passwords and outbound credential.
+    void initializeSetupPasswords(const sptk::String& adminPassword, const sptk::String& clusterPassword, int iterations);
 
     /// One account, as the database holds it.
     struct User
