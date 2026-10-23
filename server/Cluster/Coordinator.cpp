@@ -173,7 +173,18 @@ for _, id in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
   table.insert(out, node[1] or '')
   table.insert(out, node[2] or '')
   table.insert(out, redis.call('EXISTS', ARGV[2] .. id))
+  table.insert(out, id)
 end
+return out)";
+
+const string SnapshotScript = "local function members()\n" + MembersScript + R"(
+end
+local out = members()
+local coordinator = redis.call('GET', 'cluster:coordinator') or ''
+local id = string.match(coordinator, ' (.+)$')
+local name = ''
+if id then name = redis.call('HGET', ARGV[1] .. id, 'name') or '' end
+table.insert(out, 1, name)
 return out)";
 
 int64_t ticks(const chrono::steady_clock::time_point time)
@@ -373,11 +384,35 @@ vector<Coordinator::Member> Coordinator::members()
     const scoped_lock lock(m_mutex);
     const auto        results = eval(MembersScript, {MembersKey}, {NodePrefix, AlivePrefix});
     vector<Member>    members;
-    for (size_t i = 0; i + 2 < results.size(); i += 3)
+    for (size_t i = 0; i + 3 < results.size(); i += 4)
     {
-        members.push_back({results[i].asString().c_str(), results[i + 1].asString().c_str(), results[i + 2].asInt64() == 1});
+        members.push_back({results[i].asString().c_str(), results[i + 1].asString().c_str(),
+                           results[i + 2].asInt64() == 1, results[i + 3].asString().c_str()});
     }
     return members;
+}
+
+Coordinator::Snapshot Coordinator::readSnapshot(RedisConnect& redis)
+{
+    vector<Variant> results;
+    RedisCommand command("EVAL", SnapshotScript);
+    command.emplace_back("1");
+    command.emplace_back(MembersKey);
+    command.emplace_back(NodePrefix);
+    command.emplace_back(AlivePrefix);
+    redis.executeCommand(command, results);
+    if (results.empty() || (results.size() - 1) % 4 != 0)
+    {
+        throw Exception("Unexpected cluster snapshot from Redis.");
+    }
+    Snapshot snapshot;
+    snapshot.m_coordinatorName = results[0].asString().c_str();
+    for (size_t i = 1; i + 3 < results.size(); i += 4)
+    {
+        snapshot.m_members.push_back({results[i].asString().c_str(), results[i + 1].asString().c_str(),
+                                      results[i + 2].asInt64() == 1, results[i + 3].asString().c_str()});
+    }
+    return snapshot;
 }
 
 bool Coordinator::isMember(const string& nodeName)

@@ -285,15 +285,18 @@ export default class ClusterScreen extends BasicScreen {
 
             <div className="inputScreenRow">
                 <label className="inputScreenLabel"/>
-                <button disabled={this.state.busy || !cluster.enabled} onClick={() => this.leaveCluster()}>
+                <button className="inputScreenSaveButton inputScreenActionButton"
+                        disabled={this.state.busy || !cluster.enabled} onClick={() => this.leaveCluster()}>
                     Leave cluster
                 </button>
-                <button disabled={this.state.busy || cluster.enabled} onClick={() => this.retireConfiguration()}>
+                <button className="inputScreenSaveButton inputScreenActionButton"
+                        disabled={this.state.busy || cluster.enabled} onClick={() => this.retireConfiguration()}>
                     Retire this configuration
                 </button>
-                <button disabled={this.state.busy || !this.state.selected}
+                <button className="inputScreenSaveButton inputScreenActionButton"
+                        disabled={this.state.busy || !this.state.selected}
                         onClick={() => this.removeNode(null, true)}>Force remove node&hellip;</button>
-                <button className="inputScreenSaveButton" disabled={this.state.busy}
+                <button className="inputScreenSaveButton inputScreenActionButton" disabled={this.state.busy}
                         onClick={() => {
                             if (!this.state.selected) {
                                 errorWindow("Please select a node to invite.");

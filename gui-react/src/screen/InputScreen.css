@@ -9,6 +9,16 @@
     cursor: pointer;
 }
 
+.inputScreenSaveButton.inputScreenActionButton {
+    width: auto;
+    min-width: 100px;
+}
+
+.inputScreenSaveButton:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .inputScreenRow {
     padding-left: 10px;
     padding: 4px;

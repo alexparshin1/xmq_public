@@ -2,6 +2,7 @@ import React from 'react';
 import {Navigate} from "react-router-dom";
 import ControlAPI from "../ControlAPI";
 import PasswordInput from "../components/PasswordInput";
+import "./InputScreen.css";
 
 /**
  * Sign-in page.
@@ -101,7 +102,8 @@ export default class LoginScreen extends React.Component {
                 </tr>
                 <tr>
                     <td colSpan={2} style={{textAlign: "center", paddingTop: "10px"}}>
-                        <button onClick={() => this.doLogin()}>Login to XMQ</button>
+                        <button className="inputScreenSaveButton inputScreenActionButton"
+                                onClick={() => this.doLogin()}>Login to XMQ</button>
                     </td>
                 </tr>
                 </tbody>

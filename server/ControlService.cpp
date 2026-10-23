@@ -848,24 +848,6 @@ void ControlService::PersistenceControl(const CPersistenceControl& input, CPersi
 
 namespace {
 /**
- * @brief The member list entry for a name, if the coordinator's last step named it.
- * @param members           Members as the coordinator last saw them.
- * @param name              Node name.
- * @return the entry, or null.
- */
-const cluster::Coordinator::Member* memberNamed(const vector<cluster::Coordinator::Member>& members, const String& name)
-{
-    for (const auto& member: members)
-    {
-        if (member.m_name == std::string(name.c_str()))
-        {
-            return &member;
-        }
-    }
-    return nullptr;
-}
-
-/**
  * @brief What the database holds of a node, as the screen takes it.
  * @param row               The node's row.
  * @param member            Receives the name, the address, the stored state and the error.
@@ -1005,6 +987,7 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
     const auto& settings = getSettings();
     const auto  store = settings->clusterStore();
     const bool  onClusterDatabase = store && store->isClusterDatabase();
+    vector<ClusterStore::Node> storedNodes;
 
     output.m_on_cluster_database = onClusterDatabase;
     output.m_enabled = !settings->m_cluster.m_enabled.isNull() && settings->m_cluster.m_enabled.asBool();
@@ -1028,7 +1011,8 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         }
 
         output.m_nodes.clear();
-        for (const auto& row: store->nodes())
+        storedNodes = store->nodes();
+        for (const auto& row: storedNodes)
         {
             CClusterMember member;
             fillClusterMember(row, member);
@@ -1043,13 +1027,38 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         output.m_this_node.m_host_port = settings->m_cluster.m_this_node.m_host_port.asString();
         output.m_this_node.m_state = "Standalone";
     }
+    output.m_this_node.m_node_id = nodeId;
     output.m_this_node.m_is_this_node = true;
 
-    // What only the shared storage knows: who is alive, who coordinates, and how many connections
-    // this node has to each of them. Read from the running server; a stopped one has no coordinator
-    // and no links, and the screen shows the stored states alone.
-    String                               coordinatorName;
-    vector<cluster::Coordinator::Member> liveMembers;
+    // Membership belongs to storage, not to this process's participation. A Standalone node
+    // must still show the remaining members, and rows may reference different Redis databases.
+    map<string, optional<cluster::Coordinator::Snapshot>> snapshots;
+    const auto snapshotFor = [&](const String& uri) -> const cluster::Coordinator::Snapshot*
+    {
+        if (uri.empty())
+        {
+            return nullptr;
+        }
+        const string key(uri.c_str());
+        const auto [position, inserted] = snapshots.try_emplace(key);
+        if (inserted)
+        {
+            try
+            {
+                RedisConnect redis;
+                const URL url(uri);
+                const auto& [host, port] = url.hostAndPort();
+                redis.setReadTimeout(chrono::milliseconds(1000));
+                redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+                position->second = cluster::Coordinator::readSnapshot(redis);
+            }
+            catch (const Exception&)
+            {
+                // Unknown is distinct from an empty membership list.
+            }
+        }
+        return position->second ? &*position->second : nullptr;
+    };
     const auto                           runningCluster = [this]() -> cluster::SCluster
     {
         const auto* runningServer = server();
@@ -1058,19 +1067,6 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
 
     if (runningCluster)
     {
-        if (auto* coordinator = runningCluster->coordinator(); coordinator && coordinator->isParticipating())
-        {
-            try
-            {
-                liveMembers = coordinator->members();
-                coordinatorName = coordinator->coordinatorName();
-            }
-            catch (const Exception&)
-            {
-                // The storage is unreachable at this moment: the stored states are what is known.
-            }
-        }
-
         if (const auto invitation = runningCluster->invitations().current())
         {
             // What the Review confirmation names beside what the invitation offers: where the
@@ -1088,19 +1084,42 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
             output.m_invitation.m_current_database_uri = settings->userDatabaseUri();
         }
     }
-    output.m_coordinator = coordinatorName;
+    output.m_coordinator = "";
+    if (const auto* view = snapshotFor(settings->m_persistence.m_redis_uri.asString()))
+    {
+        output.m_coordinator = view->m_coordinatorName;
+    }
 
     // The computed states, over the stored ones: Clustered and Offline come from the storage and
     // are never written anywhere.
     const auto computedState = [&](CClusterMember& node)
     {
         const String name = node.m_name.asString();
-        if (const auto* member = memberNamed(liveMembers, name))
+        const auto stored = ranges::find_if(storedNodes, [&](const auto& row)
         {
-            node.m_is_alive = member->m_alive;
-            node.m_state = member->m_alive ? "Clustered" : "Offline";
+            return row.m_nodeId == node.m_node_id.asString();
+        });
+        const auto uri = stored != storedNodes.end() ? stored->m_redisUri : settings->m_persistence.m_redis_uri.asString();
+        const auto* view = snapshotFor(uri);
+        node.m_is_alive = false;
+        node.m_is_coordinator = false;
+        if (view)
+        {
+            const auto member = ranges::find_if(view->m_members, [&](const auto& candidate)
+            {
+                return candidate.m_nodeId == node.m_node_id.asString();
+            });
+            if (member != view->m_members.end())
+            {
+                node.m_is_alive = member->m_alive;
+                node.m_state = member->m_alive ? "Clustered" : "Offline";
+                node.m_is_coordinator = !view->m_coordinatorName.empty() && name == view->m_coordinatorName;
+            }
         }
-        node.m_is_coordinator = !coordinatorName.empty() && name == coordinatorName;
+        else if (!uri.empty() && stored != storedNodes.end() && stored->m_clusterEnabled)
+        {
+            node.m_state = "Unknown";
+        }
         if (runningCluster)
         {
             node.m_links = static_cast<int>(runningCluster->linkCountOf(std::string(name.c_str())));
@@ -1247,20 +1266,31 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
     // A member is detached before it is removed, and detaching is the node's own to do - its
     // sessions have to be handed over, which this node cannot command yet.
     String state = row->m_state;
-    if (const auto* runningServer = server(); runningServer && runningServer->getCluster())
+    if (!row->m_redisUri.empty())
     {
-        if (auto* coordinator = runningServer->getCluster()->coordinator(); coordinator && coordinator->isParticipating())
+        try
         {
-            try
+            RedisConnect redis;
+            const URL url(row->m_redisUri);
+            const auto& [host, port] = url.hostAndPort();
+            redis.setReadTimeout(chrono::milliseconds(1000));
+            redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+            const auto snapshot = cluster::Coordinator::readSnapshot(redis);
+            for (const auto& member: snapshot.m_members)
             {
-                if (const auto* member = memberNamed(coordinator->members(), row->m_name))
+                if (member.m_nodeId == row->m_nodeId)
                 {
-                    state = member->m_alive ? "Clustered" : "Offline";
+                    state = member.m_alive ? "Clustered" : "Offline";
+                    break;
                 }
             }
-            catch (const Exception&)
+        }
+        catch (const Exception&)
+        {
+            if (row->m_clusterEnabled)
             {
-                // The storage is unreachable; the stored state decides.
+                throw Exception("Cannot verify this node's membership while its storage is unreachable. "
+                                "The configuration was not removed.");
             }
         }
     }

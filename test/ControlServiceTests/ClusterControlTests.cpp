@@ -295,6 +295,81 @@ TEST_F(XMQ_ClusterControlTests, aNodeOnAClusterDatabaseListsItself)
  * Add declares a node: a name and an address in the shared database, with a GUID the inviter
  * generates, and nothing is contacted.
  */
+TEST_F(XMQ_ClusterControlTests, standaloneInterfaceShowsOtherMembersWithoutJoining)
+{
+    const auto uri = TestServers::redisUri();
+    cluster::Coordinator live(cluster::NodeIdentity::generate(), "live-peer", "localhost:13801",
+                               URL(uri), chrono::seconds(5), {});
+    live.start();
+    ASSERT_TRUE(live.admitAbsentNode("offline-peer"));
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    for (const auto& member: live.members())
+    {
+        ClusterStore::Node row;
+        row.m_nodeId = member.m_nodeId;
+        row.m_name = member.m_name;
+        row.m_hostPort = member.m_hostPort;
+        row.m_state = "Standalone"; // The persisted label is not the live state.
+        row.m_redisUri = uri;
+        row.m_databaseUri = m_databaseUri;
+        row.m_clusterEnabled = true;
+        store.insertNode(row);
+    }
+    m_settings->m_persistence.m_redis_uri = uri;
+    const auto before = live.members().size();
+    const auto response = clusterControl("get");
+    ASSERT_TRUE(response.m_result.m_success.asBool()) << response.m_result.m_description.asString();
+    EXPECT_FALSE(response.m_enabled.asBool());
+    EXPECT_EQ("Standalone", response.m_this_node.m_state.asString());
+    for (size_t i = 0; i < response.m_nodes.size(); ++i)
+    {
+        const auto& node = response.m_nodes[i];
+        if (node.m_name.asString() == "live-peer")
+        {
+            EXPECT_EQ("Clustered", node.m_state.asString());
+            EXPECT_TRUE(node.m_is_alive.asBool());
+        }
+        if (node.m_name.asString() == "offline-peer")
+        {
+            EXPECT_EQ("Offline", node.m_state.asString());
+            EXPECT_FALSE(node.m_is_alive.asBool());
+        }
+    }
+    EXPECT_EQ(before, live.members().size()) << "Reading the view must not join another node";
+    EXPECT_EQ("Standalone", store.node(live.nodeId())->m_state) << "Reading must not rewrite SQL";
+    const auto removal = clusterControl("remove", [&](CClusterControl& input)
+    {
+        input.m_node.m_node_id = live.nodeId();
+        input.m_force = true;
+    });
+    EXPECT_FALSE(removal.m_result.m_success.asBool())
+        << "A Standalone interface must still protect another node's active membership";
+    EXPECT_EQ("Standalone", store.node(live.nodeId())->m_state);
+    live.leave();
+}
+
+TEST_F(XMQ_ClusterControlTests, unavailableStorageDoesNotTurnMembersIntoStandalone)
+{
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    ClusterStore::Node row;
+    row.m_nodeId = cluster::NodeIdentity::generate();
+    row.m_name = "unreachable-peer";
+    row.m_hostPort = "localhost:13801";
+    row.m_state = "Standalone";
+    row.m_redisUri = "redis://127.0.0.1:1";
+    row.m_clusterEnabled = true;
+    store.insertNode(row);
+    const auto response = clusterControl("get");
+    ASSERT_TRUE(response.m_result.m_success.asBool());
+    for (size_t i = 0; i < response.m_nodes.size(); ++i)
+    {
+        if (response.m_nodes[i].m_name.asString() == row.m_name)
+        {
+            EXPECT_EQ("Unknown", response.m_nodes[i].m_state.asString());
+        }
+    }
+}
+
 TEST_F(XMQ_ClusterControlTests, addDeclaresANodeInTheSharedDatabase)
 {
     const auto added = clusterControl("add", [](CClusterControl& input)

@@ -69,7 +69,18 @@ public:
         std::string m_name;     ///< Node name.
         std::string m_hostPort; ///< TLS endpoint, host:port.
         bool        m_alive;    ///< Holds its lease: it is running.
+        std::string m_nodeId;   ///< Identity within this storage, independent of its display name.
     };
+
+    struct Snapshot
+    {
+        std::vector<Member> m_members;
+        std::string m_coordinatorName;
+    };
+
+    /// Read-only view for administration, including from a Standalone or stopped broker.
+    /// Does not acquire a lease, join, or renew membership.
+    [[nodiscard]] static Snapshot readSnapshot(sptk::RedisConnect& redis);
 
     /**
      * @brief Constructor. Nothing happens until start().
