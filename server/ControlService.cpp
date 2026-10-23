@@ -909,7 +909,19 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
             }
             else
             {
-                applyLocalClusterAction(action);
+                // Lifecycle changes belong to the service loop. Stopping here races its
+                // isStopped() check, which can destroy the Server while this HTTP thread
+                // is still draining it. Use the same queue as selected remote nodes.
+                const auto settings = getSettings();
+                if (action == "disable")
+                {
+                    requireServer();
+                    if (!settings->m_cluster.m_enabled.asBool())
+                        throw Exception("This node is already Standalone.");
+                }
+                else if (settings->m_cluster.m_enabled.asBool())
+                    throw Exception("Leave the cluster before retiring this configuration.");
+                OSService::queueNodeAction(settings->nodeIdentity(), settings->userDatabaseUri(), action);
             }
             reportClusterState(output);
         }

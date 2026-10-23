@@ -8,6 +8,10 @@ import PageTitle from "../components/PageTitle";
 import DialogWindow from "../components/DialogWindow";
 import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
 
+function displayDatabaseUri(uri) {
+    return (uri || "").replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/?#@]*):[^/]*@/i, "$1@");
+}
+
 /**
  * Dashboard.
  *
@@ -213,7 +217,7 @@ export default class DashboardScreen extends BasicScreen {
                     return;
                 }
                 informationWindow("This node is becoming the first member of the cluster on " + redisUri +
-                                  ", with its accounts in " + databaseUri + ", and is restarting MQTT into it. " +
+                                  ", with its accounts in " + displayDatabaseUri(databaseUri) + ", and is restarting MQTT into it. " +
                                   "This interface will remain available. MQTT clients will reconnect.");
                 this.readCluster();
             });
@@ -367,7 +371,7 @@ export default class DashboardScreen extends BasicScreen {
                 <span className="inputScreenHint">
                     {cluster.enabled === true
                         ? "This node works with " + (cluster.redis_uri || "no storage") +
-                          " and the accounts database " + (cluster.database_uri || "—") + "."
+                          " and the accounts database " + (displayDatabaseUri(cluster.database_uri) || "—") + "."
                         : "A standalone node keeps its state to itself."}
                 </span>
             </div>

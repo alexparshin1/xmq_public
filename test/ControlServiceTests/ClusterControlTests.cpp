@@ -480,6 +480,8 @@ TEST_F(XMQ_ClusterControlTests, retirePreservesTheRowAndPreventsStartupOnThisDat
 {
     const auto retired = clusterControl("retire");
     ASSERT_TRUE(retired.m_result.m_success.asBool()) << retired.m_result.m_description.asString();
+    EXPECT_EQ("Standalone", storedNode("control-node")->m_state);
+    OSService::processNodeActions(*m_controller);
     const auto row = storedNode("control-node");
     ASSERT_TRUE(row.has_value());
     EXPECT_EQ("Retired", row->m_state);

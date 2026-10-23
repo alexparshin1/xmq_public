@@ -245,6 +245,33 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
     EXPECT_EQ(restartBefore, OSService::restartRequested());
 
+    // Leave through this node's own HTTP listener as well. The handler must only
+    // acknowledge: the service loop owns stopping and replacing the Server.
+    CClusterControlResponse rejoined;
+    sourceControl.ClusterControl(request, rejoined, &authentication);
+    ASSERT_TRUE(rejoined.m_result.m_success.asBool()) << rejoined.m_result.m_description.asString();
+    targetController.isStopped(0ms);
+    ASSERT_TRUE(targetSettings->m_cluster.m_enabled.asBool());
+    const auto beforeLocalLeave = targetController.getServer();
+    const auto localToken = webLogin();
+    const auto localLeave = webRequest("ClusterControl",
+        "{\"action\":\"disable\",\"node\":{\"node_id\":\"" + targetId +
+        "\",\"name\":\"" + targetName + "\"}}", localToken);
+    EXPECT_NE(String::npos, localLeave.find("200 OK")) << localLeave;
+    xdoc::Document leaveResponse;
+    leaveResponse.load(localLeave.substr(localLeave.find("\r\n\r\n") + 4));
+    ASSERT_NE(nullptr, leaveResponse.root()->findFirst("result")) << localLeave;
+    ASSERT_TRUE(leaveResponse.root()->findFirst("result")->getBoolean("success")) << localLeave;
+    EXPECT_EQ(beforeLocalLeave, targetController.getServer());
+    EXPECT_TRUE(targetSettings->m_cluster.m_enabled.asBool());
+    EXPECT_TRUE(store.node(targetId)->m_clusterEnabled);
+    targetController.isStopped(0ms);
+    ASSERT_NE(nullptr, targetController.getServer());
+    EXPECT_FALSE(targetSettings->m_cluster.m_enabled.asBool());
+    EXPECT_FALSE(store.node(targetId)->m_clusterEnabled);
+    EXPECT_EQ(nullptr, targetController.getServer()->getCluster()->coordinator());
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+
     // Simulate Redis becoming unavailable between admission checks and the MQTT start.
     ASSERT_TRUE(targetSettings->applyInvitationAccept("redis://127.0.0.1:1/2", uri).empty());
     OSService::queueNodeAction(targetId, uri, "reload");
