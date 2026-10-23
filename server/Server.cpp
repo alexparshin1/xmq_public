@@ -262,6 +262,14 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
                {
                    return format("Using storage at {}.", storage);
                });
+    // A node leaving a cluster must select its private session namespace before restoring any
+    // subscriptions or queued messages. Otherwise the new standalone server reads cluster state.
+    if (!settings->m_cluster.m_enabled.isNull() && !settings->m_cluster.m_enabled.asBool() &&
+        m_storage && m_storage->isPersistent() && m_storage->getRedis() &&
+        cluster::Coordinator::membership(*m_storage->getRedis(), m_cluster.load()->nodeId()) >= 0)
+    {
+        m_storage->setSessionNamespace(m_cluster.load()->nodeId() + ":");
+    }
     restoreServerState();
 
 #ifndef _WIN32

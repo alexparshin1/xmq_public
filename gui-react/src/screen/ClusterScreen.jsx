@@ -3,6 +3,7 @@ import DataTable from "../components/DataTable";
 import ControlAPI from "../ControlAPI";
 import BasicScreen from "./BasicScreen";
 import "./InputScreen.css";
+import "./ClusterScreen.css";
 import PageTitle from "../components/PageTitle";
 import DialogWindow from "../components/DialogWindow";
 import {confirmationWindow, errorWindow} from "../components/MessageWindow";
@@ -54,13 +55,29 @@ export default class ClusterScreen extends BasicScreen {
         ],
         cluster: null,      // last ClusterControl "get" reply
         error: null,        // why the last read failed, shown in place of the picture
-        selected: null,     // the selected node, for Join and Remove
+        selected: null,     // every node action targets this row
         dialog: null,       // "add" while the declaration dialog is open
         busy: false
     };
 
     componentDidMount() {
         this.refresh();
+        this.refreshTimer = setInterval(() => this.refresh(), 3000);
+    }
+
+    componentWillUnmount() {
+        clearInterval(this.refreshTimer);
+        this.unmounted = true;
+    }
+
+    updateCluster(result) {
+        if (this.unmounted) return;
+        this.setState(state => ({
+            cluster: result, error: null,
+            selected: state.selected
+                ? (result.nodes || []).find(node => node.node_id === state.selected.node_id) || null
+                : null
+        }));
     }
 
     /**
@@ -70,6 +87,7 @@ export default class ClusterScreen extends BasicScreen {
     refresh() {
         ControlAPI.asyncMakeAPICall("ClusterControl", {action: "get"}, true)
             .then(result => {
+                if (this.unmounted) return;
                 if (result === null) {
                     this.setState({error: "The XMQ interface did not answer the request."});
                     return;
@@ -79,7 +97,7 @@ export default class ClusterScreen extends BasicScreen {
                     this.setState({error: error, cluster: null});
                     return;
                 }
-                this.setState({cluster: result, error: null});
+                this.updateCluster(result);
             });
     }
 
@@ -104,9 +122,7 @@ export default class ClusterScreen extends BasicScreen {
                     errorWindow(failure + ": " + error);
                     return false;
                 }
-                // The selection is kept: the grid still shows the row selected, and clearing it
-                // here would make the Join cluster button claim nothing was selected.
-                this.setState({cluster: result, error: null});
+                this.updateCluster(result);
                 return true;
             });
     }
@@ -142,8 +158,8 @@ export default class ClusterScreen extends BasicScreen {
             return;
         }
         confirmationWindow("Join node \"" + selected.name + "\" to this cluster?\n\n" +
-            "The selected node will use this cluster's Redis storage and restart. Its clients " +
-            "will disconnect during restart. Local standalone sessions and queued messages are " +
+            "The selected node will use this cluster's Redis storage and restart MQTT. Its clients " +
+            "will disconnect briefly; the web interface stays available. Local standalone sessions and queued messages are " +
             "not moved into the cluster. The shared accounts database stays the same.")
             .then(confirmed => {
                 if (confirmed) {
@@ -154,16 +170,24 @@ export default class ClusterScreen extends BasicScreen {
     }
 
     leaveCluster() {
-        confirmationWindow("Leave the cluster and restart this node as Standalone? " +
-            "Its configuration in this database will be preserved.")
-            .then(confirmed => confirmed && this.send("disable", {}, "Can't leave the cluster"));
+        const selected = this.state.selected;
+        if (!selected) return;
+        confirmationWindow('Leave the cluster and restart MQTT on node "' + selected.name + '" as Standalone? ' +
+            "Its configuration in this database will be preserved. The web interface stays available.")
+            .then(confirmed => confirmed && this.send("disable", {
+                node: {node_id: selected.node_id, name: selected.name}
+            }, "Can't leave the cluster"));
     }
 
     retireConfiguration() {
-        confirmationWindow("Retire this server's configuration in this database? MQTT will stop. " +
+        const selected = this.state.selected;
+        if (!selected) return;
+        confirmationWindow('Retire configuration for node "' + selected.name + '" in this database? MQTT will stop. ' +
             "The server will not start on this database until it is explicitly reconfigured. " +
             "This acknowledges that the configuration may subsequently be removed.")
-            .then(confirmed => confirmed && this.send("retire", {}, "Can't retire the configuration"));
+            .then(confirmed => confirmed && this.send("retire", {
+                node: {node_id: selected.node_id, name: selected.name}
+            }, "Can't retire the configuration"));
     }
 
     renderClusterSettings() {
@@ -192,45 +216,45 @@ export default class ClusterScreen extends BasicScreen {
         </fieldset>;
     }
 
+    renderNodeActions() {
+        const {cluster, selected, busy} = this.state;
+        const state = selected && selected.state;
+        const member = ["Clustered", "Offline", "Unknown", "Joining"].includes(state);
+        const active = selected && !["Retired", "Removed", "Not Clustered"].includes(state);
+        const buttonClass = "inputScreenSaveButton inputScreenActionButton";
+        return <div className="clusterNodeActions">
+            <button className={buttonClass} disabled={busy}
+                    onClick={() => this.setState({dialog: "add"})}>Add node&hellip;</button>
+            <div className="clusterSelectedNode" aria-live="polite">
+                {selected ? <>Selected node: <strong>{selected.name}</strong></> : "Select a node"}
+            </div>
+            <button className={buttonClass}
+                    disabled={busy || !cluster.enabled || !selected || selected.is_this_node || state !== "Standalone"}
+                    onClick={() => this.joinNode()}>Join cluster&hellip;</button>
+            <button className={buttonClass} disabled={busy || !active || !member}
+                    onClick={() => this.leaveCluster()}>Leave cluster&hellip;</button>
+            <button className={buttonClass} disabled={busy || !active || member}
+                    onClick={() => this.retireConfiguration()}>Retire configuration&hellip;</button>
+            <button className={buttonClass} disabled={busy || !selected}
+                    onClick={() => this.removeNode()}>Remove node&hellip;</button>
+            <button className={buttonClass} disabled={busy || !selected}
+                    onClick={() => this.removeNode(null, true)}>Force remove node&hellip;</button>
+        </div>;
+    }
+
     renderNodes() {
         const cluster = this.state.cluster;
         return <fieldset>
             <legend>Cluster Nodes</legend>
             <DataTable objectName="Node" headers={this.state.headers}
-                       rows={cluster.nodes ? cluster.nodes : []} height={260} paging={false}
-                       buttons={["add", "remove"]}
-                       onAdd={() => this.setState({dialog: "add"})}
-                       onSelectionChanged={(row) => this.setState({selected: row})}
-                       onRowDataChange={(action, row) => {
-                           if (action === "remove") {
-                               this.removeNode(row);
-                           }
-                       }}/>
-
-            <div className="inputScreenRow">
-                <label className="inputScreenLabel"/>
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        disabled={this.state.busy || !cluster.enabled} onClick={() => this.leaveCluster()}>
-                    Leave cluster
-                </button>
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        disabled={this.state.busy || cluster.enabled} onClick={() => this.retireConfiguration()}>
-                    Retire this configuration
-                </button>
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        disabled={this.state.busy || !this.state.selected}
-                        onClick={() => this.removeNode(null, true)}>Force remove node&hellip;</button>
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        disabled={this.state.busy || !cluster.enabled || !this.state.selected ||
-                                  this.state.selected.is_this_node || this.state.selected.state !== "Standalone"}
-                        onClick={() => this.joinNode()}>
-                    Join cluster&hellip;
-                </button>
-                <span className="inputScreenHint">
-                    Add declares a node by its name and its TLS address; nothing is contacted.
-                    Join cluster checks the selected server and restarts it into this cluster.
-                </span>
-            </div>
+                       rows={cluster.nodes || []} height={320} paging={false}
+                       getRowId={params => params.data.node_id}
+                       buttons={[]} sidePanel={this.renderNodeActions()}
+                       onSelectionChanged={row => this.setState({selected: row})}/>
+            <p className="inputScreenHint">
+                Actions apply to the selected node, including when it is on another host.
+                Add node creates a configuration entry. Join cluster uses this node's cluster.
+            </p>
         </fieldset>;
     }
 

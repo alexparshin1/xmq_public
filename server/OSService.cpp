@@ -13,6 +13,10 @@
 */
 
 #include "OSService.h"
+#include "ControlService.h"
+#include "Settings/ClusterStore.h"
+#include <mutex>
+#include <vector>
 #include <csignal>
 
 using namespace std;
@@ -29,6 +33,69 @@ static_assert(std::atomic_int::is_always_lock_free);
 
 namespace {
 std::atomic<bool> restartRequestedFlag {false};
+struct NodeAction { String nodeId, database, action; };
+mutex nodeActionsMutex;
+vector<NodeAction> nodeActions;
+}
+
+void OSService::queueNodeAction(const String& nodeId, const String& database, const String& action)
+{
+    const scoped_lock lock(nodeActionsMutex);
+    for (const auto& pending: nodeActions)
+    {
+        if (pending.nodeId == nodeId)
+        {
+            if (pending.database == database && pending.action == action) return;
+            throw Exception("Another action is already pending for this node.");
+        }
+    }
+    nodeActions.push_back({nodeId, database, action});
+}
+
+void OSService::processNodeActions(IServerController& controller)
+{
+    vector<NodeAction> ready;
+    const auto settings = controller.getSettings();
+    {
+        const scoped_lock lock(nodeActionsMutex);
+        for (auto it = nodeActions.begin(); it != nodeActions.end();)
+        {
+            if (it->nodeId == settings->nodeIdentity())
+            {
+                ready.push_back(*it);
+                it = nodeActions.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+    for (const auto& pending: ready)
+    {
+        try
+        {
+            if (pending.database != settings->userDatabaseUri())
+                throw Exception("The node's accounts database changed before executing the action.");
+            ControlService control(&controller);
+            control.applyLocalClusterAction(pending.action);
+        }
+        catch (const std::exception& error)
+        {
+            CERR("Selected node action failed: " << error.what());
+            try
+            {
+                if (pending.database != settings->userDatabaseUri()) continue;
+                ClusterStore store(settings->accountsPool());
+                if (auto row = store.node(pending.nodeId))
+                {
+                    row->m_lastError = error.what();
+                    store.updateNode(*row);
+                }
+            }
+            catch (const std::exception&) {}
+        }
+    }
 }
 
 void OSService::requestRestart()

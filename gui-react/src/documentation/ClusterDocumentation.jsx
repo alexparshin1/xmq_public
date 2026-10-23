@@ -16,7 +16,8 @@ export default function ClusterDocumentation() {
                 cluster when an administrator selects its registered configuration and presses
                 Join cluster. The nodes already share their administrator and cluster accounts;
                 a second confirmation on the target is not required. The selected node is checked
-                over TLS, configured, and restarted into the cluster.
+                over TLS and configured, then its MQTT service is restarted within the same process.
+                The web interface remains available.
             </p>
 
             <p>
@@ -233,23 +234,24 @@ sudo systemctl enable --now xmq_server
             <p>
                 On node A's <b>Cluster Configuration</b> page select the registered
                 <code> node-b</code> row and press <b>Join cluster</b>. Confirm the target and
-                restart. The cluster uses the password configured during Initial Setup;
+                MQTT restart. The cluster uses the password configured during Initial Setup;
                 there is no additional password dialog or Accept step on node B.
             </p>
             <p>
                 Before changing anything, the system verifies TLS, the selected UUID, server
                 version, shared database, and Redis membership and capacity. Node B must use
-                the same shared User Database URI. Its clients disconnect while it restarts;
+                the same shared User Database URI. Its clients disconnect while MQTT restarts;
                 local standalone sessions and queued messages are not migrated into the cluster.
             </p>
             <h5>5. Verify the join</h5>
             <p>
-                Acknowledgement means node B accepted the configuration and is restarting;
-                its row initially says <b>Joining</b>. Refresh the page after restart: both
+                Acknowledgement means node B accepted the configuration and is restarting MQTT;
+                its row initially says <b>Joining</b>. The page refreshes automatically after the transition: both
                 rows should say <b>Clustered</b>. A failed startup is reported as <b>Failed</b>,
                 with the reason, and the last-good configuration is retained for rollback.
-                A service manager restarts the process automatically; when running manually,
-                start <code>xmq_server</code> again after it exits for the configuration change.
+                The process and its web interface keep running, including when started manually.
+                If MQTT cannot start with the new role, the node tries its previous configuration
+                without restarting the process; the failure remains visible in the node list.
             </p>
             <pre className="userManualCode">{`redis-cli -n 0 zrange cluster:members 0 -1
 # two GUIDs after node B has restarted and joined`}</pre>
@@ -276,16 +278,18 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
             </p>
             <h5>7. Leave the cluster without deleting the server configuration</h5>
             <p>
-                On the node being detached, press <b>Leave cluster</b>. The server drains its
+                Select the node in the list and press <b>Leave cluster</b> in the action panel on the right.
+                Confirm its name. The selected server drains its
                 cluster traffic, removes its membership, preserves its configuration in
-                <code> xmq_node</code>, and restarts as <b>Standalone</b>. Other cluster members
+                <code> xmq_node</code>, and restarts MQTT as <b>Standalone</b> within the same process. The web interface stays
+                available. Other cluster members
                 continue running. Returning to this cluster requires an explicit Join cluster action again.
             </p>
             <h5>8. Remove an obsolete server configuration</h5>
             <p>
                 <b>Remove node</b> deletes configuration, not membership. First leave the cluster.
-                If the server still uses this database, press <b>Retire this configuration</b> on
-                that server: MQTT stops and the database records that this configuration is no
+                If the server still uses this database, select it and press <b>Retire configuration</b>: MQTT stops and the database records
+                that this configuration is no
                 longer to be used. An administrator can then remove the retired row.
             </p>
             <p>

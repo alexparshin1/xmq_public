@@ -892,52 +892,30 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         {
             enableClusterMode(input, output);
         }
-        else if (action == "disable")
+        else if (action == "disable" || action == "retire")
         {
-            // The node leaves the cluster, its sessions written under its own GUID from here on
-            // so that it stays on the storage it knows and names nothing the cluster uses.
-            auto& runningServer = requireServer();
-            // Handoff and drain while cluster links and delivery still exist. Keep the Server
-            // object until leave is confirmed, so its coordinator can remove the membership.
-            runningServer.stopServer();
-            runningServer.getCluster()->detachCluster();
-            const auto guid = runningServer.getCluster()->nodeId();
-            runningServer.getStorage()->setSessionNamespace(guid + ":");
-
-            const auto error = getSettings()->applyClusterDisable();
-            if (!error.empty())
+            const auto targetId = input.m_node.m_node_id.asString();
+            if (!targetId.empty() && targetId != getSettings()->nodeIdentity())
             {
-                throw Exception(error);
+                const auto store = requireClusterStore(getSettings());
+                const auto row = store->node(targetId);
+                if (!row || row->m_state == "Removed" || row->m_state == "Retired")
+                {
+                    throw Exception("Select an active node configuration in this database.");
+                }
+                const auto result = requireServer().getCluster()->sendInvitation(
+                    row->m_hostPort, row->m_name, {}, true, row->m_nodeId, action);
+                if (!result.m_success) throw Exception(result.m_error);
             }
-
-            OSService::requestRestart();
+            else
+            {
+                applyLocalClusterAction(action);
+            }
             reportClusterState(output);
         }
         else if (action == "add")
         {
             addClusterNode(input, output);
-        }
-        else if (action == "retire")
-        {
-            const auto settings = getSettings();
-            if (settings->m_cluster.m_enabled.asBool())
-            {
-                throw Exception("Leave the cluster before retiring this configuration.");
-            }
-            const auto store = requireClusterStore(settings);
-            auto row = store->node(settings->nodeIdentity());
-            if (!row)
-            {
-                throw Exception("This node has no configuration in this database.");
-            }
-            m_controller->stopServing();
-            row->m_state = "Retired";
-            row->m_clusterEnabled = false;
-            store->updateNode(*row);
-            store->clearInvitation(row->m_nodeId);
-            // Refresh the cached error: Start must not reuse a retired in-memory configuration.
-            settings->loadConfiguration(settings->configurationPath());
-            reportClusterState(output);
         }
         else if (action == "remove")
         {
@@ -983,6 +961,81 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         // the handler and leave the caller waiting for a response that never comes.
         output.m_result.m_success = false;
         output.m_result.m_description = e.what();
+    }
+}
+
+void ControlService::applyLocalClusterAction(const String& action)
+{
+    if (action == "reload")
+    {
+        m_controller->stopServing();
+        const auto settings = getSettings();
+        try
+        {
+            settings->loadConfiguration(settings->configurationPath());
+        }
+        catch (const exception& error)
+        {
+            const String failure = error.what();
+            if (settings->rollbackPendingAccept(failure).empty())
+            {
+                settings->loadConfiguration(settings->configurationPath());
+                string recovery;
+                m_controller->startServing(recovery);
+            }
+            throw Exception(failure);
+        }
+        string reason;
+        if (!m_controller->startServing(reason)) throw Exception(reason);
+    }
+    else if (action == "disable")
+    {
+        // The node leaves the cluster, its sessions written under its own GUID from here on
+        // so that it stays on the storage it knows and names nothing the cluster uses.
+        const auto saved = getSettings()->keepLastGoodConfiguration();
+        if (!saved.empty()) throw Exception(saved);
+        auto& runningServer = requireServer();
+        // Handoff and drain while cluster links and delivery still exist. Keep the Server
+        // object until leave is confirmed, so its coordinator can remove the membership.
+        runningServer.stopServer();
+        runningServer.getCluster()->detachCluster();
+        const auto guid = runningServer.getCluster()->nodeId();
+        runningServer.getStorage()->setSessionNamespace(guid + ":");
+
+        const auto error = getSettings()->applyClusterDisable();
+        if (!error.empty())
+        {
+            if (getSettings()->rollbackPendingAccept(error).empty())
+                applyLocalClusterAction("reload");
+            throw Exception(error);
+        }
+
+        applyLocalClusterAction("reload");
+    }
+    else if (action == "retire")
+    {
+        const auto settings = getSettings();
+        if (settings->m_cluster.m_enabled.asBool())
+        {
+            throw Exception("Leave the cluster before retiring this configuration.");
+        }
+        const auto store = requireClusterStore(settings);
+        auto row = store->node(settings->nodeIdentity());
+        if (!row)
+        {
+            throw Exception("This node has no configuration in this database.");
+        }
+        m_controller->stopServing();
+        row->m_state = "Retired";
+        row->m_clusterEnabled = false;
+        store->updateNode(*row);
+        store->clearInvitation(row->m_nodeId);
+        // Refresh the cached error: Start must not reuse a retired in-memory configuration.
+        settings->loadConfiguration(settings->configurationPath());
+    }
+    else
+    {
+        throw Exception("Unsupported local node action.");
     }
 }
 
@@ -1196,9 +1249,8 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
         throw Exception(error);
     }
 
-    // The node takes its place in the cluster on the next start, which reads the configuration
-    // written above - the same restart an accepted invitation asks for.
-    OSService::requestRestart();
+    // Recreate MQTT on the controller thread; its independent web listener remains available.
+    OSService::queueNodeAction(settings->nodeIdentity(), settings->userDatabaseUri(), "reload");
     reportClusterState(output);
 }
 

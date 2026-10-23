@@ -1383,7 +1383,8 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         // topic the request names, as a server publication.
         server().getCluster()->answerHello(publishMessage);
     }
-    else if (publishMessage->destination()->fullName() == "cluster/join" && getUsername() == "cluster")
+    else if ((publishMessage->destination()->fullName() == "cluster/join" ||
+              publishMessage->destination()->fullName() == "cluster/node-action") && getUsername() == "cluster")
     {
         server().getCluster()->acceptSharedJoin(publishMessage);
     }

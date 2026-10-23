@@ -520,6 +520,7 @@ TEST_F(XMQ_ClusterControlTests, removeRefusesAMember)
  */
 TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
 {
+    const auto processRestartBefore = OSService::restartRequested();
     TestServers::flushRedis();
 
     const auto enabled = clusterControl("enable", [this](CClusterControl& input)
@@ -548,8 +549,8 @@ TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
     // The previous configuration is kept: a start that cannot join goes back to it.
     EXPECT_TRUE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")));
 
-    // The restart is how the node takes its place: the process ends with the restart code.
-    EXPECT_TRUE(OSService::restartRequested());
+    // Only MQTT is restarted; the process and the interface remain available.
+    EXPECT_EQ(processRestartBefore, OSService::restartRequested());
 }
 
 /**

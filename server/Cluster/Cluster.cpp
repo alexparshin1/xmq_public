@@ -370,15 +370,16 @@ void Cluster::detachCluster()
 void Cluster::startup()
 {
     const auto storage = m_server->getStorage();
+    const auto enabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
     if (!storage || !storage->isPersistent() || !storage->getRedis())
     {
+        if (enabled) throw Exception("Cluster mode requires its shared Redis storage to be available.");
         return;
     }
 
     RedisConnect redis;
     redis.connect(storage->getRedis()->getRedisUrl());
     const auto membership = Coordinator::membership(redis, m_nodeId);
-    const auto enabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
 
     if (enabled || (membership == 1 && m_settings->m_cluster.m_enabled.isNull()))
     {
@@ -1569,6 +1570,7 @@ void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
     document.root()->set("name", m_server->getNodeName());
     document.root()->set("xmq_version", Server::getVersion());
     document.root()->set("database_uri", m_settings->userDatabaseUri());
+    document.root()->set("node_actions", true);
     Buffer payload;
     document.exportTo(xdoc::DataFormat::JSON, payload, false);
     auto answer = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic), String(payload));
@@ -1585,6 +1587,7 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
         return;
     }
     String error;
+    bool joining = false;
     try
     {
         xdoc::Document request;
@@ -1592,12 +1595,12 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
         const auto root = request.root();
         if (root->getString("node_id") != m_nodeId || root->getString("xmq_version") != Server::getVersion())
         {
-            throw Exception("The target UUID or server version does not match the join request.");
+            throw Exception("The target UUID or server version does not match the node action request.");
         }
         const auto database = m_settings->userDatabaseUri();
         if (root->getString("database_uri") != database)
         {
-            throw Exception("Join cluster requires both nodes to use the same shared accounts database URI.");
+            throw Exception("Node actions require both nodes to use the same shared accounts database URI.");
         }
         const auto pool = m_settings->accountsPool();
         if (!pool)
@@ -1607,35 +1610,51 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
         ClusterStore store(pool);
         if (!store.isClusterDatabase())
         {
-            throw Exception("Join cluster requires a shared PostgreSQL or MySQL accounts database.");
+            throw Exception("Node actions require a shared PostgreSQL or MySQL accounts database.");
         }
         const auto local = store.node(m_nodeId);
-        const auto leader = store.node(root->getString("leader_id"));
-        const auto redisUri = root->getString("redis_uri");
-        if (!local || local->m_state == "Removed" || local->m_state == "Retired" || local->m_clusterEnabled)
+        const auto action = root->findFirst("action") ? root->getString("action") : String("join");
+        if (action == "disable" || action == "retire")
         {
-            throw Exception("This node must have a Standalone configuration before joining.");
+            if (!local || local->m_state == "Removed" || local->m_state == "Retired")
+                throw Exception("This node has no active configuration in the shared database.");
+            if (action == "disable" && !m_settings->m_cluster.m_enabled.asBool())
+                throw Exception("This node is already Standalone.");
+            if (action == "retire" && m_settings->m_cluster.m_enabled.asBool())
+                throw Exception("Leave the cluster before retiring this configuration.");
+            OSService::queueNodeAction(m_nodeId, database, action);
         }
-        if (!leader || !leader->m_clusterEnabled || leader->m_state == "Removed" ||
-            leader->m_state == "Retired" || redisUri.empty() || leader->m_redisUri != redisUri)
+        else
         {
-            throw Exception("The requested cluster does not match an enabled node in this shared database.");
+            if (action != "join") throw Exception("Unsupported selected node action.");
+            joining = true;
+            const auto leader = store.node(root->getString("leader_id"));
+            const auto redisUri = root->getString("redis_uri");
+            if (!local || local->m_state == "Removed" || local->m_state == "Retired" || local->m_clusterEnabled)
+            {
+                throw Exception("This node must have a Standalone configuration before joining.");
+            }
+            if (!leader || !leader->m_clusterEnabled || leader->m_state == "Removed" ||
+                leader->m_state == "Retired" || redisUri.empty() || leader->m_redisUri != redisUri)
+            {
+                throw Exception("The requested cluster does not match an enabled node in this shared database.");
+            }
+            RedisConnect redis;
+            redis.setReadTimeout(chrono::milliseconds(1000));
+            const URL url(redisUri);
+            const auto& [host, port] = url.hostAndPort();
+            redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+            const auto snapshot = Coordinator::readSnapshot(redis);
+            if (ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == leader->m_nodeId && member.m_alive; }))
+            {
+                throw Exception("The selected cluster has no live member matching the requesting node.");
+            }
+            if (snapshot.m_members.size() >= Coordinator::MaxMembers)
+            {
+                throw Exception("The cluster already has the maximum number of members.");
+            }
+            error = m_settings->applyInvitationAccept(redisUri, database);
         }
-        RedisConnect redis;
-        redis.setReadTimeout(chrono::milliseconds(1000));
-        const URL url(redisUri);
-        const auto& [host, port] = url.hostAndPort();
-        redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
-        const auto snapshot = Coordinator::readSnapshot(redis);
-        if (ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == leader->m_nodeId && member.m_alive; }))
-        {
-            throw Exception("The selected cluster has no live member matching the requesting node.");
-        }
-        if (snapshot.m_members.size() >= Coordinator::MaxMembers)
-        {
-            throw Exception("The cluster already has the maximum number of members.");
-        }
-        error = m_settings->applyInvitationAccept(redisUri, database);
     }
     catch (const exception& exception)
     {
@@ -1643,16 +1662,17 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
     }
     xdoc::Document response;
     response.root()->set("node_id", m_nodeId);
-    response.root()->set("joined", error.empty());
+    response.root()->set("accepted", error.empty());
+    response.root()->set("joined", joining && error.empty());
     response.root()->set("error", error);
     Buffer payload;
     response.exportTo(xdoc::DataFormat::JSON, payload, false);
     auto reply = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic), String(payload));
     reply->setQos(Qos::Qos1);
     m_server->publishMessage(reply);
-    if (error.empty())
+    if (joining && error.empty())
     {
-        OSService::requestRestart();
+        OSService::queueNodeAction(m_nodeId, m_settings->userDatabaseUri(), "reload");
     }
 }
 
@@ -1737,7 +1757,7 @@ void Cluster::onRefusal(const String& payload)
 
 Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName,
                                                const String& clusterPassword, const bool joinImmediately,
-                                               const String& expectedNodeId)
+                                               const String& expectedNodeId, const String& nodeAction)
 {
     InviteResult result;
 
@@ -1781,7 +1801,8 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
                          {
                              const string_view payload(message->payload());
                              const scoped_lock lock(reply->lock);
-                             if (reply->joining && payload.find(R"("joined")") == string_view::npos)
+                             if (reply->joining && payload.find(R"("accepted")") == string_view::npos &&
+                                 payload.find(R"("joined")") == string_view::npos)
                              {
                                  return; // A duplicate hello is not the join acknowledgement.
                              }
@@ -1865,7 +1886,14 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
                 result.m_error = "The target UUID or shared accounts database does not match the selected configuration.";
                 return result;
             }
+            const auto capability = document.root()->findFirst("node_actions");
+            if (nodeAction != "join" && (!capability || !capability->getValue().asBool()))
+            {
+                result.m_error = "The selected server must be updated before remote Leave or Retire is available.";
+                return result;
+            }
             xdoc::Document request;
+            request.root()->set("action", nodeAction);
             request.root()->set("node_id", nodeId);
             request.root()->set("leader_id", m_nodeId);
             request.root()->set("xmq_version", Server::getVersion());
@@ -1880,13 +1908,14 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
                 reply->joining = true;
                 while (reply->ready.wait_for(0ms)) {}
             }
-            auto join = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/join"), String(payload));
+            auto join = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic(
+                nodeAction == "join" ? "cluster/join" : "cluster/node-action"), String(payload));
             join->setQos(Qos::Qos1);
             join->setProperties(properties);
             client.publish(*join);
             if (!reply->ready.wait_for(5s))
             {
-                result.m_error = "The node did not acknowledge the join request. Check its state before retrying.";
+                result.m_error = "The node did not acknowledge the action. Check its state before retrying.";
                 return result;
             }
             {
@@ -1901,7 +1930,8 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
             }
             xdoc::Document response;
             response.load(answerPayload);
-            result.m_success = response.root()->getString("node_id") == nodeId && response.root()->getBoolean("joined");
+            result.m_success = response.root()->getString("node_id") == nodeId && (response.root()->findFirst("accepted") ? response.root()->getBoolean("accepted")
+                                                                           : response.root()->getBoolean("joined"));
             if (!result.m_success)
             {
                 result.m_error = response.root()->getString("error");

@@ -92,6 +92,11 @@ public:
      */
     static void requestRestart();
 
+    /// Queue authenticated peer actions for the controller thread, which can safely stop MQTT.
+    static void queueNodeAction(const sptk::String& nodeId, const sptk::String& database,
+                                const sptk::String& action);
+    static void processNodeActions(IServerController& controller);
+
     /**
      * @brief Whether a restart was requested - the service loop's answer to how it ended.
      */

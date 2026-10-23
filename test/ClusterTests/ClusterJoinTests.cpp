@@ -6,6 +6,8 @@
 #include "server/Settings/ClusterStore.h"
 #include "server/Settings/UserStore.h"
 #include "server/Settings/PasswordHash.h"
+#include "server/OSService.h"
+#include <sptk5/net/TCPSocket.h>
 
 using namespace std;
 using namespace sptk;
@@ -48,6 +50,53 @@ struct JoinCleanup
         catch (const Exception&) {}
     }
 };
+
+struct ControllerCleanup
+{
+    ServerController& controller;
+    ~ControllerCleanup() { controller.stopService(); }
+};
+
+String webRequest(const String& method, const String& body, const String& token = {})
+{
+    TCPSocket socket;
+    socket.open(Host("localhost", 18886));
+    const String request = "POST /" + method + " HTTP/1.1\r\nHost: localhost\r\n"
+        "Content-Type: application/json\r\nConnection: close\r\n" +
+        (token.empty() ? String() : "Authorization: bearer " + token + "\r\n") +
+        "Content-Length: " + to_string(body.size()) + "\r\n\r\n" + body;
+    socket.write(request);
+    String response;
+    uint8_t buffer[4096];
+    while (socket.readyToRead(chrono::seconds(2)))
+    {
+        try
+        {
+            const auto bytes = socket.read(buffer, sizeof(buffer));
+            if (bytes == 0) break;
+            response.append(reinterpret_cast<const char*>(buffer), bytes);
+        }
+        catch (const Exception&) { break; }
+    }
+    return response;
+}
+
+String webClusterState(const String& token)
+{
+    return webRequest("ClusterControl", R"({"action":"get"})", token);
+}
+
+String webLogin()
+{
+    const auto response = webRequest("Login", R"({"username":"admin","password":"admin"})");
+    const auto body = response.find("\r\n\r\n");
+    if (body == String::npos) return {};
+    xdoc::Document document;
+    document.load(response.substr(body + 4));
+    const auto token = document.root()->getString("token");
+    EXPECT_FALSE(token.empty()) << response;
+    return token;
+}
 
 String adminToken(ControlService& service)
 {
@@ -126,6 +175,20 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_FALSE(wrongIdentity.m_success);
     EXPECT_FALSE(store.node(targetId)->m_clusterEnabled);
 
+    // Transfer the standalone node to a real controller that owns MQTT and a separate web listener.
+    stopNode(targetName);
+    target.reset();
+    targetSettings->m_web_service.m_listener_port = 18886;
+    targetSettings->m_web_service.m_encrypted = false;
+    ServerController targetController(targetSettings);
+    ControllerCleanup controllerCleanup {targetController};
+    targetController.startService();
+    ASSERT_TRUE(targetController.isServing());
+    const auto targetToken = webLogin();
+    ASSERT_FALSE(targetToken.empty());
+    const auto restartBefore = OSService::restartRequested();
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+
     TestServerController sourceController(source.get(), sourceSettings);
     ControlService sourceControl(&sourceController);
     HttpAuthentication authentication("bearer " + adminToken(sourceControl));
@@ -137,36 +200,78 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     ASSERT_TRUE(response.m_result.m_success.asBool()) << response.m_result.m_description.asString();
     EXPECT_TRUE(store.node(targetId)->m_clusterEnabled);
     EXPECT_EQ("Joining", store.node(targetId)->m_state);
-    EXPECT_FALSE(target->getCluster()->invitations().current().has_value());
+    EXPECT_FALSE(targetController.getServer()->getCluster()->invitations().current().has_value());
 
-    // Simulate the service manager's restart, using the accepted configuration unchanged.
-    stopNode(targetName);
-    target.reset();
-    targetSettings->loadConfiguration(targetSettings->configurationPath());
-    auto joined = make_shared<Server>(targetSettings, logEngine());
     ASSERT_TRUE(TestCluster::waitFor([&]
     {
-        return source->getCluster()->getConnectedNodeCount(targetName) > 0 &&
+        OSService::processNodeActions(targetController);
+        const auto joined = targetController.getServer();
+        return joined && joined->getCluster()->coordinator() &&
+               source->getCluster()->getConnectedNodeCount(targetName) > 0 &&
                joined->getCluster()->getConnectedNodeCount(sourceName) > 0;
-    }));
-    ASSERT_NE(nullptr, joined->getCluster()->coordinator());
-    EXPECT_EQ(2U, joined->getCluster()->coordinator()->members().size());
+    }, chrono::seconds(15)));
+    EXPECT_EQ(2U, targetController.getServer()->getCluster()->coordinator()->members().size());
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+    EXPECT_EQ(restartBefore, OSService::restartRequested());
 
-    TestServerController targetController(joined.get(), targetSettings);
-    ControlService targetControl(&targetController);
-    HttpAuthentication targetAuthentication("bearer " + adminToken(targetControl));
+    CClusterControl prematureRetire;
+    prematureRetire.m_action = "retire";
+    prematureRetire.m_node.m_node_id = targetId;
+    CClusterControlResponse refusedRetire;
+    sourceControl.ClusterControl(prematureRetire, refusedRetire, &authentication);
+    EXPECT_FALSE(refusedRetire.m_result.m_success.asBool());
+    EXPECT_TRUE(store.node(targetId)->m_clusterEnabled);
+
     CClusterControl leave;
     leave.m_action = "disable";
+    leave.m_node.m_node_id = targetId;
     CClusterControlResponse left;
-    targetControl.ClusterControl(leave, left, &targetAuthentication);
+    sourceControl.ClusterControl(leave, left, &authentication);
     ASSERT_TRUE(left.m_result.m_success.asBool()) << left.m_result.m_description.asString();
+    // The peer only acknowledges the request on its MQTT thread. Its controller drains safely.
+    EXPECT_TRUE(store.node(targetId)->m_clusterEnabled);
+    ASSERT_TRUE(TestCluster::waitFor([&]
+    {
+        OSService::processNodeActions(targetController);
+        return targetController.getServer() && !targetSettings->m_cluster.m_enabled.asBool();
+    }));
+    EXPECT_TRUE(sourceSettings->m_cluster.m_enabled.asBool());
     EXPECT_EQ("Standalone", store.node(targetId)->m_state);
     EXPECT_FALSE(store.node(targetId)->m_clusterEnabled);
     EXPECT_EQ(1U, source->getCluster()->coordinator()->members().size());
-    joined.reset();
-
-    targetSettings->loadConfiguration(targetSettings->configurationPath());
-    const auto standalone = make_shared<Server>(targetSettings, logEngine());
-    EXPECT_EQ(nullptr, standalone->getCluster()->coordinator());
+    ASSERT_NE(nullptr, targetController.getServer());
+    EXPECT_EQ(nullptr, targetController.getServer()->getCluster()->coordinator());
     EXPECT_TRUE(store.node(targetId).has_value());
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+    EXPECT_EQ(restartBefore, OSService::restartRequested());
+
+    // Simulate Redis becoming unavailable between admission checks and the MQTT start.
+    ASSERT_TRUE(targetSettings->applyInvitationAccept("redis://127.0.0.1:1/2", uri).empty());
+    OSService::queueNodeAction(targetId, uri, "reload");
+    OSService::processNodeActions(targetController);
+    ASSERT_NE(nullptr, targetController.getServer()) << "Previous standalone MQTT was not recovered";
+    EXPECT_FALSE(targetSettings->m_cluster.m_enabled.asBool());
+    EXPECT_EQ("Failed", store.node(targetId)->m_state);
+    EXPECT_FALSE(store.node(targetId)->m_lastError.empty());
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+    EXPECT_EQ(restartBefore, OSService::restartRequested());
+
+    // A queued command must not operate after the node switches to another accounts database.
+    OSService::queueNodeAction(targetId, "postgresql://another/database", "retire");
+    OSService::processNodeActions(targetController);
+    EXPECT_EQ("Failed", store.node(targetId)->m_state);
+    EXPECT_TRUE(targetController.isServing());
+
+    CClusterControl retire;
+    retire.m_action = "retire";
+    retire.m_node.m_node_id = targetId;
+    CClusterControlResponse retired;
+    sourceControl.ClusterControl(retire, retired, &authentication);
+    ASSERT_TRUE(retired.m_result.m_success.asBool()) << retired.m_result.m_description.asString();
+    OSService::processNodeActions(targetController);
+    EXPECT_EQ("Retired", store.node(targetId)->m_state);
+    EXPECT_FALSE(targetController.isServing());
+    EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
+    EXPECT_TRUE(sourceSettings->m_cluster.m_enabled.asBool());
+    EXPECT_TRUE(sourceController.isServing());
 }

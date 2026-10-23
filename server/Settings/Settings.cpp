@@ -885,6 +885,24 @@ void Settings::clearPendingAccept()
     filesystem::remove(lastGoodPath(), errorCode);
 }
 
+String Settings::keepLastGoodConfiguration()
+{
+    const WriteLock lock(m_mutex);
+    if (m_configurationPath.empty()) return {};
+    try
+    {
+        Buffer current;
+        saveConfigurationUnlocked(current);
+        current.saveToFile(lastGoodPath());
+        restrictToOwnerAndGroup(lastGoodPath());
+        return {};
+    }
+    catch (const exception& error)
+    {
+        return error.what();
+    }
+}
+
 String Settings::rollbackPendingAccept(const String& reason)
 {
     {
@@ -895,7 +913,18 @@ String Settings::rollbackPendingAccept(const String& reason)
             return "There is no pending accept to roll back.";
         }
 
-        // The row in the cluster's database says Failed, with why - as best it can be reached:
+        Buffer previous;
+        previous.loadFromFile(lastGoodPath());
+        xdoc::Document document;
+        document.load(String(previous));
+        CServerConfiguration previousSettings;
+        previousSettings.load(document.root());
+        const auto wasClustered = !previousSettings.m_cluster.m_enabled.isNull() &&
+                                  previousSettings.m_cluster.m_enabled.asBool();
+
+        // Restore SQL as well as the bootstrap: SQL overrides the file when it is loaded.
+        // A failed join remains visible as Failed; a failed leave returns to cluster membership.
+        // As best it can be reached:
         // the very failure being handled may be that the database is not.
         if (m_accountsPool)
         {
@@ -907,8 +936,9 @@ String Settings::rollbackPendingAccept(const String& reason)
                 if (const auto row = store.node(nodeId))
                 {
                     auto failed = *row;
-                    failed.m_state = "Failed";
-                    failed.m_clusterEnabled = false;
+                    failed.m_state = wasClustered ? "Joining" : "Failed";
+                    failed.m_clusterEnabled = wasClustered;
+                    failed.m_redisUri = previousSettings.m_persistence.m_redis_uri.asString();
                     failed.m_lastError = reason;
                     store.updateNode(failed);
                 }
@@ -920,10 +950,7 @@ String Settings::rollbackPendingAccept(const String& reason)
         }
 
         // The previous configuration, as it was: the last-good copy is written over the failed
-        // one, and the marker goes with it. The in-memory settings stay as they are - the next
-        // process reads the file, and this one is about to end.
-        Buffer previous;
-        previous.loadFromFile(lastGoodPath());
+        // one, and the marker goes with it. The controller reloads it before recreating MQTT.
         previous.saveToFile(m_configurationPath);
         restrictToOwnerAndGroup(m_configurationPath);
 

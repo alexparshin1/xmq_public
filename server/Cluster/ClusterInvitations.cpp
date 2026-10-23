@@ -139,7 +139,7 @@ String ClusterInvitations::accept()
         const scoped_lock lock(m_mutex);
         m_invitation.reset();
     }
-    OSService::requestRestart();
+    OSService::queueNodeAction(m_settings->nodeIdentity(), m_settings->userDatabaseUri(), "reload");
     return "";
 }
 

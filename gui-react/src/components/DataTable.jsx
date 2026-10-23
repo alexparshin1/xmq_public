@@ -63,6 +63,7 @@ export default class DataTable extends React.Component {
                     <button className='dataTableAddEditButton' onClick={() => this.edit()}>Edit</button>}
                 {buttons.includes("remove") &&
                     <button className='dataTableRemoveButton' onClick={() => this.remove()}>Remove</button>}
+                {this.props.sidePanel}
             </div>
             {this.state.showEditor &&
                 <DialogWindow windowTitle={this.editorTitle} fields={this.props.headers}

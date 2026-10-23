@@ -415,9 +415,8 @@ public:
      *
      * The mode change of the dashboard, Standalone to Cluster: it writes what the accept of an
      * invitation writes - the storage turned on, the accounts database pointed at the cluster's,
-     * the cluster enabled - and keeps the previous configuration as the last-good copy. The process
-     * must restart after this for the node to take its place in the cluster, and it is the start
-     * that creates the node's row in the database and moves its accounts into it.
+     * the cluster enabled - and keeps the previous configuration as the last-good copy. MQTT is
+     * recreated within the running process to take its place in the cluster.
      *
      * @param redisUri          The shared storage.
      * @param databaseUri       The shared accounts database (PostgreSQL or MySQL).
@@ -442,8 +441,8 @@ public:
      * @brief Take the cluster an invitation offered: switch the storage and the accounts database
      * to the cluster's, turn the cluster on, and write the configuration back.
      *
-     * The bootstrap file is where the SQL URI lives, so accepting writes it there; the process
-     * restarts after this, and the next start reads the rest from the shared database. Returns an
+     * The bootstrap file is where the SQL URI lives, so accepting writes it there; MQTT is
+     * recreated within the process and reads the rest from the shared database. Returns an
      * error text, or empty when the configuration is on disk.
      */
     sptk::String applyInvitationAccept(const sptk::String& redisUri, const sptk::String& databaseUri);
@@ -453,6 +452,9 @@ public:
      * no longer needed - the last-good copy is removed.
      */
     void clearPendingAccept();
+
+    /// Capture the running configuration before changing role (SQL overrides included).
+    sptk::String keepLastGoodConfiguration();
 
     /**
      * @brief A start after Accept failed: the previous configuration is put back, the pending

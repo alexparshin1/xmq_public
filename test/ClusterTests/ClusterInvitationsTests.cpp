@@ -273,7 +273,7 @@ TEST_F(XMQ_ClusterTests, anInvitationHeldWithAReasonCannotBeAccepted)
  * reads it: the configuration on disk carries the cluster's storage and database, and the
  * invitation is gone.
  */
-TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRestart)
+TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndQueuesMqttRestart)
 {
     const auto primary = createNode("primary", 1880, true);
     const auto invited = createNode("invited", 1886, true);
@@ -283,6 +283,7 @@ TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRe
     ASSERT_TRUE(inviteResult.m_success) << inviteResult.m_error.c_str();
     ASSERT_TRUE(TestCluster::waitFor([&] { return invited->getCluster()->invitations().current().has_value(); }));
 
+    const auto processRestartBefore = OSService::restartRequested();
     const auto error = invited->getCluster()->invitations().accept();
     EXPECT_TRUE(error.empty()) << error.c_str();
     ClusterStore store(primary->getSettings()->accountsPool());
@@ -290,7 +291,7 @@ TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRe
     ASSERT_TRUE(accepted.has_value());
     EXPECT_TRUE(accepted->m_clusterEnabled);
     EXPECT_EQ("Joining", accepted->m_state);
-    EXPECT_TRUE(OSService::restartRequested()) << "accepting did not ask for the restart";
+    EXPECT_EQ(processRestartBefore, OSService::restartRequested()) << "accepting must keep the process running";
     EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
         << "the accepted invitation is still held";
 

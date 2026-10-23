@@ -345,12 +345,21 @@ bool ServerController::startServing(string& reason)
     // A server that threw partway through construction owns nothing that should linger.
     m_xmqServer.reset();
 
-    // A start right after Accept that cannot join the cluster goes back to what it was serving:
-    // the last-good configuration is put back, and the process restarts on it. The row in the
-    // cluster's database says Failed, with the reason, as best it can be reached.
-    if (const auto rollback = m_settings->rollbackPendingAccept(reason); rollback.empty())
+    // Recover within this process: the web listener and administrator session stay available.
+    // Try the last-good role once; a failed recovery leaves MQTT stopped and reports both errors.
+    try
     {
-        OSService::requestRestart();
+        if (const auto rollback = m_settings->rollbackPendingAccept(reason); rollback.empty())
+        {
+            m_settings->loadConfiguration(m_settings->configurationPath());
+            m_xmqServer = make_unique<Server>(m_settings, m_logEngine);
+            reason += " Previous MQTT configuration restored.";
+        }
+    }
+    catch (const exception& recovery)
+    {
+        m_xmqServer.reset();
+        reason += " Recovery failed: " + string(recovery.what());
     }
     return false;
 }
@@ -488,6 +497,7 @@ const shared_ptr<Settings>& ServerController::getSettings() const
 
 bool ServerController::isStopped(const std::chrono::milliseconds sleepInterval)
 {
+    OSService::processNodeActions(*this);
     // This decides whether the process keeps running, which is not the same question as whether
     // MQTT is being served. With the interface listening, a stopped server is a state the process
     // sits in - waiting for someone to press Start - rather than a reason to exit.

@@ -61,6 +61,9 @@ public:
     void applyGroups(const CUser& user) const;
     void BridgeControl(const CBridgeControl& input, CBridgeControlResponse& output, sptk::HttpAuthentication* authentication) override;
 
+    /// Internal execution after administrator or authenticated peer validation; runs off MQTT threads.
+    void applyLocalClusterAction(const sptk::String& action);
+
     void ClusterControl(const CClusterControl& input, CClusterControlResponse& output, sptk::HttpAuthentication* authentication) override;
 
     /**

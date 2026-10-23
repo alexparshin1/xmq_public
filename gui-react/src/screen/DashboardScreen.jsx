@@ -187,8 +187,8 @@ export default class DashboardScreen extends BasicScreen {
                         errorWindow("Can't leave the cluster: " + error);
                         return;
                     }
-                    informationWindow("The node is restarting as a standalone server. This interface will " +
-                                      "be unavailable while it does; reload the page afterwards.");
+                    informationWindow("The node is restarting MQTT as a standalone server. This interface will " +
+                                      "remain available. MQTT clients will reconnect.");
                     this.readCluster();
                 });
         }
@@ -213,8 +213,8 @@ export default class DashboardScreen extends BasicScreen {
                     return;
                 }
                 informationWindow("This node is becoming the first member of the cluster on " + redisUri +
-                                  ", with its accounts in " + databaseUri + ", and is restarting into it. " +
-                                  "This interface will be unavailable for a moment; reload the page afterwards.");
+                                  ", with its accounts in " + databaseUri + ", and is restarting MQTT into it. " +
+                                  "This interface will remain available. MQTT clients will reconnect.");
                 this.readCluster();
             });
     }
