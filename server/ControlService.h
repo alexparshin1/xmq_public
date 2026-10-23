@@ -214,7 +214,7 @@ private:
      * @param input             Carries the node and the password.
      * @param output            Receives the picture after the change.
      */
-    void inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
+    void inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output, bool joinImmediately = false) const;
 
     /**
      * @brief Refuse a setup naming a Redis that cannot be reached, before anything is written.

@@ -8,6 +8,30 @@ jest.mock("../components/MessageWindow", () => ({
 
 beforeEach(() => jest.clearAllMocks());
 
+test("join sends one confirmed administrator action without asking for another password", async () => {
+    const screen = new ClusterScreen({});
+    screen.state.selected = {node_id: "node-guid", name: "theater", state: "Standalone"};
+    screen.send = jest.fn();
+    confirmationWindow.mockResolvedValue(true);
+    screen.joinNode();
+    await Promise.resolve();
+    expect(confirmationWindow).toHaveBeenCalledTimes(1);
+    expect(confirmationWindow).toHaveBeenCalledWith(expect.stringContaining("restart"));
+    expect(screen.send).toHaveBeenCalledWith("join", {
+        node: {node_id: "node-guid", name: "theater"}
+    }, expect.any(String));
+});
+
+test("cancelling Join does not change membership", async () => {
+    const screen = new ClusterScreen({});
+    screen.state.selected = {node_id: "node-guid", name: "theater", state: "Standalone"};
+    screen.send = jest.fn();
+    confirmationWindow.mockResolvedValue(false);
+    screen.joinNode();
+    await Promise.resolve();
+    expect(screen.send).not.toHaveBeenCalled();
+});
+
 test.each([false, true])("remove requires confirmation and sends force only as selected: %s", async (force) => {
     const screen = new ClusterScreen({});
     screen.state.selected = {node_id: "node-guid", name: "theater"};

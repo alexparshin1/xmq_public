@@ -16,6 +16,7 @@
 #include "NodeIdentity.h"
 #include "storage/RedisConnection.h"
 #include "server/Settings/ClusterStore.h"
+#include "server/OSService.h"
 #include "common/mqtt/PublishMessage.h"
 #include "service/CServerNode.h"
 
@@ -1563,11 +1564,96 @@ void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
 
     // The GUID is the answer, with the name and the version so the inviter can refuse before
     // inviting: a node joins a cluster of its own version.
-    auto answer = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic),
-                                                    String(R"({"node_id":")" + m_nodeId + R"(","name":")" + m_server->getNodeName()
-                                                           + R"(","xmq_version":")" + Server::getVersion() + R"("})"));
+    xdoc::Document document;
+    document.root()->set("node_id", m_nodeId);
+    document.root()->set("name", m_server->getNodeName());
+    document.root()->set("xmq_version", Server::getVersion());
+    document.root()->set("database_uri", m_settings->userDatabaseUri());
+    Buffer payload;
+    document.exportTo(xdoc::DataFormat::JSON, payload, false);
+    auto answer = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic), String(payload));
     answer->setQos(Qos::Qos1);
     m_server->publishMessage(answer);
+}
+
+void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
+{
+    string_view responseTopic;
+    const auto properties = message->getProperties();
+    if (!properties || !properties->getProperty(Property::ResponseTopic, responseTopic) || responseTopic.empty())
+    {
+        return;
+    }
+    String error;
+    try
+    {
+        xdoc::Document request;
+        request.load(string(message->payload()));
+        const auto root = request.root();
+        if (root->getString("node_id") != m_nodeId || root->getString("xmq_version") != Server::getVersion())
+        {
+            throw Exception("The target UUID or server version does not match the join request.");
+        }
+        const auto database = m_settings->userDatabaseUri();
+        if (root->getString("database_uri") != database)
+        {
+            throw Exception("Join cluster requires both nodes to use the same shared accounts database URI.");
+        }
+        const auto pool = m_settings->accountsPool();
+        if (!pool)
+        {
+            throw Exception("The shared accounts database is not available.");
+        }
+        ClusterStore store(pool);
+        if (!store.isClusterDatabase())
+        {
+            throw Exception("Join cluster requires a shared PostgreSQL or MySQL accounts database.");
+        }
+        const auto local = store.node(m_nodeId);
+        const auto leader = store.node(root->getString("leader_id"));
+        const auto redisUri = root->getString("redis_uri");
+        if (!local || local->m_state == "Removed" || local->m_state == "Retired" || local->m_clusterEnabled)
+        {
+            throw Exception("This node must have a Standalone configuration before joining.");
+        }
+        if (!leader || !leader->m_clusterEnabled || leader->m_state == "Removed" ||
+            leader->m_state == "Retired" || redisUri.empty() || leader->m_redisUri != redisUri)
+        {
+            throw Exception("The requested cluster does not match an enabled node in this shared database.");
+        }
+        RedisConnect redis;
+        redis.setReadTimeout(chrono::milliseconds(1000));
+        const URL url(redisUri);
+        const auto& [host, port] = url.hostAndPort();
+        redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+        const auto snapshot = Coordinator::readSnapshot(redis);
+        if (ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == leader->m_nodeId && member.m_alive; }))
+        {
+            throw Exception("The selected cluster has no live member matching the requesting node.");
+        }
+        if (snapshot.m_members.size() >= Coordinator::MaxMembers)
+        {
+            throw Exception("The cluster already has the maximum number of members.");
+        }
+        error = m_settings->applyInvitationAccept(redisUri, database);
+    }
+    catch (const exception& exception)
+    {
+        error = exception.what();
+    }
+    xdoc::Document response;
+    response.root()->set("node_id", m_nodeId);
+    response.root()->set("joined", error.empty());
+    response.root()->set("error", error);
+    Buffer payload;
+    response.exportTo(xdoc::DataFormat::JSON, payload, false);
+    auto reply = make_shared<mqtt::PublishMessage>(m_server->getTopic(responseTopic), String(payload));
+    reply->setQos(Qos::Qos1);
+    m_server->publishMessage(reply);
+    if (error.empty())
+    {
+        OSService::requestRestart();
+    }
 }
 
 void Cluster::declineInvitation()
@@ -1650,7 +1736,8 @@ void Cluster::onRefusal(const String& payload)
 }
 
 Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName,
-                                               const String& clusterPassword)
+                                               const String& clusterPassword, const bool joinImmediately,
+                                               const String& expectedNodeId)
 {
     InviteResult result;
 
@@ -1680,21 +1767,33 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         client::MqttClient client;
         client.useBrokerThreads();
 
-        Semaphore replied;
-        String    answerPayload;
-        String    answerError;
-        const auto replyTopic = format("cluster/hello-reply/{}", m_nodeId);
-        client.onMessage([&replied, &answerPayload, &answerError](const SPublishMessage& message)
+        struct ReplyState
+        {
+            Semaphore ready;
+            mutex lock;
+            String payload;
+            String error;
+            bool joining {false};
+        };
+        const auto reply = make_shared<ReplyState>();
+        const auto replyTopic = format("cluster/hello-reply/{}", NodeIdentity::generate());
+        client.onMessage([reply](const SPublishMessage& message)
                          {
-                             if (string_view(message->payload()).find(R"("node_id")") != string_view::npos)
+                             const string_view payload(message->payload());
+                             const scoped_lock lock(reply->lock);
+                             if (reply->joining && payload.find(R"("joined")") == string_view::npos)
                              {
-                                 answerPayload = std::string(message->payload());
+                                 return; // A duplicate hello is not the join acknowledgement.
+                             }
+                             if (payload.find(R"("node_id")") != string_view::npos)
+                             {
+                                 reply->payload = string(payload);
                              }
                              else
                              {
-                                 answerError = std::string(message->payload());
+                                 reply->error = string(payload);
                              }
-                             replied.post();
+                             reply->ready.post();
                          });
 
         auto properties = make_shared<MessageProperties>();
@@ -1722,10 +1821,17 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         hello->setProperties(properties);
         client.publish(*hello);
 
-        if (!replied.wait_for(5s))
+        if (!reply->ready.wait_for(5s))
         {
             result.m_error = format("Node '{}' did not answer what it is.", invitedNodeName.c_str());
             return result;
+        }
+        String answerPayload;
+        String answerError;
+        {
+            const scoped_lock lock(reply->lock);
+            answerPayload = reply->payload;
+            answerError = reply->error;
         }
         if (!answerError.empty())
         {
@@ -1748,6 +1854,59 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         {
             result.m_error = format("Node '{}' runs XMQ {}, this node {} - a node joins a cluster of its own version.",
                                     invitedNodeName.c_str(), version.c_str(), Server::getVersion().c_str());
+            return result;
+        }
+
+        if (joinImmediately)
+        {
+            if (expectedNodeId.empty() || nodeId != expectedNodeId ||
+                document.root()->getString("database_uri") != m_settings->userDatabaseUri())
+            {
+                result.m_error = "The target UUID or shared accounts database does not match the selected configuration.";
+                return result;
+            }
+            xdoc::Document request;
+            request.root()->set("node_id", nodeId);
+            request.root()->set("leader_id", m_nodeId);
+            request.root()->set("xmq_version", Server::getVersion());
+            request.root()->set("redis_uri", m_settings->m_persistence.m_redis_uri.asString());
+            request.root()->set("database_uri", m_settings->userDatabaseUri());
+            Buffer payload;
+            request.exportTo(xdoc::DataFormat::JSON, payload, false);
+            {
+                const scoped_lock lock(reply->lock);
+                reply->payload.clear();
+                reply->error.clear();
+                reply->joining = true;
+                while (reply->ready.wait_for(0ms)) {}
+            }
+            auto join = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/join"), String(payload));
+            join->setQos(Qos::Qos1);
+            join->setProperties(properties);
+            client.publish(*join);
+            if (!reply->ready.wait_for(5s))
+            {
+                result.m_error = "The node did not acknowledge the join request. Check its state before retrying.";
+                return result;
+            }
+            {
+                const scoped_lock lock(reply->lock);
+                answerPayload = reply->payload;
+                answerError = reply->error;
+            }
+            if (!answerError.empty())
+            {
+                result.m_error = answerError;
+                return result;
+            }
+            xdoc::Document response;
+            response.load(answerPayload);
+            result.m_success = response.root()->getString("node_id") == nodeId && response.root()->getBoolean("joined");
+            if (!result.m_success)
+            {
+                result.m_error = response.root()->getString("error");
+            }
+            client.disconnect();
             return result;
         }
 

@@ -13,9 +13,10 @@ export default function ClusterDocumentation() {
                 A cluster is a set of XMQ nodes that share one storage (Redis) and one accounts
                 database (PostgreSQL or MySQL), so that a client connecting to any node sees the
                 same sessions, the same accounts and the same retained messages. A node joins a
-                cluster by invitation: an administrator of the running cluster declares the new
-                node by its name and TLS address, invites it, and the invited node reviews and
-                accepts - the node then restarts into the cluster.
+                cluster when an administrator selects its registered configuration and presses
+                Join cluster. The nodes already share their administrator and cluster accounts;
+                a second confirmation on the target is not required. The selected node is checked
+                over TLS, configured, and restarted into the cluster.
             </p>
 
             <p>
@@ -204,7 +205,7 @@ sudo systemctl enable --now xmq_server
             </p>
 
             <p>
-                Cluster links and invitations use these registered certificates for TLS peer
+                Cluster links and join requests use these registered certificates for TLS peer
                 verification. There is no manual certificate exchange or separate
                 <b> Trusted Nodes</b> entry to create for each peer.
             </p>
@@ -223,60 +224,35 @@ sudo systemctl enable --now xmq_server
             <pre className="userManualCode">{`ls /etc/xmq/certs/peers/
 # node-b.crt   (on node-a)   /   node-a.crt   (on node-b)`}</pre>
 
-            <h5>4. Invite node B</h5>
-
+            <h5>4. Join node B to the cluster</h5>
             <p>
-                On node A first select <b>Cluster</b> mode on the <b>Dashboard</b> and confirm
-                the shared database and storage to create the cluster. Leave node B in
-                <b> Standalone</b>: registration in the shared database
-                does not admit it. Node B joins only after Invite and Accept.
+                On node A select <b>Cluster</b> mode on the <b>Dashboard</b> and confirm the
+                shared accounts database and Redis storage. This creates the first member.
+                Keep node B in <b>Standalone</b> until you explicitly join it.
             </p>
-
             <p>
-                On node A's <b>Cluster Configuration</b> page select the <code>node-b</code>
-                row already registered in the shared database. Check its name and TLS address:
-                <code> node-b:8883</code>, the MQTT+SSL port of node B. There is no duplicate
-                node entry to add manually.
+                On node A's <b>Cluster Configuration</b> page select the registered
+                <code> node-b</code> row and press <b>Join cluster</b>. Confirm the target and
+                restart. The cluster uses the password configured during Initial Setup;
+                there is no additional password dialog or Accept step on node B.
             </p>
-
             <p>
-                Select the row and press <b>Invite</b>. The dialog asks for the password of the
-                <code>cluster</code> account created in the shared database in step 1. Node A then connects to node
-                B over TLS as that account (which is where the registered certificate from step 3 is
-                needed), asks it who it is, and publishes the invitation.
+                Before changing anything, the system verifies TLS, the selected UUID, server
+                version, shared database, and Redis membership and capacity. Node B must use
+                the same shared User Database URI. Its clients disconnect while it restarts;
+                local standalone sessions and queued messages are not migrated into the cluster.
             </p>
-
+            <h5>5. Verify the join</h5>
             <p>
-                <b>Verify:</b> node B's own <b>Cluster Configuration</b> page now shows the
-                invitation: who invited it, and the storage and accounts database the cluster
-                works against. On node A the row of node B says <b>Invited</b>.
+                Acknowledgement means node B accepted the configuration and is restarting;
+                its row initially says <b>Joining</b>. Refresh the page after restart: both
+                rows should say <b>Clustered</b>. A failed startup is reported as <b>Failed</b>,
+                with the reason, and the last-good configuration is retained for rollback.
+                A service manager restarts the process automatically; when running manually,
+                start <code>xmq_server</code> again after it exits for the configuration change.
             </p>
-
-            <h5>5. Accept the invitation on node B</h5>
-
-            <p>
-                On node B press <b>Review and Accept</b> and read the confirmation: it names
-                everything the accept changes - persistence switched to the cluster's storage, the
-                accounts moved to the cluster's database, the cluster enabled, the node
-                restarting. Local sessions, queued messages and local accounts are not carried
-                over.
-            </p>
-
-            <p>
-                Accepting writes the new configuration and ends the process with the restart code;
-                the package's service unit is <code>Restart=always</code>, so systemd brings the
-                node back on the new configuration by itself. On that start node B joins the
-                shared database and the shared storage and takes its place in the cluster.
-            </p>
-
-            <p>
-                <b>Verify:</b> on node A's Cluster Configuration page both rows now say
-                <b>Clustered</b>, and both are alive:
-            </p>
-
-            <pre className="userManualCode">{`# On the Redis host, if you want to see the membership itself:
-redis-cli -n 0 zrange cluster:members 0 -1
-# (two GUIDs - the two nodes)`}</pre>
+            <pre className="userManualCode">{`redis-cli -n 0 zrange cluster:members 0 -1
+# two GUIDs after node B has restarted and joined`}</pre>
 
             <h5>6. Check that the cluster carries traffic</h5>
 
@@ -303,7 +279,7 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
                 On the node being detached, press <b>Leave cluster</b>. The server drains its
                 cluster traffic, removes its membership, preserves its configuration in
                 <code> xmq_node</code>, and restarts as <b>Standalone</b>. Other cluster members
-                continue running. Returning to this cluster requires Invite and Accept again.
+                continue running. Returning to this cluster requires an explicit Join cluster action again.
             </p>
             <h5>8. Remove an obsolete server configuration</h5>
             <p>

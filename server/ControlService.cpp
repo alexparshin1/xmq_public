@@ -947,6 +947,10 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         {
             inviteClusterNode(input, output);
         }
+        else if (action == "join")
+        {
+            inviteClusterNode(input, output, true);
+        }
         else if (action == "accept")
         {
             const auto error = requireServer().getCluster()->invitations().accept();
@@ -1311,12 +1315,12 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
     reportClusterState(output);
 }
 
-void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
+void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output, const bool joinImmediately) const
 {
     const auto& settings = getSettings();
     if (!settings->m_cluster.m_enabled.asBool())
     {
-        throw Exception("Enable the first node's cluster before inviting another node.");
+        throw Exception("Enable Cluster mode on the first node before adding another node to its cluster.");
     }
     const auto  store = requireClusterStore(settings);
 
@@ -1330,14 +1334,18 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
 
     if (row->m_nodeId == settings->nodeIdentity())
     {
-        throw Exception("This is the node serving this interface; it is not invited to its own cluster.");
+        throw Exception("This node is already serving this cluster; select another node to join.");
+    }
+    if (joinImmediately && (row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled))
+    {
+        throw Exception("Select a Standalone node with an active configuration in this database.");
     }
 
-    // The password the Invite dialog asked for. The invited node authenticates the cluster user
-    // against its own verifier, so a wrong password is refused by the connect, before anything is
-    // sent; the configured secret is the fallback when the dialog sent none.
+    // Shared-database joins use the configured cluster secret. Legacy invitations may supply
+    // a password explicitly; either path authenticates before requesting a configuration change.
     const auto result = requireServer().getCluster()->sendInvitation(row->m_hostPort, row->m_name,
-                                                                     input.m_password.asString());
+                                                                     joinImmediately ? String() : input.m_password.asString(),
+                                                                     joinImmediately, row->m_nodeId);
     if (!result.m_success)
     {
         throw Exception(result.m_error);

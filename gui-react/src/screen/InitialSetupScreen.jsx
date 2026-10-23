@@ -375,7 +375,7 @@ export default class InitialSetupScreen extends BasicScreen {
                 <legend>Cluster account</legend>
                 <p>Set the same cluster password on every node. For a shared user database,
                     enter the cluster password set on the first node. This does not join a cluster;
-                    use Enable on the first node, then Invite and Accept for additional nodes.</p>
+                    enable Cluster mode on the first node, then use Join cluster for additional nodes.</p>
                 <div className="inputScreenRow">
                     <label htmlFor="cluster_password" className="inputScreenLabel">Cluster password:</label>
                     <input id="cluster_password" name="cluster_password" type="password" autoComplete="new-password"

@@ -200,16 +200,22 @@ public:
      */
     void answerHello(const std::shared_ptr<PublishMessage>& message) const;
 
+    /// Execute an authenticated, one-step join request on a node in the same accounts database.
+    void acceptSharedJoin(const std::shared_ptr<PublishMessage>& message);
+
     /**
      * @brief Invite a node: ask its GUID over `cluster/hello`, key its declared row by it, send
      * the invitation to `cluster/invitation`, and mark the row Invited.
+     * With joinImmediately, verify expectedNodeId and the shared accounts database instead,
+     * send `cluster/join`, and wait for the target to acknowledge its configuration change.
      *
      * The connection is made as the `cluster` user over TLS with the local node's keys, against
      * the peer certificate bundle - an address whose certificate is not trusted is refused here,
      * not at the invited end.
      */
     InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName,
-                                const sptk::String& clusterPassword = {});
+                                const sptk::String& clusterPassword = {}, bool joinImmediately = false,
+                                const sptk::String& expectedNodeId = {});
 
     /**
      * @brief Answer the invitation this node holds with a refusal, to the inviter, on

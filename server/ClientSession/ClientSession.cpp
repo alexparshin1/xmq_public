@@ -1383,6 +1383,10 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         // topic the request names, as a server publication.
         server().getCluster()->answerHello(publishMessage);
     }
+    else if (publishMessage->destination()->fullName() == "cluster/join" && getUsername() == "cluster")
+    {
+        server().getCluster()->acceptSharedJoin(publishMessage);
+    }
     else if (publishMessage->destination()->fullName() == "cluster/refusal" && getUsername() == "cluster")
     {
         // A node this one invited said no: mark its row and take the invitation away.

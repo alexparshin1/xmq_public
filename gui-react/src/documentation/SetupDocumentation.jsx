@@ -74,7 +74,7 @@ export default function SetupDocumentation() {
                 <code>cluster</code> account, using the cluster password entered on the page.
                 Enter the same cluster password on every node sharing the user database.
                 Setup does not enable cluster membership; use Enable on the first node and
-                Invite and Accept for the others. MQTT clients that authenticate will need their
+                Join cluster for the others. MQTT clients that authenticate will need their
                 accounts adding again on the Users page. Installed certificate files are kept,
                 being files of their own rather than configuration.
             </p>

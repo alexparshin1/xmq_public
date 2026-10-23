@@ -744,6 +744,8 @@
                                     <!-- Invite the selected node: the invitation is published to its
                                          cluster/invitation topic as the cluster user. -->
                                     <xsd:enumeration value="invite"></xsd:enumeration>
+                                    <!-- One-step admission for nodes already using this shared accounts database. -->
+                                    <xsd:enumeration value="join"></xsd:enumeration>
                                     <!-- Answer the invitation this node holds. -->
                                     <xsd:enumeration value="accept"></xsd:enumeration>
                                     <xsd:enumeration value="decline"></xsd:enumeration>
