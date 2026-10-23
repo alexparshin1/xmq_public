@@ -130,7 +130,8 @@ export default class DialogWindow extends React.Component {
                         this.state.fields.map(field => <div key={field.field}>
                             {!field.hasOwnProperty("context") || field.context["hide"] !== true
                                 ?
-                                <label className="modalContainerLabel" htmlFor={field.field}>{field.headerName}:</label>
+                                <label className="modalContainerLabel" htmlFor={field.field}
+                                       style={{width: this.props.labelWidth}}>{field.headerName}:</label>
                                 : <label/>
                             }
                             {this.makeInputWidget(field)}

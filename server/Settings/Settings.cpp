@@ -278,11 +278,13 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     // linger in files that have already been migrated.
     const auto authenticationNode = document.root()->findFirst("authentication");
     const auto hasUsersElement = authenticationNode && authenticationNode->findFirst("users");
+    const auto clusterNode = document.root()->findFirst("cluster");
+    const bool hasClusterPassword = clusterNode && clusterNode->findFirst("password");
 
     WSComplexType::load(document.root());
 
     initialize();
-    if (hasUsersElement)
+    if (hasUsersElement || hasClusterPassword)
     {
         m_changed = true;
     }
@@ -333,6 +335,21 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     // After the accounts are in memory and the file has been written back, so that whichever form
     // the file was in, what moves into the database is a verifier and never a readable password.
     openUserDatabaseUnlocked();
+    if (hasClusterPassword && !accountsDatabase.empty() && !m_accountsInDatabase)
+        throw Exception("Cannot migrate the legacy cluster credential while the accounts database is unavailable. "
+                        "The configuration was not rewritten.");
+    if (m_accountsInDatabase && m_accountsPool)
+    {
+        UserStore store(m_accountsPool);
+        // Migrate a legacy configuration secret only if its verifier agrees. A stale
+        // node must never replace the shared credential or change the cluster account.
+        const auto account = store.findUser("cluster");
+        const auto legacy = m_cluster.m_password.asString();
+        if (store.clusterSecret().empty() && account && account->m_enabled &&
+            !legacy.empty() && PasswordHash::verify(legacy, account->m_password))
+            store.setClusterSecret(legacy);
+        m_cluster.m_password = "";
+    }
 
     // After the accounts: the cluster's settings come from the same database, through the same
     // pool, and one that cannot be read stops the start rather than being guessed at.
@@ -408,6 +425,7 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
 {
     xdoc::Document document;
     WSComplexType::unload(document.root());
+    if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
 
     // Accounts live in the users file, so the configuration should not carry the element at all -
     // not even as an empty list. Leaving it there invites someone to add an account to the wrong
@@ -1099,7 +1117,7 @@ String Settings::clusterConfigurationError() const
 String Settings::clusterPassword() const
 {
     const ReadLock lock(m_mutex);
-
+    if (m_accountsPool) return UserStore(m_accountsPool).clusterSecret();
     return m_cluster.m_password.asString();
 }
 
@@ -1759,6 +1777,29 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
 {
     checkInitialSetup(setup);
 
+    // Setting up another node against shared accounts must not reset everybody's
+    // passwords. Verify the supplied credentials before changing any local settings.
+    bool existingSharedAccounts = false;
+    const auto setupUri = setup.m_database_uri.asString();
+    if (!setupUri.empty() && !setupUri.toLowerCase().starts_with("sqlite"))
+    {
+        auto pool = make_shared<DatabaseConnectionPool>(setupUri, 2);
+        UserStore store(pool);
+        store.createSchema();
+        existingSharedAccounts = !store.users().empty();
+        if (existingSharedAccounts)
+        {
+            for (const auto& entry: {pair<String, String>("admin", setup.m_admin_password.asString()),
+                                     pair<String, String>("cluster", setup.m_cluster_password.asString())})
+            {
+                const auto account = store.findUser(entry.first);
+                if (!account || !account->m_enabled || !PasswordHash::verify(entry.second, account->m_password))
+                    throw Exception("Initial Setup must use the existing " + entry.first +
+                                    " password for this shared accounts database. Its accounts were not changed.");
+            }
+        }
+    }
+
     const WriteLock lock(m_mutex);
 
     xdoc::Document document;
@@ -1805,7 +1846,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // A shared accounts database registers a node for discovery, not cluster admission.
     // Enable on the first node or accepting an invitation is what enables membership.
     section(root, "cluster")->set("enabled", false);
-    section(root, "cluster")->set("password", setup.m_cluster_password.asString());
+    section(root, "cluster")->remove("password");
     const auto setupDatabaseUri = setup.m_database_uri.asString();
     if (!setupDatabaseUri.empty())
     {
@@ -1837,11 +1878,15 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // disk, rather than at the next start.
     loadConfigurationUnlocked(newConfiguration);
 
-    // The accounts go back to their defaults along with everything else, and after the load that
-    // has just read the old ones back in. A setup that left the previous installation's clients
-    // able to connect would not be the fresh start the page offers - and it cannot lock anyone
-    // out, because the administrator password is asked for on the same page.
-    resetUsersUnlocked(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
+    // A new or local accounts store is initialised with the supplied passwords. Existing
+    // shared accounts belong to all nodes and must survive another node's setup unchanged.
+    if (!existingSharedAccounts)
+        resetUsersUnlocked(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
+    if (m_accountsPool)
+    {
+        UserStore(m_accountsPool).setClusterSecret(setup.m_cluster_password.asString());
+        m_cluster.m_password = "";
+    }
 
     // Explicit setup replaces this node's settings, including an older SQL row read by load.
     // SQL discovery must not turn a freshly initialised node back into a cluster member.

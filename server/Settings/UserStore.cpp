@@ -150,6 +150,10 @@ void UserStore::executeStatement(const String& sql)
 
 void UserStore::createSchema()
 {
+    if (!tableExists("xmq_cluster_credential"))
+    {
+        executeStatement("CREATE TABLE xmq_cluster_credential (id int PRIMARY KEY, secret text NOT NULL)" + tableSuffix());
+    }
     const auto serial = serialColumn();
 
     if (!tableExists(String(string(userGroupTable))))
@@ -528,6 +532,33 @@ size_t UserStore::importUsersFrom(const std::filesystem::path& usersFile, const 
     }
 
     return imported;
+}
+
+String UserStore::clusterSecret()
+{
+    const auto account = findUser("cluster");
+    if (!account || !account->m_enabled) return {};
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(), "SELECT secret FROM xmq_cluster_credential WHERE id = 1");
+    query.open();
+    if (query.eof()) return {};
+    const String secret = query["secret"].asString();
+    return PasswordHash::verify(secret, account->m_password) ? secret : String();
+}
+
+void UserStore::setClusterSecret(const String& secret)
+{
+    const auto account = findUser("cluster");
+    if (!account || !account->m_enabled || !PasswordHash::verify(secret, account->m_password))
+        throw Exception("The cluster credential does not match the enabled cluster account in the accounts database.");
+    const AutoDatabaseConnection connection(*m_database);
+    const auto driver = m_database->driverName().toLowerCase();
+    const auto suffix = driver.starts_with("mysql") || driver.starts_with("mariadb")
+        ? " ON DUPLICATE KEY UPDATE secret = VALUES(secret)"
+        : " ON CONFLICT (id) DO UPDATE SET secret = excluded.secret";
+    Query query(connection.connection(), String("INSERT INTO xmq_cluster_credential (id, secret) VALUES (1, :secret)") + suffix);
+    query.param("secret") = secret;
+    query.exec();
 }
 
 void UserStore::updateUser(const User& user)

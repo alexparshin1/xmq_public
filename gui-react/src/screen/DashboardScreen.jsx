@@ -122,7 +122,7 @@ export default class DashboardScreen extends BasicScreen {
     }
 
     /**
-     * Reads whether starting the server would empty the persistent store.
+     * Reads whether starting the server would clear this node's persisted state.
      *
      * Read fresh rather than remembered: persistence can be changed - in another tab, or by
      * another person - between this page loading and Start being pressed.
@@ -226,25 +226,25 @@ export default class DashboardScreen extends BasicScreen {
     /**
      * Starts the server, first warning if doing so would discard the stored sessions.
      *
-     * Stop keeps persistent sessions; a start with clean_start set then empties the database
+     * Stop keeps persistent sessions; a start with clean_start set clears this node's state
      * before restoring anything. Without asking, stop-then-start reads as a pause and quietly
      * loses everything queued for offline clients.
      */
     startServer() {
         // Read now rather than trusted from arrival: this is the one thing standing between a
-        // press of Start and an emptied database, and the read on arrival may not have got
+        // press of Start and discarded node state, and the read on arrival may not have got
         // through - or the setting may have been changed since, here or by somebody else.
         this.readPersistence().then(async cleanStart => {
             if (cleanStart === null) {
-                errorWindow("Whether starting the server would empty the database could not be " +
-                             "read, so it cannot be said what Start would discard. Try again.");
+                errorWindow("The Clean start setting could not be read, so it is unclear whether " +
+                             "Start would discard this node's stored sessions and queued messages. Try again.");
                 return;
             }
             if (cleanStart) {
                 const confirmed = await confirmationWindow(
-                    "Persistence is enabled with \"clean start\", so starting the server empties the " +
-                    "database first.\n\nEvery stored session and every message queued for a client that " +
-                    "is currently offline will be discarded.\n\nStart the server anyway?");
+                    "Clean start is enabled. Starting the server will discard this node's stored " +
+                    "sessions and queued messages.\n\nOther nodes' data and the rest of the Redis database " +
+                    "will be preserved.\n\nStart the server anyway?");
                 if (!confirmed) {
                     return;
                 }
@@ -332,8 +332,9 @@ export default class DashboardScreen extends BasicScreen {
 
                 {!running && this.state.cleanStart === true
                     ? <div style={{color: "#b26a00", margin: "8px 0", maxWidth: "46em"}}>
-                        Persistence is set to <b>clean start</b>: starting the server will empty the
-                        database, discarding stored sessions and anything queued for offline clients.
+                        <b>Clean start</b> is enabled: starting the server will discard this node's
+                        stored sessions and queued messages. Other nodes' data and the rest of the
+                        Redis database will be preserved.
                     </div>
                     : null}
 
@@ -391,7 +392,7 @@ export default class DashboardScreen extends BasicScreen {
                               ]}
                               values={{redis_uri: cluster.redis_uri || "",
                                        database_uri: cluster.on_cluster_database ? (cluster.database_uri || "") : ""}}
-                              windowWidth={720} windowHeight={280}
+                              labelWidth={400} windowWidth={760} windowHeight={280}
                               onSubmit={(result, values) => {
                                   if (result === "Ok") {
                                       this.enableCluster(values.redis_uri, values.database_uri);

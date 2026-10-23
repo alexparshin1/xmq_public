@@ -132,6 +132,9 @@ sudo systemctl enable --now xmq_server
                 <code> cluster</code> account is created once for the entire cluster: every node
                 uses that same account. Enter the same cluster password during Initial Setup on
                 every node; an existing account is checked before setup changes are applied.
+                Existing shared accounts are preserved. The credential used for outgoing cluster
+                connections is kept in the accounts database, separately from the account's password
+                hash; it is never written to the node's configuration file.
             </p>
 
             <p>

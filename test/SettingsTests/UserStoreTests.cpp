@@ -16,6 +16,7 @@
 #include "server/Settings/PasswordHash.h"
 #include "server/Settings/UserManager.h"
 #include "server/Settings/UserStore.h"
+#include "server/Settings/Settings.h"
 #include "test/TestServers.h"
 
 #include <gtest/gtest.h>
@@ -86,7 +87,7 @@ vector<pair<String, String>> reachableDatabases()
 /// Nothing of an earlier run, so that "created" means created.
 void dropEverything(DatabaseConnectionPool& pool)
 {
-    for (const auto* table: {"xmq_user_to_user_group", "xmq_user", "xmq_user_group", "xmq_store_version"})
+    for (const auto* table: {"xmq_cluster_credential", "xmq_user_to_user_group", "xmq_user", "xmq_user_group", "xmq_store_version"})
     {
         try
         {
@@ -152,6 +153,84 @@ protected:
 std::vector<std::pair<String, String>> XMQ_UserStoreTests::m_databases;
 
 } // namespace
+
+TEST_F(XMQ_UserStoreTests, clusterCredentialIsSharedAndMustMatchTheAccount)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+        store.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("First-Secret1", 1000)});
+        EXPECT_THROW(store.setClusterSecret("Wrong-Secret1"), Exception);
+        EXPECT_TRUE(store.clusterSecret().empty());
+        store.setClusterSecret("First-Secret1");
+        EXPECT_EQ("First-Secret1", storeOn(uri).clusterSecret());
+        auto account = *store.findUser("cluster");
+        account.m_password = PasswordHash::hash("Next-Secret1", 1000);
+        store.updateUser(account);
+        EXPECT_TRUE(storeOn(uri).clusterSecret().empty());
+        store.setClusterSecret("Next-Secret1");
+        EXPECT_EQ("Next-Secret1", storeOn(uri).clusterSecret());
+        account.m_enabled = false;
+        store.updateUser(account);
+        EXPECT_TRUE(store.clusterSecret().empty());
+    }
+}
+
+TEST_F(XMQ_UserStoreTests, initialSetupDoesNotResetExistingSharedAccounts)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        if (uri.toLowerCase().starts_with("sqlite")) continue;
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+        store.addUser({.m_username = "admin", .m_password = PasswordHash::hash("Admin-Secret1", 1000)});
+        store.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("Cluster-Secret1", 1000)});
+        const auto admin = *store.findUser("admin");
+        const auto cluster = *store.findUser("cluster");
+        CInitialSetup setup;
+        setup.m_admin_password = "Admin-Secret1";
+        setup.m_cluster_password = "Wrong-Secret1";
+        setup.m_database_uri = uri;
+        setup.m_node_name = "setup-node";
+        setup.m_mqtt_port = 1883;
+        setup.m_mqtt_ssl_port = 8883;
+        setup.m_web_service_port = 18883;
+        setup.m_redis_host = "localhost";
+        setup.m_redis_port = 6379;
+        Settings settings;
+        // A bad shared password must be rejected before even loading the template.
+        try
+        {
+            settings.applyInitialSetup(setup, "/no-such-template");
+            FAIL() << "An incorrect shared cluster password was accepted";
+        }
+        catch (const Exception& error)
+        {
+            EXPECT_NE(String::npos, String(error.what()).find("existing cluster password"));
+        }
+        EXPECT_EQ(admin.m_password, store.findUser("admin")->m_password);
+        EXPECT_EQ(cluster.m_password, store.findUser("cluster")->m_password);
+        EXPECT_TRUE(store.clusterSecret().empty());
+
+        const auto directory = filesystem::temp_directory_path() /
+            ("xmq_shared_setup_" + to_string(::getpid()) + name);
+        filesystem::create_directories(directory);
+        struct RestoreCertificates {
+            filesystem::path previous;
+            ~RestoreCertificates() { DirectoryNames::setCertsDirectory(previous); }
+        } restore {DirectoryNames::certsDirectory()};
+        DirectoryNames::setCertsDirectory(directory / "certs");
+        const auto configuration = directory / "node.conf";
+        Settings::createConfiguration(configuration, directory / "missing-template");
+        setup.m_cluster_password = "Cluster-Secret1";
+        settings.applyInitialSetup(setup, configuration);
+        EXPECT_EQ(admin.m_password, store.findUser("admin")->m_password);
+        EXPECT_EQ(cluster.m_password, store.findUser("cluster")->m_password);
+        EXPECT_EQ("Cluster-Secret1", store.clusterSecret());
+        EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    }
+}
 
 TEST_F(XMQ_UserStoreTests, createsItsSchemaOnEveryDatabaseWeSupport)
 {

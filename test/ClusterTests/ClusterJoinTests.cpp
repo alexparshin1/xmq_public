@@ -144,6 +144,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     users.createSchema();
     const auto adminId = users.addUser({.m_username = "admin", .m_password = PasswordHash::hash("admin", 1000)});
     users.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("cluster", 1000)});
+    users.setClusterSecret("cluster");
     const auto administrators = users.addGroup({.m_name = String(string(UserStore::administratorsGroupName))});
     users.addUserToGroup(adminId, administrators);
     const string sourceName = "join-source-" + to_string(::getpid());

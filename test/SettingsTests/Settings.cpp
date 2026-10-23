@@ -536,6 +536,44 @@ TEST(XMQ_Settings, applyInitialSetupWithAccountsDatabaseDoesNotEnableCluster)
     EXPECT_TRUE(settings.userManager().authenticate("cluster", "Cluster-Secret1"));
 }
 
+TEST(XMQ_Settings, setupClusterCredentialSurvivesReloadWithoutConfigurationPassword)
+{
+    TemporaryCertificateDirectory certificates;
+    const auto directory = emptyTestDirectory("xmq_cluster_credential");
+    const auto configuration = directory / "xmq_server.conf";
+    const auto templateFile = directory / "template.conf";
+    xdoc::Document templateDocument;
+    templateDocument.load(g_testConfig);
+    templateDocument.root()->remove("bridges");
+    Buffer templateContents;
+    templateDocument.exportTo(xdoc::DataFormat::JSON, templateContents, true);
+    templateContents.saveToFile(templateFile);
+    Settings::createConfiguration(configuration, templateFile);
+    Settings settings;
+    settings.loadConfiguration(configuration);
+    auto setup = testInitialSetup();
+    setup.m_database_uri = DirectoryNames::sqliteUri(directory / "accounts.db");
+    settings.applyInitialSetup(setup, templateFile);
+    EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    xdoc::Document saved;
+    Buffer contents;
+    contents.loadFromFile(configuration);
+    saved.load(String(contents));
+    ASSERT_NE(nullptr, saved.root()->findFirst("cluster"));
+    EXPECT_EQ(nullptr, saved.root()->findFirst("cluster")->findFirst("password"));
+    // A stale legacy file must not override the credential already in the database.
+    saved.root()->findFirst("cluster")->set("password", "Stale-Secret1");
+    saved.exportTo(xdoc::DataFormat::JSON, contents, true);
+    contents.saveToFile(configuration);
+    Settings reloaded;
+    reloaded.loadConfiguration(configuration);
+    EXPECT_EQ("Cluster-Secret1", reloaded.clusterPassword());
+    EXPECT_TRUE(reloaded.userManager().authenticate("cluster", "Cluster-Secret1"));
+    contents.loadFromFile(configuration);
+    saved.load(String(contents));
+    EXPECT_EQ(nullptr, saved.root()->findFirst("cluster")->findFirst("password"));
+}
+
 TEST(XMQ_Settings, applyInitialSetupWithoutRedis)
 {
     const auto templateFile = writeConfigurationTemplate();
@@ -875,7 +913,7 @@ TEST(XMQ_Settings, anOldUsersFileIsConvertedOnTheOneReadingThatStillSeesThePassw
         << "the account was left in the old form";
 
     // The cluster secret is the one that cannot become a verifier and nothing else, because this
-    // node presents it to its peers. It moves to the configuration on this same reading.
+    // node presents it to its peers. It moves to the accounts database on this same reading.
     EXPECT_STREQ("shared-cluster-secret", settings.clusterPassword().c_str());
     EXPECT_TRUE(PasswordHash::verify("shared-cluster-secret",
                                      settings.userManager().findUser("cluster").m_password.asString()))

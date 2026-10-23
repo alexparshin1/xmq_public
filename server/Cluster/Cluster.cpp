@@ -1824,6 +1824,12 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         // there is none to type: the invited node authenticates the cluster user against its own
         // verifier, so presenting the wrong secret is refused here, before anything is sent.
         const auto password = clusterPassword.empty() ? settings->clusterPassword() : clusterPassword;
+        if (password.empty())
+        {
+            result.m_error = "The accounts database has no cluster credential matching the cluster account. "
+                             "Run Initial Setup with the existing shared cluster password.";
+            return result;
+        }
         const auto rc = client.connect(host, ConnectCredentials(format("xmq-invite-{}", m_nodeId), "cluster", password),
                                        {.m_cleanSession = true}, ProtocolVersion::MqttV5, properties,
                                        make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",

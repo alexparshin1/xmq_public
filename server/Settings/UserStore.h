@@ -41,6 +41,11 @@ namespace xmq {
 class XMQ_EXPORT UserStore
 {
 public:
+    /// Outbound cluster credential, kept in the accounts database, never node configuration.
+    /// Reading and writing both require it to match the enabled cluster account's verifier.
+    [[nodiscard]] sptk::String clusterSecret();
+    void setClusterSecret(const sptk::String& secret);
+
     /// One account, as the database holds it.
     struct User
     {
@@ -164,7 +169,7 @@ public:
      * @brief The clear-text password one account has in an old xmq_users.conf.
      *
      * For the one secret that has to survive the migration readable: the 'cluster' account, whose
-     * password every node presents to its peers. It moves into the configuration, and the account
+     * password every node presents to its peers. It moves into the credential table, and the account
      * itself keeps only a verifier like every other. This is the last moment it can be read.
      *
      * @return The password, or nothing if the file or the account is missing or unreadable.

@@ -333,17 +333,18 @@ public:
      * database, which cannot be read back - presenting a secret and checking one are different
      * needs, and storing one thing for both is what kept every password recoverable.
      *
-     * @return the configured secret, or empty when the node has never been clustered.
+     * Read from the accounts database on each use so every node uses the same credential.
+     * @return the verified database credential, or empty when unavailable.
      */
     [[nodiscard]] sptk::String clusterPassword() const;
 
 private:
     /**
-     * @brief Takes the cluster secret out of the accounts and into the configuration.
+     * @brief Captures a legacy secret in memory for migration to the accounts database.
      *
      * Called on the one reading that can still see it - before the accounts become verifiers -
      * because a node has to present this secret to its peers and a verifier cannot be presented.
-     * Does nothing when the configuration already carries one.
+     * Does nothing when a legacy configuration already supplied one.
      */
     void captureClusterSecretUnlocked();
 
