@@ -211,6 +211,21 @@ TEST_F(XMQ_ClusterTests, nodeThatLeavesFreesItsPlace)
  * Verification: the same GUID before and after; still two members, node 1 among them, linked to
  * node 0 again without being asked to join.
  */
+TEST_F(XMQ_ClusterTests, aNodeThatLeavesCanRestartStandaloneWithoutRejoining)
+{
+    TestCluster cluster(2);
+    const auto configuration = cluster[1]->getSettings()->configurationPath();
+    cluster[1]->stopServer();
+    cluster[1]->detachFromCluster();
+    ASSERT_TRUE(cluster[1]->getSettings()->applyClusterDisable().empty());
+    EXPECT_TRUE(filesystem::exists(configuration));
+    EXPECT_EQ(vector<string> {TestCluster::nodeName(0)}, memberNames(coordinatorOf(cluster, 0)));
+    cluster.stopNode(1);
+    const auto standalone = createNode(TestCluster::nodeName(1), TestCluster::host(1).port(), false, {}, false);
+    EXPECT_EQ(nullptr, standalone->getCluster()->coordinator());
+    EXPECT_EQ(vector<string> {TestCluster::nodeName(0)}, memberNames(coordinatorOf(cluster, 0)));
+}
+
 TEST_F(XMQ_ClusterTests, restartedNodeKeepsItsIdentityAndRejoins)
 {
     TestCluster cluster(2);

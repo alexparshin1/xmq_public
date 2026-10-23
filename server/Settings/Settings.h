@@ -294,7 +294,7 @@ private:
      *
      * @param administratorPassword Password the administrator will sign in with.
      */
-    void resetUsersUnlocked(const sptk::String& administratorPassword);
+    void resetUsersUnlocked(const sptk::String& administratorPassword, const sptk::String& clusterPassword);
 
     void loadConfigurationUnlocked(const sptk::Buffer& config);
     void saveConfigurationUnlocked(sptk::Buffer& config) const;

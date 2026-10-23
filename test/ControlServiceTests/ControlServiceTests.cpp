@@ -97,6 +97,7 @@ TEST_F(XMQ_ControlServiceTests, initialSetupInitialisesAnEmptySharedUserDatabase
     CInitialSetupControl request;
     request.m_action = "set";
     request.m_setup.m_admin_password = "Sunflower7!";
+    request.m_setup.m_cluster_password = "Cluster-Secret1";
     request.m_setup.m_database_uri = uri;
     // Stop after the database preflight, before applying any configuration or certificate changes.
     request.m_setup.m_mqtt_port = 0;

@@ -309,6 +309,25 @@ TEST_F(XMQ_ClusterStoreTests, theStoredStateIsKeptApartFromTheComputedOne)
     }
 }
 
+TEST_F(XMQ_ClusterStoreTests, removingConfigurationKeepsATombstoneAndHidesItFromTheList)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+        const String id = "00000000-0000-4000-8000-000000000099";
+        auto row = sampleNode(id);
+        store.insertNode(row);
+        store.removeConfiguration(id);
+        const auto removed = store.node(id);
+        ASSERT_TRUE(removed.has_value());
+        EXPECT_EQ("Removed", removed->m_state);
+        EXPECT_FALSE(removed->m_clusterEnabled);
+        EXPECT_TRUE(store.nodes().empty());
+        EXPECT_THROW(store.insertNode(row), Exception) << name;
+    }
+}
+
 TEST_F(XMQ_ClusterStoreTests, theBridgeEraTableIsDroppedWhenTheSchemaIsCreated)
 {
     for (const auto& [name, uri]: m_databases)

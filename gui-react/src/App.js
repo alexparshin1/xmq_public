@@ -22,6 +22,8 @@ import ClusterScreen from "./screen/ClusterScreen";
 import XmqServiceScreen from "./screen/XmqServiceScreen";
 import InitialSetupScreen from "./screen/InitialSetupScreen";
 import UserManualScreen from "./screen/UserManualScreen";
+import Documentation from "./documentation/Documentation";
+import {documentationPages} from "./documentation/pages";
 import ExtensionsScreen from "./screen/ExtensionsScreen";
 
 class App extends React.Component {
@@ -69,6 +71,9 @@ class App extends React.Component {
                                     <Route path="/" Component={HomeScreen}/>
                                     <Route path="/login" Component={LoginScreen}/>
                                     <Route path="/manual" Component={UserManualScreen}/>
+                                    {documentationPages.map(page =>
+                                        <Route key={page.id} path={page.path}
+                                               element={<Documentation page={page.id}/>}/>)}
                                     <Route path="/extensions" Component={ExtensionsScreen}/>
 
                                     {/* Everything else needs a session. Wrapped rather than

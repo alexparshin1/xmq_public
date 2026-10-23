@@ -282,11 +282,33 @@ void ClusterStore::removeNode(const String& nodeId)
     remove.exec();
 }
 
+void ClusterStore::removeConfiguration(const String& nodeId)
+{
+    auto existing = node(nodeId);
+    if (!existing)
+    {
+        throw Exception("No such node configuration.");
+    }
+    auto removed = *existing;
+    removed.m_name = "removed-" + nodeId;
+    removed.m_hostPort = "";
+    removed.m_state = "Removed";
+    removed.m_lastError = "Configuration explicitly removed by an administrator.";
+    removed.m_clusterEnabled = false;
+    removed.m_leaseSeconds = 0;
+    removed.m_links = 0;
+    removed.m_redisUri = "";
+    removed.m_databaseUri = "";
+    removed.m_certificate = "";
+    updateNode(removed); // Tombstone first: a failure must not allow silent recreation.
+    clearInvitation(nodeId);
+}
+
 vector<ClusterStore::Node> ClusterStore::nodes()
 {
     const AutoDatabaseConnection connection(*m_database);
     Query query(connection.connection(),
-                "SELECT " + String(string(nodeColumns)) + " FROM " + String(nodeTable) + " ORDER BY name");
+                "SELECT " + String(string(nodeColumns)) + " FROM " + String(nodeTable) + " WHERE state <> 'Removed' ORDER BY name");
     query.open();
 
     vector<Node> result;

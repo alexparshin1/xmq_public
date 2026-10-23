@@ -369,6 +369,48 @@ TEST_F(XMQ_ClusterControlTests, removeTakesADeclaredNodeAway)
  * A member is not removed from here: it is detached, with its sessions handed over, before it is
  * removed - and that is the node's own to do.
  */
+TEST_F(XMQ_ClusterControlTests, removeRequiresRetirementOrExplicitForceForAServerConfiguration)
+{
+    ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
+    {
+        input.m_node.m_name = "standalone-node";
+        input.m_node.m_host_port = "localhost:13801";
+    }).m_result.m_success.asBool());
+    auto row = *storedNode("standalone-node");
+    row.m_state = "Standalone";
+    row.m_certificate = "registered-server-certificate";
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    store.updateNode(row);
+    const auto refused = clusterControl("remove", [](CClusterControl& input)
+    {
+        input.m_node.m_name = "standalone-node";
+    });
+    EXPECT_FALSE(refused.m_result.m_success.asBool());
+    EXPECT_TRUE(storedNode("standalone-node").has_value());
+
+    const auto forced = clusterControl("remove", [](CClusterControl& input)
+    {
+        input.m_node.m_name = "standalone-node";
+        input.m_force = true;
+    });
+    EXPECT_TRUE(forced.m_result.m_success.asBool()) << forced.m_result.m_description.asString();
+    const auto tombstone = store.node(row.m_nodeId);
+    ASSERT_TRUE(tombstone.has_value());
+    EXPECT_EQ("Removed", tombstone->m_state);
+    EXPECT_TRUE(tombstone->m_certificate.empty());
+    EXPECT_FALSE(storedNode("standalone-node").has_value());
+}
+
+TEST_F(XMQ_ClusterControlTests, retirePreservesTheRowAndPreventsStartupOnThisDatabase)
+{
+    const auto retired = clusterControl("retire");
+    ASSERT_TRUE(retired.m_result.m_success.asBool()) << retired.m_result.m_description.asString();
+    const auto row = storedNode("control-node");
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ("Retired", row->m_state);
+    EXPECT_FALSE(m_settings->clusterConfigurationError().empty());
+}
+
 TEST_F(XMQ_ClusterControlTests, removeRefusesAMember)
 {
     ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)

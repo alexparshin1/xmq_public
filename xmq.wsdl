@@ -489,6 +489,7 @@
                                     <xsd:enumeration value="add"></xsd:enumeration>
                                     <xsd:enumeration value="modify"></xsd:enumeration>
                                     <xsd:enumeration value="remove"></xsd:enumeration>
+                                    <xsd:enumeration value="retire"></xsd:enumeration>
                                     <xsd:enumeration value="list"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
@@ -749,6 +750,7 @@
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
+                        <xsd:element name="force" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                         <xsd:element name="node" type="tns:ClusterMember" maxOccurs="1" minOccurs="0">
                             <xsd:annotation>
                                 <xsd:documentation>The node add, remove and invite act on. Add takes the name
@@ -1003,6 +1005,8 @@
                     <xsd:element name="admin_password" type="xsd:string"
                                  maxOccurs="1" minOccurs="0">
                     </xsd:element>
+                    <!-- Supplied during setup; never returned. Must match the shared cluster account. -->
+                    <xsd:element name="cluster_password" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="node_name" type="tns:Name">
                         <xsd:annotation>
                             <xsd:documentation>Name this server is known by, which must be unique

@@ -90,8 +90,11 @@ public:
     /// Writes what an administrator changes; the row must exist.
     void updateNode(const Node& node);
 
-    /// Takes a node's row away - the Remove of the interface, after a member has been detached.
+    /// Erases a provisional declaration (e.g. when Invite replaces it with the real UUID).
     void removeNode(const sptk::String& nodeId);
+
+    /// Explicit configuration removal. Keep a tombstone so startup cannot recreate the row.
+    void removeConfiguration(const sptk::String& nodeId);
 
     /// Every declared node, for the Cluster Configuration screen.
     [[nodiscard]] std::vector<Node> nodes();

@@ -34,7 +34,7 @@ afterEach(() => {
 async function form() {
     const view = render(<InitialSetupScreen/>);
     await screen.findByDisplayValue("thinker10");
-    for (const name of ["admin_password", "admin_password_confirmation"]) {
+    for (const name of ["admin_password", "admin_password_confirmation", "cluster_password", "cluster_password_confirmation"]) {
         fireEvent.change(view.container.querySelector(`input[name="${name}"]`), {
             target: {value: "Sunflower7!"}
         });
@@ -48,8 +48,17 @@ test("local SQLite keeps the default database name and sends no shared URI", asy
     expect(screen.getByLabelText("Database hostname")).toBeDisabled();
     fireEvent.click(screen.getByText("Submit and restart"));
     await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("InitialSetupControl", {
-        action: "set", setup: expect.objectContaining({database_uri: ""})
+        action: "set", setup: expect.objectContaining({database_uri: "", cluster_password: "Sunflower7!"})
     }));
+});
+
+test.each(["", "Different-Secret1"])("refuses an empty or mismatched cluster password: %s", async (password) => {
+    await form();
+    fireEvent.change(screen.getByLabelText("Cluster password:"), {target: {value: password}});
+    fireEvent.click(screen.getByText("Submit and restart"));
+    expect(errorWindow).toHaveBeenCalledWith(expect.stringMatching(/cluster password/));
+    expect(ControlAPI.asyncMakeAPICall).not.toHaveBeenCalledWith("InitialSetupControl",
+        expect.objectContaining({action: "set"}));
 });
 
 test.each(["postgresql", "mysql"])("builds the %s URI with escaped credentials", async (type) => {

@@ -117,11 +117,11 @@ CUser makeUser(const char* username, const char* password)
  * @param administratorPassword Password for the administrator, or empty for an account with no
  *                              password yet - see administratorPasswordSet().
  */
-WSArray<CUser> defaultUsers(const String& administratorPassword = "")
+WSArray<CUser> defaultUsers(const String& administratorPassword = "", const String& clusterPassword = "")
 {
     WSArray<CUser> users("users");
     users.push_back(makeUser(Settings::administratorUsername(), administratorPassword.c_str()));
-    users.push_back(makeUser(clusterUsername, generatedClusterPassword().c_str()));
+    users.push_back(makeUser(clusterUsername, (clusterPassword.empty() ? generatedClusterPassword() : clusterPassword).c_str()));
     return users;
 }
 
@@ -699,20 +699,19 @@ void Settings::applyClusterConfigurationUnlocked()
 
         if (const auto row = store.node(nodeId))
         {
+            if (row->m_state == "Removed" || row->m_state == "Retired")
+            {
+                throw Exception("This node's configuration in this database was retired or removed. "
+                                "Select a different database or explicitly restore its configuration; "
+                                "the old configuration will not be recreated automatically.");
+            }
             // The database is the configuration from here on. The accounts URI is not taken from the
             // row: it is the address this node reached the database by, and a different one there
             // says nothing about where this node is.
-            if (row->m_state == "Invited")
-            {
-                // The accept happened, and this is the restart that follows it: the node is on its
-                // way into the cluster, and the screen shows Joining until Redis says Clustered.
-                auto joining = *row;
-                joining.m_state = "Joining";
-                store.updateNode(joining);
-            }
             m_persistence.m_redis_uri = row->m_redisUri;
             m_cluster.m_database_uri = row->m_databaseUri;
-            m_cluster.m_enabled = row->m_clusterEnabled;
+            // Invited is an unaccepted offer, including rows written by older versions.
+            m_cluster.m_enabled = row->m_clusterEnabled && row->m_state != "Invited";
             m_cluster.m_lease_seconds = row->m_leaseSeconds;
             m_cluster.m_links = row->m_links;
             m_cluster.m_this_node.m_node_name = row->m_name;
@@ -817,6 +816,29 @@ void Settings::syncPeerCertificates(ClusterStore& store, const String& nodeId)
 
 String Settings::applyInvitationAccept(const String& redisUri, const String& databaseUri)
 {
+    // Admission is written only by Accept, never by the inviter. The next load reads this row
+    // instead of the bootstrap file, so both must carry the accepted settings.
+    try
+    {
+        auto pool = make_shared<DatabaseConnectionPool>(databaseUri, 1);
+        ClusterStore store(pool);
+        store.createSchema();
+        auto row = store.node(nodeIdentity());
+        if (!row || row->m_state == "Removed" || row->m_state == "Retired")
+        {
+            return "The invitation has no usable node configuration in the target database.";
+        }
+        row->m_redisUri = redisUri;
+        row->m_databaseUri = databaseUri;
+        row->m_clusterEnabled = true;
+        row->m_state = "Joining";
+        store.updateNode(*row);
+        store.clearInvitation(row->m_nodeId);
+    }
+    catch (const Exception& e)
+    {
+        return e.what();
+    }
     {
         const WriteLock lock(m_mutex);
 
@@ -886,6 +908,7 @@ String Settings::rollbackPendingAccept(const String& reason)
                 {
                     auto failed = *row;
                     failed.m_state = "Failed";
+                    failed.m_clusterEnabled = false;
                     failed.m_lastError = reason;
                     store.updateNode(failed);
                 }
@@ -1026,6 +1049,8 @@ String Settings::applyClusterDisable()
             {
                 auto disabled = *row;
                 disabled.m_clusterEnabled = false;
+                disabled.m_state = "Standalone";
+                disabled.m_lastError = "";
                 store.updateNode(disabled);
             }
         }
@@ -1503,6 +1528,11 @@ void checkInitialSetup(const CInitialSetup& setup)
         throw Exception("The administrator password is required.");
     }
     PasswordHash::refuseIfWeak(setup.m_admin_password.asString());
+    if (setup.m_cluster_password.asString().empty())
+    {
+        throw Exception("The cluster password is required.");
+    }
+    PasswordHash::refuseIfWeak(setup.m_cluster_password.asString());
 
     const auto checkPort = [](const String& name, const int port)
     {
@@ -1745,15 +1775,14 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
         persistence->set("enabled", true);
     }
 
-    // When a database URI is given, this node is being set up as part of a cluster from the
-    // start. The accounts and the cluster configuration live in the shared database rather than
-    // in a local file. The URI and the cluster mode go into the configuration, and the next
-    // start opens the database and creates the node's row in it.
+    // A shared accounts database registers a node for discovery, not cluster admission.
+    // Enable on the first node or accepting an invitation is what enables membership.
+    section(root, "cluster")->set("enabled", false);
+    section(root, "cluster")->set("password", setup.m_cluster_password.asString());
     const auto setupDatabaseUri = setup.m_database_uri.asString();
     if (!setupDatabaseUri.empty())
     {
         section(root, "authentication")->set("database_uri", setupDatabaseUri);
-        section(root, "cluster")->set("enabled", true);
     }
 
     // A certificate of this installation's own, made out to the address just given. Issued here
@@ -1785,20 +1814,48 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // has just read the old ones back in. A setup that left the previous installation's clients
     // able to connect would not be the fresh start the page offers - and it cannot lock anyone
     // out, because the administrator password is asked for on the same page.
-    resetUsersUnlocked(setup.m_admin_password.asString());
+    resetUsersUnlocked(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
+
+    // Explicit setup replaces this node's settings, including an older SQL row read by load.
+    // SQL discovery must not turn a freshly initialised node back into a cluster member.
+    m_cluster.m_enabled = false;
+    m_cluster.m_this_node.m_node_name = setup.m_node_name.asString();
+    m_cluster.m_this_node.m_host_port = nodeHost + ":" + to_string(setup.m_mqtt_ssl_port.asInteger());
+    m_persistence.m_enabled = persistence->getBoolean("enabled");
+    m_persistence.m_redis_uri = persistence->getString("redis_uri");
+    if (m_accountsPool && !m_configurationPath.empty())
+    {
+        ClusterStore store(m_accountsPool);
+        if (store.isClusterDatabase())
+        {
+            const auto id = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+            if (auto row = store.node(id))
+            {
+                row->m_name = m_cluster.m_this_node.m_node_name.asString();
+                row->m_hostPort = m_cluster.m_this_node.m_host_port.asString();
+                row->m_redisUri = m_persistence.m_redis_uri.asString();
+                row->m_clusterEnabled = false;
+                row->m_state = "Standalone";
+                row->m_lastError = "";
+                store.updateNode(*row);
+                store.clearInvitation(id);
+                m_clusterConfigurationError = "";
+            }
+        }
+    }
 
     // Written unconditionally: loadConfigurationUnlocked() saves only what it had to correct,
     // and here the whole file is the change.
     saveConfigurationUnlocked();
 }
 
-void Settings::resetUsersUnlocked(const String& administratorPassword)
+void Settings::resetUsersUnlocked(const String& administratorPassword, const String& clusterPassword)
 {
     // Replaced through the user manager's own load, which clears what it holds and takes the list
     // as given. Going through addUser()/removeUser() instead would fire the change callback for
     // each one, and that callback comes back in here for the lock this is already holding.
-    m_authentication.m_users = defaultUsers(administratorPassword);
-    captureClusterSecretUnlocked();
+    m_authentication.m_users = defaultUsers(administratorPassword, clusterPassword);
+    m_cluster.m_password = clusterPassword;
     m_userManager.loadConfiguration(m_authentication, m_changed);
     // Held by the manager now, and written to wherever the accounts live - the database when there
     // is one, the users file otherwise. The database has to be told to drop what it had: this

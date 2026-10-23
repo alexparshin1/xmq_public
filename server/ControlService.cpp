@@ -160,6 +160,14 @@ void ControlService::requireReachableDatabase(const CInitialSetup& setup)
                                     "database. Enter the password that was set on the first node.");
                 }
             }
+            if (const auto cluster = users.findUser("cluster"))
+            {
+                if (!PasswordHash::verify(setup.m_cluster_password.asString(), cluster->m_password))
+                {
+                    throw Exception("The cluster password does not match the one in the shared "
+                                    "database. Enter the cluster password set on the first node.");
+                }
+            }
         }
     }
     catch (const Exception&)
@@ -906,9 +914,11 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         {
             // The node leaves the cluster, its sessions written under its own GUID from here on
             // so that it stays on the storage it knows and names nothing the cluster uses.
-            requireServer().getCluster()->detachCluster();
-
             auto& runningServer = requireServer();
+            // Handoff and drain while cluster links and delivery still exist. Keep the Server
+            // object until leave is confirmed, so its coordinator can remove the membership.
+            runningServer.stopServer();
+            runningServer.getCluster()->detachCluster();
             const auto guid = runningServer.getCluster()->nodeId();
             runningServer.getStorage()->setSessionNamespace(guid + ":");
 
@@ -924,6 +934,28 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         else if (action == "add")
         {
             addClusterNode(input, output);
+        }
+        else if (action == "retire")
+        {
+            const auto settings = getSettings();
+            if (settings->m_cluster.m_enabled.asBool())
+            {
+                throw Exception("Leave the cluster before retiring this configuration.");
+            }
+            const auto store = requireClusterStore(settings);
+            auto row = store->node(settings->nodeIdentity());
+            if (!row)
+            {
+                throw Exception("This node has no configuration in this database.");
+            }
+            m_controller->stopServing();
+            row->m_state = "Retired";
+            row->m_clusterEnabled = false;
+            store->updateNode(*row);
+            store->clearInvitation(row->m_nodeId);
+            // Refresh the cached error: Start must not reuse a retired in-memory configuration.
+            settings->loadConfiguration(settings->configurationPath());
+            reportClusterState(output);
         }
         else if (action == "remove")
         {
@@ -1238,13 +1270,24 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
                         "from its own dashboard (the mode switch to Standalone), then remove its row from here.");
     }
 
-    store->removeNode(row->m_nodeId);
+    const auto declarationOnly = row->m_state == "Not Clustered" && row->m_certificate.empty();
+    if (!declarationOnly && row->m_state != "Retired" && !input.m_force.asBool())
+    {
+        throw Exception("This record holds a server configuration, even if the server is offline or "
+                        "uses another database now. Retire it on that server first, or explicitly "
+                        "force removal. Removing it prevents that server from restarting on this database.");
+    }
+    store->removeConfiguration(row->m_nodeId);
     reportClusterState(output);
 }
 
 void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
 {
     const auto& settings = getSettings();
+    if (!settings->m_cluster.m_enabled.asBool())
+    {
+        throw Exception("Enable the first node's cluster before inviting another node.");
+    }
     const auto  store = requireClusterStore(settings);
 
     const String nodeId = input.m_node.m_node_id.asString();
@@ -2130,6 +2173,7 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
             // may be logged along the way.
             output.m_setup = input.m_setup;
             output.m_setup.m_admin_password.clear();
+            output.m_setup.m_cluster_password.clear();
             output.m_running = m_controller->isServing();
         }
         else

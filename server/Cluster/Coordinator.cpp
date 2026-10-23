@@ -332,16 +332,10 @@ void Coordinator::leave()
 {
     stop();
     const scoped_lock lock(m_mutex);
-    try
-    {
-        (void) eval(LeaveScript, {CoordinatorKey, MembersKey, NamesKey, NodePrefix + m_nodeId, AlivePrefix + m_nodeId},
-                    {m_nodeId, m_nodeName, format("{} {}", m_term.load(), m_nodeId)});
-    }
-    catch (const Exception&)
-    {
-        // Redis is gone: the membership stays until someone removes it, which is what an
-        // unreachable member's does anyway.
-    }
+    // A failed removal is not a successful leave: otherwise restart finds the old membership
+    // and silently rejoins. Let the caller report that storage could not confirm the operation.
+    (void) eval(LeaveScript, {CoordinatorKey, MembersKey, NamesKey, NodePrefix + m_nodeId, AlivePrefix + m_nodeId},
+                {m_nodeId, m_nodeName, format("{} {}", m_term.load(), m_nodeId)});
     m_coordinator = false;
     m_leaseUntil = 0;
     // Out of the cluster, the node is on its own again and serves its clients as any broker does.

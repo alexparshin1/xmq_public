@@ -2,6 +2,7 @@ import React from "react";
 import {NavLink} from "react-router-dom";
 import ControlAPI from "../ControlAPI";
 import AccordionGroup from "./AccordionGroup";
+import {documentationPages} from "../documentation/pages";
 
 export default class MainMenu extends React.Component {
 
@@ -72,9 +73,8 @@ export default class MainMenu extends React.Component {
         };
         // Documentation is available before signing in: installing and tuning the host are
         // done before there is anything to sign in to.
-        let documentationGroup = {
-            "/manual": "User Manual"
-        };
+        const documentationGroup = Object.fromEntries(
+            documentationPages.map(page => [page.path, page.label]));
         return <div className="MainMenu" style={{align: 'left'}}>
             {!this.state.connected
                 ? <AccordionGroup name="systemGroup1" title="System" items={systemGroup1}/>

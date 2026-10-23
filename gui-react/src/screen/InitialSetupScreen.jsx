@@ -22,6 +22,8 @@ export default class InitialSetupScreen extends BasicScreen {
         // there is no point in ports and a node name nobody can sign in to change afterwards.
         admin_password: "",
         admin_password_confirmation: "",
+        cluster_password: "",
+        cluster_password_confirmation: "",
         node_name: "",
         // The address other machines reach this server at, which is not the same as the name it
         // is labelled with. Filled in from the server, which offers this machine's host name.
@@ -117,6 +119,12 @@ export default class InitialSetupScreen extends BasicScreen {
         }
         if (this.state.admin_password !== this.state.admin_password_confirmation) {
             return "The two administrator passwords do not match.";
+        }
+        if (!this.state.cluster_password) {
+            return "The cluster password is required.";
+        }
+        if (this.state.cluster_password !== this.state.cluster_password_confirmation) {
+            return "The two cluster passwords do not match.";
         }
 
         // The same pattern the Name type in xmq.wsdl carries, so the server does not have to be
@@ -219,6 +227,7 @@ export default class InitialSetupScreen extends BasicScreen {
             action: "set",
             setup: {
                 admin_password: this.state.admin_password,
+                cluster_password: this.state.cluster_password,
                 node_name: this.state.node_name,
                 node_host: this.state.node_host,
                 mqtt_port: parseInt(this.state.mqtt_port),
@@ -359,6 +368,25 @@ export default class InitialSetupScreen extends BasicScreen {
                     <input name="admin_password_confirmation" type="password" autoComplete="new-password"
                            value={this.state.admin_password_confirmation}
                            onChange={(e) => this.setState({admin_password_confirmation: e.target.value})}/>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Cluster account</legend>
+                <p>Set the same cluster password on every node. For a shared user database,
+                    enter the cluster password set on the first node. This does not join a cluster;
+                    use Enable on the first node, then Invite and Accept for additional nodes.</p>
+                <div className="inputScreenRow">
+                    <label htmlFor="cluster_password" className="inputScreenLabel">Cluster password:</label>
+                    <input id="cluster_password" name="cluster_password" type="password" autoComplete="new-password"
+                           value={this.state.cluster_password}
+                           onChange={(e) => this.setState({cluster_password: e.target.value})}/>
+                </div>
+                <div className="inputScreenRow">
+                    <label htmlFor="cluster_password_confirmation" className="inputScreenLabel">Repeat cluster password:</label>
+                    <input id="cluster_password_confirmation" name="cluster_password_confirmation" type="password"
+                           autoComplete="new-password" value={this.state.cluster_password_confirmation}
+                           onChange={(e) => this.setState({cluster_password_confirmation: e.target.value})}/>
                 </div>
             </fieldset>
 

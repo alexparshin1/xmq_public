@@ -34,6 +34,11 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
 
     EXPECT_FALSE(primaryNode->cluster()->hasNodes());
 
+    EXPECT_THROW(secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost()), Exception);
+    // Simulate Enable/Accept before exercising the permitted wire handshake.
+    primaryNode->getSettings()->m_cluster.m_enabled = true;
+    secondaryNode->getSettings()->m_cluster.m_enabled = true;
+    thirdNode->getSettings()->m_cluster.m_enabled = true;
     secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
     this_thread::sleep_for(100ms);
 
@@ -93,6 +98,8 @@ TEST_F(XMQ_ClusterTests, enforceUniqueClientId)
     const auto   primaryNode = createNode("primary", 1880, true);
     const auto   secondaryNode = createNode("secondary", 1886, false);
 
+    primaryNode->getSettings()->m_cluster.m_enabled = true;
+    secondaryNode->getSettings()->m_cluster.m_enabled = true;
     secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
     this_thread::sleep_for(300ms);
 
@@ -131,6 +138,8 @@ TEST_F(XMQ_ClusterTests, unencryptedClusterJoinIsRejected)
     const auto primary = createNode("primary", 1880, true);
     const auto secondary = createNode("secondary", 1886, true);
 
+    primary->getSettings()->m_cluster.m_enabled = true;
+    secondary->getSettings()->m_cluster.m_enabled = true;
     EXPECT_THROW(secondary->attachToCluster(m_primaryServerHost, false), Exception);
     EXPECT_FALSE(primary->cluster()->hasNodes());
     EXPECT_FALSE(secondary->cluster()->hasNodes());

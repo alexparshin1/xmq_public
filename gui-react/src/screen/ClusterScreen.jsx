@@ -117,16 +117,20 @@ export default class ClusterScreen extends BasicScreen {
                   "Can't add the node");
     }
 
-    removeNode(row) {
+    removeNode(row, force = false) {
         const selected = row || this.state.selected;
         if (!selected) {
             errorWindow("Please select a node to remove.");
             return;
         }
-        confirmationWindow("Remove node \"" + selected.name + "\" from the cluster's configuration?")
+        confirmationWindow((force ? "FORCE REMOVE node \"" : "Remove node \"") + selected.name +
+            "\" and its configuration from this database? This is not Leave cluster. " +
+            "A server still using this configuration will not restart on this database. " +
+            (force ? "Its UUID or Offline status cannot prove it no longer uses this database. Continue anyway?"
+                   : "Retire the configuration on the server first if it is still in use."))
             .then(confirmed => {
                 if (confirmed) {
-                    this.send("remove", {node: {node_id: selected.node_id, name: selected.name}},
+                    this.send("remove", {node: {node_id: selected.node_id, name: selected.name}, force},
                               "Can't remove the node");
                 }
             });
@@ -140,6 +144,19 @@ export default class ClusterScreen extends BasicScreen {
         }
         this.send("invite", {node: {node_id: selected.node_id, name: selected.name}, password: values.password},
                   "Can't invite the node");
+    }
+
+    leaveCluster() {
+        confirmationWindow("Leave the cluster and restart this node as Standalone? " +
+            "Its configuration in this database will be preserved.")
+            .then(confirmed => confirmed && this.send("disable", {}, "Can't leave the cluster"));
+    }
+
+    retireConfiguration() {
+        confirmationWindow("Retire this server's configuration in this database? MQTT will stop. " +
+            "The server will not start on this database until it is explicitly reconfigured. " +
+            "This acknowledges that the configuration may subsequently be removed.")
+            .then(confirmed => confirmed && this.send("retire", {}, "Can't retire the configuration"));
     }
 
     /**
@@ -268,6 +285,14 @@ export default class ClusterScreen extends BasicScreen {
 
             <div className="inputScreenRow">
                 <label className="inputScreenLabel"/>
+                <button disabled={this.state.busy || !cluster.enabled} onClick={() => this.leaveCluster()}>
+                    Leave cluster
+                </button>
+                <button disabled={this.state.busy || cluster.enabled} onClick={() => this.retireConfiguration()}>
+                    Retire this configuration
+                </button>
+                <button disabled={this.state.busy || !this.state.selected}
+                        onClick={() => this.removeNode(null, true)}>Force remove node&hellip;</button>
                 <button className="inputScreenSaveButton" disabled={this.state.busy}
                         onClick={() => {
                             if (!this.state.selected) {

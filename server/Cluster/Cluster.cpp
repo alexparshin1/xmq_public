@@ -294,6 +294,10 @@ DateTime Cluster::getClusterTime() const
 
 void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
 {
+    if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
+    {
+        throw Exception("Accept an invitation before joining this node to the cluster.");
+    }
     if (!encrypted)
     {
         throw Exception("Cluster connections require MQTT+SSL.");
@@ -375,13 +379,13 @@ void Cluster::startup()
     const auto membership = Coordinator::membership(redis, m_nodeId);
     const auto enabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
 
-    if (membership == 1 || enabled)
+    if (enabled || (membership == 1 && m_settings->m_cluster.m_enabled.isNull()))
     {
         startCoordinator();
         return;
     }
 
-    if (membership == 0)
+    if (membership >= 0)
     {
         // The storage is shared with a cluster, and this node is not a member. What has been
         // enabled is the one thing that could join it, and it is off: the node serves standalone.
@@ -874,6 +878,10 @@ void Cluster::notifyAccountsChanged() const
 
 void Cluster::onAttachNodeRequest(const SPublishMessage& message)
 {
+    if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
+    {
+        throw Exception("This node is Standalone. Enable the first node or accept an invitation before attaching.");
+    }
     auto attachNodeRequest = deserializeMessage<CCluster>(message);
 
     if (attachNodeRequest.m_redis_uri.asString() != m_settings->m_persistence.m_redis_uri.asString())
@@ -932,6 +940,10 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
 
 void Cluster::onAttachNodeResponse(const SPublishMessage& message)
 {
+    if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
+    {
+        throw Exception("This node has not accepted an invitation to join the cluster.");
+    }
     auto clusterSettings = deserializeMessage<CCluster>(message);
 
     // Admitted by the node it joined through, so this only starts taking part.
@@ -1741,8 +1753,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
 
         // The node answered who it is: its row, whether the node made it itself or an
         // administrator declared it, is keyed by its GUID from here on. The invitation is the
-        // admission, so the row it leaves behind carries the cluster's storage and database and
-        // the cluster enabled - what the invited node reads after the restart an accept asks for.
+        // offer, not admission: existing configuration stays unchanged until the target accepts.
         const auto database = m_server->getSettings()->userDatabaseUri();
         const auto redisUri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
         if (const auto pool = m_server->getSettings()->accountsPool(); pool)
@@ -1755,16 +1766,22 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
             if (const auto declared = store.nodeByName(invitedNodeName);
                 declared && declared->m_nodeId != nodeId)
             {
+                if (!declared->m_certificate.empty() || declared->m_state != "Not Clustered")
+                {
+                    throw Exception("This name belongs to another server configuration. Remove or rename it explicitly before inviting this node.");
+                }
                 store.removeNode(declared->m_nodeId);
             }
 
             if (const auto row = store.node(nodeId))
             {
+                if (row->m_state == "Removed" || row->m_state == "Retired")
+                {
+                    throw Exception("This node's configuration was retired or removed; restore it explicitly before inviting it.");
+                }
                 auto invited = *row;
                 invited.m_state = "Invited";
-                invited.m_redisUri = redisUri;
-                invited.m_databaseUri = database;
-                invited.m_clusterEnabled = true;
+                // Invite is an offer only. Accept on the target changes its configuration.
 
                 // The name the node answers to now is the real one: an administrator may have
                 // declared another, and the row is the node's own.
@@ -1781,7 +1798,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
                 invited.m_state = "Invited";
                 invited.m_redisUri = redisUri;
                 invited.m_databaseUri = database;
-                invited.m_clusterEnabled = true;
+                invited.m_clusterEnabled = false;
                 store.insertNode(invited);
             }
 

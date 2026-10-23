@@ -164,8 +164,12 @@ VOID WINAPI ServiceMain(DWORD /*argc*/, LPTSTR* /*argv*/)
         SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
         //  Periodically check if the service has been requested to stop
-        while (WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_OBJECT_0)
+        while (!OSService::restartRequested() && WaitForSingleObject(g_ServiceStopEvent, 1000) != WAIT_OBJECT_0)
         {
+        }
+        if (OSService::restartRequested())
+        {
+            OSService::m_controlledServer->stopService();
         }
 
         // Perform any cleanup tasks
@@ -241,7 +245,7 @@ int OSService::execute()
     else
     {
         m_controlledServer->startService();
-        while (!terminationRequested() && !m_controlledServer->isStopped(chrono::seconds(1)))
+        while (!terminationRequested() && !restartRequested() && !m_controlledServer->isStopped(chrono::seconds(1)))
         {
             // SIGHUP: re-read extension configuration and rotate the log, the way a daemon
             // conventionally does on this signal, instead of the broker quietly stopping - which

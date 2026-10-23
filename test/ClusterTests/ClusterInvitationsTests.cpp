@@ -14,6 +14,7 @@
 
 #include "test/ClusterTests/ClusterTests.h"
 #include "server/OSService.h"
+#include "server/Settings/ClusterStore.h"
 #include "test/ClusterTests/TestCluster.h"
 #include "test/TestServers.h"
 
@@ -190,6 +191,11 @@ TEST_F(XMQ_ClusterTests, invitingANodeDeliversTheInvitation)
     EXPECT_EQ(String("primary"), invitation->m_inviterName);
     EXPECT_TRUE(invitation->m_rejectReason.empty()) << invitation->m_rejectReason.c_str();
     EXPECT_EQ(TestServers::redisUri(), invitation->m_redisUri);
+    ClusterStore store(primary->getSettings()->accountsPool());
+    const auto pending = store.node(invited->getCluster()->nodeId());
+    ASSERT_TRUE(pending.has_value());
+    EXPECT_EQ("Invited", pending->m_state);
+    EXPECT_FALSE(pending->m_clusterEnabled) << "Invite alone must not admit the target";
 }
 
 /**
@@ -279,6 +285,11 @@ TEST_F(XMQ_ClusterTests, acceptingAnInvitationAppliesTheConfigurationAndAsksToRe
 
     const auto error = invited->getCluster()->invitations().accept();
     EXPECT_TRUE(error.empty()) << error.c_str();
+    ClusterStore store(primary->getSettings()->accountsPool());
+    const auto accepted = store.node(invited->getCluster()->nodeId());
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_TRUE(accepted->m_clusterEnabled);
+    EXPECT_EQ("Joining", accepted->m_state);
     EXPECT_TRUE(OSService::restartRequested()) << "accepting did not ask for the restart";
     EXPECT_FALSE(invited->getCluster()->invitations().current().has_value())
         << "the accepted invitation is still held";

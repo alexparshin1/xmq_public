@@ -281,6 +281,7 @@ CInitialSetup testInitialSetup()
 {
     CInitialSetup setup;
     setup.m_admin_password = "New-Secret1";
+    setup.m_cluster_password = "Cluster-Secret1";
     setup.m_node_name = "xmq-1884";
     setup.m_mqtt_port = 1884;
     setup.m_mqtt_ssl_port = 8884;
@@ -356,6 +357,9 @@ TEST(XMQ_Settings, applyInitialSetup)
     EXPECT_FALSE(settings.userManager().authenticate("admin", "admin"));
     EXPECT_TRUE(settings.userManager().isAdministrator("admin"));
     EXPECT_TRUE(settings.userManager().hasUser("cluster"));
+    EXPECT_TRUE(settings.userManager().authenticate("cluster", "Cluster-Secret1"));
+    EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    EXPECT_FALSE(settings.m_cluster.m_enabled.asBool());
 
     // The previous installation's MQTT clients are not carried over.
     EXPECT_FALSE(settings.userManager().hasUser("user"));
@@ -517,6 +521,21 @@ TEST(XMQ_Settings, modifyUserWithoutIdChangesTheAccountItNames)
     EXPECT_FALSE(settings.userManager().authenticate("user", "secret"));
 }
 
+TEST(XMQ_Settings, applyInitialSetupWithAccountsDatabaseDoesNotEnableCluster)
+{
+    const TemporaryCertificateDirectory certificates;
+    const auto templateFile = writeConfigurationTemplate();
+    Settings settings;
+    settings.loadConfiguration(Buffer(g_testConfig));
+    auto setup = testInitialSetup();
+    // A local SQL store exercises the setup's database-URI path without depending on a service.
+    setup.m_database_uri = DirectoryNames::sqliteUri(certificates.path() / "accounts.db");
+    settings.applyInitialSetup(setup, templateFile);
+    EXPECT_FALSE(settings.m_cluster.m_enabled.asBool());
+    EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    EXPECT_TRUE(settings.userManager().authenticate("cluster", "Cluster-Secret1"));
+}
+
 TEST(XMQ_Settings, applyInitialSetupWithoutRedis)
 {
     const auto templateFile = writeConfigurationTemplate();
@@ -541,6 +560,10 @@ TEST(XMQ_Settings, applyInitialSetupRejectsUnusableSettings)
     auto withoutPassword = testInitialSetup();
     withoutPassword.m_admin_password = "";
     EXPECT_ANY_THROW(settings.applyInitialSetup(withoutPassword, templateFile));
+
+    auto withoutClusterPassword = testInitialSetup();
+    withoutClusterPassword.m_cluster_password = "";
+    EXPECT_ANY_THROW(settings.applyInitialSetup(withoutClusterPassword, templateFile));
 
     auto sharedPorts = testInitialSetup();
     sharedPorts.m_web_service_port = sharedPorts.m_mqtt_port.asInteger();
@@ -737,6 +760,7 @@ TEST(XMQ_Settings, initialSetupGivesTheAdministratorAPassword)
     // having no installed one to read.
     auto setup = settings.initialSetup(configurationFile);
     setup.m_admin_password = "First-Secret1";
+    setup.m_cluster_password = "Cluster-Secret1";
     settings.applyInitialSetup(setup, configurationFile);
 
     // Which is the whole point of the state: it ends, and it ends here.

@@ -141,6 +141,37 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
             << "the node's name was not taken from the row";
     }
 
+    // An invitation is not acceptance, including after the target restarts.
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        auto row = store.node(nodeId);
+        row->m_state = "Invited";
+        row->m_clusterEnabled = false;
+        store.updateNode(*row);
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_FALSE(settings.m_cluster.m_enabled.asBool());
+        EXPECT_EQ("Invited", store.node(nodeId)->m_state);
+        ASSERT_TRUE(settings.applyInvitationAccept("redis://accepted:6379", pgUri).empty());
+        EXPECT_TRUE(store.node(nodeId)->m_clusterEnabled);
+        EXPECT_EQ("Joining", store.node(nodeId)->m_state);
+    }
+    // Leaving preserves the usable SQL configuration, while removal cannot silently bootstrap.
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        ASSERT_TRUE(settings.applyClusterDisable().empty());
+        ASSERT_TRUE(store.node(nodeId).has_value());
+        EXPECT_FALSE(store.node(nodeId)->m_clusterEnabled);
+        EXPECT_EQ("Standalone", store.node(nodeId)->m_state);
+        store.removeConfiguration(nodeId);
+        Settings restarted;
+        restarted.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_FALSE(restarted.clusterConfigurationError().empty());
+        EXPECT_EQ("Removed", store.node(nodeId)->m_state);
+    }
+
     {
         DatabaseConnectionPool       cleanup(pgUri, 1);
         const AutoDatabaseConnection connection(cleanup);
