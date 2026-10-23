@@ -348,6 +348,91 @@ TEST_F(XMQ_ClusterControlTests, standaloneInterfaceShowsOtherMembersWithoutJoini
     live.leave();
 }
 
+TEST_F(XMQ_ClusterControlTests, forceRemoveLastOfflineMemberAllowsStartingAnotherCluster)
+{
+    const auto uri = TestServers::redisUri();
+    cluster::Coordinator first(cluster::NodeIdentity::generate(), "first-peer", "localhost:13801",
+                               URL(uri), chrono::seconds(5), {});
+    first.start();
+    ASSERT_TRUE(first.admitAbsentNode("failed-peer"));
+    const auto members = first.members();
+    const auto offline = ranges::find_if(members, [](const auto& member) { return member.m_name == "failed-peer"; });
+    ASSERT_NE(members.end(), offline);
+    const auto failedId = offline->m_nodeId;
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    for (const auto& member: members)
+    {
+        ClusterStore::Node row;
+        row.m_nodeId = member.m_nodeId;
+        row.m_name = member.m_name;
+        row.m_redisUri = uri;
+        row.m_databaseUri = m_databaseUri;
+        row.m_clusterEnabled = true;
+        row.m_state = "Standalone";
+        store.insertNode(row);
+    }
+    m_settings->m_persistence.m_redis_uri = uri;
+    const auto liveRemoval = clusterControl("remove", [&](CClusterControl& input) {
+        input.m_node.m_node_id = first.nodeId(); input.m_force = true;
+    });
+    EXPECT_FALSE(liveRemoval.m_result.m_success.asBool());
+    EXPECT_NE("Removed", store.node(first.nodeId())->m_state);
+    first.leave();
+    const auto state = clusterControl("get");
+    EXPECT_EQ("offline", state.m_cluster_state.asString());
+    EXPECT_EQ(1U, state.m_cluster_members.size());
+    const auto normal = clusterControl("remove", [&](CClusterControl& input) {
+        input.m_node.m_node_id = failedId;
+    });
+    EXPECT_FALSE(normal.m_result.m_success.asBool());
+    const auto removed = clusterControl("remove", [&](CClusterControl& input) {
+        input.m_node.m_node_id = failedId; input.m_force = true;
+    });
+    ASSERT_TRUE(removed.m_result.m_success.asBool()) << removed.m_result.m_description.asString();
+    EXPECT_EQ("Removed", store.node(failedId)->m_state);
+    EXPECT_EQ("empty", removed.m_cluster_state.asString());
+    EXPECT_TRUE(removed.m_cluster_members.empty());
+}
+
+TEST_F(XMQ_ClusterControlTests, startSelectedLocalNodeRequiresEmptyMembership)
+{
+    const auto uri = TestServers::redisUri();
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    auto row = *store.node(m_settings->nodeIdentity());
+    row.m_redisUri = uri;
+    store.updateNode(row);
+    m_settings->m_persistence.m_redis_uri = uri;
+    cluster::Coordinator old(cluster::NodeIdentity::generate(), "old-member", "localhost:13801",
+                             URL(uri), chrono::seconds(5), {});
+    old.start();
+    ASSERT_TRUE(old.admitAbsentNode("offline-member"));
+    old.leave();
+    const auto start = [&] {
+        return clusterControl("start", [&](CClusterControl& input) {
+            input.m_node.m_node_id = m_settings->nodeIdentity();
+        });
+    };
+    const auto refused = start();
+    EXPECT_FALSE(refused.m_result.m_success.asBool());
+    EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool());
+    const auto dashboard = clusterControl("enable", [&](CClusterControl& input) {
+        input.m_redis_uri = uri;
+        input.m_database_uri = m_databaseUri;
+    });
+    EXPECT_FALSE(dashboard.m_result.m_success.asBool());
+    EXPECT_NE(String::npos, dashboard.m_result.m_description.asString().find("all Offline"));
+    EXPECT_NE(String::npos, dashboard.m_result.m_description.asString().find("Force remove node"));
+    RedisConnect redis;
+    redis.connect(URL(uri));
+    const auto snapshot = cluster::Coordinator::readSnapshot(redis);
+    ASSERT_EQ(1U, snapshot.m_members.size());
+    ASSERT_TRUE(cluster::Coordinator::removeOfflineMember(redis, snapshot.m_members[0].m_nodeId));
+    const auto enabled = start();
+    ASSERT_TRUE(enabled.m_result.m_success.asBool()) << enabled.m_result.m_description.asString();
+    EXPECT_TRUE(m_settings->m_cluster.m_enabled.asBool());
+    EXPECT_TRUE(store.node(m_settings->nodeIdentity())->m_clusterEnabled);
+}
+
 TEST_F(XMQ_ClusterControlTests, unavailableStorageDoesNotTurnMembersIntoStandalone)
 {
     ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
@@ -581,7 +666,7 @@ TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)
         input.m_database_uri = m_databaseUri;
     });
     EXPECT_FALSE(refused.m_result.m_success == true);
-    EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("by invitation"));
+    EXPECT_NE(String::npos, refused.m_result.m_description.asString().find("all Offline"));
     EXPECT_FALSE(m_settings->m_cluster.m_enabled.asBool()) << "the mode must not change";
     EXPECT_FALSE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")))
         << "a refused enable must leave no last-good copy";

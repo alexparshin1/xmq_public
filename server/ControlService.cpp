@@ -892,6 +892,32 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
         {
             enableClusterMode(input, output);
         }
+        else if (action == "start")
+        {
+            const auto settings = getSettings();
+            const auto store = requireClusterStore(settings);
+            const auto row = store->node(input.m_node.m_node_id.asString());
+            if (!row || row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled)
+                throw Exception("Select an active Standalone node to start a cluster.");
+            if (row->m_nodeId == settings->nodeIdentity())
+            {
+                RedisConnect redis;
+                redis.connect(URL(row->m_redisUri));
+                if (!cluster::Coordinator::readSnapshot(redis).m_members.empty())
+                    throw Exception("This storage already has cluster members. Restore an Offline member using its Dashboard, or force remove an unrecoverable member first.");
+                CClusterControl enable;
+                enable.m_redis_uri = row->m_redisUri;
+                enable.m_database_uri = settings->userDatabaseUri();
+                enableClusterMode(enable, output);
+            }
+            else
+            {
+                const auto result = requireServer().getCluster()->sendInvitation(
+                    row->m_hostPort, row->m_name, {}, true, row->m_nodeId, "start");
+                if (!result.m_success) throw Exception(result.m_error);
+                reportClusterState(output);
+            }
+        }
         else if (action == "disable" || action == "retire")
         {
             const auto targetId = input.m_node.m_node_id.asString();
@@ -1154,9 +1180,24 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         }
     }
     output.m_coordinator = "";
+    output.m_cluster_state = "unknown";
+    output.m_cluster_members.clear();
     if (const auto* view = snapshotFor(settings->m_persistence.m_redis_uri.asString()))
     {
         output.m_coordinator = view->m_coordinatorName;
+        const bool live = ranges::any_of(view->m_members, [](const auto& member) { return member.m_alive; });
+        output.m_cluster_state = view->m_members.empty() ? "empty" : live ? "active" : "offline";
+        for (const auto& member: view->m_members)
+        {
+            CClusterMember node;
+            node.m_node_id = member.m_nodeId;
+            node.m_name = member.m_name;
+            node.m_host_port = member.m_hostPort;
+            node.m_state = member.m_alive ? "Clustered" : "Offline";
+            node.m_is_alive = member.m_alive;
+            node.m_is_this_node = member.m_nodeId == nodeId;
+            output.m_cluster_members.push_back(node);
+        }
     }
 
     // The computed states, over the stored ones: Clustered and Offline come from the storage and
@@ -1245,10 +1286,23 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
         RedisConnect redis;
         redis.connect(URL(redisUri));
         const auto membership = cluster::Coordinator::membership(redis, settings->nodeIdentity());
-        redis.disconnect();
 
         if (membership == 0)
         {
+            const auto snapshot = cluster::Coordinator::readSnapshot(redis);
+            if (!snapshot.m_members.empty() && ranges::none_of(snapshot.m_members, [](const auto& member) { return member.m_alive; }))
+            {
+                String names;
+                for (const auto& member: snapshot.m_members)
+                {
+                    if (!names.empty()) names += ", ";
+                    names += member.m_name.empty() ? member.m_nodeId : member.m_name;
+                }
+                throw Exception("This storage still belongs to a cluster whose members are all Offline: " + names +
+                    ". Start one of those members; on its Dashboard enable Cluster mode or start MQTT. "
+                    "If a member cannot be restored after hardware or OS failure, isolate it and use Force remove node "
+                    "on its row in Cluster Configuration. A new cluster can be started after all old members are removed.");
+            }
             throw Exception("The storage " + UriSecret::hidden(redisUri) +
                             " belongs to a cluster, and this node is not one of its members. A cluster is joined "
                             "by invitation: ask its administrator to invite this node.");
@@ -1331,8 +1385,8 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
                         "dashboard, where the mode switches to Standalone.");
     }
 
-    // A member is detached before it is removed, and detaching is the node's own to do - its
-    // sessions have to be handed over, which this node cannot command yet.
+    // Normal removal follows Leave. Forced removal fences an expired identity in Redis
+    // before tombstoning SQL, retaining its sessions for subsequent recovery.
     String state = row->m_state;
     if (!row->m_redisUri.empty())
     {
@@ -1362,10 +1416,21 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
             }
         }
     }
-    if (state == "Clustered" || state == "Offline")
+    if ((state == "Clustered" || state == "Offline") && !input.m_force.asBool())
     {
         throw Exception("Node '" + row->m_name + "' is a member of the cluster. Take it out of the cluster "
                         "from its own dashboard (the mode switch to Standalone), then remove its row from here.");
+    }
+
+    if (input.m_force.asBool() && !row->m_redisUri.empty())
+    {
+        RedisConnect redis;
+        const URL url(row->m_redisUri);
+        const auto& [host, port] = url.hostAndPort();
+        redis.setReadTimeout(chrono::milliseconds(1000));
+        redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+        if (!cluster::Coordinator::removeOfflineMember(redis, row->m_nodeId))
+            throw Exception("This node still holds a live cluster lease. Use Leave cluster or stop the failed node and wait for its lease to expire before Force remove.");
     }
 
     const auto declarationOnly = row->m_state == "Not Clustered" && row->m_certificate.empty();

@@ -47,6 +47,43 @@ vector<string> memberNames(cluster::Coordinator& coordinator)
 
 } // namespace
 
+TEST_F(XMQ_ClusterTests, forceRemovalRequiresExpiredLeaseAndPreservesRecovery)
+{
+    const auto id = cluster::NodeIdentity::generate();
+    const auto uri = URL(TestServers::redisUri());
+    cluster::Coordinator failed(id, "failed-node", "localhost:13801", uri, 1s, {});
+    failed.start();
+    RedisConnect redis;
+    redis.connect(uri);
+    EXPECT_FALSE(cluster::Coordinator::removeOfflineMember(redis, id));
+    EXPECT_EQ(1, cluster::Coordinator::membership(redis, id));
+    failed.stop();
+    ASSERT_TRUE(TestCluster::waitFor([&] {
+        const auto view = cluster::Coordinator::readSnapshot(redis);
+        return !view.m_members.empty() && !view.m_members.front().m_alive;
+    }, 4s));
+    vector<Variant> ignored;
+    RedisCommand sessions("SADD", "node_failed-node_sessions");
+    sessions.emplace_back("persistent-client");
+    redis.executeCommand(sessions, ignored);
+    RedisCommand pending("RPUSH", "cluster:adopt:" + id);
+    pending.emplace_back("pending-client");
+    redis.executeCommand(pending, ignored);
+    ASSERT_TRUE(cluster::Coordinator::removeOfflineMember(redis, id));
+    EXPECT_TRUE(cluster::Coordinator::readSnapshot(redis).m_members.empty());
+    EXPECT_THROW(failed.start(), Exception) << "A revoked identity must not automatically rejoin";
+    EXPECT_TRUE(redis.scan("node_failed-node_sessions", 10).size() == 1);
+    atomic<int> recovered {0};
+    cluster::Coordinator replacement(cluster::NodeIdentity::generate(), "replacement", "localhost:13802", uri, 1s, {});
+    replacement.onAdoptSessions([&](vector<string> clients) {
+        for (const auto& client: clients)
+            if (client == "persistent-client" || client == "pending-client") ++recovered;
+    });
+    replacement.start();
+    EXPECT_TRUE(TestCluster::waitFor([&] { return recovered == 2; }, 4s));
+    replacement.leave();
+}
+
 /**
  * Confirm that the first node of a cluster becomes its coordinator and every node is online.
  *

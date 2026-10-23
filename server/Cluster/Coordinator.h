@@ -81,6 +81,9 @@ public:
     /// Read-only view for administration, including from a Standalone or stopped broker.
     /// Does not acquire a lease, join, or renew membership.
     [[nodiscard]] static Snapshot readSnapshot(sptk::RedisConnect& redis);
+    /// Atomically refuse a live lease, revoke automatic rejoin, and retain recovery work.
+    /// Returns false if the target still has a lease. Redis must be reachable.
+    static bool removeOfflineMember(sptk::RedisConnect& redis, const std::string& nodeId);
 
     /**
      * @brief Constructor. Nothing happens until start().

@@ -290,6 +290,27 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_EQ("Failed", store.node(targetId)->m_state);
     EXPECT_TRUE(targetController.isServing());
 
+    // A Standalone target can become the first member via the selected-node action.
+    // Remove the existing test membership without stopping the administration endpoint.
+    source->getCluster()->coordinator()->leave();
+    CClusterControl start;
+    start.m_action = "start";
+    start.m_node.m_node_id = targetId;
+    CClusterControlResponse started;
+    sourceControl.ClusterControl(start, started, &authentication);
+    ASSERT_TRUE(started.m_result.m_success.asBool()) << started.m_result.m_description.asString();
+    OSService::processNodeActions(targetController);
+    ASSERT_NE(nullptr, targetController.getServer());
+    ASSERT_NE(nullptr, targetController.getServer()->getCluster()->coordinator());
+    EXPECT_TRUE(targetSettings->m_cluster.m_enabled.asBool());
+    EXPECT_EQ(1U, targetController.getServer()->getCluster()->coordinator()->members().size());
+    CClusterControlResponse leftNewCluster;
+    sourceControl.ClusterControl(leave, leftNewCluster, &authentication);
+    ASSERT_TRUE(leftNewCluster.m_result.m_success.asBool()) << leftNewCluster.m_result.m_description.asString();
+    OSService::processNodeActions(targetController);
+    EXPECT_FALSE(targetSettings->m_cluster.m_enabled.asBool());
+    source->getCluster()->coordinator()->start();
+
     CClusterControl retire;
     retire.m_action = "retire";
     retire.m_node.m_node_id = targetId;

@@ -141,7 +141,9 @@ export default class ClusterScreen extends BasicScreen {
         confirmationWindow((force ? "FORCE REMOVE node \"" : "Remove node \"") + selected.name +
             "\" and its configuration from this database? This is not Leave cluster. " +
             "A server still using this configuration will not restart on this database. " +
-            (force ? "Its UUID or Offline status cannot prove it no longer uses this database. Continue anyway?"
+            (force ? "For an unrecoverable Offline member, first ensure the failed server is powered off or isolated from Redis. " +
+                "Removal is refused while it holds a live lease. Its old identity will be blocked from rejoining; " +
+                "persisted sessions and queued messages remain available for recovery by the cluster. Continue?"
                    : "Retire the configuration on the server first if it is still in use."))
             .then(confirmed => {
                 if (confirmed) {
@@ -157,14 +159,18 @@ export default class ClusterScreen extends BasicScreen {
             errorWindow("Please select a Standalone node to join.");
             return;
         }
-        confirmationWindow("Join node \"" + selected.name + "\" to this cluster?\n\n" +
+        const starting = this.state.cluster && this.state.cluster.cluster_state === "empty";
+        confirmationWindow(starting
+            ? 'Start a cluster on node "' + selected.name + '" using its configured Redis storage and shared accounts database? ' +
+              "MQTT will restart; its clients will reconnect."
+            : "Join node \"" + selected.name + "\" to this cluster?\n\n" +
             "The selected node will use this cluster's Redis storage and restart MQTT. Its clients " +
             "will disconnect briefly; the web interface stays available. Local standalone sessions and queued messages are " +
             "not moved into the cluster. The shared accounts database stays the same.")
             .then(confirmed => {
                 if (confirmed) {
-                    this.send("join", {node: {node_id: selected.node_id, name: selected.name}},
-                              "Can't join the node to the cluster");
+                    this.send(starting ? "start" : "join", {node: {node_id: selected.node_id, name: selected.name}},
+                              starting ? "Can't start the cluster" : "Can't join the node to the cluster");
                 }
             });
     }
@@ -198,7 +204,7 @@ export default class ClusterScreen extends BasicScreen {
                 <label className="inputScreenLabel">Mode:</label>
                 <span>{cluster.enabled ? "Cluster" : "Standalone"}</span>
                 <span className="inputScreenHint">
-                    The mode is switched on the Dashboard.
+                    Use the actions below to start or join a cluster. Restore an existing Offline member on its Dashboard.
                 </span>
             </div>
             <div className="inputScreenRow">
@@ -222,6 +228,7 @@ export default class ClusterScreen extends BasicScreen {
         const member = ["Clustered", "Offline", "Unknown", "Joining"].includes(state);
         const active = selected && !["Retired", "Removed", "Not Clustered"].includes(state);
         const buttonClass = "inputScreenSaveButton inputScreenActionButton";
+        const starting = cluster.cluster_state === "empty";
         return <div className="clusterNodeActions">
             <button className={buttonClass} disabled={busy}
                     onClick={() => this.setState({dialog: "add"})}>Add node&hellip;</button>
@@ -229,8 +236,9 @@ export default class ClusterScreen extends BasicScreen {
                 {selected ? <>Selected node: <strong>{selected.name}</strong></> : "Select a node"}
             </div>
             <button className={buttonClass}
-                    disabled={busy || !cluster.enabled || !selected || selected.is_this_node || state !== "Standalone"}
-                    onClick={() => this.joinNode()}>Join cluster&hellip;</button>
+                    disabled={busy || (!starting && (!cluster.enabled || selected?.is_this_node ||
+                        ["offline", "unknown"].includes(cluster.cluster_state))) || !selected || state !== "Standalone"}
+                    onClick={() => this.joinNode()}>{starting ? "Start cluster" : "Join cluster"}&hellip;</button>
             <button className={buttonClass} disabled={busy || !active || !member}
                     onClick={() => this.leaveCluster()}>Leave cluster&hellip;</button>
             <button className={buttonClass} disabled={busy || !active || member}
@@ -246,6 +254,7 @@ export default class ClusterScreen extends BasicScreen {
         const cluster = this.state.cluster;
         return <fieldset>
             <legend>Cluster Nodes</legend>
+            {this.renderClusterGuidance()}
             <DataTable objectName="Node" headers={this.state.headers}
                        rows={cluster.nodes || []} height={320} paging={false}
                        getRowId={params => params.data.node_id}
@@ -256,6 +265,38 @@ export default class ClusterScreen extends BasicScreen {
                 Add node creates a configuration entry. Join cluster uses this node's cluster.
             </p>
         </fieldset>;
+    }
+
+    renderClusterGuidance() {
+        const cluster = this.state.cluster;
+        if (cluster.cluster_state === "empty") return <p className="inputScreenHint">
+            Redis has no cluster members. Select a Standalone node and press Start cluster.
+            Then open that node's Cluster page to join the other nodes.
+        </p>;
+        if (cluster.cluster_state === "offline") return <div role="status" className="inputScreenHint">
+            The cluster still exists, but all its members are Offline:
+            {" " + (cluster.cluster_members || []).map(node => node.name).join(", ") + ". "}
+            Start one of these members. On its Dashboard, enable Cluster mode if it is Standalone,
+            or start MQTT if it is stopped. Then use that member's Cluster page to join other nodes.
+            If a member cannot be restored after hardware or OS failure, isolate the failed server,
+            select its row and use Force remove node. When no members remain, Start cluster becomes available.
+        </div>;
+        if (cluster.cluster_state === "unknown") return <p role="status" className="inputScreenHint">
+            Cluster membership could not be read from Redis. Restore storage connectivity before
+            starting a cluster or force removing a member.
+        </p>;
+        const offline = (cluster.cluster_members || []).filter(node => node.state === "Offline");
+        if (offline.length) return <div role="status" className="inputScreenHint">
+            Offline members: {offline.map(node => node.name).join(", ")}. Start the affected member;
+            on its Dashboard, enable Cluster mode if it is Standalone, or start MQTT if it is stopped.
+            If hardware or OS failure prevents recovery, isolate that server and use Force remove node
+            on its selected row. The remaining Clustered members can continue serving the cluster.
+            {!cluster.enabled && " Open a Clustered member's Cluster page to join other nodes."}
+        </div>;
+        if (!cluster.enabled && cluster.cluster_state === "active") return <p className="inputScreenHint">
+            This node is Standalone. Open the Cluster page on a Clustered member to join nodes to its cluster.
+        </p>;
+        return null;
     }
 
     renderDialogs() {

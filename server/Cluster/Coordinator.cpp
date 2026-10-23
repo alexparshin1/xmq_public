@@ -42,6 +42,20 @@ for _, id in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
 end
 if #live == 0 then return 0 end
 local handed = 0
+local removed = redis.call('HGETALL', 'cluster:recovery')
+for i = 1, #removed, 2 do
+  local id, name = removed[i], removed[i + 1]
+  for _, client in ipairs(redis.call('SMEMBERS', 'node_' .. name .. '_sessions')) do
+    redis.call('RPUSH', ARGV[3] .. live[(handed % #live) + 1], client)
+    handed = handed + 1
+  end
+  for _, client in ipairs(redis.call('LRANGE', ARGV[3] .. id, 0, -1)) do
+    redis.call('RPUSH', ARGV[3] .. live[(handed % #live) + 1], client)
+    handed = handed + 1
+  end
+  redis.call('DEL', 'node_' .. name .. '_sessions', ARGV[3] .. id)
+  redis.call('HDEL', 'cluster:recovery', id)
+end
 for _, id in ipairs(gone) do
   local name = redis.call('HGET', ARGV[1] .. id, 'name')
   if name then
@@ -79,6 +93,11 @@ constexpr int64_t NameTaken = -1;
 // count, which is how a node that was down rejoins. Refused: a name another node has (-1), a
 // cluster that is full (0), and a lease another run of this node holds (-2).
 const string JoinScript = R"(
+if redis.call('SISMEMBER', 'cluster:revoked', ARGV[1]) == 1 then return -3 end
+local recovery = redis.call('HGETALL', 'cluster:recovery')
+for i = 1, #recovery, 2 do
+  if recovery[i + 1] == ARGV[2] then return -1 end
+end
 local owner = redis.call('HGET', KEYS[3], ARGV[2])
 if owner and owner ~= ARGV[1] then return -1 end
 local run = redis.call('GET', KEYS[5])
@@ -148,6 +167,20 @@ if redis.call('GET', KEYS[1]) == ARGV[3] then redis.call('DEL', KEYS[1]) end
 redis.call('ZREM', KEYS[2], ARGV[1])
 if redis.call('HGET', KEYS[3], ARGV[2]) == ARGV[1] then redis.call('HDEL', KEYS[3], ARGV[2]) end
 redis.call('DEL', KEYS[4], KEYS[5])
+return 1)";
+
+const string RemoveOfflineScript = R"(
+if redis.call('EXISTS', ARGV[2] .. ARGV[1]) == 1 then return 0 end
+local name = redis.call('HGET', ARGV[3] .. ARGV[1], 'name')
+redis.call('SADD', 'cluster:revoked', ARGV[1])
+if name then
+  redis.call('HSET', 'cluster:recovery', ARGV[1], name)
+  if redis.call('HGET', KEYS[2], name) == ARGV[1] then redis.call('HDEL', KEYS[2], name) end
+end
+redis.call('ZREM', KEYS[1], ARGV[1])
+local coordinator = redis.call('GET', KEYS[3])
+if coordinator and string.match(coordinator, ' (.+)$') == ARGV[1] then redis.call('DEL', KEYS[3]) end
+redis.call('DEL', ARGV[3] .. ARGV[1])
 return 1)";
 
 // Take a session's ownership: free, ours already, or held by a node that is gone. Answers '' when it
@@ -285,6 +318,8 @@ void Coordinator::start()
             {
                 throw Exception(format("Another node of the cluster is called '{}'.", m_nodeName));
             }
+            if (answer == -3)
+                throw Exception("This node was force removed from the cluster. Its old identity cannot rejoin.");
             if (answer == ClusterFull)
             {
                 throw Exception(format("The cluster has {} nodes already, the most it supports.", MaxMembers));
@@ -390,6 +425,17 @@ vector<Coordinator::Member> Coordinator::members()
                            results[i + 2].asInt64() == 1, results[i + 3].asString().c_str()});
     }
     return members;
+}
+
+bool Coordinator::removeOfflineMember(RedisConnect& redis, const string& nodeId)
+{
+    RedisCommand command("EVAL", RemoveOfflineScript);
+    for (const auto& value: vector<string>{"3", MembersKey, NamesKey, CoordinatorKey,
+                                          nodeId, AlivePrefix, NodePrefix}) command.emplace_back(value);
+    vector<Variant> results;
+    redis.executeCommand(command, results);
+    if (results.size() != 1) throw Exception("Unexpected force removal response from Redis.");
+    return results[0].asInt64() == 1;
 }
 
 Coordinator::Snapshot Coordinator::readSnapshot(RedisConnect& redis)

@@ -734,6 +734,8 @@
                                          already holds another cluster is refused, and the answer says to ask
                                          for an invitation. -->
                                     <xsd:enumeration value="enable"></xsd:enumeration>
+                                    <xsd:enumeration value="start"></xsd:enumeration>
+                                    <xsd:enumeration value="retire"></xsd:enumeration>
                                     <!-- Cluster to Standalone: the node leaves the cluster and restarts. -->
                                     <xsd:enumeration value="disable"></xsd:enumeration>
                                     <!-- Declare a node: a name and a TLS address, nothing contacted. -->
@@ -792,6 +794,8 @@
                 <xsd:complexType>
                     <xsd:sequence>
                         <xsd:element name="result" type="tns:Result"></xsd:element>
+                        <xsd:element name="cluster_state" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="cluster_members" type="tns:ClusterMember" minOccurs="0" maxOccurs="unbounded"/>
                         <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
                             <xsd:annotation>
                                 <xsd:documentation>The node's mode: true when it is a cluster node.</xsd:documentation>

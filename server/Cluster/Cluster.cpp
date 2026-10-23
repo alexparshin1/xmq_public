@@ -1614,7 +1614,18 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
         }
         const auto local = store.node(m_nodeId);
         const auto action = root->findFirst("action") ? root->getString("action") : String("join");
-        if (action == "disable" || action == "retire")
+        if (action == "start")
+        {
+            if (!local || local->m_state == "Removed" || local->m_state == "Retired" || local->m_clusterEnabled)
+                throw Exception("This node must have an active Standalone configuration to start a cluster.");
+            RedisConnect redis;
+            redis.connect(URL(local->m_redisUri));
+            if (Coordinator::membership(redis, m_nodeId) != -1)
+                throw Exception("This storage already has cluster members. Restore an Offline member or force remove an unrecoverable member before starting a new cluster.");
+            joining = true;
+            error = m_settings->applyClusterEnable(local->m_redisUri, database);
+        }
+        else if (action == "disable" || action == "retire")
         {
             if (!local || local->m_state == "Removed" || local->m_state == "Retired")
                 throw Exception("This node has no active configuration in the shared database.");

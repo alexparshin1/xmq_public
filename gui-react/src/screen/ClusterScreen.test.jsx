@@ -10,6 +10,39 @@ jest.mock("../components/MessageWindow", () => ({
 
 beforeEach(() => jest.clearAllMocks());
 
+test("an empty Redis membership offers Start cluster for the selected local node", async () => {
+    const screen = new ClusterScreen({});
+    screen.state.cluster = {enabled: false, cluster_state: "empty"};
+    screen.state.selected = {node_id: "local-id", name: "theater", state: "Standalone", is_this_node: true};
+    screen.send = jest.fn();
+    confirmationWindow.mockResolvedValue(true);
+    render(screen.renderNodeActions());
+    expect(view.getByRole("button", {name: /Start cluster/})).toBeEnabled();
+    screen.joinNode();
+    await Promise.resolve();
+    expect(screen.send).toHaveBeenCalledWith("start", {node: {node_id: "local-id", name: "theater"}}, expect.any(String));
+});
+
+test.each(["offline", "unknown"])("%s membership does not offer a new cluster", state => {
+    const screen = new ClusterScreen({});
+    screen.state.cluster = {enabled: false, cluster_state: state, cluster_members: [{name: "failed-host"}]};
+    screen.state.selected = {node_id: "remote-id", name: "theater", state: "Standalone"};
+    render(<>{screen.renderNodeActions()}{screen.renderClusterGuidance()}</>);
+    expect(view.queryByRole("button", {name: /Start cluster/})).not.toBeInTheDocument();
+    expect(view.getByRole("button", {name: /Join cluster/})).toBeDisabled();
+    expect(view.getByRole("status")).toHaveTextContent(state === "offline" ? "Force remove node" : "Restore storage connectivity");
+});
+
+test("a working cluster still explains how to handle an Offline member", () => {
+    const screen = new ClusterScreen({});
+    screen.state.cluster = {enabled: true, cluster_state: "active", cluster_members: [
+        {name: "theater", state: "Clustered"}, {name: "failed-host", state: "Offline"}
+    ]};
+    render(screen.renderClusterGuidance());
+    expect(view.getByRole("status")).toHaveTextContent("Offline members: failed-host");
+    expect(view.getByRole("status")).toHaveTextContent("Force remove node");
+});
+
 test("join sends one confirmed administrator action without asking for another password", async () => {
     const screen = new ClusterScreen({});
     screen.state.selected = {node_id: "node-guid", name: "theater", state: "Standalone"};

@@ -290,6 +290,12 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
             </p>
             <h5>8. Remove an obsolete server configuration</h5>
             <p>
+                When Redis has no cluster members, the action panel offers <b>Start cluster</b>
+                for a selected Standalone node. Once it starts, open that node's Cluster page
+                to join the others. Offline members still belong to an existing cluster:
+                start one of them, enabling Cluster mode on its Dashboard if necessary.
+            </p>
+            <p>
                 <b>Remove node</b> deletes configuration, not membership. First leave the cluster.
                 If the server still uses this database, select it and press <b>Retire configuration</b>: MQTT stops and the database records
                 that this configuration is no
@@ -301,6 +307,11 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
                 <b> Force remove node</b> only after confirming this explicitly. A removal marker
                 is retained in this database so a server returning with the old UUID cannot
                 silently recreate its configuration. Other databases remain independent.
+                For an unrecoverable Offline member, first power it off or isolate it from Redis.
+                Force removal checks that its lease has expired, removes membership, and blocks
+                automatic rejoin with the old identity. Persisted sessions and queued messages
+                remain available for recovery by existing members or the next cluster started
+                on this Redis. A live member must leave normally; it cannot be force removed.
             </p>
             </section>
     </DocumentationPage>;
