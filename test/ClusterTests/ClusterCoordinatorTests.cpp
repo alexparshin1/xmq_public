@@ -323,9 +323,21 @@ TEST_F(XMQ_ClusterTests, nodeRunningElsewhereDoesNotStartAgain)
     // threads would outlive its failed constructor.
     atomic<bool> accepted {false};
     {
-        jthread probe([&](const stop_token stop)
+        // FreeBSD's libc++ has no jthread/stop_token. Keep the same cleanup on
+        // every exit path, including an unexpected exception from createNode().
+        struct ProbeThread
         {
-            while (!stop.stop_requested())
+            atomic<bool> stop {false};
+            thread worker;
+            ~ProbeThread()
+            {
+                stop = true;
+                if (worker.joinable()) worker.join();
+            }
+        } probe;
+        probe.worker = thread([&]
+        {
+            while (!probe.stop)
             {
                 try
                 {

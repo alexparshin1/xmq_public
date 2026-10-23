@@ -18,6 +18,7 @@
 #include "server/Settings/Settings.h"
 #include <sptk5/net/SSLSocket.h>
 #include "test/ClusterTests/ClusterTests.h"
+#include "test/ClusterTests/TestCluster.h"
 
 using namespace std;
 using namespace sptk;
@@ -40,7 +41,10 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
     secondaryNode->getSettings()->m_cluster.m_enabled = true;
     thirdNode->getSettings()->m_cluster.m_enabled = true;
     secondaryNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
-    this_thread::sleep_for(100ms);
+    ASSERT_TRUE(TestCluster::waitFor([&] {
+        return primaryNode->cluster()->getConnectedNodeCount("^secondary$") == 1 &&
+               secondaryNode->cluster()->getConnectedNodeCount("^primary$") == 1;
+    }, 10s)) << "The primary and secondary did not establish their cluster links";
 
     EXPECT_TRUE(primaryNode->cluster()->hasNodes());
     EXPECT_TRUE(secondaryNode->cluster()->hasNodes());
@@ -48,7 +52,22 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
     EXPECT_EQ(1U, secondaryNode->cluster()->getConnectedNodeCount("^(primary|third)$"));
 
     thirdNode->attachToCluster(primaryNode->getCluster()->getNodeHost());
-    this_thread::sleep_for(100ms);
+    const vector nodes {primaryNode, secondaryNode, thirdNode};
+    ASSERT_TRUE(TestCluster::waitFor([&] {
+        for (const auto& destination: nodes)
+        {
+            if (destination->cluster()->getConnectedNodeCount("^(primary|secondary|third)$") != 2)
+                return false;
+            for (const auto& origin: nodes)
+            {
+                if (origin == destination) continue;
+                const auto session = destination->getClientSession(
+                    format("node_{}_{}", origin->getNodeName(), destination->getNodeName()));
+                if (!session || !session->getConnection()) return false;
+            }
+        }
+        return true;
+    }, 10s)) << "All six directed peer connections must complete before inspection";
 
     // Verify that nodes can see each others:
     EXPECT_EQ(2U, primaryNode->cluster()->getConnectedNodeCount("^(secondary|third)$"));
@@ -56,7 +75,6 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
     EXPECT_EQ(2U, thirdNode->cluster()->getConnectedNodeCount("^(primary|secondary)$"));
 
     // Inspect all six directed peer connections, including the links established by discovery.
-    const vector nodes {primaryNode, secondaryNode, thirdNode};
     for (const auto& destination: nodes)
     {
         for (const auto& origin: nodes)
@@ -79,7 +97,11 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
 
     secondaryNode->detachFromCluster();
     thirdNode->detachFromCluster();
-    this_thread::sleep_for(100ms);
+    ASSERT_TRUE(TestCluster::waitFor([&] {
+        return primaryNode->cluster()->getClusterNodeCount() == 0 &&
+               secondaryNode->cluster()->getClusterNodeCount() == 0 &&
+               thirdNode->cluster()->getClusterNodeCount() == 0;
+    }, 10s)) << "All peer links must be removed after both nodes detach";
 
     // Verify that there are no cluster nodes left:
     EXPECT_EQ(0U, primaryNode->cluster()->getClusterNodeCount());
