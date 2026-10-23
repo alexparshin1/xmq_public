@@ -21,6 +21,7 @@ import BridgesScreen from "./screen/BridgesScreen";
 import ClusterScreen from "./screen/ClusterScreen";
 import XmqServiceScreen from "./screen/XmqServiceScreen";
 import InitialSetupScreen from "./screen/InitialSetupScreen";
+import SettingsScreen from "./screen/SettingsScreen";
 import UserManualScreen from "./screen/UserManualScreen";
 import Documentation from "./documentation/Documentation";
 import {documentationPages} from "./documentation/pages";
@@ -92,6 +93,7 @@ class App extends React.Component {
                                     <Route path="/bridges" element={<RequireAuth><BridgesScreen/></RequireAuth>}/>
                                     <Route path="/cluster" element={<RequireAuth><ClusterScreen/></RequireAuth>}/>
                                     <Route path="/setup" element={<RequireAuth><InitialSetupScreen/></RequireAuth>}/>
+                                    <Route path="/settings" element={<RequireAuth><SettingsScreen/></RequireAuth>}/>
                                 </Routes>
                             </div>
                         </td>

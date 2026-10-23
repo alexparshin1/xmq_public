@@ -33,7 +33,7 @@ static_assert(std::atomic_int::is_always_lock_free);
 
 namespace {
 std::atomic<bool> restartRequestedFlag {false};
-struct NodeAction { String nodeId, database, action; };
+struct NodeAction { String nodeId, database, action; std::function<void(IServerController&)> task; };
 mutex nodeActionsMutex;
 vector<NodeAction> nodeActions;
 }
@@ -50,6 +50,14 @@ void OSService::queueNodeAction(const String& nodeId, const String& database, co
         }
     }
     nodeActions.push_back({nodeId, database, action});
+}
+
+void OSService::queueNodeTask(const String& nodeId, const String& database, std::function<void(IServerController&)> task)
+{
+    const scoped_lock lock(nodeActionsMutex);
+    for (const auto& pending: nodeActions)
+        if (pending.nodeId == nodeId) throw Exception("Another action is already pending for this node.");
+    nodeActions.push_back({nodeId, database, "", std::move(task)});
 }
 
 void OSService::processNodeActions(IServerController& controller)
@@ -77,11 +85,16 @@ void OSService::processNodeActions(IServerController& controller)
         {
             if (pending.database != settings->userDatabaseUri())
                 throw Exception("The node's accounts database changed before executing the action.");
-            ControlService control(&controller);
-            control.applyLocalClusterAction(pending.action);
+            if (pending.task) pending.task(controller);
+            else
+            {
+                ControlService control(&controller);
+                control.applyLocalClusterAction(pending.action);
+            }
         }
         catch (const std::exception& error)
         {
+            if (pending.task) settings->nodeSettingsStatus(false, "Settings were not applied: the queued update could not execute.");
             CERR("Selected node action failed: " << error.what());
             try
             {

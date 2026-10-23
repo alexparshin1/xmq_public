@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <climits>
 #include <ctime>
+#include <regex>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -2250,6 +2251,153 @@ void ControlService::ServiceControl(const CServiceControl& input, CServiceContro
         output.m_result.m_success = false;
         output.m_result.m_description = e.what();
     }
+}
+
+namespace {
+string settingsError(const std::exception& error, const CNodeSettings& values)
+{
+    string message = error.what();
+    for (const String uri: {values.m_redis_uri.asString(), values.m_database_uri.asString()})
+    {
+        if (uri.empty()) continue;
+        const string raw(uri.c_str()), hidden(UriSecret::hidden(uri).c_str());
+        size_t at = 0;
+        while ((at = message.find(raw, at)) != string::npos) { message.replace(at, raw.size(), hidden); at += hidden.size(); }
+    }
+    return message;
+}
+
+void moveNodeSessionSet(const String& uri, const string& ns, const String& from, const String& to)
+{
+    if (uri.empty() || from == to) return;
+    RedisConnect redis;
+    redis.connect(URL(uri));
+    RedisCommand command("EVAL", "local s=redis.call('SMEMBERS',KEYS[1]); for _,v in ipairs(s) do redis.call('SADD',KEYS[2],v) end; redis.call('DEL',KEYS[1]); return #s");
+    for (const auto& value: vector<string>{"2", ns + "node_" + from.c_str() + "_sessions", ns + "node_" + to.c_str() + "_sessions"}) command.emplace_back(value);
+    vector<Variant> result;
+    redis.executeCommand(command, result);
+}
+}
+
+void ControlService::SettingsControl(const CSettingsControl& input, CSettingsControlResponse& output,
+                                   HttpAuthentication* authentication)
+{
+    CNodeSettings values;
+    try
+    {
+        CUser user;
+        authenticate(authentication, user);
+        const auto settings = getSettings();
+        const auto action = input.m_action.asString();
+        if (action != "get" && action != "test" && action != "set") throw Exception("Unknown Settings action.");
+        if (action != "get")
+        {
+            if (settings->nodeSettingsStatus().first) throw Exception("A Settings update is already pending.");
+            const auto previous = settings->nodeSettings(false);
+            values = input.m_settings;
+            values.m_redis_uri = UriSecret::restored(values.m_redis_uri.asString(), previous.m_redis_uri.asString());
+            values.m_database_uri = UriSecret::restored(values.m_database_uri.asString(), previous.m_database_uri.asString());
+            if (values.m_database_uri.asString().empty())
+                values.m_database_uri = DirectoryNames::sqliteUri(filesystem::path(settings->configurationPath()).replace_filename("xmq_users.db"));
+            if (!regex_match(string(values.m_node_name.asString()), regex(R"(^\w[\w.-]+$)")))
+                throw Exception("Node name must contain at least two letters, digits, underscores, dots or dashes.");
+            const String host = String(values.m_node_host.asString()).trim();
+            if (host.empty() || host.find_first_of(":/ \t\r\n") != String::npos)
+                throw Exception("Enter a node hostname or IPv4 address without a port.");
+            values.m_node_host = host;
+            const auto tcp = values.m_mqtt_port.asInteger(), tls = values.m_mqtt_ssl_port.asInteger(), web = values.m_web_service_port.asInteger();
+            if (tcp < 1 || tcp > 65535 || tls < 1 || tls > 65535 || web < 1 || web > 65535 || tcp == tls || tcp == web || tls == web)
+                throw Exception("MQTT, MQTT+SSL and Web ports must be distinct numbers between 1 and 65535.");
+            if (values.m_node_name.asString() != previous.m_node_name.asString() && values.m_redis_uri.asString() != previous.m_redis_uri.asString())
+                throw Exception("Change the node name and Redis connection separately, so persisted sessions can be retained on rename.");
+            const auto id = settings->nodeIdentity();
+            const bool clustered = previous.m_cluster_enabled.asBool();
+            if (clustered && values.m_redis_uri.asString().empty()) throw Exception("Leave the cluster before disabling Redis.");
+            if (!values.m_redis_uri.asString().empty())
+            {
+                const URL uri(values.m_redis_uri.asString());
+                if (uri.protocol() != "redis") throw Exception("Redis connection must use a redis:// URI.");
+                RedisConnect redis;
+                redis.connect(uri);
+                const auto snapshot = cluster::Coordinator::readSnapshot(redis);
+                if (clustered && ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == id; }))
+                    throw Exception("The new Redis does not contain this node's cluster membership. Leave the cluster before changing to another storage.");
+                if (ranges::any_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId != id && member.m_name == values.m_node_name.asString(); }))
+                    throw Exception("Another cluster member already uses this node name.");
+            }
+            auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);
+            { const AutoDatabaseConnection connection(*pool); Query probe(connection.connection(), "SELECT 1"); probe.open(); probe.close(); }
+            UserStore users(pool);
+            const auto identity = authentication->getData()->findFirst("user");
+            const auto administrator = users.findUser(identity->getString("username"));
+            if (!administrator || !administrator->m_enabled || !PasswordHash::verify(identity->getString("password"), administrator->m_password))
+                throw Exception("The target accounts database must already contain your enabled administrator account with the same password. Use Initial Setup to initialize an empty database.");
+            const auto groups = users.groupsOfUser(administrator->m_id);
+            if (ranges::none_of(groups, [](const auto& group) { return group.m_name == "Administrators"; }))
+                throw Exception("Your account is not an administrator in the target accounts database.");
+            if (clustered)
+            {
+                ClusterStore target(pool);
+                const auto row = target.node(id);
+                if (!row || !row->m_clusterEnabled || row->m_state == "Removed" || row->m_state == "Retired")
+                    throw Exception("The target accounts database is not this node's cluster configuration. Leave the cluster before changing databases.");
+            }
+            if (action == "set")
+            {
+                settings->nodeSettingsStatus(true, "Settings update queued; MQTT will restart.");
+                try
+                {
+                    OSService::queueNodeTask(id, settings->userDatabaseUri(), [settings, values, previous](IServerController& controller) {
+                        std::function<void()> rollback;
+                        string ns;
+                        if (const auto server = controller.getServer(); server && server->getStorage()) ns = server->getStorage()->sessionNamespace();
+                        bool moved = false;
+                        try
+                        {
+                            controller.stopServing();
+                            rollback = settings->saveNodeSettings(values);
+                            if (previous.m_node_name.asString() != values.m_node_name.asString())
+                            {
+                                moveNodeSessionSet(previous.m_redis_uri.asString(), ns, previous.m_node_name.asString(), values.m_node_name.asString());
+                                moved = true;
+                            }
+                            settings->loadConfiguration(settings->configurationPath());
+                            string reason;
+                            if (!controller.moveControlService(static_cast<uint16_t>(values.m_web_service_port.asInteger()), reason)) throw Exception(reason);
+                            if (!controller.startServing(reason)) throw Exception(reason);
+                            settings->nodeSettingsStatus(false, "Settings applied. MQTT restarted; other configuration and accounts were preserved.");
+                        }
+                        catch (const std::exception& error)
+                        {
+                            controller.stopServing();
+                            string message = "Settings were not applied: " + settingsError(error, values);
+                            try
+                            {
+                                if (rollback) rollback();
+                                if (moved) moveNodeSessionSet(previous.m_redis_uri.asString(), ns, values.m_node_name.asString(), previous.m_node_name.asString());
+                                settings->loadConfiguration(settings->configurationPath());
+                                string reason;
+                                const bool webRestored = controller.moveControlService(static_cast<uint16_t>(previous.m_web_service_port.asInteger()), reason);
+                                const bool mqttRestored = controller.startServing(reason);
+                                message += webRestored && mqttRestored ? " Previous settings restored." : " Recovery needs attention: " + reason;
+                            }
+                            catch (const std::exception& recovery) { message += " Recovery failed: " + settingsError(recovery, previous); }
+                            settings->nodeSettingsStatus(false, message);
+                        }
+                    });
+                }
+                catch (...) { settings->nodeSettingsStatus(false, "Settings update could not be queued."); throw; }
+            }
+        }
+        output.m_settings = action == "get" ? settings->nodeSettings() : values;
+        output.m_settings.m_redis_uri = UriSecret::hidden(output.m_settings.m_redis_uri.asString());
+        output.m_settings.m_database_uri = UriSecret::hidden(output.m_settings.m_database_uri.asString());
+        const auto [pending, message] = settings->nodeSettingsStatus();
+        output.m_pending = pending;
+        output.m_message = action == "test" ? "Connections and administrator access verified. No settings were changed." : message;
+        output.m_result.m_success = true;
+    }
+    catch (const std::exception& error) { output.m_result.m_success = false; output.m_result.m_description = settingsError(error, values); }
 }
 
 void ControlService::InitialSetupControl(const CInitialSetupControl& input, CInitialSetupControlResponse& output,

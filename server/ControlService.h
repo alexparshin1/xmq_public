@@ -43,6 +43,7 @@ public:
     void PersistenceControl(const CPersistenceControl& input, CPersistenceControlResponse& output, sptk::HttpAuthentication* authentication) override;
     void ServiceControl(const CServiceControl& input, CServiceControlResponse& output, sptk::HttpAuthentication* auth) override;
     void InitialSetupControl(const CInitialSetupControl& input, CInitialSetupControlResponse& output, sptk::HttpAuthentication* auth) override;
+    void SettingsControl(const CSettingsControl& input, CSettingsControlResponse& output, sptk::HttpAuthentication* auth) override;
     void ServerControl(const CServerControl& input, CServerControlResponse& output, sptk::HttpAuthentication* auth) override;
     void GetStatistics(const CGetStatistics& input, CGetStatisticsResponse& output, sptk::HttpAuthentication* auth) override;
     sptk::String findBridgePassword(int bridgeId) const;

@@ -17,6 +17,9 @@
 #include "server/Settings/UserStore.h"
 #include "server/Settings/PasswordHash.h"
 #include "test/TestServers.h"
+#include "server/OSService.h"
+#include <sptk5/net/TCPSocket.h>
+#include "test/ClusterTests/TestCluster.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -69,6 +72,110 @@ TEST_F(XMQ_ControlServiceTests, login)
 
     // As regular user:
     EXPECT_ANY_THROW({ token = Login("user", "secret"); });
+}
+
+TEST_F(XMQ_ControlServiceTests, settingsTestsConnectionsWithoutSavingAndMasksPasswords)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    const auto settings = server()->getSettings();
+    Buffer before;
+    before.loadFromFile(settings->configurationPath());
+    CSettingsControl request;
+    request.m_action = "test";
+    request.m_settings = settings->nodeSettings();
+    CSettingsControlResponse tested;
+    m_controlService->SettingsControl(request, tested, &authentication);
+    ASSERT_TRUE(tested.m_result.m_success.asBool()) << tested.m_result.m_description.asString();
+    EXPECT_FALSE(tested.m_pending.asBool());
+    request.m_settings.m_database_uri = "postgresql://probe:Secret7@127.0.0.1:1/unavailable";
+    CSettingsControlResponse refused;
+    m_controlService->SettingsControl(request, refused, &authentication);
+    EXPECT_FALSE(refused.m_result.m_success.asBool());
+    Buffer after;
+    after.loadFromFile(settings->configurationPath());
+    EXPECT_EQ(String(before), String(after));
+    const auto oldDatabase = settings->m_authentication.m_database_uri.asString();
+    const auto oldRedis = settings->m_persistence.m_redis_uri.asString();
+    settings->m_authentication.m_database_uri = "postgresql://xmq:db-secret@theater/xmq";
+    settings->m_persistence.m_redis_uri = "redis://cache:redis-secret@theater:6379";
+    request.m_action = "get";
+    CSettingsControlResponse masked;
+    m_controlService->SettingsControl(request, masked, &authentication);
+    settings->m_authentication.m_database_uri = oldDatabase;
+    settings->m_persistence.m_redis_uri = oldRedis;
+    ASSERT_TRUE(masked.m_result.m_success.asBool());
+    EXPECT_EQ("postgresql://xmq:*****@theater/xmq", masked.m_settings.m_database_uri.asString());
+    EXPECT_EQ("redis://cache:*****@theater:6379", masked.m_settings.m_redis_uri.asString());
+}
+
+TEST_F(XMQ_ControlServiceTests, settingsApplyOnControllerThreadAndRecoverFromFailedPortChange)
+{
+    auto initial = server();
+    const auto settings = initial->getSettings();
+    stopServers();
+    initial.reset();
+    CWebService webService = settings->m_web_service;
+    webService.m_listener_port = 18889;
+    webService.m_encrypted = false;
+    settings->m_persistence.m_clean_start = false;
+    settings->serviceControl("set", webService);
+    ServerController controller(settings);
+    struct Cleanup { ServerController& controller; ~Cleanup() { controller.stopService(); } } cleanup {controller};
+    controller.startService();
+    ASSERT_TRUE(controller.isServing());
+    ControlService service(&controller);
+    CLogin login;
+    login.m_username = "admin"; login.m_password = "admin";
+    CLoginResponse loggedIn;
+    service.Login(login, loggedIn, nullptr);
+    ASSERT_TRUE(loggedIn.m_result.m_success.asBool());
+    HttpAuthentication authentication("bearer " + loggedIn.m_token.asString());
+    UserStore users(settings->accountsPool());
+    const auto adminHash = users.findUser("admin")->m_password;
+    client::MqttClient persistent(logEngine());
+    ASSERT_EQ(ReasonCode::Success, persistent.connect(Host("localhost", 1880),
+        ConnectCredentials("settings-persist-client", "user", "secret"), {.m_cleanSession = false}));
+    persistent.disconnect();
+    ASSERT_TRUE(TestCluster::waitFor([&] {
+        const auto session = controller.getServer()->getClientSession("settings-persist-client");
+        return session && !session->isConnected();
+    }));
+    CSettingsControl request;
+    request.m_action = "set";
+    request.m_settings = settings->nodeSettings();
+    request.m_settings.m_node_name = "settings-renamed";
+    request.m_settings.m_mqtt_port = 1885;
+    request.m_settings.m_mqtt_ssl_port = 8885;
+    CSettingsControlResponse queued;
+    const auto oldPort = settings->nodeSettings().m_mqtt_port.asInteger();
+    service.SettingsControl(request, queued, &authentication);
+    ASSERT_TRUE(queued.m_result.m_success.asBool()) << queued.m_result.m_description.asString();
+    EXPECT_TRUE(queued.m_pending.asBool());
+    EXPECT_EQ(oldPort, settings->nodeSettings().m_mqtt_port.asInteger());
+    OSService::processNodeActions(controller);
+    EXPECT_FALSE(settings->nodeSettingsStatus().first);
+    EXPECT_NE(String::npos, settings->nodeSettingsStatus().second.find("Settings applied"));
+    ASSERT_TRUE(controller.isServing());
+    EXPECT_EQ(1885, settings->nodeSettings().m_mqtt_port.asInteger());
+    EXPECT_EQ("settings-renamed", settings->nodeSettings().m_node_name.asString());
+    EXPECT_NE(nullptr, controller.getServer()->getClientSession("settings-persist-client"));
+    EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
+    request.m_settings = settings->nodeSettings();
+    TCPSocket occupied;
+    occupied.host(Host("0.0.0.0", 18890));
+    occupied.listen(18890, false);
+    request.m_settings.m_web_service_port = 18890;
+    request.m_settings.m_mqtt_port = 1887;
+    CSettingsControlResponse failing;
+    service.SettingsControl(request, failing, &authentication);
+    ASSERT_TRUE(failing.m_result.m_success.asBool()) << failing.m_result.m_description.asString();
+    OSService::processNodeActions(controller);
+    EXPECT_FALSE(settings->nodeSettingsStatus().first);
+    EXPECT_NE(String::npos, settings->nodeSettingsStatus().second.find("Previous settings restored"));
+    ASSERT_TRUE(controller.isServing());
+    EXPECT_EQ(1885, settings->nodeSettings().m_mqtt_port.asInteger());
+    EXPECT_EQ(18889, settings->nodeSettings().m_web_service_port.asInteger());
+    EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
 }
 
 TEST_F(XMQ_ControlServiceTests, initialSetupChecksRedisWithoutApplyingConfiguration)

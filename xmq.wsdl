@@ -1047,6 +1047,27 @@
                 </xsd:sequence>
             </xsd:complexType>
 
+            <xsd:complexType name="NodeSettings"><xsd:sequence>
+                <xsd:element name="node_name" type="xsd:string" minOccurs="0"/>
+                <xsd:element name="node_host" type="xsd:string" minOccurs="0"/>
+                <xsd:element name="mqtt_port" type="xsd:int" minOccurs="0"/>
+                <xsd:element name="mqtt_ssl_port" type="xsd:int" minOccurs="0"/>
+                <xsd:element name="web_service_port" type="xsd:int" minOccurs="0"/>
+                <xsd:element name="redis_uri" type="xsd:string" minOccurs="0"/>
+                <xsd:element name="database_uri" type="xsd:string" minOccurs="0"/>
+                <xsd:element name="cluster_enabled" type="xsd:boolean" minOccurs="0"/>
+                <xsd:element name="clean_start" type="xsd:boolean" minOccurs="0"/>
+            </xsd:sequence></xsd:complexType>
+            <xsd:element name="SettingsControl"><xsd:complexType><xsd:sequence>
+                <xsd:element name="action" type="xsd:string"/>
+                <xsd:element name="settings" type="tns:NodeSettings" minOccurs="0"/>
+            </xsd:sequence></xsd:complexType></xsd:element>
+            <xsd:element name="SettingsControlResponse"><xsd:complexType><xsd:sequence>
+                <xsd:element name="result" type="tns:Result"/>
+                <xsd:element name="settings" type="tns:NodeSettings" minOccurs="0"/>
+                <xsd:element name="pending" type="xsd:boolean" minOccurs="0"/>
+                <xsd:element name="message" type="xsd:string" minOccurs="0"/>
+            </xsd:sequence></xsd:complexType></xsd:element>
             <xsd:element name="InitialSetupControl">
                 <xsd:complexType>
                     <xsd:sequence>
@@ -1905,6 +1926,8 @@
     <wsdl:message name="ServiceControlResponse">
         <wsdl:part name="parameters" element="tns:ServiceControlResponse"></wsdl:part>
     </wsdl:message>
+    <wsdl:message name="SettingsControlRequest"><wsdl:part name="parameters" element="tns:SettingsControl"/></wsdl:message>
+    <wsdl:message name="SettingsControlResponse"><wsdl:part name="parameters" element="tns:SettingsControlResponse"/></wsdl:message>
     <wsdl:message name="InitialSetupControlRequest">
         <wsdl:part name="parameters" element="tns:InitialSetupControl"></wsdl:part>
     </wsdl:message>
@@ -1985,6 +2008,9 @@
         <wsdl:operation name="ServiceControl">
             <wsdl:input message="tns:ServiceControlRequest"></wsdl:input>
             <wsdl:output message="tns:ServiceControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SettingsControl">
+            <wsdl:input message="tns:SettingsControlRequest"/><wsdl:output message="tns:SettingsControlResponse"/>
         </wsdl:operation>
         <wsdl:operation name="InitialSetupControl">
             <wsdl:input message="tns:InitialSetupControlRequest"></wsdl:input>
@@ -2144,6 +2170,10 @@
             <wsdl:output>
                 <soap:body use="literal"/>
             </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="SettingsControl">
+            <soap:operation soapAction="http://www.sptk.net/xmq/SettingsControl"/>
+            <wsdl:input><soap:body use="literal"/></wsdl:input><wsdl:output><soap:body use="literal"/></wsdl:output>
         </wsdl:operation>
         <wsdl:operation name="InitialSetupControl">
             <soap:operation

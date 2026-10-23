@@ -59,6 +59,7 @@ export default class MainMenu extends React.Component {
             // First, and named for what it is: it is where a new installation starts, and the one
             // entry here that replaces the configuration rather than editing part of it.
             "/setup": "Initial Setup",
+            "/settings": "Settings",
             "/users": "Users",
             "/usergroups": "Groups",
             "/listeners": "Listeners",

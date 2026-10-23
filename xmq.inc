@@ -46,6 +46,7 @@ SET (xmq_files
   service/CLogin.cpp service/CLogin.h
   service/CLoginResponse.cpp service/CLoginResponse.h
   service/CMessageProperty.cpp service/CMessageProperty.h
+  service/CNodeSettings.cpp service/CNodeSettings.h
   service/CPeerCertificate.cpp service/CPeerCertificate.h
   service/CPersistence.cpp service/CPersistence.h
   service/CPersistenceControl.cpp service/CPersistenceControl.h
@@ -63,6 +64,8 @@ SET (xmq_files
   service/CServerNode.cpp service/CServerNode.h
   service/CServiceControl.cpp service/CServiceControl.h
   service/CServiceControlResponse.cpp service/CServiceControlResponse.h
+  service/CSettingsControl.cpp service/CSettingsControl.h
+  service/CSettingsControlResponse.cpp service/CSettingsControlResponse.h
   service/CSetupState.cpp service/CSetupState.h
   service/CSetupStateResponse.cpp service/CSetupStateResponse.h
   service/CSubjectEvents.cpp service/CSubjectEvents.h

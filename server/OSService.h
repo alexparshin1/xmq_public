@@ -12,6 +12,7 @@
 */
 
 #pragma once
+#include <functional>
 
 #include "ServerController.h"
 #include "base/xmq.h"
@@ -96,6 +97,8 @@ public:
     static void queueNodeAction(const sptk::String& nodeId, const sptk::String& database,
                                 const sptk::String& action);
     static void processNodeActions(IServerController& controller);
+    static void queueNodeTask(const sptk::String& nodeId, const sptk::String& database,
+                              std::function<void(IServerController&)> task);
 
     /**
      * @brief Whether a restart was requested - the service loop's answer to how it ended.

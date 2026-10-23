@@ -17,6 +17,7 @@
 #include "server/Settings/UserManager.h"
 #include "server/Settings/UserStore.h"
 #include "server/Settings/Settings.h"
+#include "server/Settings/ClusterStore.h"
 #include "test/TestServers.h"
 
 #include <gtest/gtest.h>
@@ -299,6 +300,53 @@ TEST_F(XMQ_UserStoreTests, initialSetupDoesNotResetExistingSharedAccounts)
         EXPECT_TRUE(settings.userManager().authenticate("cluster", "Cluster-Secret1"));
         EXPECT_TRUE(store.findUser("retained-client").has_value());
         EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    }
+}
+
+TEST_F(XMQ_UserStoreTests, nodeSettingsUpdateAndRollbackOnlyTheirOwnSharedRow)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        if (uri.toLowerCase().starts_with("sqlite")) continue;
+        SCOPED_TRACE(name);
+        auto users = storeOn(uri);
+        users.addUser({.m_username = "admin", .m_password = PasswordHash::hash("Admin-Secret1", 1000)});
+        users.addUser({.m_username = "cluster", .m_password = PasswordHash::hash("Cluster-Secret1", 1000)});
+        users.setClusterSecret("Cluster-Secret1");
+        const auto adminHash = users.findUser("admin")->m_password;
+        const auto directory = filesystem::temp_directory_path() / ("xmq_node_edit_" + to_string(::getpid()) + name);
+        filesystem::create_directories(directory);
+        const auto path = directory / "node.conf";
+        filesystem::remove(path);
+        Settings::createConfiguration(path, directory / "missing-template");
+        Buffer bytes;
+        bytes.loadFromFile(path);
+        xdoc::Document document;
+        document.load(String(bytes));
+        const String originalName = "edit-" + to_string(::getpid()) + name;
+        document.root()->findFirst("cluster")->findFirst("this_node")->set("node_name", originalName);
+        document.exportTo(xdoc::DataFormat::JSON, bytes, true);
+        bytes.saveToFile(path);
+        Settings settings;
+        settings.loadConfiguration(path);
+        settings.setAccountDatabaseUri(uri);
+        settings.loadConfiguration(path);
+        ClusterStore store(settings.accountsPool());
+        const auto id = settings.nodeIdentity();
+        struct Cleanup { ClusterStore& store; String id; ~Cleanup() { try { store.removeNode(id); } catch (...) {} } } cleanup {store, id};
+        auto values = settings.nodeSettings(false);
+        values.m_node_name = originalName + "-new";
+        values.m_node_host = "new-host";
+        auto rollback = settings.saveNodeSettings(values);
+        settings.loadConfiguration(path);
+        EXPECT_EQ(originalName + "-new", store.node(id)->m_name);
+        EXPECT_EQ("new-host:8883", store.node(id)->m_hostPort);
+        EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
+        rollback();
+        settings.loadConfiguration(path);
+        EXPECT_EQ(originalName, store.node(id)->m_name);
+        EXPECT_EQ(originalName, settings.nodeSettings().m_node_name.asString());
+        EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
     }
 }
 

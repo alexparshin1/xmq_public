@@ -60,6 +60,13 @@ psql "postgresql://xmq:yourpassword@db-host/xmq" -c '\\dt'
             <h5>1. Install and set up node A</h5>
 
             <p>
+                After Initial Setup, use <b>Configuration → Settings</b> to edit the node name or
+                address, MQTT and Web ports, Redis connection, or User Database connection.
+                Test connections before saving. Save and restart MQTT preserves other settings
+                and accounts; stored connection passwords remain masked unless you replace them.
+            </p>
+
+            <p>
                 Install the package on the first host, start the server, and open the
                 configuration interface in a browser at <code>https://localhost:18883</code>.
                 A server that has never been set up answers on the

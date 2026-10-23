@@ -14,6 +14,7 @@
 
 #include "server/Settings/PasswordHash.h"
 #include "server/Settings/Settings.h"
+#include "server/Settings/UserStore.h"
 
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
@@ -572,6 +573,47 @@ TEST(XMQ_Settings, setupClusterCredentialSurvivesReloadWithoutConfigurationPassw
     contents.loadFromFile(configuration);
     saved.load(String(contents));
     EXPECT_EQ(nullptr, saved.root()->findFirst("cluster")->findFirst("password"));
+}
+
+TEST(XMQ_Settings, nodeSettingsPreserveOtherConfigurationAccountsAndSupportRollback)
+{
+    const auto directory = emptyTestDirectory("xmq_node_settings");
+    const auto path = directory / "node.conf";
+    Settings::createConfiguration(path, directory / "missing-template");
+    Settings settings;
+    settings.loadConfiguration(path);
+    settings.m_persistence.m_clean_start = false;
+    CServerLimits limits = settings.m_server_limits;
+    CQueueLimits queues = settings.m_queue_limits;
+    queues.m_max_size = 43210;
+    settings.limitsControl("set", limits, queues);
+    UserStore users(settings.accountsPool());
+    auto admin = *users.findUser("admin");
+    admin.m_password = PasswordHash::hash("Admin-Secret1", 1000);
+    users.updateUser(admin);
+    users.addUser({.m_username = "retained-client", .m_password = PasswordHash::hash("Client-Secret1", 1000)});
+    const auto client = *users.findUser("retained-client");
+    auto values = settings.nodeSettings(false);
+    const auto originalName = values.m_node_name.asString();
+    values.m_node_name = "renamed-node";
+    values.m_node_host = "renamed-host";
+    values.m_mqtt_port = 1885;
+    values.m_mqtt_ssl_port = 8885;
+    values.m_web_service_port = 18885;
+    auto rollback = settings.saveNodeSettings(values);
+    settings.loadConfiguration(path);
+    EXPECT_EQ("renamed-node", settings.nodeSettings().m_node_name.asString());
+    EXPECT_EQ("renamed-host", settings.nodeSettings().m_node_host.asString());
+    EXPECT_EQ(1885, settings.nodeSettings().m_mqtt_port.asInteger());
+    EXPECT_EQ(43210, settings.m_queue_limits.m_max_size.asInteger());
+    EXPECT_FALSE(settings.m_persistence.m_clean_start.asBool());
+    EXPECT_EQ(admin.m_password, users.findUser("admin")->m_password);
+    EXPECT_EQ(client.m_password, users.findUser("retained-client")->m_password);
+    rollback();
+    settings.loadConfiguration(path);
+    EXPECT_EQ(originalName, settings.nodeSettings().m_node_name.asString());
+    EXPECT_EQ(43210, settings.m_queue_limits.m_max_size.asInteger());
+    EXPECT_EQ(client.m_password, users.findUser("retained-client")->m_password);
 }
 
 TEST(XMQ_Settings, applyInitialSetupWithoutRedis)

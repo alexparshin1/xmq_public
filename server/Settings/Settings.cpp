@@ -1928,6 +1928,117 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     saveConfigurationUnlocked();
 }
 
+CNodeSettings Settings::nodeSettings(const bool hideSecrets) const
+{
+    const ReadLock lock(m_mutex);
+    CNodeSettings values;
+    values.m_node_name = m_cluster.m_this_node.m_node_name;
+    int port = 0;
+    values.m_node_host = splitHostPort(m_cluster.m_this_node.m_host_port.asString(), port);
+    if (values.m_node_host.asString().empty()) values.m_node_host = thisHostName();
+    values.m_mqtt_port = 1883;
+    values.m_mqtt_ssl_port = 8883;
+    bool tcp = false, tls = false;
+    for (const auto& listener: m_connections.m_listener)
+    {
+        if (!tcp && listener.m_protocol.asString() == "MQTT") { values.m_mqtt_port = listener.m_port; tcp = true; }
+        if (!tls && listener.m_protocol.asString() == "MQTT+SSL") { values.m_mqtt_ssl_port = listener.m_port; tls = true; }
+    }
+    values.m_web_service_port = m_web_service.m_listener_port;
+    const String redis = m_persistence.m_enabled.asBool() ? m_persistence.m_redis_uri.asString() : "";
+    const auto database = userDatabaseUriUnlocked();
+    values.m_redis_uri = hideSecrets ? UriSecret::hidden(redis) : redis;
+    values.m_database_uri = hideSecrets ? UriSecret::hidden(database) : database;
+    values.m_cluster_enabled = m_cluster.m_enabled.asBool();
+    values.m_clean_start = m_persistence.m_clean_start.asBool();
+    return values;
+}
+
+pair<bool, String> Settings::nodeSettingsStatus() const
+{
+    const ReadLock lock(m_mutex);
+    return {m_nodeSettingsPending, m_nodeSettingsMessage};
+}
+
+void Settings::nodeSettingsStatus(const bool pending, const String& message)
+{
+    const WriteLock lock(m_mutex);
+    m_nodeSettingsPending = pending;
+    m_nodeSettingsMessage = message;
+}
+
+std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
+{
+    const WriteLock lock(m_mutex);
+    if (m_configurationPath.empty()) throw Exception("This node has no configuration file to update.");
+    Buffer original;
+    original.loadFromFile(m_configurationPath);
+    Buffer current;
+    saveConfigurationUnlocked(current);
+    xdoc::Document document;
+    document.load(String(current));
+    const auto root = document.root();
+    const auto node = section(section(root, "cluster"), "this_node");
+    node->set("node_name", values.m_node_name.asString());
+    node->set("host_port", values.m_node_host.asString() + ":" + to_string(values.m_mqtt_ssl_port.asInteger()));
+    const auto listeners = section(root, "connections")->findFirst("listener");
+    if (!listeners) throw Exception("The node has no listener configuration.");
+    listenerFor(listeners, mqttProtocol)->set("port", values.m_mqtt_port.asInteger());
+    listenerFor(listeners, mqttSslProtocol)->set("port", values.m_mqtt_ssl_port.asInteger());
+    section(root, "web_service")->set("listener_port", values.m_web_service_port.asInteger());
+    section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
+    section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
+    section(root, "authentication")->set("database_uri", values.m_database_uri.asString());
+    const auto id = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);
+    ClusterStore store(pool);
+    const bool shared = store.isClusterDatabase();
+    optional<ClusterStore::Node> previous;
+    if (shared)
+    {
+        store.createSchema();
+        previous = store.node(id);
+        if (previous && (previous->m_state == "Removed" || previous->m_state == "Retired"))
+            throw Exception("This node's configuration in the target database was removed or retired.");
+    }
+    const auto path = m_configurationPath;
+    const String oldConfiguration(original);
+    const auto rollback = [pool, shared, previous, id, path, oldConfiguration] {
+        // Restore the file even when restoring the database fails.
+        Buffer(oldConfiguration).saveToFile(path);
+        restrictToOwnerAndGroup(path);
+        if (shared)
+        {
+            ClusterStore target(pool);
+            if (previous) target.updateNode(*previous);
+            else target.removeNode(id);
+        }
+    };
+    try
+    {
+        if (shared)
+        {
+            auto updated = previous.value_or(ClusterStore::Node());
+            updated.m_nodeId = id;
+            updated.m_name = values.m_node_name.asString();
+            updated.m_hostPort = values.m_node_host.asString() + ":" + to_string(values.m_mqtt_ssl_port.asInteger());
+            updated.m_databaseUri = values.m_database_uri.asString();
+            updated.m_redisUri = values.m_redis_uri.asString();
+            updated.m_clusterEnabled = m_cluster.m_enabled.asBool();
+            if (!previous) { updated.m_state = "Standalone"; updated.m_leaseSeconds = m_cluster.m_lease_seconds.asInteger(); updated.m_links = m_cluster.m_links.asInteger(); }
+            if (previous) store.updateNode(updated); else store.insertNode(updated);
+        }
+        Buffer replacement;
+        document.exportTo(xdoc::DataFormat::JSON, replacement, true);
+        const auto temporary = path.string() + ".settings.tmp";
+        replacement.saveToFile(temporary);
+        restrictToOwnerAndGroup(temporary);
+        filesystem::rename(temporary, path);
+    }
+    catch (...) { rollback(); throw; }
+    return rollback;
+}
+
 void Settings::resetUsersUnlocked(const String& administratorPassword, const String& clusterPassword)
 {
     // Replaced through the user manager's own load, which clears what it holds and takes the list

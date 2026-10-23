@@ -12,6 +12,8 @@
 */
 
 #pragma once
+#include "service/CNodeSettings.h"
+#include <functional>
 
 #include "base/xmq.h"
 
@@ -82,6 +84,11 @@ public:
     }
 
     void setAccountDatabaseUri(const std::string& uri);
+    [[nodiscard]] CNodeSettings nodeSettings(bool hideSecrets = true) const;
+    /// Writes only the editable node fields, returning a rollback for SQL and configuration.
+    std::function<void()> saveNodeSettings(const CNodeSettings& values);
+    std::pair<bool, sptk::String> nodeSettingsStatus() const;
+    void nodeSettingsStatus(bool pending, const sptk::String& message);
 
     uint64_t     bridgeControl(const std::string& action, const CBridge& bridge);
     uint64_t     listenerControl(const std::string& action, const CListener& listener);
@@ -265,6 +272,8 @@ private:
     bool                          m_changed {false};      ///< True if the configuration was changed.
     LogSubjectPriorities          m_logSubjectPriorities; ///< Log subject priorities.
     std::filesystem::path         m_configurationPath;    ///< Path to the configuration file.
+    bool m_nodeSettingsPending {false};
+    sptk::String m_nodeSettingsMessage;
     std::filesystem::path         m_usersPath;            ///< Path to the users file, when given explicitly.
     BridgeManager                 m_bridgeManager;        ///< Bridge manager.
     ListenerManager               m_listenerManager;      ///< Listener manager.
