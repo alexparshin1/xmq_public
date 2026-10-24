@@ -106,6 +106,8 @@ filesystem::path getServerConfigurationPath(const ServerCommandLine& serverComma
         serverConfigurationPath = serverCommandLine.getOptionValue("configuration-file").c_str();
     }
 
+    DirectoryNames::setConfigurationFile(serverConfigurationPath);
+
     if (serverCommandLine.hasOption("reset-configuration"))
     {
         COUT("Configuration reset: " << Settings::resetConfiguration(serverConfigurationPath) << ".");
@@ -219,6 +221,7 @@ int main(int argc, const char* argv[])
                                                            ? filesystem::path(serverCommandLine.getOptionValue(
                                                                  "configuration-file").c_str())
                                                            : DirectoryNames::confDirectory() / "xmq_server.conf";
+            DirectoryNames::setConfigurationFile(configurationPath);
             const filesystem::path usersPath = serverCommandLine.getOptionValue("users-file").c_str();
             COUT(Settings::setAccountPassword(configurationPath, usersPath, account, password) << ".");
         }

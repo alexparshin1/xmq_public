@@ -1124,3 +1124,27 @@ TEST(XMQ_Settings, theEventsBlockOverridesTheDefaults)
     // Not mentioned in the block is not the same as switched off.
     EXPECT_TRUE(settings.eventEnabled(LogSubject::Disconnect));
 }
+
+TEST(XMQ_Settings, configurationDirectoryFollowsTheSelectedFile)
+{
+    struct RestoreDirectory
+    {
+        filesystem::path certificates = DirectoryNames::certsDirectory();
+        ~RestoreDirectory()
+        {
+            DirectoryNames::setConfigurationFile({});
+            DirectoryNames::setCertsDirectory(certificates);
+        }
+    } restore;
+    DirectoryNames::setCertsDirectory({});
+
+    const auto selected = filesystem::temp_directory_path() / "xmq2" / "xmq_server.conf";
+    DirectoryNames::setConfigurationFile(selected);
+    EXPECT_EQ(DirectoryNames::confDirectory(), selected.parent_path());
+    EXPECT_EQ(Settings::nodeKeyFiles().first, selected.parent_path() / "certs" / "node.crt");
+    EXPECT_EQ(Settings::peerCertificatesDirectory(), selected.parent_path() / "certs" / "peers");
+    EXPECT_EQ(Settings::configurationTemplatePath().parent_path(), selected.parent_path());
+
+    DirectoryNames::setConfigurationFile("xmq_server.conf");
+    EXPECT_EQ(DirectoryNames::confDirectory(), filesystem::current_path());
+}

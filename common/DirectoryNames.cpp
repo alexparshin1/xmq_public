@@ -83,6 +83,7 @@ namespace {
 /// Where the web interface files come from instead of the installed directory, when a test has
 /// said so.
 std::filesystem::path webfaceDirectoryOverride;
+std::filesystem::path configurationDirectoryOverride;
 } // namespace
 
 void DirectoryNames::setWebfaceDirectory(const std::filesystem::path& directory)
@@ -112,8 +113,19 @@ std::filesystem::path DirectoryNames::webfaceDirectory()
     return REACT_DIRECTORY;
 }
 
+void DirectoryNames::setConfigurationFile(const std::filesystem::path& file)
+{
+    configurationDirectoryOverride = file.empty() ? filesystem::path{}
+                                                  : filesystem::absolute(file).lexically_normal().parent_path();
+}
+
 std::filesystem::path DirectoryNames::confDirectory()
 {
+    if (!configurationDirectoryOverride.empty())
+    {
+        return configurationDirectoryOverride;
+    }
+
     // Where this broker was built to keep its configuration. A packaged one answers /etc/xmq; one
     // installed under somebody's home answers a directory there, because nothing in such an
     // installation may need a privilege to write. The choice belongs to the build, which knows the
@@ -147,7 +159,7 @@ std::filesystem::path DirectoryNames::certsDirectory()
         return certsDirectoryOverride;
     }
 
-    return XMQ_CERTS_DIRECTORY;
+    return confDirectory() / "certs";
 }
 
 void DirectoryNames::setCertsDirectory(const std::filesystem::path& directory)

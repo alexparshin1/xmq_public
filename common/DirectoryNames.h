@@ -53,6 +53,10 @@ public:
      */
     [[nodiscard]] static std::filesystem::path confDirectory();
 
+    /// Select the configuration directory from the file used by this server, before startup.
+    /// An empty path restores the installation default.
+    static void setConfigurationFile(const std::filesystem::path& file);
+
     /**
      * @brief The system temp directory.
      */
