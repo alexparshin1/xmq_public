@@ -45,6 +45,11 @@ public:
     {
     }
 
+    // Enable once per xmq_scn process; all client groups share this namespace.
+    void enableTopicNamespace();
+    const std::string& topicNamespace() const { return m_topicNamespace; }
+    static std::string namespaceTopic(std::string_view topic, std::string_view topicNamespace);
+
     void load(const std::filesystem::path& fpath);
 
     std::string name() const;
@@ -174,6 +179,7 @@ public:
 private:
     CTestScenario                    m_scenario;
     sptk::Strings                    m_bindAddresses;
+    std::string                      m_topicNamespace;
     std::vector<client::SMqttClient> m_publishers;
     std::vector<client::SMqttClient> m_subscribers;
     /// The clients the broker never answered CONNECT for: the run goes on without them (see
@@ -213,7 +219,7 @@ private:
 
     void                             probeConnection(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
     client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys, const std::shared_ptr<std::atomic_bool>& counted) const;
-    std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
+    std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const CTestClientGroup& group, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
 
     /**
      * @brief The properties a group sends, from the scenario file and the command line together.

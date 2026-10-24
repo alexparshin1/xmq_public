@@ -2,7 +2,7 @@
 
 `[x]` means done; `[ ]` means not done, with what is done and what is left said underneath.
 
-- [x] the cluster is a mesh of at most 10 admitted nodes, including the coordinator. This is the current supported
+- [x] the cluster is a mesh of at most 50 admitted nodes, including the coordinator. This is the current supported
   size limit and the target for cluster validation. Admission of an additional node must be rejected if it would exceed the limit; unreachable
   members still count until their removal is committed through an agreed membership change.
 
@@ -107,7 +107,7 @@ broker, for what the cluster must not make worse.
 
 | Requirement | Covered by |
 |---|---|
-| 10-node mesh, admission refused past the limit | unit: `eleventhNodeIsRefused`, `AddDuplicateNode` |
+| Admission limit of 50 members, including offline members | unit: `fiftyFirstNodeIsRefused`, `AddDuplicateNode` |
 | client id unique, takeover | unit: `enforceUniqueClientId`, `connectedClientIsTakenOverAcrossNodes`, `sessionMovesToTheNodeItsClientConnectsTo`, `clusterAndOrdinarySessionsCannotTakeOverEachOther` |
 | coordinator, leases, succession | unit: `firstNodeCoordinatesAndEveryNodeIsOnline`, `nextNodeInOrderSucceedsTheCoordinator`, `coordinatorChangeDoesNotDisturbClients`, `clientsNeverSeeTheClusterAssignment` |
 | sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; test cluster: `the-second-node-comes-back.json` |
@@ -686,7 +686,8 @@ xmq_clone_nodes 6
 xmq_start_instances
 ```
 
-On the first invocation, stop the original server. Its `xmq` directory is moved
+On the first invocation, stop only the server using the original `xmq` configuration.
+Other XMQ processes may remain running. Its `xmq` directory is moved
 to `xmq1`, preserving its UUID, certificates and accounts. Absolute paths inside
 its JSON configuration files are adjusted to the new directory. The default
 service configuration path changes with this move: start the original explicitly

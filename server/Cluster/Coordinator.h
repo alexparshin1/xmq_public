@@ -58,10 +58,11 @@ namespace xmq::cluster {
 class XMQ_EXPORT Coordinator
 {
 public:
-    static constexpr size_t MaxMembers = 10; ///< The supported cluster size.
+    static constexpr size_t MaxMembers = 50; ///< The supported cluster size.
 
     /// Called from the coordinator's thread when this node goes cluster-online or cluster-offline.
     using StateChanged = std::function<void(bool online)>;
+    using ErrorHandler = std::function<void(const std::string&)>;
 
     /// A member as the others see it: what to call it and where to link to it.
     struct Member
@@ -95,7 +96,7 @@ public:
      * @param stateChanged      Told when the node goes online or offline.
      */
     Coordinator(std::string nodeId, std::string nodeName, std::string hostPort, sptk::URL redisUrl,
-                std::chrono::milliseconds lease, StateChanged stateChanged);
+                std::chrono::milliseconds lease, StateChanged stateChanged, ErrorHandler errorHandler = {});
 
     ~Coordinator();
 
@@ -293,6 +294,7 @@ private:
     std::condition_variable m_watchWake;      ///< Wakes the watch thread to stop.
     bool                    m_stopWatch {false};
     std::thread             m_watch;          ///< Reports going offline and online, see watch().
+    ErrorHandler           m_errorHandler;
     sptk::RedisConnect      m_redis;          ///< The coordinator's own: the storage's is busy with async work.
     std::string             m_coordinatorName;
     Clock::time_point       m_coordinatorAbsentSince {}; ///< Zero while there is a coordinator.
@@ -309,6 +311,7 @@ private:
     void watch();
     void step();
     void connectRedis();
+    std::vector<sptk::Variant> executeRedis(const sptk::RedisCommand& command);
     std::vector<sptk::Variant> eval(const std::string& script, const std::vector<std::string>& keys,
                                     const std::vector<std::string>& arguments);
     void reportState();

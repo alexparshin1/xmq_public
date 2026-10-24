@@ -513,3 +513,41 @@ TEST(ScenarioUtilityTests, ClientGroupWithoutServerLeavesItEmpty)
 
     filesystem::remove_all(tempDir);
 }
+TEST(ScenarioNamespaces, PrefixesFiltersAndPreservesSharedSyntax)
+{
+    EXPECT_EQ("host:uuid/topic/1000", ScenarioEngine::namespaceTopic("topic/1000", "host:uuid"));
+    EXPECT_EQ("host:uuid/#", ScenarioEngine::namespaceTopic("#", "host:uuid"));
+    EXPECT_EQ("host:uuid/topic/+", ScenarioEngine::namespaceTopic("topic/+", "host:uuid"));
+    EXPECT_EQ("$share/host:uuid:group/host:uuid/topic/#",
+              ScenarioEngine::namespaceTopic("$share/group/topic/#", "host:uuid"));
+    EXPECT_THROW(ScenarioEngine::namespaceTopic("$share/group", "host:uuid"), std::invalid_argument);
+}
+
+TEST(ScenarioNamespaces, NamespaceIsStableWithinProcess)
+{
+    ScenarioEngine first;
+    ScenarioEngine second;
+    first.enableTopicNamespace();
+    second.enableTopicNamespace();
+    EXPECT_EQ(first.topicNamespace(), second.topicNamespace());
+    EXPECT_NE(string::npos, first.topicNamespace().find(':'));
+    EXPECT_GE(first.topicNamespace().size(), 38U);
+    const auto original = first.topicNamespace();
+    first.enableTopicNamespace();
+    EXPECT_EQ(original, first.topicNamespace());
+}
+
+TEST(ScenarioUtilityTests, LoadsTwelveNode500KConnections)
+{
+    ScenarioEngine engine;
+    const auto root = filesystem::path(XMQ_TEST_SCENARIO_DIRECTORY).parent_path().parent_path();
+    ASSERT_NO_THROW(engine.load(root / "LoadTest/Cluster-12-500K-Connections.json"));
+    auto& group = engine.scenario().m_publishers;
+    EXPECT_EQ(500000, group.m_client_count.asInteger());
+    ASSERT_EQ(12U, group.m_servers.size());
+    EXPECT_TRUE(group.m_servers.front().m_username.isNull());
+    group.m_client_index_start = 1000;
+    const CTestClientGroup copy(group);
+    EXPECT_EQ(1000, copy.m_client_index_start.asInteger());
+    EXPECT_EQ(12U, copy.m_servers.size());
+}

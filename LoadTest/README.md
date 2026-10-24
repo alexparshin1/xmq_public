@@ -144,3 +144,36 @@ should contain each scenario's result and duration, plus the total set execution
 Compare runs on the same host with matching settings. Use the home bench to detect regressions
 before spending time on AWS; publish only AWS measurements. A failure or an incomplete scenario
 is a result to investigate, not a latency value to include in a comparison.
+
+### Scenario isolation and cluster connections
+
+`xmq_scn` automatically prefixes every published topic and subscription filter with
+`<generator-hostname>:<random-UUID>/`. The namespace is created once per process,
+shared by publishers and subscribers, retained on reconnect, and printed in results.
+Client IDs receive the same prefix to prevent concurrent runs from disconnecting
+each other when they reuse `id_prefix` and index ranges.
+Shared subscriptions keep `$share/<group>/` syntax, with both group and filter
+isolated. Separate runs therefore perform independent Fan-In/Fan-Out measurements.
+
+Each client group accepts `client_index_start` (default `0`) and a `servers` array:
+
+```json
+{
+  "client_index_start": 1000,
+  "client_count": 1000,
+  "topics": "topic/$clientIndex",
+  "servers": [
+    { "hostname": "broker1", "port": 1883 },
+    { "hostname": "broker2", "port": 1883 }
+  ]
+}
+```
+
+Clients select a server by their zero-based local position modulo the server count,
+independently for publishers and subscribers. The index start affects topic
+substitution and client ID suffixes, not server selection or latency bookkeeping.
+List entries inherit omitted credentials from the group's `server`, or the scenario's
+`server`. Without a list, the existing single-server selection applies.
+For 500,000 Connections across 12 endpoints, set publishers' `client_count` to
+500000 and list all 12 endpoints: the first eight receive 41,667 clients each and
+the remaining four receive 41,666 each.

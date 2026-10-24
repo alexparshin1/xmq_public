@@ -74,6 +74,7 @@ SET (xmq_files
   service/CTestClientGroup.cpp service/CTestClientGroup.h
   service/CTestScenario.cpp service/CTestScenario.h
   service/CTestScenarioParameters.cpp service/CTestScenarioParameters.h
+  service/CTestServer.cpp service/CTestServer.h
   service/CTestTopicGroup.cpp service/CTestTopicGroup.h
   service/CUser.cpp service/CUser.h
   service/CUserControl.cpp service/CUserControl.h

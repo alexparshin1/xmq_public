@@ -228,7 +228,7 @@ int64_t ticks(const chrono::steady_clock::time_point time)
 } // namespace
 
 Coordinator::Coordinator(string nodeId, string nodeName, string hostPort, URL redisUrl,
-                         const chrono::milliseconds lease, StateChanged stateChanged)
+                         const chrono::milliseconds lease, StateChanged stateChanged, ErrorHandler errorHandler)
     : m_nodeId(std::move(nodeId))
     , m_nodeName(std::move(nodeName))
     , m_hostPort(std::move(hostPort))
@@ -238,6 +238,7 @@ Coordinator::Coordinator(string nodeId, string nodeName, string hostPort, URL re
     // Five steps a lease: a step that is late, or a Redis command that is slow, still leaves four.
     , m_tick(lease / 5)
     , m_stateChanged(std::move(stateChanged))
+    , m_errorHandler(std::move(errorHandler))
 {
 }
 
@@ -270,6 +271,24 @@ void Coordinator::connectRedis()
     m_redis.connect(host, port, m_redisUrl.username(), m_redisUrl.password(), m_redisUrl.path(), timeout);
 }
 
+vector<Variant> Coordinator::executeRedis(const RedisCommand& command)
+{
+    // A timed-out read may have consumed only part of a reply. Reusing that stream
+    // pairs the next command with old data, even after Redis is reachable again.
+    try
+    {
+        connectRedis();
+        vector<Variant> results;
+        m_redis.executeCommand(command, results);
+        return results;
+    }
+    catch (...)
+    {
+        m_redis.disconnect();
+        throw;
+    }
+}
+
 vector<Variant> Coordinator::eval(const string& script, const vector<string>& keys, const vector<string>& arguments)
 {
     if (m_storageLost.load())
@@ -280,14 +299,11 @@ vector<Variant> Coordinator::eval(const string& script, const vector<string>& ke
     {
         this_thread::sleep_for(10ms);
     }
-    connectRedis();
     RedisCommand command("EVAL", script);
     command.emplace_back(to_string(keys.size()));
     command.emplace_back(keys);
     command.emplace_back(arguments);
-    vector<Variant> results;
-    m_redis.executeCommand(command, results);
-    return results;
+    return executeRedis(command);
 }
 
 void Coordinator::start()
@@ -464,16 +480,17 @@ Coordinator::Snapshot Coordinator::readSnapshot(RedisConnect& redis)
 bool Coordinator::isMember(const string& nodeName)
 {
     const scoped_lock lock(m_mutex);
-    connectRedis();
-    const auto id = m_redis.getHashValue(NamesKey, nodeName);
+    RedisCommand lookup("HGET", NamesKey);
+    lookup.emplace_back(nodeName);
+    const auto found = executeRedis(lookup);
+    const auto id = found.empty() ? Variant() : found.front();
     if (id.isNull() || id.asString().empty())
     {
         return false;
     }
     RedisCommand command("ZSCORE", MembersKey);
     command.emplace_back(string(id.asString().c_str()));
-    vector<Variant> results;
-    m_redis.executeCommand(command, results);
+    const auto results = executeRedis(command);
     return !results.empty() && !results[0].isNull();
 }
 
@@ -503,8 +520,8 @@ bool Coordinator::claimOrphanSession(const string& clientId)
 string Coordinator::sessionOwner(const string& clientId)
 {
     const scoped_lock lock(m_mutex);
-    connectRedis();
-    const auto owner = m_redis.getValue(format("session_{}_owner", clientId));
+    const auto results = executeRedis(RedisCommand("GET", format("session_{}_owner", clientId)));
+    const auto owner = results.empty() ? Variant() : results.front();
     return owner.isNull() ? string() : string(owner.asString().c_str());
 }
 
@@ -517,8 +534,10 @@ void Coordinator::handOverSession(const string& clientId, const string& nodeId)
 string Coordinator::nodeName(const string& nodeId)
 {
     const scoped_lock lock(m_mutex);
-    connectRedis();
-    const auto name = m_redis.getHashValue(NodePrefix + nodeId, "name");
+    RedisCommand lookup("HGET", NodePrefix + nodeId);
+    lookup.emplace_back("name");
+    const auto results = executeRedis(lookup);
+    const auto name = results.empty() ? Variant() : results.front();
     return name.isNull() ? string() : string(name.asString().c_str());
 }
 
@@ -589,7 +608,7 @@ void Coordinator::step()
         {
             const auto status = eval(StatusScript, {CoordinatorKey, MembersKey, AlivePrefix + m_nodeId},
                                      {m_nodeId, m_runId, to_string(m_lease.count()), NodePrefix});
-            if (status.size() < 5)
+            if (status.size() != 5)
             {
                 throw Exception("Unexpected cluster status from Redis.");
             }
@@ -714,14 +733,18 @@ void Coordinator::step()
         m_coordinatorName = coordinatorName;
         m_term = term;
     }
-    catch (const Exception&)
+    catch (const std::exception& error)
     {
-        // Redis threw: the storage is gone, or its read timed out. The step waits on it (up to the
-        // read timeout, longer than a lease), so the node will stop serving as its already-held
-        // lease expires - reportState() sees it below. When the next step reaches Redis again, it
-        // renews the lease and the node serves again: the connection stays open, and a step that
-        // held it for its read timeout is what kept a node from coming back.
+        // Also discard replies with an unexpected shape: they may be leftovers of
+        // a command interrupted before this step. The next step opens a fresh stream.
+        m_redis.disconnect();
         m_coordinator = false;
+        if (m_errorHandler)
+        {
+            m_errorHandler(error.what());
+        }
+        // Keep the last confirmed deadline. The independent watcher stops service
+        // when it expires, even while a Redis read is still waiting.
     }
 }
 

@@ -13,6 +13,9 @@
 
 #include "ScenarioEngine.h"
 #include "base/MessageProperties.h"
+#include "common/HostName.h"
+#include <random>
+#include <limits>
 #include "client/MqttClient.h"
 #include <sptk5/threads/JoiningThread.h>
 
@@ -34,6 +37,50 @@ using namespace std;
 using namespace chrono;
 using namespace sptk;
 using namespace xmq;
+
+namespace {
+size_t indexStart(const CTestClientGroup& group)
+{
+    return group.m_client_index_start.isNull() ? 0 : static_cast<size_t>(group.m_client_index_start.asInteger());
+}
+
+std::string processTopicNamespace()
+{
+    static const std::string value = [] {
+        std::random_device random;
+        std::string uuid;
+        for (size_t i = 0; i < 16; ++i)
+        {
+            if (i == 4 || i == 6 || i == 8 || i == 10) uuid += '-';
+            auto byte = static_cast<unsigned>(random() & 255);
+            if (i == 6) byte = (byte & 15) | 64;
+            if (i == 8) byte = (byte & 63) | 128;
+            uuid += format("{:02x}", byte);
+        }
+        return std::string(thisHostName()) + ":" + uuid;
+    }();
+    return value;
+}
+}
+
+void ScenarioEngine::enableTopicNamespace()
+{
+    m_topicNamespace = processTopicNamespace();
+}
+
+std::string ScenarioEngine::namespaceTopic(const std::string_view topic, const std::string_view topicNamespace)
+{
+    if (topicNamespace.empty()) return std::string(topic);
+    if (topic.starts_with("$share/"))
+    {
+        const auto separator = topic.find('/', 7);
+        if (separator == std::string_view::npos) throw std::invalid_argument("Invalid shared subscription topic");
+        // Isolate shared groups too, so two runs never share delivery ownership.
+        return "$share/" + std::string(topicNamespace) + ":" + std::string(topic.substr(7, separator - 7)) +
+               "/" + std::string(topicNamespace) + "/" + std::string(topic.substr(separator + 1));
+    }
+    return std::string(topicNamespace) + "/" + std::string(topic);
+}
 
 void ScenarioEngine::load(const std::filesystem::path& fpath)
 {
@@ -98,6 +145,18 @@ std::string ScenarioEngine::typeToString(const Type type)
 
 void ScenarioEngine::verifyScenario() const
 {
+    for (const auto* group : {&m_scenario.m_publishers, &m_scenario.m_subscribers})
+    {
+        const auto start = group->m_client_index_start.isNull() ? 0 : group->m_client_index_start.asInteger();
+        const auto count = group->m_client_count.asInteger();
+        if (start < 0 || count < 0 || static_cast<uint64_t>(start) > std::numeric_limits<size_t>::max() - static_cast<uint64_t>(count))
+            throw std::invalid_argument("Invalid client index range");
+        for (const auto& server : group->m_servers)
+        {
+            if (server.m_hostname.asString().empty() || server.m_port.asInteger() < 1 || server.m_port.asInteger() > 65535)
+                throw std::invalid_argument("Invalid server in client group servers");
+        }
+    }
     switch (typeFromString(m_scenario.m_type))
     {
         using enum Type;
@@ -136,7 +195,7 @@ void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCreden
                                      const client::ConnectParameters& connectParameters, const ProtocolVersion protocolVersion,
                                      const shared_ptr<SSLKeys>& sslKeys) const
 {
-    const ConnectCredentials probeCredentials("xmq_scn-connect-probe", serverCredentials.getUsername(), serverCredentials.getPassword());
+    const ConnectCredentials probeCredentials(processTopicNamespace() + "/connect-probe", serverCredentials.getUsername(), serverCredentials.getPassword());
 
     client::MqttClient probeClient(nullptr, "", "");
 
@@ -261,6 +320,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                                                const ConnectCredentials&        serverCredentials,
                                                                const client::ConnectParameters& connectParameters,
                                                                const ProtocolVersion            protocolVersion,
+                                                               const CTestClientGroup&           group,
                                                                const size_t                     clientCount,
                                                                const string&                    clientIdPrefix,
                                                                const string&                    scenarioTitle,
@@ -269,11 +329,17 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                                                const shared_ptr<SSLKeys>&       sslKeys) const
 {
     mutex                       amutex;
-    vector<client::SMqttClient> clients;
-    vector<shared_ptr<atomic_bool>> clientCounted;
+    vector<client::SMqttClient> clients(clientCount);
+    vector<shared_ptr<atomic_bool>> clientCounted(clientCount);
     atomic_size_t               connectedCount = 0;
     atomic_size_t               failedCount = 0;
     Semaphore                   allConnected;
+
+    vector<Host> serverHosts;
+    if (group.m_servers.empty()) serverHosts.push_back(serverHost);
+    else
+        for (const auto& endpoint : group.m_servers)
+            serverHosts.emplace_back(endpoint.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger()));
 
     SynchronizedQueue<size_t> clientIndices;
     vector<microseconds>      connectionLatency(clientCount);
@@ -349,7 +415,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     roundTripLatency.start(statsInterval);
     for (size_t i = 0; i < threadCount; ++i)
     {
-        threads.emplace_back([this, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &serverHost, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
+        threads.emplace_back([this, &group, &serverHosts, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
                               clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys]
                              {
                                  size_t clientIndex = 0;
@@ -366,8 +432,11 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                          break;
                                      }
 
-                                     ConnectCredentials connectCredentials(clientIdPrefix + to_string(clientIndex),
-                                                                           serverCredentials.getUsername(), serverCredentials.getPassword());
+                                     const auto* endpoint = group.m_servers.empty() ? nullptr : &group.m_servers[clientIndex % group.m_servers.size()];
+                                     const auto& target = serverHosts[clientIndex % serverHosts.size()];
+                                     ConnectCredentials connectCredentials((m_topicNamespace.empty() ? "" : m_topicNamespace + "/") + clientIdPrefix + to_string(indexStart(group) + clientIndex),
+                                         endpoint && !endpoint->m_username.isNull() ? endpoint->m_username.asString() : serverCredentials.getUsername(),
+                                         endpoint && !endpoint->m_password.isNull() ? endpoint->m_password.asString() : serverCredentials.getPassword());
 
                                      // A failed connect (bad hostname, refused connection, ...) must not escape this
                                      // thread: an uncaught exception here would call std::terminate and kill the whole
@@ -376,18 +445,18 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      try
                                      {
                                          const auto counted = make_shared<atomic_bool>(false);
-                                         auto       client = connectClientAsync(serverHost, connectParameters, protocolVersion, clientIndex, clientCount,
+                                         auto       client = connectClientAsync(target, connectParameters, protocolVersion, clientIndex, clientCount,
                                                                                 connectedCount, allConnected, roundTripLatency, connectCredentials,
                                                                                 connectProperties, sslKeys, counted);
 
                                          const scoped_lock lock(amutex);
-                                         clients.push_back(std::move(client));
-                                         clientCounted.push_back(counted);
+                                         clients[clientIndex] = std::move(client);
+                                         clientCounted[clientIndex] = counted;
                                      }
                                      catch (const std::exception& e)
                                      {
                                          ++failedCount;
-                                         CERR(format("Client '{}' connect to {} failed: {}", connectCredentials.getClientId(), serverHost.toString(), e.what()));
+                                         CERR(format("Client '{}' connect to {} failed: {}", connectCredentials.getClientId(), target.toString(), e.what()));
                                          if (const auto count = ++connectedCount; count == clientCount)
                                          {
                                              allConnected.post();
@@ -425,7 +494,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
         const scoped_lock lock(amutex);
         for (size_t i = 0; i < clients.size(); ++i)
         {
-            if (!clientCounted[i]->load())
+            if (clientCounted[i] && !clientCounted[i]->load())
             {
                 m_unanswered.insert(clients[i].get());
             }
@@ -447,6 +516,22 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
         roundTripLatency.print(scenarioTitle);
     }
 
+    if (!group.m_servers.empty())
+    {
+        for (size_t endpoint = 0; endpoint < group.m_servers.size(); ++endpoint)
+        {
+            size_t connected = 0;
+            size_t assigned = 0;
+            for (size_t i = endpoint; i < clients.size(); i += group.m_servers.size())
+            {
+                ++assigned;
+                if (clients[i] && clients[i]->isConnected()) ++connected;
+            }
+            const auto& server = group.m_servers[endpoint];
+            COUT(format("{}: {}:{} - {} connected / {} assigned", progressLabel,
+                        std::string(server.m_hostname.asString()), server.m_port.asInteger(), connected, assigned));
+        }
+    }
     return clients;
 }
 
@@ -460,7 +545,7 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
     stopwatch.start();
     SMessageProperties properties {};
     m_receivedMessageCount = 0;
-    const auto              subscriberTopicTemplate = m_scenario.m_subscribers.m_topics.asString();
+    const auto              subscriberTopicTemplate = namespaceTopic(m_scenario.m_subscribers.m_topics.asString(), m_topicNamespace);
     const RegularExpression matchClientId(R"(\$clientid)");
 
     const auto subscribedCount = make_shared<atomic_size_t>(0);
@@ -473,9 +558,6 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
 
     for (size_t clientIndex = 0; clientIndex < subscriberCount; clientIndex++)
     {
-        auto index = to_string(clientIndex);
-        auto clientId = m_scenario.m_subscribers.m_id_prefix.asString() + index;
-
         const auto latencyIndex = scenarioType == Type::FanIn ? 0 : clientIndex;
 
         auto subscriber = m_subscribers[clientIndex];
@@ -525,7 +607,7 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
                               }
                           });
 
-        const auto* topic = substituteTopic(subscriberTopicTemplate, clientIndex, clientId);
+        const auto* topic = substituteTopic(subscriberTopicTemplate, indexStart(m_scenario.m_subscribers) + clientIndex, subscriber->getClientId());
 
         Destination destination(topic, SubscriptionOptions(Qos::Qos1));
         subscriber->subscribe(destination);
@@ -701,6 +783,7 @@ void ScenarioEngine::checkSystemLimits(const size_t clientCount) const
 
 void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLatencies, const string& scenarioTitle)
 {
+    verifyScenario();
     const auto sessionCount = static_cast<size_t>(m_scenario.m_publishers.m_client_count.asInteger()) +
                               static_cast<size_t>(m_scenario.m_subscribers.m_client_count.asInteger());
     checkSystemLimits(sessionCount);
@@ -784,21 +867,31 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     // The probe keeps a clean session regardless of the scenario: it must not leave a
     // persistent session behind for its own client id.
     const auto& subscriberKeys = m_subscriberSslKeysSet ? m_subscriberSslKeys : m_sslKeys;
-    probeConnection(serverHost, connectCredentials, connectParameters, publisherProtocolVersion, m_sslKeys);
-    if (subscriberHost != serverHost)
-    {
-        // Two brokers means two ways to be unreachable, and the second one would otherwise
-        // only surface after every publisher had already connected.
-        probeConnection(subscriberHost, subscriberCredentials, connectParameters,
-                        static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger()), subscriberKeys);
-    }
+    const auto probeGroup = [&](const CTestClientGroup& group, const Host& fallback, const ConnectCredentials& credentials,
+                                ProtocolVersion version, const shared_ptr<SSLKeys>& keys) {
+        if (group.m_client_count.asInteger() == 0) return;
+        if (group.m_servers.empty())
+            probeConnection(fallback, credentials, connectParameters, version, keys);
+        else
+            for (const auto& endpoint : group.m_servers)
+            {
+                const ConnectCredentials endpointCredentials("", endpoint.m_username.isNull() ? credentials.getUsername() : endpoint.m_username.asString(),
+                    endpoint.m_password.isNull() ? credentials.getPassword() : endpoint.m_password.asString());
+                probeConnection(Host(endpoint.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger())),
+                                endpointCredentials, connectParameters, version, keys);
+            }
+    };
+    if (!m_topicNamespace.empty()) COUT(format("Topic namespace: {}", m_topicNamespace));
+    probeGroup(m_scenario.m_publishers, serverHost, connectCredentials, publisherProtocolVersion, m_sslKeys);
+    probeGroup(m_scenario.m_subscribers, subscriberHost, subscriberCredentials,
+               static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger()), subscriberKeys);
 
     // Create publishers:
     stopwatch.start();
     size_t     publisherCount = m_scenario.m_publishers.m_client_count.asInteger();
     const auto publisherClientIdPrefix = m_scenario.m_publishers.m_id_prefix.asString();
     m_publishers = connectClientGroup(serverHost, connectCredentials, groupConnectParameters(m_scenario.m_publishers),
-                                      publisherProtocolVersion, publisherCount, publisherClientIdPrefix,
+                                      publisherProtocolVersion, m_scenario.m_publishers, publisherCount, publisherClientIdPrefix,
                                       scenarioTitle + " (connect clients)", "Connecting publishers",
                                       groupProperties(m_scenario.m_publishers.m_connect_properties,
                                                       m_connectProperties, publisherProtocolVersion, "connect"),
@@ -822,7 +915,7 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     const auto subscriberClientIdPrefix = m_scenario.m_subscribers.m_id_prefix.asString();
     const auto subscriberProtocolVersion = static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger());
     m_subscribers = connectClientGroup(subscriberHost, subscriberCredentials, groupConnectParameters(m_scenario.m_subscribers),
-                                       subscriberProtocolVersion, subscriberCount, subscriberClientIdPrefix,
+                                       subscriberProtocolVersion, m_scenario.m_subscribers, subscriberCount, subscriberClientIdPrefix,
                                        scenarioTitle + " (connect clients)", "Connecting subscribers",
                                        groupProperties(m_scenario.m_subscribers.m_connect_properties,
                                                        m_connectProperties, subscriberProtocolVersion, "connect"),
@@ -868,7 +961,7 @@ vector<const Topic*> ScenarioEngine::makeTopicList(const int publisherCount, siz
     for (size_t i = 0; i < topicCount; i++)
     {
         const auto  publisher = m_publishers[publisherIndex];
-        const auto* topic = substituteTopic(publisherTopicTemplate, publisherIndex, publisher->getClientId());
+        const auto* topic = substituteTopic(publisherTopicTemplate, indexStart(m_scenario.m_publishers) + publisherIndex, publisher->getClientId());
         topics.push_back(topic);
         publisherIndex = (publisherIndex + 1) % publisherCount;
     }
@@ -915,7 +1008,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         return;
     }
 
-    const auto              publisherTopicTemplate = m_scenario.m_publishers.m_topics.asString();
+    const auto              publisherTopicTemplate = namespaceTopic(m_scenario.m_publishers.m_topics.asString(), m_topicNamespace);
     const RegularExpression matchClientId("\\$clientid", "i");
     const RegularExpression matchClientIndex("\\$clientindex", "i");
 

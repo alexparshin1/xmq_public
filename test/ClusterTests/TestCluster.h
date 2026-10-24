@@ -16,6 +16,7 @@
 
 #include "client/MqttClient.h"
 #include "server/Server.h"
+#include "server/Cluster/Coordinator.h"
 
 #include <chrono>
 #include <functional>
@@ -42,7 +43,7 @@ class TestCluster
 {
 public:
     static constexpr uint16_t FirstPort = 1890; ///< Not 180x: 1803 is taken by JetBrains Toolbox.
-    static constexpr size_t   MaxNodes = 10;    ///< Ports run to FirstPort + MaxNodes - 1.
+    static constexpr size_t   MaxNodes = cluster::Coordinator::MaxMembers;    ///< Ports run to FirstPort + MaxNodes - 1.
 
     /**
      * @brief Start the nodes and join them into one cluster.

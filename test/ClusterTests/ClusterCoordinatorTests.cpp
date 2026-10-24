@@ -200,14 +200,14 @@ TEST_F(XMQ_ClusterTests, nodeWithoutStorageServesNoClients)
 }
 
 /**
- * Confirm that a cluster admits at most ten nodes.
+ * Confirm that a cluster admits fifty nodes and rejects the fifty-first.
  *
- * Setup: Two nodes, and eight more members recorded for nodes that are down - they still count.
+ * Setup: Two live nodes, and forty-eight absent members - offline nodes still count.
  * Start another cluster node.
  *
  * Verification: the node does not start, is not a member and has no link.
  */
-TEST_F(XMQ_ClusterTests, eleventhNodeIsRefused)
+TEST_F(XMQ_ClusterTests, fiftyFirstNodeIsRefused)
 {
     TestCluster cluster(2);
     for (size_t i = 2; i < cluster::Coordinator::MaxMembers; ++i)

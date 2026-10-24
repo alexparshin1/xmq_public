@@ -1,0 +1,78 @@
+{
+  "name": "Cluster-12-500K-Connections",
+  "type": "Connections",
+  "publishers": {
+    "id_prefix": "client-",
+    "protocol_version": 5,
+    "client_count": 500000,
+    "qos": 1,
+    "clean_session": true,
+    "servers": [
+      {
+        "hostname": "thinker10",
+        "port": 1883
+      },
+      {
+        "hostname": "thinker10",
+        "port": 1884
+      },
+      {
+        "hostname": "thinker10",
+        "port": 1885
+      },
+      {
+        "hostname": "thinker10",
+        "port": 1886
+      },
+      {
+        "hostname": "thinker11",
+        "port": 1883
+      },
+      {
+        "hostname": "thinker11",
+        "port": 1884
+      },
+      {
+        "hostname": "thinker11",
+        "port": 1885
+      },
+      {
+        "hostname": "thinker11",
+        "port": 1886
+      },
+      {
+        "hostname": "theater",
+        "port": 1883
+      },
+      {
+        "hostname": "theater",
+        "port": 1884
+      },
+      {
+        "hostname": "theater",
+        "port": 1885
+      },
+      {
+        "hostname": "theater",
+        "port": 1886
+      }
+    ]
+  },
+  "server": {
+    "hostname": "thinker10",
+    "port": 1883,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "duration_sec": 600,
+    "payload_size": 16,
+    "connection_rate": 5000,
+    "keep_alive_sec": 300
+  },
+  "comments": [
+    "12 MQTT endpoints: thinker10, thinker11 and theater, ports 1883..1886 on each host.",
+    "500000 clients at 5000 connections/second; run on thinker10 with --bind-to-interfaces 10.1.1.0/24.",
+    "Supply MQTT credentials with --username and --password."
+  ]
+}

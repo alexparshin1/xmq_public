@@ -562,7 +562,9 @@ TARGET_LINK_LIBRARIES(xmq_server xmq_base xmq_storage xmq_common xmq_service xmq
 # Setting INSTALL_RPATH on a target *replaces* CMAKE_INSTALL_RPATH rather than adding to it, so the
 # pinned libstdc++ directory above has to be carried over explicitly.
 IF (UNIX AND NOT APPLE)
-    SET(XMQ_INSTALL_RPATH "$ORIGIN/../lib/xmq-sptk")
+    # Prefer bundled core libraries, then optional SQL drivers installed in this prefix.
+    # Drivers are dlopened by soname and are intentionally not bundled with standalone XMQ.
+    SET(XMQ_INSTALL_RPATH "$ORIGIN/../lib/xmq-sptk:$ORIGIN/../lib")
     IF (GCC_LIBSTDCXX_DIR)
         SET(XMQ_INSTALL_RPATH "${XMQ_INSTALL_RPATH}:${GCC_LIBSTDCXX_DIR}")
     ENDIF ()

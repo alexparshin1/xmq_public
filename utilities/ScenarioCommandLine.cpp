@@ -69,9 +69,8 @@ ScenarioCommandLine::ScenarioCommandLine(const std::vector<std::string>& args)
     defineParameter("id-prefix", "", "prefix", "", alwaysVisible, "",
                     "Prepend to both publishers' and subscribers' id_prefix from the scenario file "
                     "(unlike other overrides, this is prepended rather than replacing the scenario "
-                    "value, so publisher and subscriber client IDs stay distinguishable). Use a "
-                    "distinct value per host when running the same scenario from multiple hosts "
-                    "against one broker, so client IDs don't collide across hosts.");
+                    "value, so publisher and subscriber client IDs stay distinguishable). "
+                    "The automatic hostname:UUID namespace already isolates client IDs between runs.");
     defineOption("help", "", alwaysVisible, "Print this help.");
     defineOption("disable-clean-session", "c", alwaysVisible, "Disable clean session.");
     defineOption("list-scenarios", "", alwaysVisible,

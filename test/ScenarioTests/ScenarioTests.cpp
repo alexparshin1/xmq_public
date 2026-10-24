@@ -175,6 +175,63 @@ TEST_F(XMQ_ScenarioTests, FanInPublishesToEachPublisherTopic)
     EXPECT_EQ((set<string> {topicRoot + "/0", topicRoot + "/1", topicRoot + "/2"}), receivedTopics);
 }
 
+TEST_F(XMQ_ScenarioTests, FanInNamespaceAndOffsetWithServerList)
+{
+    ScenarioEngine engine;
+    engine.load(path(XMQ_TEST_SCENARIO_DIRECTORY) / "Basic" / "Fan-In-1K-5-1K-1K.json");
+    engine.enableTopicNamespace();
+    auto&      scenario = engine.scenario();
+    const auto [publisherId, observerId, topicRoot] = makeTestNames();
+    scenario.m_publishers.m_client_count = 3;
+    scenario.m_publishers.m_client_index_start = 1000;
+    scenario.m_subscribers.m_client_index_start = 2000;
+    CTestServer endpoint;
+    endpoint.m_hostname = scenario.m_server.m_hostname;
+    endpoint.m_port = scenario.m_server.m_port;
+    scenario.m_publishers.m_servers.push_back(endpoint);
+    scenario.m_subscribers.m_servers.push_back(endpoint);
+    // The explicit lists must take precedence over this unreachable fallback.
+    scenario.m_server.m_port = 1;
+    scenario.m_publishers.m_id_prefix = publisherId;
+    scenario.m_publishers.m_topics = topicRoot + "/$clientindex";
+    scenario.m_subscribers.m_client_count = 1;
+    scenario.m_subscribers.m_topics = "$share/fanin-topic-test/" + topicRoot + "/#";
+    scenario.m_parameters.m_duration_sec = 0;
+    scenario.m_parameters.m_message_count = 6;
+    scenario.m_parameters.m_publish_rate = 10;
+
+    mutex              receivedMutex;
+    set<string>        receivedTopics;
+    size_t             receivedCount = 0;
+    Semaphore          allReceived;
+    client::MqttClient observer;
+    observer.onMessage([&](const SPublishMessage& message)
+    {
+        const scoped_lock lock(receivedMutex);
+        receivedTopics.emplace(message->destination()->toString());
+        if (++receivedCount == 6)
+        {
+            allReceived.post();
+        }
+    });
+    ASSERT_EQ(ReasonCode::Success,
+              observer.connect(Host(scenario.m_server.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger())),
+                  ConnectCredentials(observerId, "user", "secret"),
+                  {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    const auto isolatedRoot = engine.topicNamespace() + "/" + topicRoot;
+    observer.subscribe(isolatedRoot + "/#");
+
+    vector<RoundTripLatency> latencies;
+    engine.connectClients(latencies, engine.name());
+    engine.publish(latencies, engine.name());
+    EXPECT_TRUE(allReceived.wait_for(1s));
+    engine.disconnectClients();
+    observer.disconnect();
+
+    const scoped_lock lock(receivedMutex);
+    EXPECT_EQ((set<string> {isolatedRoot + "/1000", isolatedRoot + "/1001", isolatedRoot + "/1002"}), receivedTopics);
+}
+
 TEST_F(XMQ_ScenarioTests, BasicFanOutScenario)
 {
     try

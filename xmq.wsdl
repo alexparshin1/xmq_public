@@ -1707,6 +1707,14 @@
             	</xsd:sequence>
             </xsd:complexType>
 
+            <xsd:complexType name="TestServer">
+                <xsd:sequence>
+                    <xsd:element name="hostname" type="xsd:string"/>
+                    <xsd:element name="port" type="xsd:int"/>
+                    <xsd:element name="username" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="password" type="xsd:string" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
             <xsd:complexType name="TestClientGroup">
             	<xsd:sequence>
             		<xsd:element name="id_prefix" type="xsd:string"></xsd:element>
@@ -1719,6 +1727,7 @@
             				</xsd:restriction>
             			</xsd:simpleType>
             		</xsd:element>
+                <xsd:element name="client_index_start" type="xsd:int" minOccurs="0"/>
             		<xsd:element name="client_count">
             			<xsd:simpleType>
             				<xsd:restriction base="xsd:int">
@@ -1753,10 +1762,10 @@
             		     rather than quietly sending none, because a measurement that silently
             		     dropped what it was asked to measure is worse than no measurement. -->
             <!-- The addresses this group's clients may connect to, for a broker that answers on
-                 more than one: the clients are spread over them in turn, and one whose node goes
-                 away reconnects to another. Absent means the group's own server, or the
-                 scenario's. -->
-            <xsd:element name="servers" type="tns:Host"
+                 more than one: clients select an address by local index modulo list size.
+                 Reconnect retains the selected address. Omitted credentials inherit from
+                 the group's own server, or the scenario's. -->
+            <xsd:element name="servers" type="tns:TestServer"
             	maxOccurs="unbounded" minOccurs="0">
             </xsd:element>
             <!-- Whether a client connects again after a disconnect it did not ask for, waiting

@@ -652,6 +652,11 @@ Coordinator& Cluster::coordinatorForCluster()
                         retainedSync->resynchronize();
                     }
                 }
+            },
+            [this](const string& error)
+            {
+                logMessage(LogPriority::Warning, [&error]
+                           { return "Cluster lease update failed; Redis connection discarded: " + error; });
             });
         m_coordinator->onAdoptSessions([this](vector<string> clientIds)
                                        {

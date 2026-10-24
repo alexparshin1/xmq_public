@@ -439,6 +439,7 @@ void Scenario::executeScenario() const
     scenarioFile = resolveScenarioFile(scenarioFile, m_executableDirectory);
 
     ScenarioEngine engine;
+    engine.enableTopicNamespace();
     engine.logEngine(logEngine());
     engine.load(scenarioFile);
 
@@ -524,10 +525,11 @@ void Scenario::executeScenario() const
         }
     } disconnectGuard {engine};
 
-    engine.connectClients(clientPublishLatencies, engine.name());
+    const auto scenarioTitle = engine.name() + " [" + engine.topicNamespace() + "]";
+    engine.connectClients(clientPublishLatencies, scenarioTitle);
     if (ScenarioEngine::typeFromString(engine.type()) != ScenarioEngine::Type::Connections)
     {
-        engine.publish(clientPublishLatencies, engine.name());
+        engine.publish(clientPublishLatencies, scenarioTitle);
     }
 }
 
