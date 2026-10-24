@@ -120,6 +120,9 @@ TEST_F(XMQ_ControlServiceTests, settingsApplyOnControllerThreadAndRecoverFromFai
     webService.m_encrypted = false;
     settings->m_persistence.m_clean_start = false;
     settings->serviceControl("set", webService);
+    CLogging controllerLogging = settings->m_logging;
+    controllerLogging.m_log_to = (settings->configurationPath().parent_path() / "controller.log").string();
+    settings->loggingControl("set", controllerLogging);
     ServerController controller(settings);
     struct Cleanup { ServerController& controller; ~Cleanup() { controller.stopService(); } } cleanup {controller};
     controller.startService();

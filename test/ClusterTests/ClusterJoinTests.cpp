@@ -14,6 +14,16 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+void setPostgresOptions(const char* value)
+{
+#ifdef _WIN32
+    _putenv_s("PGOPTIONS", value ? value : "");
+#else
+    if (value) setenv("PGOPTIONS", value, 1);
+    else unsetenv("PGOPTIONS");
+#endif
+}
+
 struct SqlSchemaCleanup
 {
     shared_ptr<DatabaseConnectionPool> pool;
@@ -22,8 +32,7 @@ struct SqlSchemaCleanup
     bool hadOptions;
     ~SqlSchemaCleanup()
     {
-        if (hadOptions) setenv("PGOPTIONS", previousOptions.c_str(), 1);
-        else unsetenv("PGOPTIONS");
+        setPostgresOptions(hadOptions ? previousOptions.c_str() : nullptr);
         try
         {
             const AutoDatabaseConnection connection(*pool);
@@ -98,7 +107,7 @@ String webLogin()
     return token;
 }
 
-String adminToken(ControlService& service)
+String adminToken(xmq::ControlService& service)
 {
     CLogin login;
     login.m_username = "admin";
@@ -138,7 +147,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
         Query create(connection.connection(), "CREATE SCHEMA " + schema);
         create.exec();
     }
-    setenv("PGOPTIONS", ("-c search_path=" + schema).c_str(), 1);
+    setPostgresOptions(("-c search_path=" + schema).c_str());
     const auto pool = make_shared<DatabaseConnectionPool>(uri, 2);
     UserStore users(pool);
     users.createSchema();
@@ -181,6 +190,9 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     target.reset();
     targetSettings->m_web_service.m_listener_port = 18886;
     targetSettings->m_web_service.m_encrypted = false;
+    CLogging targetLogging = targetSettings->m_logging;
+    targetLogging.m_log_to = (targetSettings->configurationPath().parent_path() / "controller.log").string();
+    targetSettings->loggingControl("set", targetLogging);
     ServerController targetController(targetSettings);
     ControllerCleanup controllerCleanup {targetController};
     targetController.startService();
@@ -191,7 +203,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
 
     TestServerController sourceController(source.get(), sourceSettings);
-    ControlService sourceControl(&sourceController);
+    xmq::ControlService sourceControl(&sourceController);
     HttpAuthentication authentication("bearer " + adminToken(sourceControl));
     CClusterControl request;
     request.m_action = "join";
