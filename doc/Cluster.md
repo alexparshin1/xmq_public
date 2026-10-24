@@ -607,3 +607,70 @@ Likely after the 1.0.0 announcement rather than in it - but not optional:
 - [ ] Provide administrative permissions, an audit trail, historical metrics and alerts.
 - [ ] Keep the module optional: its absence or failure must not prevent cluster routing,
   coordinator election, session migration or automatic recovery.
+
+## Cloning a node
+
+Create a second node from an existing configuration without starting it:
+
+```sh
+xmq_server --clone-node xmq1 \
+    -c xmq2 \
+    --node-name thinker10-2 --node-host thinker10 \
+    --mqtt-port 2883 --mqtt-ssl-port 9883 --web-port 28883
+```
+
+The destination directory must not exist. The clone receives a new UUID in
+`xmq_node.id` and new `certs/node.crt` and `certs/node.key`, issued for `--node-host`.
+The source configuration, UUID and keys are unchanged. All three ports are required,
+must differ, and must be between 1024 and 65535. Configurations with additional
+enabled listener protocols must be configured separately before cloning.
+
+Shared SQL accounts and Redis settings are retained. Local SQLite accounts are
+snapshotted into the clone's own database, including committed WAL data; legacy
+accounts files are copied when there is no database. Extension configuration and
+the setup template are copied, but peer certificates and runtime state are not.
+The clone has its own log and starts with `clean_start` disabled.
+
+Start the new node explicitly, then use the usual cluster admission flow:
+
+```sh
+xmq_server -c xmq2
+```
+
+The clone is standalone until admitted; copying a configuration does not copy
+cluster membership. Its first start registers the new identity in the shared SQL
+database when one is configured.
+
+### Joining and leaving from the command line
+
+With the cloned node running, request admission through its own control API:
+
+```sh
+xmq_server -c xmq2 --join-cluster
+```
+
+The command reads the administrator password from standard input (without echo
+on Unix terminals). For automation, pass the password through a pipe; it is never
+a command-line argument. Use `--admin-user NAME` for another administrator account.
+The node must share the PostgreSQL or MySQL accounts database with a live cluster
+member. The existing admission checks select that cluster; this command does not
+create one or switch the node's database.
+
+```sh
+xmq_server -c xmq2 --leave-cluster
+```
+
+Both operations contact only the local running node, check its UUID against the
+selected configuration's `xmq_node.id`, and wait up to 30 seconds for the resulting
+state. HTTPS trusts the web certificate specified in that configuration (or its
+own `certs/node.crt`). They do not launch another server. Joining an already live
+member and leaving an already standalone node are successful no-ops.
+
+The complete workflow is: clone, start, verify readiness, join. Leaving returns
+the running node to standalone mode without deleting its configuration or identity.
+
+A bare configuration name resolves relative to the installed configuration root:
+`-c xmq2` means `~/.local/etc/xmq2/xmq_server.conf` for a home installation, or
+`/etc/xmq2/xmq_server.conf` for a system installation. The same shorthand works for
+`--clone-node xmq1`. Full paths, `./node` paths and filenames such as `custom.conf`
+retain their normal meaning; the working directory does not affect bare names.

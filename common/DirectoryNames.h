@@ -53,6 +53,10 @@ public:
      */
     [[nodiscard]] static std::filesystem::path confDirectory();
 
+    /// A bare name (xmq2) selects <installed etc>/xmq2/xmq_server.conf.
+    /// Paths and filenames with extensions are resolved against the working directory.
+    [[nodiscard]] static std::filesystem::path resolveConfigurationFile(const std::filesystem::path& file);
+
     /// Select the configuration directory from the file used by this server, before startup.
     /// An empty path restores the installation default.
     static void setConfigurationFile(const std::filesystem::path& file);

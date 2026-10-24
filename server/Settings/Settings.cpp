@@ -1772,6 +1772,166 @@ String Settings::nodeHostName() const
     return host.empty() ? thisHostName() : host;
 }
 
+String Settings::cloneNode(const filesystem::path& sourceFile,
+                           const filesystem::path& destinationFile,
+                           const CNodeSettings& node)
+{
+    const auto source = DirectoryNames::resolveConfigurationFile(sourceFile);
+    const auto destination = DirectoryNames::resolveConfigurationFile(destinationFile);
+    const auto directory = destination.parent_path();
+    const auto name = String(node.m_node_name.asString()).trim();
+    const auto host = String(node.m_node_host.asString()).trim();
+    if (name.empty() || host.empty() || host.find_first_of(" \t\r\n/\\:") != String::npos)
+        throw Exception("A node name and a host without a port are required.");
+    const auto mqtt = node.m_mqtt_port.asInteger();
+    const auto tls = node.m_mqtt_ssl_port.asInteger();
+    const auto web = node.m_web_service_port.asInteger();
+    for (const auto value: {mqtt, tls, web})
+        if (value < 1024 || value > 65535)
+            throw Exception("Clone ports must be between 1024 and 65535.");
+    if (mqtt == tls || mqtt == web || tls == web)
+        throw Exception("Clone ports must be different.");
+    if (!filesystem::is_regular_file(source))
+        throw Exception("Source configuration does not exist: " + source.string());
+    if (filesystem::exists(directory))
+        throw Exception("The clone requires a new configuration directory: " + directory.string());
+
+    // Read the file as a document: loading Settings could register the source in SQL,
+    // migrate its users or rewrite it. None of those belongs to cloning.
+    xdoc::Document document;
+    Buffer content;
+    content.loadFromFile(source);
+    document.load(content);
+    const auto root = document.root();
+    CServerConfiguration validation;
+    validation.load(root);
+    const auto authentication = section(root, "authentication");
+    String databaseUri = authentication->getString("database_uri");
+    const bool localAccounts = databaseUri.empty() || databaseUri.toLowerCase().starts_with("sqlite");
+    const auto newDatabase = directory / "xmq_users.db";
+    const auto newDatabaseUri = DirectoryNames::sqliteUri(newDatabase);
+    if (localAccounts)
+        authentication->set("database_uri", newDatabaseUri);
+    else
+        authentication->remove("users");
+    const auto cluster = section(root, "cluster");
+    cluster->set("enabled", false);
+    cluster->remove("nodes");
+    cluster->remove("password");
+    const auto identity = section(cluster, "this_node");
+    identity->set("node_name", name);
+    identity->set("host_port", host + ":" + to_string(tls));
+    identity->set("encrypted", true);
+    const auto connections = section(root, "connections");
+    auto listeners = connections->findFirst("listener", xdoc::SearchMode::ImmediateChild);
+    if (!listeners) listeners = connections->pushNode("listener", xdoc::Node::Type::Array);
+    for (const auto& listener: listeners->nodes())
+    {
+        const auto protocol = listener->getString("protocol");
+        if (protocol == mqttProtocol) listener->set("port", mqtt);
+        else if (protocol == mqttSslProtocol) listener->set("port", tls);
+        else if (listener->getBoolean("enable"))
+            throw Exception("Clone requires explicit configuration of additional listener protocols.");
+    }
+    listenerFor(listeners, mqttProtocol)->set("port", mqtt);
+    listenerFor(listeners, mqttSslProtocol)->set("port", tls);
+    const auto cert = directory / "certs" / "node.crt";
+    const auto key = directory / "certs" / "node.key";
+    const auto keys = section(connections, "ssl_keys");
+    keys->set("certfile", cert.string());
+    keys->set("keyfile", key.string());
+    // The source's trust bundle includes its identity and is not the clone's trust store.
+    keys->remove("cafile");
+    const auto webService = section(root, "web_service");
+    webService->set("listener_port", web);
+    webService->set("certfile", cert.string());
+    webService->set("keyfile", key.string());
+    section(root, "logging")->set("log_to", (directory / "xmq_server.log").string());
+    section(root, "persistence")->set("clean_start", false);
+
+    // Reserve the destination before writing anything. A failed clone removes only the
+    // directory this invocation created; an existing node is never overwritten.
+    filesystem::create_directories(directory.parent_path());
+    if (!filesystem::create_directory(directory))
+        throw Exception("The clone directory already exists: " + directory.string());
+    try
+    {
+        filesystem::permissions(directory, filesystem::perms::owner_all,
+                                filesystem::perm_options::replace);
+        const auto copyFile = [&](const filesystem::path& from, const filesystem::path& to)
+        {
+            filesystem::copy_file(from, to);
+            restrictToOwnerAndGroup(to);
+        };
+        if (localAccounts)
+        {
+            const auto oldDatabase = source.parent_path() / "xmq_users.db";
+            if (!databaseUri.empty() || filesystem::is_regular_file(oldDatabase))
+            {
+                if (databaseUri.empty()) databaseUri = DirectoryNames::sqliteUri(oldDatabase);
+                // SQLite's snapshot includes WAL contents; copying a live .db file does not.
+                DatabaseConnectionPool pool(databaseUri, 1);
+                const AutoDatabaseConnection connection(pool);
+                Query snapshot(connection.connection(), "VACUUM INTO :destination");
+                snapshot.param("destination") = newDatabase.string();
+                snapshot.exec();
+                restrictToOwnerAndGroup(newDatabase);
+            }
+            else if (filesystem::is_regular_file(source.parent_path() / "xmq_users.conf"))
+                copyFile(source.parent_path() / "xmq_users.conf", directory / "xmq_users.conf");
+        }
+        // Extension settings travel with the node, but an explicit local account DB must
+        // point to the snapshot. Libraries remain at their installed locations.
+        const auto copyExtension = [&](const filesystem::path& from, const filesystem::path& to)
+        {
+            xdoc::Document extension;
+            Buffer input;
+            input.loadFromFile(from);
+            extension.load(input);
+            for (const auto& item: extension.root()->nodes("extensions"))
+                if (localAccounts && item->getString("name") == "user-database")
+                {
+                    const auto settings = section(item, "settings");
+                    settings->remove("database");
+                    settings->remove("database_uri");
+                }
+            Buffer output;
+            extension.exportTo(xdoc::DataFormat::JSON, output, true);
+            output.saveToFile(to);
+            restrictToOwnerAndGroup(to);
+        };
+        const auto extensions = source.parent_path() / "xmq_extensions.conf";
+        if (filesystem::is_regular_file(extensions))
+            copyExtension(extensions, directory / extensions.filename());
+        const auto fragments = source.parent_path() / "xmq_extensions.d";
+        if (filesystem::is_directory(fragments))
+        {
+            filesystem::create_directory(directory / fragments.filename());
+            for (const auto& entry: filesystem::directory_iterator(fragments))
+                if (entry.is_regular_file() && entry.path().extension() == ".conf")
+                    copyExtension(entry.path(), directory / fragments.filename() / entry.path().filename());
+        }
+        const auto templateFile = source.parent_path() / "xmq_server.conf.template";
+        if (filesystem::is_regular_file(templateFile))
+            copyFile(templateFile, directory / templateFile.filename());
+        const auto uuid = cluster::NodeIdentity::load(directory / cluster::NodeIdentity::FileName);
+        restrictToOwnerAndGroup(directory / cluster::NodeIdentity::FileName);
+        String description;
+        SelfSignedCertificate::reissue(cert, key, host, description);
+        Buffer output;
+        document.exportTo(xdoc::DataFormat::JSON, output, true);
+        output.saveToFile(destination);
+        restrictToOwnerAndGroup(destination);
+        return "Created standalone node '" + name + "' (" + uuid + ") at " + destination.string();
+    }
+    catch (...)
+    {
+        error_code ignored;
+        filesystem::remove_all(directory, ignored);
+        throw;
+    }
+}
+
 filesystem::path Settings::configurationTemplatePath()
 {
     return DirectoryNames::confDirectory() / "xmq_server.conf.template";

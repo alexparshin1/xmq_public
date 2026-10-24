@@ -20,6 +20,7 @@
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
 #include "server/SelfSignedCertificate.h"
+#include "server/Cluster/NodeIdentity.h"
 
 #include <gtest/gtest.h>
 
@@ -1147,4 +1148,123 @@ TEST(XMQ_Settings, configurationDirectoryFollowsTheSelectedFile)
 
     DirectoryNames::setConfigurationFile("xmq_server.conf");
     EXPECT_EQ(DirectoryNames::confDirectory(), filesystem::current_path());
+}
+
+namespace {
+CNodeSettings cloneTestNode()
+{
+    CNodeSettings node;
+    node.m_node_name = "cloned-node";
+    node.m_node_host = "clone.example.test";
+    node.m_mqtt_port = 2883;
+    node.m_mqtt_ssl_port = 9883;
+    node.m_web_service_port = 28883;
+    return node;
+}
+}
+
+TEST(XMQ_Settings, cloneCreatesIndependentIdentityKeysAndAccountSnapshot)
+{
+    const auto directory = emptyTestDirectory("xmq_clone_node");
+    const auto source = directory / "source" / "xmq_server.conf";
+    const auto destination = directory / "clone" / "xmq_server.conf";
+    filesystem::create_directory(source.parent_path());
+    xdoc::Document fixture;
+    fixture.load(Buffer(g_testConfig));
+    fixture.root()->remove("bridges");
+    Buffer sourceConfig;
+    fixture.exportTo(xdoc::DataFormat::JSON, sourceConfig, true);
+    sourceConfig.saveToFile(source);
+    Settings original;
+    original.loadConfiguration(source);
+    const auto sourceId = cluster::NodeIdentity::load(source.parent_path() / cluster::NodeIdentity::FileName);
+    String description;
+    SelfSignedCertificate::reissue(source.parent_path() / "certs/node.crt",
+                                   source.parent_path() / "certs/node.key", "source.example.test", description);
+    Buffer before;
+    before.loadFromFile(source);
+    const auto originalDatabase = original.userDatabaseUri();
+    const auto originalPool = make_shared<DatabaseConnectionPool>(originalDatabase, 3);
+    UserStore originalUsers(originalPool);
+    // Keep a connection open so the source WAL is not checkpointed on last close.
+    const AutoDatabaseConnection walConnection(*originalPool);
+    Query wal(walConnection.connection(), "PRAGMA journal_mode=WAL");
+    wal.open();
+    wal.close();
+    originalUsers.addUser({.m_username = "clone-account", .m_password = "snapshot-hash"});
+    const auto password = originalUsers.findUser("clone-account")->m_password;
+    EXPECT_TRUE(filesystem::exists(source.parent_path() / "xmq_users.db-wal"));
+    const auto node = cloneTestNode();
+    ASSERT_FALSE(Settings::cloneNode(source, destination, node).empty());
+    EXPECT_NE(sourceId, cluster::NodeIdentity::load(destination.parent_path() / cluster::NodeIdentity::FileName));
+    Buffer sourceKey, cloneKey, cloneConfig, after;
+    sourceKey.loadFromFile(source.parent_path() / "certs/node.key");
+    cloneKey.loadFromFile(destination.parent_path() / "certs/node.key");
+    EXPECT_NE(String(sourceKey), String(cloneKey));
+    EXPECT_TRUE(filesystem::exists(destination.parent_path() / "certs/node.crt"));
+    after.loadFromFile(source);
+    EXPECT_EQ(String(before), String(after));
+    cloneConfig.loadFromFile(destination);
+    xdoc::Document document;
+    document.load(cloneConfig);
+    const auto root = document.root();
+    EXPECT_FALSE(root->findFirst("cluster")->getBoolean("enabled"));
+    EXPECT_EQ(nullptr, root->findFirst("cluster")->findFirst("nodes"));
+    const auto identity = root->findFirst("cluster")->findFirst("this_node");
+    EXPECT_EQ("cloned-node", identity->getString("node_name"));
+    EXPECT_EQ("clone.example.test:9883", identity->getString("host_port"));
+    const auto clonePool = make_shared<DatabaseConnectionPool>(
+        DirectoryNames::sqliteUri(destination.parent_path() / "xmq_users.db"), 1);
+    UserStore clonedUsers(clonePool);
+    ASSERT_TRUE(clonedUsers.findUser("clone-account").has_value());
+    EXPECT_EQ(password, clonedUsers.findUser("clone-account")->m_password);
+    EXPECT_ANY_THROW(Settings::cloneNode(source, destination, node));
+    EXPECT_ANY_THROW(Settings::cloneNode(source, source, node));
+    auto invalid = node;
+    invalid.m_web_service_port = invalid.m_mqtt_port.asInteger();
+    const auto rejected = directory / "rejected" / "xmq_server.conf";
+    EXPECT_ANY_THROW(Settings::cloneNode(source, rejected, invalid));
+    EXPECT_FALSE(filesystem::exists(rejected.parent_path()));
+}
+
+TEST(XMQ_Settings, clonePreservesSharedDatabaseWithoutConnectingToIt)
+{
+    const auto directory = emptyTestDirectory("xmq_clone_shared");
+    const auto source = directory / "source" / "xmq_server.conf";
+    const auto destination = directory / "clone" / "xmq_server.conf";
+    filesystem::create_directory(source.parent_path());
+    xdoc::Document document;
+    document.load(Buffer(g_testConfig));
+    const String uri = "postgresql://unreachable.invalid/accounts";
+    document.root()->findFirst("authentication")->set("database_uri", uri);
+    document.root()->findFirst("cluster")->set("enabled", true);
+    Buffer config;
+    document.exportTo(xdoc::DataFormat::JSON, config, true);
+    config.saveToFile(source);
+    ASSERT_FALSE(Settings::cloneNode(source, destination, cloneTestNode()).empty());
+    config.loadFromFile(destination);
+    document.load(config);
+    EXPECT_EQ(uri, document.root()->findFirst("authentication")->getString("database_uri"));
+    EXPECT_FALSE(document.root()->findFirst("cluster")->getBoolean("enabled"));
+    EXPECT_FALSE(filesystem::exists(destination.parent_path() / "xmq_users.db"));
+    EXPECT_FALSE(filesystem::exists(source.parent_path() / cluster::NodeIdentity::FileName));
+    Buffer("invalid extension JSON").saveToFile(source.parent_path() / "xmq_extensions.conf");
+    const auto failed = directory / "failed" / "xmq_server.conf";
+    EXPECT_ANY_THROW(Settings::cloneNode(source, failed, cloneTestNode()));
+    EXPECT_FALSE(filesystem::exists(failed.parent_path()));
+}
+
+TEST(XMQ_Settings, configurationNamesUseTheInstalledParentEvenAfterSelectingAnotherNode)
+{
+    const auto installed = DirectoryNames::confDirectory();
+    struct Restore { ~Restore() { DirectoryNames::setConfigurationFile({}); } } restore;
+    const auto expected = installed.parent_path() / "xmq2" / "xmq_server.conf";
+    EXPECT_EQ(expected, DirectoryNames::resolveConfigurationFile("xmq2"));
+    DirectoryNames::setConfigurationFile("xmq1");
+    EXPECT_EQ(installed.parent_path() / "xmq1", DirectoryNames::confDirectory());
+    EXPECT_EQ(expected, DirectoryNames::resolveConfigurationFile("xmq2"));
+    EXPECT_EQ(filesystem::current_path() / "xmq_server.conf",
+              DirectoryNames::resolveConfigurationFile("xmq_server.conf"));
+    EXPECT_EQ(filesystem::current_path() / "relative" / "node.conf",
+              DirectoryNames::resolveConfigurationFile("relative/node.conf"));
 }

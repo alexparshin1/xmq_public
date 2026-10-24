@@ -15,6 +15,7 @@
 
 #include "OSService.h"
 #include "ServerController.h"
+#include "NodeCommand.h"
 #include "base/DescriptorLimit.h"
 #include "base/ThreadCount.h"
 #include "base/CpuAffinity.h"
@@ -103,7 +104,8 @@ filesystem::path getServerConfigurationPath(const ServerCommandLine& serverComma
 
     if (serverCommandLine.hasOption("configuration-file"))
     {
-        serverConfigurationPath = serverCommandLine.getOptionValue("configuration-file").c_str();
+        serverConfigurationPath = DirectoryNames::resolveConfigurationFile(
+            serverCommandLine.getOptionValue("configuration-file").c_str());
     }
 
     DirectoryNames::setConfigurationFile(serverConfigurationPath);
@@ -179,13 +181,74 @@ int main(int argc, const char* argv[])
         return 1;
     }
 
+    const bool joinCluster = serverCommandLine.hasOption("join-cluster");
+    const bool leaveCluster = serverCommandLine.hasOption("leave-cluster");
+    const bool clusterCommand = joinCluster || leaveCluster;
+    if ((joinCluster && leaveCluster) ||
+        (clusterCommand && (serverCommandLine.hasOption("clone-node") ||
+                            serverCommandLine.hasOption("reset") ||
+                            serverCommandLine.hasOption("reset-configuration") ||
+                            serverCommandLine.hasOption("set-password"))))
+    {
+        CERR("Choose one operation: clone, join, leave, reset or set-password.");
+        return 1;
+    }
+
+    if (serverCommandLine.hasOption("clone-node"))
+    {
+        try
+        {
+            bool destinationSpecified = false;
+            for (int index = 1; index < argcCopy; ++index)
+            {
+                const string argument = argvCopy[index];
+                if (argument == "-c" || argument == "--configuration-file" ||
+                    argument.starts_with("--configuration-file=") || argument.starts_with("-c="))
+                    destinationSpecified = true;
+            }
+            if (!destinationSpecified)
+                throw Exception("--clone-node requires an explicit -c destination configuration.");
+            for (const auto* option: {"node-name", "node-host", "mqtt-port", "mqtt-ssl-port", "web-port"})
+            {
+                if (!serverCommandLine.hasOption(option))
+                    throw Exception(string("--clone-node requires --") + option);
+            }
+            for (const auto* option: {"reset", "reset-configuration", "set-password", "users-file"})
+            {
+                if (serverCommandLine.hasOption(option))
+                    throw Exception(string("--clone-node cannot be combined with --") + option);
+            }
+            const auto port = [&](const char* option)
+            {
+                const string value = serverCommandLine.getOptionValue(option).c_str();
+                if (value.empty() || value.find_first_not_of("0123456789") != string::npos)
+                    throw Exception(string("Invalid port for --") + option);
+                return stoi(value);
+            };
+            CNodeSettings node;
+            node.m_node_name = serverCommandLine.getOptionValue("node-name");
+            node.m_node_host = serverCommandLine.getOptionValue("node-host");
+            node.m_mqtt_port = port("mqtt-port");
+            node.m_mqtt_ssl_port = port("mqtt-ssl-port");
+            node.m_web_service_port = port("web-port");
+            COUT(Settings::cloneNode(serverCommandLine.getOptionValue("clone-node").c_str(),
+                                    serverCommandLine.getOptionValue("configuration-file").c_str(), node));
+            return 0;
+        }
+        catch (const std::exception& exception)
+        {
+            CERR("Cannot clone node: " << exception.what());
+            return 1;
+        }
+    }
+
     // Before the server is brought up, and before the configuration path is created or reset:
     // this changes an account and exits, and is expected to be run while a server is installed
     // but not running - or running, in which case it will pick the change up when it next reads
     // the accounts.
-    if (serverCommandLine.hasOption("set-password"))
+    if (serverCommandLine.hasOption("set-password") || clusterCommand)
     {
-        const String account = serverCommandLine.getOptionValue("set-password");
+        const String account = serverCommandLine.getOptionValue(clusterCommand ? "admin-user" : "set-password");
         String       password;
         // From standard input rather than the command line: an argument is visible in the process
         // list to every user on the machine, and lands in the shell history besides. Typed at a
@@ -218,16 +281,23 @@ int main(int argc, const char* argv[])
         try
         {
             const filesystem::path configurationPath = serverCommandLine.hasOption("configuration-file")
-                                                           ? filesystem::path(serverCommandLine.getOptionValue(
+                                                           ? DirectoryNames::resolveConfigurationFile(serverCommandLine.getOptionValue(
                                                                  "configuration-file").c_str())
                                                            : DirectoryNames::confDirectory() / "xmq_server.conf";
             DirectoryNames::setConfigurationFile(configurationPath);
-            const filesystem::path usersPath = serverCommandLine.getOptionValue("users-file").c_str();
-            COUT(Settings::setAccountPassword(configurationPath, usersPath, account, password) << ".");
+            if (clusterCommand)
+            {
+                COUT(controlNodeCluster(configurationPath, joinCluster, account, password));
+            }
+            else
+            {
+                const filesystem::path usersPath = serverCommandLine.getOptionValue("users-file").c_str();
+                COUT(Settings::setAccountPassword(configurationPath, usersPath, account, password) << ".");
+            }
         }
         catch (const Exception& exception)
         {
-            CERR("Can't set the password: " << exception.message());
+            CERR((clusterCommand ? "Cluster command failed: " : "Can't set the password: ") << exception.message());
             return 1;
         }
         return 0;

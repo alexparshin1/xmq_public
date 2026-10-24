@@ -221,6 +221,12 @@ public:
     static sptk::String createConfiguration(const std::filesystem::path& configurationFile,
                                             const std::filesystem::path& fallbackTemplate = configurationTemplatePath());
 
+    /// Create a standalone node in a new directory, with fresh identity and TLS keys.
+    /// Never loads or registers the source node; shared SQL accounts remain shared.
+    static sptk::String cloneNode(const std::filesystem::path& sourceFile,
+                                 const std::filesystem::path& destinationFile,
+                                 const CNodeSettings& node);
+
     /**
      * @brief Replace the configuration with a starting one, keeping the old file beside it.
      *

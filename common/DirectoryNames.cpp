@@ -113,10 +113,17 @@ std::filesystem::path DirectoryNames::webfaceDirectory()
     return REACT_DIRECTORY;
 }
 
+std::filesystem::path DirectoryNames::resolveConfigurationFile(const std::filesystem::path& file)
+{
+    if (!file.empty() && !file.has_parent_path() && !file.has_extension() && file != "." && file != "..")
+        return filesystem::path(XMQ_CONF_DIRECTORY).parent_path() / file / "xmq_server.conf";
+    return filesystem::absolute(file).lexically_normal();
+}
+
 void DirectoryNames::setConfigurationFile(const std::filesystem::path& file)
 {
     configurationDirectoryOverride = file.empty() ? filesystem::path{}
-                                                  : filesystem::absolute(file).lexically_normal().parent_path();
+                                                  : resolveConfigurationFile(file).parent_path();
 }
 
 std::filesystem::path DirectoryNames::confDirectory()

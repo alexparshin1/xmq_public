@@ -7,6 +7,8 @@
 #include "server/Settings/UserStore.h"
 #include "server/Settings/PasswordHash.h"
 #include "server/OSService.h"
+#include "server/NodeCommand.h"
+#include <thread>
 #include <sptk5/net/TCPSocket.h>
 
 using namespace std;
@@ -258,6 +260,20 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
     EXPECT_EQ(restartBefore, OSService::restartRequested());
 
+    // The CLI uses this same local HTTP API. Simulate the service loop while it
+    // waits for both transitions, rather than accepting an acknowledgement as success.
+    {
+        std::jthread serviceLoop([&](std::stop_token stop)
+        {
+            while (!stop.stop_requested())
+            {
+                OSService::processNodeActions(targetController);
+                std::this_thread::sleep_for(10ms);
+            }
+        });
+        EXPECT_NO_THROW(controlNodeCluster(targetSettings->configurationPath(), true, "admin", "admin", 15s));
+        EXPECT_NO_THROW(controlNodeCluster(targetSettings->configurationPath(), false, "admin", "admin", 15s));
+    }
     // Leave through this node's own HTTP listener as well. The handler must only
     // acknowledge: the service loop owns stopping and replacing the Server.
     CClusterControlResponse rejoined;

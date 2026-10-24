@@ -29,7 +29,24 @@ ServerCommandLine::ServerCommandLine()
     const auto       defaultConfigPath = DirectoryNames::confDirectory() / "xmq_server.conf";
     const Visibility alwaysVisible("");
     defineParameter("configuration-file", "c", "configuration file", "", alwaysVisible,
-                    defaultConfigPath.string(), "Configuration file path.");
+                    defaultConfigPath.string(), "Configuration file path, or a name such as xmq2 for a sibling of the installed configuration directory.");
+    defineOption("join-cluster", "", alwaysVisible,
+                 "Ask the running node selected by -c to join its shared database's cluster, then exit. "
+                 "Read the administrator password from standard input.");
+    defineOption("leave-cluster", "", alwaysVisible,
+                 "Ask the running node selected by -c to leave its cluster, then exit. "
+                 "Read the administrator password from standard input.");
+    defineParameter("admin-user", "", "username", "", alwaysVisible, "admin",
+                    "Administrator account for --join-cluster and --leave-cluster.");
+    defineParameter("clone-node", "", "source configuration", "", alwaysVisible, "",
+                    "Create a standalone clone in a new directory selected by -c, with a new UUID "
+                    "and certificates, then exit. Requires --node-name, --node-host, --mqtt-port, "
+                    "--mqtt-ssl-port and --web-port. The source node is not changed.");
+    defineParameter("node-name", "", "name", "", alwaysVisible, "", "Name of the cloned node.");
+    defineParameter("node-host", "", "host", "", alwaysVisible, "", "Advertised host of the cloned node.");
+    defineParameter("mqtt-port", "", "port", "", alwaysVisible, "", "MQTT port of the cloned node.");
+    defineParameter("mqtt-ssl-port", "", "port", "", alwaysVisible, "", "MQTT TLS port of the cloned node.");
+    defineParameter("web-port", "", "port", "", alwaysVisible, "", "Web interface port of the cloned node.");
     defineParameter("users-file", "U", "users file", "", alwaysVisible, "",
                     "Users file path. Defaults to 'xmq_users.conf' beside the configuration file, "
                     "so two servers with configurations in separate directories keep separate "
