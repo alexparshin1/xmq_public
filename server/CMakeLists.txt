@@ -1,4 +1,4 @@
-FILE(GLOB XMQ_SERVER_FILES *.cpp *.h
+FILE(GLOB XMQ_SERVER_FILES CONFIGURE_DEPENDS *.cpp *.h
         Bridge/*
         Cluster/*
         ClientSession/*
