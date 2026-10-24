@@ -23,6 +23,9 @@ export default class PersistenceScreen extends BasicScreen
         redis_port: 6379,
         redis_username: "",
         redis_password: "",
+        // Baseline values let an unchanged URI (including legacy credentials) pass through
+        // byte-for-byte. The server masks passwords before returning this URI.
+        redis_uri_initial: null,
         // Set when redis_uri isn't in the form the fields above can represent.
         // The URI is then edited as text, to avoid rewriting it into something else.
         redis_uri: "",
@@ -56,11 +59,26 @@ export default class PersistenceScreen extends BasicScreen
         {
             return null;
         }
+        // Older versions wrote Redis credentials into the URI without percent-encoding them.
+        // Decode current canonical URIs, but preserve legacy values that contain malformed
+        // percent sequences instead of throwing and making the entire screen unusable.
+        const decodeCredential = value => {
+            if (!value) return "";
+            try
+            {
+                return decodeURIComponent(value);
+            }
+            catch
+            {
+                return value;
+            }
+        };
         return {
             redis_host: result.groups.host,
             redis_port: result.groups.port ? parseInt(result.groups.port) : 6379,
-            redis_username: result.groups.username ? result.groups.username : "",
-            redis_password: result.groups.password ? result.groups.password : ""
+            redis_username: decodeCredential(result.groups.username),
+            redis_password: decodeCredential(result.groups.password),
+            redis_username_uri: result.groups.username || ""
         };
     }
 
@@ -76,13 +94,29 @@ export default class PersistenceScreen extends BasicScreen
             return this.state.redis_uri;
         }
 
+        const initial = this.state.redis_uri_initial;
+        if (initial && this.state.redis_host === initial.redis_host &&
+            Number(this.state.redis_port) === Number(initial.redis_port) &&
+            this.state.redis_username === initial.redis_username &&
+            this.state.redis_password === initial.redis_password)
+        {
+            // In particular, keep the password mask literal so the server can restore the
+            // stored secret. This also preserves legacy raw credentials containing '%' or '@'.
+            return this.state.redis_uri;
+        }
+
         let uri = "redis://";
         if (this.state.redis_username || this.state.redis_password)
         {
-            uri += this.state.redis_username;
+            const username = initial && this.state.redis_username === initial.redis_username
+                ? initial.redis_username_uri : encodeURIComponent(this.state.redis_username || "default");
+            uri += username || "default";
             if (this.state.redis_password)
             {
-                uri += ":" + this.state.redis_password;
+                // A masked password is a server-side placeholder, not a credential to encode.
+                const password = initial && this.state.redis_password === initial.redis_password &&
+                    this.state.redis_password === "*****" ? "*****" : encodeURIComponent(this.state.redis_password);
+                uri += ":" + password;
             }
             uri += "@";
         }
@@ -122,6 +156,7 @@ export default class PersistenceScreen extends BasicScreen
                 this.setState({
                     ...persistence,
                     ...parsedURI,
+                    redis_uri_initial: parsedURI,
                     redis_uri_is_custom: parsedURI === null
                 });
             });

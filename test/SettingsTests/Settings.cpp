@@ -15,6 +15,7 @@
 #include "server/Settings/PasswordHash.h"
 #include "server/Settings/Settings.h"
 #include "server/Settings/UserStore.h"
+#include "common/RedisCredentials.h"
 
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
@@ -347,7 +348,7 @@ TEST(XMQ_Settings, applyInitialSetup)
     EXPECT_EQ(18884, settings.m_web_service.m_listener_port.asInteger());
 
     EXPECT_TRUE(settings.m_persistence.m_enabled.asBool());
-    EXPECT_STREQ("redis://redis-host:6380", settings.m_persistence.m_redis_uri.asString().c_str());
+    EXPECT_STREQ("redis://redis-host:6380/0", settings.m_persistence.m_redis_uri.asString().c_str());
 
     EXPECT_EQ(16384, settings.m_queue_limits.m_max_size.asInteger());
 
@@ -614,6 +615,27 @@ TEST(XMQ_Settings, nodeSettingsPreserveOtherConfigurationAccountsAndSupportRollb
     EXPECT_EQ(originalName, settings.nodeSettings().m_node_name.asString());
     EXPECT_EQ(43210, settings.m_queue_limits.m_max_size.asInteger());
     EXPECT_EQ(client.m_password, users.findUser("retained-client")->m_password);
+}
+
+TEST(XMQ_Settings, initialSetupPersistsRedisCredentialsWithCorrectUriEncoding)
+{
+    TemporaryCertificateDirectory certificates;
+    Settings settings;
+    settings.loadConfiguration(Buffer(g_testConfig));
+    auto setup = testInitialSetup();
+    setup.m_redis_username = "cache@role";
+    setup.m_redis_password = "P:a/ss%40+ word!";
+    settings.applyInitialSetup(setup, writeConfigurationTemplate());
+    EXPECT_EQ("redis://cache%40role:P%3Aa%2Fss%2540%2B%20word%21@redis-host:6380/0", settings.m_persistence.m_redis_uri.asString());
+    const auto connection = redisConnectionUrl(settings.m_persistence.m_redis_uri.asString());
+    EXPECT_EQ("cache@role", connection.username());
+    EXPECT_EQ("P:a/ss%40+ word!", connection.password());
+    setup.m_redis_username = "";
+    setup.m_redis_password = "Secret7!";
+    settings.applyInitialSetup(setup, writeConfigurationTemplate());
+    EXPECT_EQ("default", redisConnectionUrl(settings.m_persistence.m_redis_uri.asString()).username());
+    EXPECT_EQ("Secret7!", redisConnectionUrl(string("redis://:Secret7%21@localhost:6379")).password());
+    EXPECT_THROW(redisConnectionUrl(string("redis://user@localhost:6379")), Exception);
 }
 
 TEST(XMQ_Settings, applyInitialSetupWithoutRedis)

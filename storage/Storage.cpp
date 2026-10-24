@@ -13,6 +13,7 @@
 */
 
 #include "Storage.h"
+#include "common/RedisCredentials.h"
 #include "RedisConnection.h"
 #include "server/Server.h"
 
@@ -112,7 +113,7 @@ void Storage::initialize(const string& redisConnectString, const bool reset)
         // of it. Reduced to host and port, this connection went to database 0 while every other one
         // went where the configuration said, and it could not log in to a Redis with a password.
         m_redis = make_shared<RedisConnect>();
-        m_redis->connect(URL(redisConnectString));
+        m_redis->connect(redisConnectionUrl(redisConnectString));
     }
 
     if (reset && m_redis)

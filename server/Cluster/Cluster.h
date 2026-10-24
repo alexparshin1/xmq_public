@@ -215,7 +215,8 @@ public:
      */
     InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName,
                                 const sptk::String& clusterPassword = {}, bool joinImmediately = false,
-                                const sptk::String& expectedNodeId = {}, const sptk::String& nodeAction = "join");
+                                const sptk::String& expectedNodeId = {}, const sptk::String& nodeAction = "join",
+                                const sptk::String& leaderNodeId = {});
 
     /**
      * @brief Answer the invitation this node holds with a refusal, to the inviter, on
@@ -325,6 +326,12 @@ public:
      * publishes for that node's subscribers.
      */
     [[nodiscard]] size_t linkCountOf(const std::string& nodeName) const;
+
+    /**
+     * @return How many cluster peers this node is connected to: the nodes that have at least one
+     * open link to it. The Cluster Configuration screen shows this beside this node itself.
+     */
+    [[nodiscard]] size_t connectedPeerCount() const;
 
     [[nodiscard]] std::shared_ptr<ISubscriptionClient> linkFrom(const std::string& nodeName, std::string_view topicName) const;
 

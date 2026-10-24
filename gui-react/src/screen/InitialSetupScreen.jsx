@@ -36,6 +36,9 @@ export default class InitialSetupScreen extends BasicScreen {
         web_service_port: 18883,
         redis_host: "",
         redis_port: 6379,
+        redis_database: 0,
+        redis_username: "",
+        redis_password: "",
         redisCheck: null,
         database_type: "",
         database_host: "",
@@ -129,14 +132,27 @@ export default class InitialSetupScreen extends BasicScreen {
             this.setState({redisCheck: {status: "error", message: "The Redis port must be between 1 and 65535."}});
             return;
         }
-        const address = `${host}:${port}`;
+        if (this.state.redis_username && !this.state.redis_password) {
+            this.redisProbeId++;
+            this.setState({redisCheck: {status: "error", message: "Enter a Redis password with the username, or leave both credentials empty."}});
+            return;
+        }
+        const database = Number(this.state.redis_database);
+        if (!Number.isInteger(database) || database < 0 || database > 16) {
+            this.redisProbeId++;
+            this.setState({redisCheck: {status: "error", message: "Choose a Redis database number between 0 and 16."}});
+            return;
+        }
+        const address = `${host}:${port}/${database}`;
         if (this.state.redisCheck?.status === "checking" && this.state.redisCheck.address === address) return;
         const id = ++this.redisProbeId;
         this.setState({redisCheck: {status: "checking", address, message: `Checking Redis at ${address}…`}});
         let error;
         try {
             const result = await ControlAPI.asyncMakeAPICall("InitialSetupControl", {
-                action: "check-redis", redis_host: host, redis_port: port
+                action: "check-redis", redis_host: host, redis_port: port,
+                redis_database: database,
+                redis_username: this.state.redis_username, redis_password: this.state.redis_password
             }, true);
             error = result ? ControlAPI.apiError(result) : "The server did not answer the Redis check. Try again.";
         } catch {
@@ -200,6 +216,11 @@ export default class InitialSetupScreen extends BasicScreen {
         }
 
         if (this.state.redis_host) {
+            if (this.state.redis_username && !this.state.redis_password)
+                return "Enter a Redis password with the username, or leave both credentials empty.";
+            const redisDatabase = Number(this.state.redis_database);
+            if (!Number.isInteger(redisDatabase) || redisDatabase < 0 || redisDatabase > 16)
+                return "Choose a Redis database number between 0 and 16.";
             const redisPort = parseInt(this.state.redis_port);
             if (!redisPort || redisPort < 1 || redisPort > 65535) {
                 return "The Redis port must be between 1 and 65535.";
@@ -279,6 +300,9 @@ export default class InitialSetupScreen extends BasicScreen {
                 web_service_port: servicePort,
                 redis_host: this.state.redis_host,
                 redis_port: this.state.redis_host ? parseInt(this.state.redis_port) : 0,
+                redis_database: this.state.redis_host ? parseInt(this.state.redis_database) : 0,
+                redis_username: this.state.redis_username,
+                redis_password: this.state.redis_password,
                 database_uri: this.databaseUri()
             }
         }).then(result => {
@@ -503,6 +527,27 @@ export default class InitialSetupScreen extends BasicScreen {
                            onChange={(e) => this.changeRedis("redis_port", e.target.value)}/>
                     <HelpButton helpKey="persistence.redis_host"/>
                 </div>
+                <div className="inputScreenRow">
+                    <label htmlFor="redis_database" className="inputScreenLabel">Redis database:</label>
+                    <select id="redis_database" name="redis_database" value={this.state.redis_database}
+                           onBlur={() => this.checkRedis()}
+                           onChange={e => this.changeRedis("redis_database", e.target.value)}>
+                        {Array.from({length: 17}, (_, index) => <option key={index} value={index}>{index}</option>)}
+                    </select>
+                </div>
+                <div className="inputScreenRow">
+                    <label htmlFor="redis_username" className="inputScreenLabel">Redis username:</label>
+                    <input id="redis_username" name="redis_username" value={this.state.redis_username}
+                        onChange={e => this.changeRedis("redis_username", e.target.value)} onBlur={() => this.checkRedis()}/>
+                </div>
+                <div className="inputScreenRow">
+                    <label htmlFor="redis_password" className="inputScreenLabel">Redis password:</label>
+                    <PasswordInput id="redis_password" name="redis_password" autoComplete="new-password" value={this.state.redis_password}
+                        onChange={e => this.changeRedis("redis_password", e.target.value)} onBlur={() => this.checkRedis()}/>
+                    <HelpButton helpKey="persistence.redis_username"/>
+                </div>
+                <p className="inputScreenHint">Optional. Leave both empty if Redis needs no authentication.
+                    With a password and no username, Redis user default is used.</p>
                 {this.state.redisCheck && <p role={this.state.redisCheck.status === "error" ? "alert" : "status"}
                     style={{color: this.state.redisCheck.status === "error" ? "#c62828" : "#666"}}>
                     {this.state.redisCheck.message}

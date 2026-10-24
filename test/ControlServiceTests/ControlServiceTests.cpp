@@ -20,6 +20,7 @@
 #include "server/OSService.h"
 #include <sptk5/net/TCPSocket.h>
 #include "test/ClusterTests/TestCluster.h"
+#include "common/RedisCredentials.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -176,6 +177,37 @@ TEST_F(XMQ_ControlServiceTests, settingsApplyOnControllerThreadAndRecoverFromFai
     EXPECT_EQ(1885, settings->nodeSettings().m_mqtt_port.asInteger());
     EXPECT_EQ(18889, settings->nodeSettings().m_web_service_port.asInteger());
     EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
+}
+
+TEST_F(XMQ_ControlServiceTests, initialSetupChecksRedisAuthentication)
+{
+    const auto configured = std::getenv("XMQ_TEST_REDIS_AUTH_URI");
+    if (!configured || !*configured) GTEST_SKIP() << "An isolated authenticated Redis is required";
+    const auto connection = redisConnectionUrl(string(configured));
+    const auto& [host, port] = connection.hostAndPort();
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    CInitialSetupControl request;
+    request.m_action = "check-redis";
+    request.m_redis_host = host;
+    request.m_redis_port = port;
+    request.m_redis_username = connection.username();
+    request.m_redis_password = connection.password();
+    CInitialSetupControlResponse accepted;
+    m_controlService->InitialSetupControl(request, accepted, &authentication);
+    ASSERT_TRUE(accepted.m_result.m_success.asBool()) << accepted.m_result.m_description.asString();
+    request.m_redis_username = ""; // password-only must authenticate as default
+    CInitialSetupControlResponse passwordOnly;
+    m_controlService->InitialSetupControl(request, passwordOnly, &authentication);
+    EXPECT_TRUE(passwordOnly.m_result.m_success.asBool()) << passwordOnly.m_result.m_description.asString();
+    request.m_redis_password = "Incorrect-Secret7!";
+    CInitialSetupControlResponse refused;
+    m_controlService->InitialSetupControl(request, refused, &authentication);
+    EXPECT_FALSE(refused.m_result.m_success.asBool());
+    request.m_redis_username = "missing-user";
+    request.m_redis_password = connection.password();
+    CInitialSetupControlResponse wrongUser;
+    m_controlService->InitialSetupControl(request, wrongUser, &authentication);
+    EXPECT_FALSE(wrongUser.m_result.m_success.asBool());
 }
 
 TEST_F(XMQ_ControlServiceTests, initialSetupChecksRedisWithoutApplyingConfiguration)

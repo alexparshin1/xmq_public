@@ -30,6 +30,16 @@ function stateColour(state) {
 }
 
 /**
+ * A URI with its password dropped for display: this page only shows the addresses, and a
+ * password shown is a password copied. It is never sent back anywhere.
+ * @param {string} uri  Storage or database URI as the server reports it.
+ * @return {string} URI without the password.
+ */
+function displayUri(uri) {
+    return (uri || "").replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/?#@]*):[^/]*@/i, "$1@");
+}
+
+/**
  * Cluster Configuration.
  *
  * The cluster is declared here, not by editing a file on each node: the nodes with their states,
@@ -209,11 +219,11 @@ export default class ClusterScreen extends BasicScreen {
             </div>
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">Storage:</label>
-                <span>{cluster.redis_uri || "—"}</span>
+                <span>{displayUri(cluster.redis_uri) || "—"}</span>
             </div>
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">Accounts database:</label>
-                <span>{cluster.database_uri || "—"}</span>
+                <span>{displayUri(cluster.database_uri) || "—"}</span>
             </div>
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">Coordinator:</label>
@@ -236,8 +246,8 @@ export default class ClusterScreen extends BasicScreen {
                 {selected ? <>Selected node: <strong>{selected.name}</strong></> : "Select a node"}
             </div>
             <button className={buttonClass}
-                    disabled={busy || (!starting && (!cluster.enabled || selected?.is_this_node ||
-                        ["offline", "unknown"].includes(cluster.cluster_state))) || !selected || state !== "Standalone"}
+                    disabled={busy || (!starting && ["offline", "unknown"].includes(cluster.cluster_state)) ||
+                        !selected || state !== "Standalone"}
                     onClick={() => this.joinNode()}>{starting ? "Start cluster" : "Join cluster"}&hellip;</button>
             <button className={buttonClass} disabled={busy || !active || !member}
                     onClick={() => this.leaveCluster()}>Leave cluster&hellip;</button>

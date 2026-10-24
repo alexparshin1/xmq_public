@@ -12,6 +12,7 @@
 */
 
 #include "RedisStorage.h"
+#include "common/RedisCredentials.h"
 
 #include "MessageDeliveryPacker.h"
 #include "RedisConnection.h"
@@ -27,7 +28,7 @@ using namespace sptk;
 using namespace xmq;
 
 RedisStorage::RedisStorage(URL redisUrl, Server* server, const size_t connectionPoolSize, const bool cleanStart)
-    : m_redisUrl(std::move(redisUrl))
+    : m_redisUrl(redisConnectionUrl(redisUrl))
     , m_server(server)
     , m_cleanStart(cleanStart)
     , m_cleanupConnection(make_shared<RedisConnect>())

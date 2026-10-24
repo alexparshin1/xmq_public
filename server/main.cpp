@@ -1,3 +1,4 @@
+#include "Settings/UriSecret.h"
 /*
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                       XMQ Message QUEUE                                      ║
@@ -365,7 +366,7 @@ int main(int argc, const char* argv[])
     }
     catch (const DatabaseException& exception)
     {
-        CERR("Can't start XMQ. Redis: " << settings->m_persistence.m_redis_uri.asString() << ": " << exception.message());
+        CERR("Can't start XMQ. Redis: " << UriSecret::hidden(settings->m_persistence.m_redis_uri.asString()) << ": " << exception.message());
         logger.error(String(exception.message()));
         return 1;
     }

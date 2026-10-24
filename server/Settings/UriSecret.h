@@ -39,7 +39,7 @@ public:
      * @remarks A URI with no credentials, or with a username and no password, is returned as it is
      *          - there is nothing to hide and inventing a mask would invent a password.
      */
-    [[nodiscard]] static sptk::String hidden(const sptk::String& uri);
+    [[nodiscard]] static std::string hidden(const std::string& uri);
 
     /**
      * @brief The URI to store, given what came back from the interface.
@@ -48,7 +48,7 @@ public:
      * @return `given` with the mask replaced by the stored password, or `given` unchanged when it
      *         carries a real password - which is how a password is changed.
      */
-    [[nodiscard]] static sptk::String restored(const sptk::String& given, const sptk::String& stored);
+    [[nodiscard]] static std::string restored(const std::string& given, const std::string& stored);
 
 private:
     /// Where the password sits in a URI, or npos twice when it has none.

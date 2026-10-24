@@ -17,7 +17,8 @@ const defaults = {
     mqtt_port: 1883,
     mqtt_ssl_port: 8883,
     web_service_port: 18883,
-    redis_port: 6379
+    redis_port: 6379,
+    redis_database: 0
 };
 
 beforeEach(() => {
@@ -94,7 +95,7 @@ test.each(["redis_host", "redis_port"])("leaving %s checks the current host and 
     fireEvent.blur(view.container.querySelector(`input[name="${field}"]`));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Redis at theater:6380 is reachable."));
     expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("InitialSetupControl", {
-        action: "check-redis", redis_host: "theater", redis_port: 6380
+        action: "check-redis", redis_host: "theater", redis_port: 6380, redis_database: 0, redis_username: "", redis_password: ""
     }, true);
 });
 
@@ -123,6 +124,23 @@ test("empty host skips the Redis check and an invalid port is rejected locally",
     fireEvent.blur(screen.getByLabelText("port:"));
     expect(screen.getByRole("alert")).toHaveTextContent("between 1 and 65535");
     expect(ControlAPI.asyncMakeAPICall).not.toHaveBeenCalled();
+});
+
+test("Redis credentials are used for connection checks and included in setup", async () => {
+    await form();
+    ControlAPI.asyncMakeAPICall.mockResolvedValue({result: {success: true}});
+    fireEvent.change(screen.getByLabelText("Redis host:"), {target: {value: "theater"}});
+    fireEvent.change(screen.getByLabelText("Redis username:"), {target: {value: "cache-user"}});
+    fireEvent.change(screen.getByLabelText("Redis password:"), {target: {value: "Redis-Secret7!"}});
+    fireEvent.blur(screen.getByLabelText("Redis password:"));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("InitialSetupControl", {
+        action: "check-redis", redis_host: "theater", redis_port: 6379, redis_database: 0, redis_username: "cache-user", redis_password: "Redis-Secret7!"
+    }, true));
+    ControlAPI.asyncMakeAPICall.mockResolvedValue(null);
+    fireEvent.click(screen.getByRole("button", {name: "Submit and restart"}));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("InitialSetupControl", {
+        action: "set", setup: expect.objectContaining({redis_username: "cache-user", redis_password: "Redis-Secret7!"})
+    }));
 });
 
 test.each(["admin", "cluster"])("%s confirmation checks on blur and clears when corrected", async account => {

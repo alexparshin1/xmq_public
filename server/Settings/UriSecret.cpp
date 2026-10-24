@@ -55,7 +55,7 @@ void UriSecret::findPassword(const String& uri, size_t& start, size_t& length)
     length = credentialsEnd - start;
 }
 
-String UriSecret::hidden(const String& uri)
+string UriSecret::hidden(const string& uri)
 {
     size_t start = 0;
     size_t length = 0;
@@ -69,7 +69,7 @@ String UriSecret::hidden(const String& uri)
     return uri.substr(0, start) + String(string(mask)) + uri.substr(start + length);
 }
 
-String UriSecret::restored(const String& given, const String& stored)
+string UriSecret::restored(const string& given, const string& stored)
 {
     size_t givenStart = 0;
     size_t givenLength = 0;

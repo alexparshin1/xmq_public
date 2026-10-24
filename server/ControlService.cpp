@@ -38,6 +38,7 @@
 #endif
 
 #include "common/DirectoryNames.h"
+#include "common/RedisCredentials.h"
 
 #include <ranges>
 
@@ -98,7 +99,16 @@ void ControlService::requireReachableRedis(const CInitialSetup& setup)
     {
         RedisConnect probe;
         probe.setReadTimeout(chrono::milliseconds(1500));
-        (void) probe.connect(redisHost.c_str(), static_cast<uint16_t>(redisPort), "", "", "", chrono::milliseconds(1500));
+        const String password = setup.m_redis_password.asString();
+        String username = setup.m_redis_username.asString();
+        if (!username.empty() && password.empty())
+            throw Exception("Enter a Redis password with the username, or leave both credentials empty.");
+        if (username.empty() && !password.empty()) username = "default";
+        const auto database = setup.m_redis_database.asInteger();
+        if (database < 0 || database > 16)
+            throw Exception("Choose a Redis database number between 0 and 16.");
+        (void) probe.connect(redisHost.c_str(), static_cast<uint16_t>(redisPort), username, password,
+                             to_string(database), chrono::milliseconds(1500));
         probe.disconnect();
     }
     catch (const Exception& exception)
@@ -889,7 +899,7 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
             if (row->m_nodeId == settings->nodeIdentity())
             {
                 RedisConnect redis;
-                redis.connect(URL(row->m_redisUri));
+                redis.connect(redisConnectionUrl(row->m_redisUri));
                 if (!cluster::Coordinator::readSnapshot(redis).m_members.empty())
                     throw Exception("This storage already has cluster members. Restore an Offline member using its Dashboard, or force remove an unrecoverable member first.");
                 CClusterControl enable;
@@ -928,12 +938,16 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
                 const auto settings = getSettings();
                 if (action == "disable")
                 {
-                    requireServer();
+                    (void)requireServer();
                     if (!settings->m_cluster.m_enabled.asBool())
+                    {
                         throw Exception("This node is already Standalone.");
+                    }
                 }
                 else if (settings->m_cluster.m_enabled.asBool())
+                {
                     throw Exception("Leave the cluster before retiring this configuration.");
+                }
                 OSService::queueNodeAction(settings->nodeIdentity(), settings->userDatabaseUri(), action);
             }
             reportClusterState(output);
@@ -1073,8 +1087,10 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
 
     output.m_on_cluster_database = onClusterDatabase;
     output.m_enabled = !settings->m_cluster.m_enabled.isNull() && settings->m_cluster.m_enabled.asBool();
-    output.m_redis_uri = settings->m_persistence.m_redis_uri.asString();
-    output.m_database_uri = settings->userDatabaseUri();
+    // The passwords go no further than this process: the interface shows the masked URIs, and
+    // enableClusterMode puts the recorded password back when a masked one comes in unchanged.
+    output.m_redis_uri = UriSecret::hidden(settings->m_persistence.m_redis_uri.asString());
+    output.m_database_uri = UriSecret::hidden(settings->userDatabaseUri());
 
     // This node's own row from the database, or the node itself when there is no row to hold it:
     // the settings say what the node started with, and the row is what the next start reads.
@@ -1128,7 +1144,7 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
             try
             {
                 RedisConnect redis;
-                const URL url(uri);
+                const auto url = redisConnectionUrl(uri);
                 const auto& [host, port] = url.hostAndPort();
                 redis.setReadTimeout(chrono::milliseconds(1000));
                 redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
@@ -1200,7 +1216,10 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         const auto* view = snapshotFor(uri);
         node.m_is_alive = false;
         node.m_is_coordinator = false;
-        if (view)
+        // A node that is not cluster-enabled may still appear in Redis from a prior
+        // cluster incarnation; Stored state (Standalone, Not Clustered) is authoritative.
+        const auto isClusterNode = stored != storedNodes.end() && stored->m_clusterEnabled;
+        if (view && isClusterNode)
         {
             const auto member = ranges::find_if(view->m_members, [&](const auto& candidate)
             {
@@ -1217,9 +1236,16 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         {
             node.m_state = "Unknown";
         }
-        if (runningCluster)
+        if (runningCluster && view)
         {
-            node.m_links = static_cast<int>(runningCluster->linkCountOf(std::string(name.c_str())));
+            // The number of nodes connected to this one. The cluster is a full mesh of its alive
+            // members, so a remote node is connected to all of them; this node's own connections
+            // are known exactly from its links.
+            const int aliveMembers = static_cast<int>(ranges::count_if(view->m_members,
+                                                                       [](const auto& member) { return member.m_alive; }));
+            node.m_links = node.m_node_id.asString() == nodeId
+                ? static_cast<int>(runningCluster->connectedPeerCount())
+                : aliveMembers > 1 ? aliveMembers - 1 : 0;
         }
     };
 
@@ -1233,7 +1259,11 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
 void ControlService::enableClusterMode(const CClusterControl& input, CClusterControlResponse& output) const
 {
     const auto& settings = getSettings();
-    const auto  redisUri = input.m_redis_uri.asString();
+    // The interface is sent the masked URIs; when one comes back unchanged, its mask means
+    // "the password is unchanged" and the recorded one is put back. A real password in the
+    // request is taken as given - including an empty one, which clears the recorded password.
+    const auto  redisUri = UriSecret::restored(input.m_redis_uri.asString(),
+                                               settings->m_persistence.m_redis_uri.asString());
     if (redisUri.empty())
     {
         throw Exception("Name the storage the cluster will keep its state in.");
@@ -1243,7 +1273,8 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
     // bootstrap file keeps the SQL URI and the GUI port, and everything else comes from the
     // database - so it is required here, and required to be one a cluster can use: SQLite is a
     // file on one machine.
-    const auto databaseUri = input.m_database_uri.asString();
+    const auto databaseUri = UriSecret::restored(input.m_database_uri.asString(),
+                                                 settings->userDatabaseUri());
     if (databaseUri.empty())
     {
         throw Exception("Name the accounts database every node of the cluster will share "
@@ -1271,7 +1302,7 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
     // Checked by connecting, so that something else listening on the port is caught too.
     {
         RedisConnect redis;
-        redis.connect(URL(redisUri));
+        redis.connect(redisConnectionUrl(redisUri));
         const auto membership = cluster::Coordinator::membership(redis, settings->nodeIdentity());
 
         if (membership == 0)
@@ -1380,7 +1411,7 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
         try
         {
             RedisConnect redis;
-            const URL url(row->m_redisUri);
+            const auto url = redisConnectionUrl(row->m_redisUri);
             const auto& [host, port] = url.hostAndPort();
             redis.setReadTimeout(chrono::milliseconds(1000));
             redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
@@ -1412,7 +1443,7 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
     if (input.m_force.asBool() && !row->m_redisUri.empty())
     {
         RedisConnect redis;
-        const URL url(row->m_redisUri);
+        const auto url = redisConnectionUrl(row->m_redisUri);
         const auto& [host, port] = url.hostAndPort();
         redis.setReadTimeout(chrono::milliseconds(1000));
         redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
@@ -1434,10 +1465,6 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
 void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output, const bool joinImmediately) const
 {
     const auto& settings = getSettings();
-    if (!settings->m_cluster.m_enabled.asBool())
-    {
-        throw Exception("Enable Cluster mode on the first node before adding another node to its cluster.");
-    }
     const auto  store = requireClusterStore(settings);
 
     const String nodeId = input.m_node.m_node_id.asString();
@@ -1448,20 +1475,105 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
         throw Exception("Select the node to invite: no such node in the cluster's configuration.");
     }
 
-    if (row->m_nodeId == settings->nodeIdentity())
+    if (row->m_nodeId == settings->nodeIdentity() && !joinImmediately)
     {
-        throw Exception("This node is already serving this cluster; select another node to join.");
+        throw Exception("This node is already serving this cluster; select another node to invite.");
     }
     if (joinImmediately && (row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled))
     {
         throw Exception("Select a Standalone node with an active configuration in this database.");
     }
 
+    // When the local node is not itself in cluster mode, the invitation cannot name it as the
+    // joining target — find an enabled cluster member that its storage reports as alive, and
+    // present it: the receiving side validates the leader against the live membership.
+    String leaderNodeId;
+    String leaderRedisUri;
+    if (!settings->m_cluster.m_enabled.asBool())
+    {
+        map<string, optional<cluster::Coordinator::Snapshot>> snapshots;
+        for (const auto& n : store->nodes())
+        {
+            if (!n.m_clusterEnabled || n.m_state == "Removed" || n.m_state == "Retired" ||
+                n.m_redisUri.empty())
+            {
+                continue;
+            }
+            const string key(n.m_redisUri.c_str());
+            const auto [position, inserted] = snapshots.try_emplace(key);
+            if (inserted)
+            {
+                try
+                {
+                    RedisConnect redis;
+                    redis.setReadTimeout(chrono::milliseconds(1000));
+                    const auto url = redisConnectionUrl(n.m_redisUri);
+                    const auto& [host, port] = url.hostAndPort();
+                    redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+                    position->second = cluster::Coordinator::readSnapshot(redis);
+                }
+                catch (const Exception&)
+                {
+                    // Unreachable storage: not the cluster this node joins.
+                }
+            }
+            if (position->second && ranges::any_of(position->second->m_members, [&](const auto& member)
+            {
+                return member.m_nodeId == n.m_nodeId && member.m_alive;
+            }))
+            {
+                leaderNodeId = n.m_nodeId;
+                leaderRedisUri = n.m_redisUri;
+                break;
+            }
+        }
+        if (leaderNodeId.empty())
+        {
+            throw Exception("No live cluster member found in this database. "
+                            "Enable Cluster mode on a node before joining others.");
+        }
+    }
+
+    // Self-join: a Standalone node joins the cluster from its own page. The invitation message
+    // a remote node would answer is applied here, with the same validation the receiving side
+    // runs in Cluster::acceptSharedJoin.
+    if (row->m_nodeId == settings->nodeIdentity())
+    {
+        const auto leader = store->node(leaderNodeId);
+        if (!leader || leader->m_state == "Removed" || leader->m_state == "Retired")
+        {
+            throw Exception("The selected cluster does not match an enabled node in this shared database.");
+        }
+        const auto snapshot = [&]() -> optional<cluster::Coordinator::Snapshot>
+        {
+            RedisConnect redis;
+            redis.setReadTimeout(chrono::milliseconds(1000));
+            const auto url = redisConnectionUrl(leaderRedisUri);
+            const auto& [host, port] = url.hostAndPort();
+            redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+            return cluster::Coordinator::readSnapshot(redis);
+        }();
+        if (!snapshot || snapshot->m_members.size() >= cluster::Coordinator::MaxMembers)
+        {
+            throw Exception(snapshot ? "The cluster already has the maximum number of members."
+                                     : "The selected cluster's storage is unreachable.");
+        }
+        const auto error = settings->applyInvitationAccept(leaderRedisUri, settings->userDatabaseUri());
+        if (!error.empty())
+        {
+            throw Exception(error);
+        }
+        OSService::queueNodeAction(settings->nodeIdentity(), settings->userDatabaseUri(), "reload");
+        reportClusterState(output);
+        return;
+    }
+
     // Shared-database joins use the configured cluster secret. Legacy invitations may supply
     // a password explicitly; either path authenticates before requesting a configuration change.
     const auto result = requireServer().getCluster()->sendInvitation(row->m_hostPort, row->m_name,
                                                                      joinImmediately ? String() : input.m_password.asString(),
-                                                                     joinImmediately, row->m_nodeId);
+                                                                     joinImmediately, row->m_nodeId,
+                                                                     "join", leaderNodeId);
     if (!result.m_success)
     {
         throw Exception(result.m_error);
@@ -2257,7 +2369,7 @@ namespace {
 string settingsError(const std::exception& error, const CNodeSettings& values)
 {
     string message = error.what();
-    for (const String uri: {values.m_redis_uri.asString(), values.m_database_uri.asString()})
+    for (const auto& uri: {values.m_redis_uri.asString(), values.m_database_uri.asString()})
     {
         if (uri.empty()) continue;
         const string raw(uri.c_str()), hidden(UriSecret::hidden(uri).c_str());
@@ -2271,7 +2383,7 @@ void moveNodeSessionSet(const String& uri, const string& ns, const String& from,
 {
     if (uri.empty() || from == to) return;
     RedisConnect redis;
-    redis.connect(URL(uri));
+    redis.connect(redisConnectionUrl(uri));
     RedisCommand command("EVAL", "local s=redis.call('SMEMBERS',KEYS[1]); for _,v in ipairs(s) do redis.call('SADD',KEYS[2],v) end; redis.call('DEL',KEYS[1]); return #s");
     for (const auto& value: vector<string>{"2", ns + "node_" + from.c_str() + "_sessions", ns + "node_" + to.c_str() + "_sessions"}) command.emplace_back(value);
     vector<Variant> result;
@@ -2315,7 +2427,7 @@ void ControlService::SettingsControl(const CSettingsControl& input, CSettingsCon
             if (clustered && values.m_redis_uri.asString().empty()) throw Exception("Leave the cluster before disabling Redis.");
             if (!values.m_redis_uri.asString().empty())
             {
-                const URL uri(values.m_redis_uri.asString());
+                const auto uri = redisConnectionUrl(values.m_redis_uri.asString());
                 if (uri.protocol() != "redis") throw Exception("Redis connection must use a redis:// URI.");
                 RedisConnect redis;
                 redis.connect(uri);
@@ -2426,6 +2538,9 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
             CInitialSetup probe;
             probe.m_redis_host = input.m_redis_host;
             probe.m_redis_port = input.m_redis_port;
+            probe.m_redis_database = input.m_redis_database;
+            probe.m_redis_username = input.m_redis_username;
+            probe.m_redis_password = input.m_redis_password;
             requireReachableRedis(probe);
         }
         else if (action == "set")
@@ -2487,6 +2602,7 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
             output.m_setup = input.m_setup;
             output.m_setup.m_admin_password.clear();
             output.m_setup.m_cluster_password.clear();
+            output.m_setup.m_redis_password.clear();
             output.m_running = m_controller->isServing();
         }
         else

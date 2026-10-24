@@ -1036,6 +1036,9 @@
                          set up with persistence turned off. -->
                     <xsd:element name="redis_host" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="redis_port" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="redis_database" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="redis_username" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="redis_password" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
                         <xsd:annotation>
                             <xsd:documentation>Optional. The PostgreSQL or MySQL database for shared
@@ -1087,6 +1090,9 @@
                         </xsd:element>
                         <xsd:element name="redis_host" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="redis_port" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="redis_database" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="redis_username" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="redis_password" type="xsd:string" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

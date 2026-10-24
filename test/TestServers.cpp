@@ -13,6 +13,7 @@
 */
 
 #include "TestServers.h"
+#include "common/RedisCredentials.h"
 #include <sptk5/net/RedisConnect.h>
 
 #include <cstdlib>
@@ -93,7 +94,7 @@ void TestServers::flushRedis() noexcept
     try
     {
         RedisConnect redis;
-        redis.connect(URL(redisUri()));
+        redis.connect(redisConnectionUrl(redisUri()));
         redis.flush();
         redis.disconnect();
     }

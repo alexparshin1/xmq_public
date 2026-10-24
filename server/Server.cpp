@@ -13,6 +13,8 @@
 */
 
 #include "Server.h"
+#include "common/RedisCredentials.h"
+#include "Settings/UriSecret.h"
 
 #include <sptk5/net/SSLSocket.h>
 
@@ -69,7 +71,7 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
         }
         // The URL carries the optional username and password through to the Redis connection,
         // so it's passed on whole rather than reduced to host and port.
-        URL connectString(settings.m_persistence.m_redis_uri);
+        URL connectString = redisConfiguredUrl(settings.m_persistence.m_redis_uri.asString());
         if (const auto [hostname, port] = connectString.hostAndPort();
             hostname.empty())
         {
@@ -106,7 +108,7 @@ SStorage Server::initializeStorage(const Settings& settings)
         catch (const Exception& exception)
         {
             logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                       format("Failed to initialize storage for {}: {}", redisConnectString.c_str(), exception.what()));
+                       format("Failed to initialize storage for {}: {}", UriSecret::hidden(redisConnectString).c_str(), exception.what()));
         }
     }
 
@@ -1332,7 +1334,7 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
         // holding its lease, or neither - is the whole diagnosis.
         const auto cluster = m_cluster.load();
         logMessage(LogSubject::ClusterEvents, LogPriority::Warning,
-                   [this, &clientId, cluster]
+                   [&clientId, cluster]
                    {
                        const auto* coordinator = cluster ? cluster->coordinator() : nullptr;
                        if (!coordinator)

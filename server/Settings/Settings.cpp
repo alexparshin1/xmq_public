@@ -13,6 +13,7 @@
 */
 
 #include "Settings.h"
+#include "common/RedisCredentials.h"
 #include "ClusterStore.h"
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
@@ -758,6 +759,43 @@ void Settings::applyClusterConfigurationUnlocked()
 
         // First start on this database: the row is created from the configuration the node came with,
         // so that the interface has something to edit and the next start has a row to read.
+        // But a declaration with the same name may already exist — placed by another node that
+        // expects this one to join (ControlService::addClusterNode).  If the name is taken, re-key
+        // the existing row with the real GUID instead of inserting a duplicate.
+        if (const auto existing = store.nodeByName(m_cluster.m_this_node.m_node_name.asString()))
+        {
+            auto updated = *existing;
+            updated.m_nodeId = nodeId;
+            updated.m_hostPort = m_cluster.m_this_node.m_host_port.asString();
+            updated.m_redisUri = m_persistence.m_redis_uri.asString();
+            updated.m_databaseUri = uri;
+            updated.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
+            updated.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
+            updated.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
+            {
+                const auto [certFile, _ignored] = nodeKeyFiles();
+                if (error_code ec; filesystem::exists(certFile, ec))
+                {
+                    Buffer pem;
+                    pem.loadFromFile(certFile);
+                    updated.m_certificate = String(pem.c_str(), pem.size());
+                }
+            }
+            store.updateNode(updated);
+
+            // Populate in-memory state from the re-keyed row.
+            m_persistence.m_redis_uri = updated.m_redisUri;
+            m_cluster.m_database_uri = updated.m_databaseUri;
+            m_cluster.m_enabled = updated.m_clusterEnabled && updated.m_state != "Invited";
+            m_cluster.m_lease_seconds = updated.m_leaseSeconds;
+            m_cluster.m_links = updated.m_links;
+            m_cluster.m_this_node.m_node_name = updated.m_name;
+            m_cluster.m_this_node.m_host_port = updated.m_hostPort;
+
+            syncPeerCertificates(store, nodeId);
+            return;
+        }
+
         ClusterStore::Node row;
         row.m_nodeId = nodeId;
         row.m_name = m_cluster.m_this_node.m_node_name.asString();
@@ -1512,16 +1550,18 @@ String splitHostPort(const String& address, int& port)
 }
 
 /**
- * @brief Split a Redis URI into the host and port the setup screen shows.
+ * @brief Split a Redis URI into the connection fields the setup screen shows.
  *
  * @param redisUri      URI as the configuration writes it, e.g. "redis://localhost:6379".
  * @param host          Receives the host name, or empty when the URI names none.
  * @param port          Receives the port, defaulted when the URI carries none.
+ * @param database      Receives the Redis database number, defaulted to zero.
  */
-void splitRedisUri(const String& redisUri, String& host, int& port)
+void splitRedisUri(const String& redisUri, String& host, int& port, int& database)
 {
     host = "";
     port = defaultRedisPort;
+    database = 0;
 
     String address = redisUri;
     if (const auto schemeEnd = address.find("://");
@@ -1529,8 +1569,8 @@ void splitRedisUri(const String& redisUri, String& host, int& port)
     {
         address = address.substr(schemeEnd + 3);
     }
-    // Credentials are dropped: the setup screen asks for an address only, and showing a password
-    // in a field that will not be sent back would lose it the moment the form is submitted.
+    // Split credentials away before parsing the host. The username is provided separately below;
+    // the password is deliberately never returned to the setup screen.
     if (const auto credentialsEnd = address.rfind('@');
         credentialsEnd != String::npos)
     {
@@ -1539,6 +1579,12 @@ void splitRedisUri(const String& redisUri, String& host, int& port)
     if (const auto pathStart = address.find('/');
         pathStart != String::npos)
     {
+        const auto databaseText = address.substr(pathStart + 1);
+        if (!databaseText.empty() && databaseText.size() <= 5 &&
+            all_of(databaseText.begin(), databaseText.end(), [](const char c) { return isdigit(static_cast<unsigned char>(c)); }))
+        {
+            database = stoi(databaseText);
+        }
         address = address.substr(0, pathStart);
     }
 
@@ -1568,6 +1614,8 @@ String nodeHostOf(const CInitialSetup& setup)
  */
 void checkInitialSetup(const CInitialSetup& setup)
 {
+    if (!setup.m_redis_host.asString().empty() && !setup.m_redis_username.asString().empty() && setup.m_redis_password.asString().empty())
+        throw Exception("Enter a Redis password with the username, or leave both credentials empty.");
     if (setup.m_admin_password.asString().empty())
     {
         throw Exception("The administrator password is required.");
@@ -1605,6 +1653,11 @@ void checkInitialSetup(const CInitialSetup& setup)
         (setup.m_redis_port.asInteger() < 1 || setup.m_redis_port.asInteger() > highestPort))
     {
         throw Exception("The Redis port must be between 1 and " + to_string(highestPort) + ".");
+    }
+    if (!setup.m_redis_host.asString().empty() &&
+        (setup.m_redis_database.asInteger() < 0 || setup.m_redis_database.asInteger() > 16))
+    {
+        throw Exception("Choose a Redis database number between 0 and 16.");
     }
 
     // The accounts database, for users and cluster configuration. Empty means the default
@@ -1743,7 +1796,8 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     const auto persistence = section(root, "persistence");
     String     redisHost;
     int        redisPort = defaultRedisPort;
-    splitRedisUri(persistence->getString("redis_uri"), redisHost, redisPort);
+    int        redisDatabase = 0;
+    splitRedisUri(persistence->getString("redis_uri"), redisHost, redisPort, redisDatabase);
     if (!persistence->getBoolean("enabled"))
     {
         redisHost.clear();
@@ -1768,6 +1822,10 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     setup.m_web_service_port = static_cast<int>(section(root, "web_service")->getInteger("listener_port"));
     setup.m_redis_host = redisHost;
     setup.m_redis_port = redisPort;
+    setup.m_redis_database = redisDatabase;
+    if (!redisHost.empty())
+        setup.m_redis_username = decodeRedisCredential(redisConfiguredUrl(persistence->getString("redis_uri")).username());
+    setup.m_redis_password.clear();
     setup.m_database_uri = section(root, "authentication")->getString("database_uri");
 
     return setup;
@@ -1833,8 +1891,14 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     }
     else
     {
-        persistence->set("redis_uri", "redis://" + redisHost + ":" +
-                                      to_string(setup.m_redis_port.asInteger()));
+        const String password = setup.m_redis_password.asString();
+        String username = setup.m_redis_username.asString();
+        if (username.empty() && !password.empty()) username = "default";
+        const String credentials = username.empty() && password.empty() ? String() :
+            String(encodeRedisCredential(username)) + ":" + encodeRedisCredential(password) + "@";
+        persistence->set("redis_uri", "redis://" + credentials + redisHost + ":" +
+                                      to_string(setup.m_redis_port.asInteger()) + "/" +
+                                      to_string(setup.m_redis_database.asInteger()));
         persistence->set("enabled", true);
     }
 
@@ -1945,8 +2009,8 @@ CNodeSettings Settings::nodeSettings(const bool hideSecrets) const
         if (!tls && listener.m_protocol.asString() == "MQTT+SSL") { values.m_mqtt_ssl_port = listener.m_port; tls = true; }
     }
     values.m_web_service_port = m_web_service.m_listener_port;
-    const String redis = m_persistence.m_enabled.asBool() ? m_persistence.m_redis_uri.asString() : "";
-    const auto database = userDatabaseUriUnlocked();
+    const string redis = m_persistence.m_enabled.asBool() ? m_persistence.m_redis_uri.asString() : "";
+    const string database = userDatabaseUriUnlocked();
     values.m_redis_uri = hideSecrets ? UriSecret::hidden(redis) : redis;
     values.m_database_uri = hideSecrets ? UriSecret::hidden(database) : database;
     values.m_cluster_enabled = m_cluster.m_enabled.asBool();

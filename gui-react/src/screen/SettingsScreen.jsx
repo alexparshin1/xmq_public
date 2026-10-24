@@ -20,6 +20,7 @@ export default class SettingsScreen extends React.Component {
         const database = shared ? new URL(settings.database_uri) : null;
         return {...settings,
             redis_host: redis?.hostname || "", redis_port: redis?.port || 6379,
+            redis_database: redis?.pathname && /^\/[0-9]+$/.test(redis.pathname) ? Number(redis.pathname.slice(1)) : 0,
             redis_user: decode(redis?.username), redis_password: decode(redis?.password),
             database_type: database ? database.protocol.slice(0, -1) : "sqlite",
             database_host: database?.hostname || "", database_port: database?.port || (database?.protocol === "mysql:" ? 3306 : 5432),
@@ -55,18 +56,23 @@ export default class SettingsScreen extends React.Component {
 
     payload() {
         const v = this.state.values;
+        if (v.redis_host.trim() && v.redis_user && !v.redis_password)
+            throw new Error("Enter a Redis password with the username, or leave both credentials empty.");
+        if (v.redis_host.trim() && (!Number.isInteger(Number(v.redis_database)) || Number(v.redis_database) < 0 || Number(v.redis_database) > 16))
+            throw new Error("Choose a Redis database number between 0 and 16.");
         for (const port of [v.mqtt_port, v.mqtt_ssl_port, v.web_service_port,
             ...(v.redis_host.trim() ? [v.redis_port] : []), ...(v.database_type !== "sqlite" ? [v.database_port] : [])]) {
             if (!Number.isInteger(Number(port)) || Number(port) < 1 || Number(port) > 65535)
                 throw new Error("Ports must be whole numbers between 1 and 65535.");
         }
-        const credentials = (user, password) => user || password ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}@` : "";
+        const credentials = (user, password) => user || password ?
+            `${encodeURIComponent(user)}:${password === "*****" ? "*****" : encodeURIComponent(password)}@` : "";
         if (v.database_type !== "sqlite" && (!v.database_host.trim() || !v.database_name.trim()))
             throw new Error("Enter the user database host and database name.");
         return {
             node_name: v.node_name, node_host: v.node_host,
             mqtt_port: Number(v.mqtt_port), mqtt_ssl_port: Number(v.mqtt_ssl_port), web_service_port: Number(v.web_service_port),
-            redis_uri: v.redis_host.trim() ? `redis://${credentials(v.redis_user, v.redis_password)}${v.redis_host.trim()}:${v.redis_port}` : "",
+            redis_uri: v.redis_host.trim() ? `redis://${credentials(v.redis_user || (v.redis_password ? "default" : ""), v.redis_password)}${v.redis_host.trim()}:${v.redis_port}/${Number(v.redis_database)}` : "",
             database_uri: v.database_type === "sqlite" ? (v.database_uri?.startsWith("sqlite") ? v.database_uri : "")
                 : `${v.database_type}://${credentials(v.database_user, v.database_password)}${v.database_host.trim()}:${v.database_port}/${encodeURIComponent(v.database_name.trim())}`
         };
@@ -129,6 +135,11 @@ export default class SettingsScreen extends React.Component {
                 </fieldset>
                 <fieldset><legend>Redis</legend>
                     {this.field("Redis host", "redis_host")}{this.field("Redis port", "redis_port", "number")}
+                    <div className="inputScreenRow"><label className="inputScreenLabel" htmlFor="redis_database">Redis database:</label>
+                        <select id="redis_database" name="redis_database" value={v.redis_database}
+                            disabled={busy || pending} onChange={e => this.change("redis_database", e.target.value)}>
+                            {Array.from({length: 17}, (_, index) => <option key={index} value={index}>{index}</option>)}
+                        </select></div>
                     {this.field("Redis user", "redis_user")}{this.field("Redis password", "redis_password", "password")}
                     <p className="inputScreenHint">Leave host empty to disable persistence. Changing storage does not migrate sessions or queues.
                         A clustered node must keep its current membership; leave the cluster before moving to different storage.</p>

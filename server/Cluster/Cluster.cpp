@@ -15,6 +15,8 @@
 #include "Server.h"
 #include "NodeIdentity.h"
 #include "storage/RedisConnection.h"
+#include "common/RedisCredentials.h"
+#include "server/Settings/UriSecret.h"
 #include "server/Settings/ClusterStore.h"
 #include "server/OSService.h"
 #include "common/mqtt/PublishMessage.h"
@@ -398,7 +400,7 @@ void Cluster::startup()
         m_server->logMessage(LogSubject::ServerEvents, LogPriority::Info,
                              format("The storage {} is shared with a cluster, and this node is not a member. "
                                     "Serving standalone under the namespace {}.",
-                                    storage->getRedis()->getRedisUrl().toString(), nodeId));
+                                    UriSecret::hidden(storage->getRedis()->getRedisUrl().toString()).c_str(), nodeId));
 
         // A clean start already ran, against the non-namespaced keys. With the namespace now
         // set, the node's sessions - including any stored from a separate standalone run -
@@ -683,6 +685,20 @@ size_t Cluster::linkCountOf(const std::string& nodeName) const
         return node->linkCount();
     }
     return 0;
+}
+
+size_t Cluster::connectedPeerCount() const
+{
+    const shared_lock lock(m_mutex);
+    size_t count = 0;
+    for (const auto& node: m_connectedNodes.nodes())
+    {
+        if (node->getName() != m_server->getNodeName() && node->isConnected())
+        {
+            ++count;
+        }
+    }
+    return count;
 }
 
 SNode Cluster::findClusterNode(const std::string& nodeName) const
@@ -1619,7 +1635,7 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
             if (!local || local->m_state == "Removed" || local->m_state == "Retired" || local->m_clusterEnabled)
                 throw Exception("This node must have an active Standalone configuration to start a cluster.");
             RedisConnect redis;
-            redis.connect(URL(local->m_redisUri));
+            redis.connect(redisConnectionUrl(local->m_redisUri));
             if (Coordinator::membership(redis, m_nodeId) != -1)
                 throw Exception("This storage already has cluster members. Restore an Offline member or force remove an unrecoverable member before starting a new cluster.");
             joining = true;
@@ -1652,7 +1668,7 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
             }
             RedisConnect redis;
             redis.setReadTimeout(chrono::milliseconds(1000));
-            const URL url(redisUri);
+            const auto url = redisConnectionUrl(redisUri);
             const auto& [host, port] = url.hostAndPort();
             redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
             const auto snapshot = Coordinator::readSnapshot(redis);
@@ -1768,7 +1784,8 @@ void Cluster::onRefusal(const String& payload)
 
 Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName,
                                                const String& clusterPassword, const bool joinImmediately,
-                                               const String& expectedNodeId, const String& nodeAction)
+                                               const String& expectedNodeId, const String& nodeAction,
+                                               const String& leaderNodeId)
 {
     InviteResult result;
 
@@ -1912,7 +1929,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
             xdoc::Document request;
             request.root()->set("action", nodeAction);
             request.root()->set("node_id", nodeId);
-            request.root()->set("leader_id", m_nodeId);
+            request.root()->set("leader_id", leaderNodeId.empty() ? String(m_nodeId) : leaderNodeId);
             request.root()->set("xmq_version", Server::getVersion());
             request.root()->set("redis_uri", m_settings->m_persistence.m_redis_uri.asString());
             request.root()->set("database_uri", m_settings->userDatabaseUri());
