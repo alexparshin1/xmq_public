@@ -120,6 +120,9 @@ TEST(XMQ_PasswordHashTests, saysEverythingThatIsMissingAtOnce)
     EXPECT_EQ("The password needs at least one digit.", PasswordHash::weakness("LongEnough!!"));
     EXPECT_EQ("The password needs at least one punctuation character.", PasswordHash::weakness("LongEnough11"));
     EXPECT_EQ("The password needs at least 8 characters.", PasswordHash::weakness("Sh0rt!"));
+    EXPECT_EQ("The password needs at least 8 characters and at least one punctuation character.",
+              PasswordHash::weakness("Secret1"));
+    EXPECT_TRUE(PasswordHash::weakness("Secret#1").empty());
 
     // Two, which is where the "and" first shows.
     EXPECT_EQ("The password needs at least 8 characters and at least one digit.",
