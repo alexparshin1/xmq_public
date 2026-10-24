@@ -15,6 +15,7 @@
 #include "server/Cluster/NodeIdentity.h"
 #include "server/Settings/ClusterStore.h"
 #include "server/Settings/Settings.h"
+#include "server/SelfSignedCertificate.h"
 
 #include <gtest/gtest.h>
 #include <sptk5/cdatabase>
@@ -181,4 +182,69 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
     }
 
     filesystem::remove_all(directory);
+}
+
+TEST(XMQ_ClusterBootstrap, publishesTheConfiguredMqttCertificateAndRefreshesNewPeers)
+{
+    if (!pgAnswers()) GTEST_SKIP() << "Shared PostgreSQL test database is unavailable";
+    const auto directory = filesystem::temp_directory_path() / ("xmq_certificate_test_" + cluster::NodeIdentity::generate());
+    filesystem::create_directory(directory);
+    const auto configuration = directory / "xmq_server.conf";
+    const auto certificate = directory / "configured.crt";
+    const auto key = directory / "configured.key";
+    String description;
+    SelfSignedCertificate::reissue(certificate, key, "configured.example.test", description);
+    xdoc::Document document;
+    document.load(Buffer(configurationText()));
+    const auto keys = document.root()->findFirst("connections")->findFirst("ssl_keys");
+    keys->set("certfile", certificate.generic_string());
+    keys->set("keyfile", key.generic_string());
+    const auto name = "certificate-test-" + cluster::NodeIdentity::generate();
+    document.root()->findFirst("cluster")->findFirst("this_node")->set("node_name", name);
+    Buffer config;
+    document.exportTo(xdoc::DataFormat::JSON, config, true);
+    config.saveToFile(configuration);
+    Settings settings;
+    settings.loadConfiguration(configuration);
+    const auto store = settings.clusterStore();
+    ASSERT_NE(nullptr, store);
+    const auto id = settings.nodeIdentity();
+    const auto peerId = cluster::NodeIdentity::generate();
+    const auto peerName = "new-peer-" + peerId;
+    const auto peerFile = Settings::peerCertificatesDirectory() / (peerName + ".crt");
+    struct Cleanup
+    {
+        shared_ptr<ClusterStore> store;
+        string id, peerId;
+        filesystem::path directory, peerFile;
+        ~Cleanup()
+        {
+            try { store->removeNode(peerId); store->removeNode(id); } catch (...) {}
+            error_code ignored;
+            filesystem::remove_all(directory, ignored);
+            filesystem::remove(peerFile, ignored);
+        }
+    } cleanup {store, id, peerId, directory, peerFile};
+    Buffer pem;
+    pem.loadFromFile(certificate);
+    ASSERT_TRUE(store->node(id).has_value());
+    EXPECT_EQ(String(pem), store->node(id)->m_certificate);
+    SelfSignedCertificate::reissue(certificate, key, "reissued.example.test", description);
+    settings.loadConfiguration(configuration);
+    pem.loadFromFile(certificate);
+    EXPECT_EQ(String(pem), store->node(id)->m_certificate);
+    ClusterStore::Node peer;
+    peer.m_nodeId = peerId;
+    peer.m_name = peerName;
+    peer.m_hostPort = "new-peer.example.test:8883";
+    peer.m_state = "Standalone";
+    peer.m_databaseUri = pgUri;
+    peer.m_certificate = String(pem);
+    store->insertNode(peer);
+    EXPECT_FALSE(filesystem::exists(peerFile));
+    settings.refreshPeerCertificates();
+    ASSERT_TRUE(filesystem::exists(peerFile));
+    Buffer trusted;
+    trusted.loadFromFile(peerFile);
+    EXPECT_EQ(String(pem), String(trusted));
 }

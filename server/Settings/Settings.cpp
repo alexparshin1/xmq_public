@@ -25,6 +25,7 @@
 
 #include <openssl/rand.h>
 #include <ranges>
+#include <set>
 #include <sptk5/JWT.h>
 
 using namespace std;
@@ -738,7 +739,8 @@ void Settings::applyClusterConfigurationUnlocked()
 
             // Write this node's certificate to the shared database so other nodes find it
             // there. Kept up to date on every start, so a reissued certificate is picked up.
-            const auto [certFile, _ignored] = nodeKeyFiles();
+            const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
+            const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
             if (error_code ec; filesystem::exists(certFile, ec))
             {
                 Buffer pem;
@@ -773,7 +775,8 @@ void Settings::applyClusterConfigurationUnlocked()
             updated.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
             updated.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
             {
-                const auto [certFile, _ignored] = nodeKeyFiles();
+                const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
+                const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
                 if (error_code ec; filesystem::exists(certFile, ec))
                 {
                     Buffer pem;
@@ -807,7 +810,8 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
         row.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
         {
-            const auto [certFile, _ignored] = nodeKeyFiles();
+            const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
+            const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
             if (error_code ec; filesystem::exists(certFile, ec))
             {
                 Buffer pem;
@@ -868,6 +872,17 @@ void Settings::syncPeerCertificates(ClusterStore& store, const String& nodeId)
     {
         (void) buildPeerCertificateBundle();
     }
+}
+
+void Settings::refreshPeerCertificates()
+{
+    const WriteLock lock(m_mutex);
+    if (!m_accountsPool || m_configurationPath.empty()) return;
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase()) return;
+    const auto uuid = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    syncPeerCertificates(store, uuid);
 }
 
 String Settings::applyInvitationAccept(const String& redisUri, const String& databaseUri)
@@ -1700,6 +1715,17 @@ filesystem::path Settings::peerCertificatesDirectory()
     return DirectoryNames::certsDirectory() / "peers";
 }
 
+filesystem::path Settings::peerCertificateAuthority(const String& peerName)
+{
+    const filesystem::path filename(string(peerName) + ".crt");
+    if (!peerName.empty() && filename == filename.filename())
+    {
+        const auto peer = peerCertificatesDirectory() / filename;
+        if (filesystem::is_regular_file(peer)) return peer;
+    }
+    return buildPeerCertificateBundle();
+}
+
 filesystem::path Settings::buildPeerCertificateBundle()
 {
     const auto directory = peerCertificatesDirectory();
@@ -1770,6 +1796,136 @@ String Settings::nodeHostName() const
     // Whatever the configuration says is deliberate, including "localhost": a server that is only
     // ever reached from its own machine is a real arrangement, not a mistake to correct here.
     return host.empty() ? thisHostName() : host;
+}
+
+String Settings::cloneNodes(const filesystem::path& sourceFile, unsigned count)
+{
+    if (count == 0 || count > 65535) throw Exception("Node count must be between 1 and 65535.");
+    const auto requested = DirectoryNames::resolveConfigurationFile(sourceFile);
+    const auto oldDirectory = requested.parent_path();
+    const auto parent = oldDirectory.parent_path();
+    const auto first = parent / "xmq1";
+    if ((oldDirectory.filename() != "xmq" && oldDirectory.filename() != "xmq1") ||
+        requested.filename() != "xmq_server.conf" || filesystem::is_symlink(oldDirectory) ||
+        filesystem::is_symlink(first))
+        throw Exception("The source must be xmq or xmq1 in a real configuration directory.");
+    const bool moveOriginal = !filesystem::is_regular_file(first / "xmq_server.conf");
+    const auto source = moveOriginal ? requested : first / "xmq_server.conf";
+    if (!filesystem::is_regular_file(source) || (moveOriginal && oldDirectory == first))
+        throw Exception("Source configuration is missing: " + source.string());
+    vector<unsigned> missing;
+    for (unsigned index = 1; index <= count; ++index)
+    {
+        const auto destination = parent / ("xmq" + to_string(index));
+        if (filesystem::is_regular_file(destination / "xmq_server.conf")) continue;
+        if (filesystem::exists(destination))
+            throw Exception("Destination directory exists without a configuration: " + destination.string());
+        if (index > 1) missing.push_back(index);
+    }
+    if (!moveOriginal && missing.empty()) return "All requested configurations already exist; nothing changed.";
+    Buffer content;
+    content.loadFromFile(source);
+    xdoc::Document configuration;
+    configuration.load(content);
+    CServerConfiguration settings;
+    settings.load(configuration.root());
+    int mqtt = 0, tls = 0;
+    for (const auto& listener: settings.m_connections.m_listener)
+    {
+        const auto protocol = listener.m_protocol.asString();
+        if (protocol == "MQTT" && !mqtt) mqtt = static_cast<int>(listener.m_port.asInteger());
+        else if (protocol == "MQTT+SSL" && !tls) tls = static_cast<int>(listener.m_port.asInteger());
+        else if (listener.m_enable.isNull() || listener.m_enable.asBool())
+            throw Exception("Bulk cloning requires one MQTT and one MQTT+SSL listener, without additional enabled listeners.");
+    }
+    const auto web = settings.m_web_service.m_listener_port.asInteger();
+    set<int64_t> ports;
+    for (unsigned index = 1; index <= count; ++index)
+        for (const auto base: {int64_t(mqtt), int64_t(tls), int64_t(web)})
+        {
+            const auto port = base + index - 1;
+            if (base < 1024 || port > 65535 || !ports.insert(port).second)
+                throw Exception("The requested node count creates invalid or overlapping port ranges.");
+        }
+    int ignoredPort = 0;
+    const auto host = splitHostPort(settings.m_cluster.m_this_node.m_host_port.asString(), ignoredPort);
+    const auto name = settings.m_cluster.m_this_node.m_node_name.asString();
+    if (host.empty() || host.find_first_of(" \t\r\n/\\:") != String::npos || name.empty())
+        throw Exception("The source must have a usable node name and advertised host.");
+
+    // Rebase only path-valued strings, not arbitrary substrings in passwords or URLs.
+    // The original UUID, certificates and database move intact with their directory.
+    vector<pair<filesystem::path, Buffer>> originals;
+    vector<pair<filesystem::path, Buffer>> rewritten;
+    const auto rebase = [&](const auto& self, const xdoc::SNode& node) -> void
+    {
+        if (node->type() == xdoc::Node::Type::Text)
+        {
+            const string value(node->getString());
+            for (const auto& [from, to]: vector<pair<string, string>> {
+                    {oldDirectory.string(), first.string()},
+                    {oldDirectory.generic_string(), first.generic_string()},
+                    {string(DirectoryNames::sqliteUri(oldDirectory)), string(DirectoryNames::sqliteUri(first))}})
+                if (value == from || (value.starts_with(from) && value.size() > from.size() &&
+                    (value[from.size()] == '/' || value[from.size()] == '\\')))
+                {
+                    node->set(to + value.substr(from.size()));
+                    break;
+                }
+        }
+        for (const auto& child: node->nodes()) self(self, child);
+    };
+    if (moveOriginal) for (const auto& entry: filesystem::recursive_directory_iterator(oldDirectory))
+    {
+        const auto filename = entry.path().filename().string();
+        if (!(filename.ends_with(".conf") || filename == "xmq_server.conf.template" ||
+              filename == "xmq_server.conf.lastgood")) continue;
+        if (entry.is_symlink()) throw Exception("Cannot relocate a symlinked configuration: " + entry.path().string());
+        if (!entry.is_regular_file()) continue;
+        Buffer original;
+        original.loadFromFile(entry.path());
+        xdoc::Document document;
+        document.load(original);
+        rebase(rebase, document.root());
+        Buffer changed;
+        document.exportTo(xdoc::DataFormat::JSON, changed, true);
+        const auto relative = filesystem::relative(entry.path(), oldDirectory);
+        originals.emplace_back(relative, original);
+        rewritten.emplace_back(relative, changed);
+    }
+    if (moveOriginal) filesystem::rename(oldDirectory, first);
+    vector<unsigned> created;
+    try
+    {
+        for (const auto& [relative, changed]: rewritten) changed.saveToFile(first / relative);
+        for (const auto index: missing)
+        {
+            CNodeSettings node;
+            node.m_node_name = name + "-" + to_string(index);
+            node.m_node_host = host;
+            node.m_mqtt_port = static_cast<int64_t>(mqtt) + index - 1;
+            node.m_mqtt_ssl_port = static_cast<int64_t>(tls) + index - 1;
+            node.m_web_service_port = static_cast<int64_t>(web) + index - 1;
+            const auto result = cloneNode(first / "xmq_server.conf", parent / ("xmq" + to_string(index)) / "xmq_server.conf", node);
+            COUT(result);
+            created.push_back(index);
+        }
+    }
+    catch (...)
+    {
+        const auto failure = current_exception();
+        // Only directories successfully created by this batch are removed.
+        for (const auto index: created)
+            filesystem::remove_all(parent / ("xmq" + to_string(index)));
+        if (moveOriginal)
+        {
+            for (const auto& [relative, original]: originals) original.saveToFile(first / relative);
+            filesystem::rename(first, oldDirectory);
+        }
+        rethrow_exception(failure);
+    }
+    return "Created " + to_string(created.size()) + " clone(s); existing configurations were preserved. "
+           "The original is at " + first.string() + ". No servers were started.";
 }
 
 String Settings::cloneNode(const filesystem::path& sourceFile,

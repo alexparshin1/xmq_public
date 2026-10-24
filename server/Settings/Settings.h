@@ -138,6 +138,9 @@ public:
      */
     [[nodiscard]] static std::filesystem::path buildPeerCertificateBundle();
 
+    /// Prefer the named peer certificate: self-signed peers on one host can share a subject.
+    [[nodiscard]] static std::filesystem::path peerCertificateAuthority(const sptk::String& peerName);
+
     /**
      * @brief The installed configuration template, which a new configuration is built from.
      *
@@ -220,6 +223,11 @@ public:
      */
     static sptk::String createConfiguration(const std::filesystem::path& configurationFile,
                                             const std::filesystem::path& fallbackTemplate = configurationTemplatePath());
+
+    /// Move xmq to xmq1 and create xmq2..xmqN with ports offset by index - 1.
+    /// Existing configurations are skipped; the first move requires a stopped source.
+    /// On failure, rolls back only changes made by this batch.
+    static sptk::String cloneNodes(const std::filesystem::path& sourceFile, unsigned count);
 
     /// Create a standalone node in a new directory, with fresh identity and TLS keys.
     /// Never loads or registers the source node; shared SQL accounts remain shared.
@@ -425,6 +433,9 @@ public:
     /// no database to share. Callers ask isClusterDatabase() before trusting a row to it: a SQLite
     /// file is one machine's, and a cluster's configuration cannot live in one.
     [[nodiscard]] std::shared_ptr<ClusterStore> clusterStore() const;
+
+    /// Import certificates registered since startup before connecting to a new peer.
+    void refreshPeerCertificates();
 
     /**
      * @brief Make this node the first member of a cluster whose state lives in the named storage.

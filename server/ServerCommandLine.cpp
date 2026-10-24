@@ -38,6 +38,11 @@ ServerCommandLine::ServerCommandLine()
                  "Read the administrator password from standard input.");
     defineParameter("admin-user", "", "username", "", alwaysVisible, "admin",
                     "Administrator account for --join-cluster and --leave-cluster.");
+    defineOption("configuration-root", "", alwaysVisible,
+                 "Print the parent directory containing named configurations and exit.");
+    defineParameter("clone-nodes", "", "count", "", alwaysVisible, "",
+                    "Backend for xmq_clone_nodes: move stopped xmq to xmq1, create xmq2..xmqN "
+                    "with ports offset by node index minus one, then exit. No nodes are started.");
     defineParameter("clone-node", "", "source configuration", "", alwaysVisible, "",
                     "Create a standalone clone in a new directory selected by -c, with a new UUID "
                     "and certificates, then exit. Requires --node-name, --node-host, --mqtt-port, "

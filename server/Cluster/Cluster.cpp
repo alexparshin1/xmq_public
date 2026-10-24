@@ -1830,6 +1830,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         // The local node's certificate, verified against the peer bundle: an invitation goes only
         // to a node whose certificate is trusted, exactly as a cluster link would.
         const auto& settings = m_server->getSettings();
+        settings->refreshPeerCertificates();
         const auto& keysData = settings->m_connections.m_ssl_keys;
         const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
         const auto certificateFile = keysData.m_certfile.asString().empty() ? nodeCertificate.string() : keysData.m_certfile.asString();
@@ -1837,7 +1838,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         auto authorityFile = keysData.m_cafile.asString();
         if (authorityFile.empty())
         {
-            authorityFile = Settings::buildPeerCertificateBundle().string();
+            authorityFile = Settings::peerCertificateAuthority(invitedNodeName).string();
         }
         const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
 

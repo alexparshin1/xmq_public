@@ -674,3 +674,57 @@ A bare configuration name resolves relative to the installed configuration root:
 `/etc/xmq2/xmq_server.conf` for a system installation. The same shorthand works for
 `--clone-node xmq1`. Full paths, `./node` paths and filenames such as `custom.conf`
 retain their normal meaning; the working directory does not affect bare names.
+
+## Preparing and extending a local test cluster
+
+The package includes `xmq_clone_nodes` for Linux/FreeBSD (Bash and native `/bin/sh`
+compatible) and `xmq_clone_nodes.cmd` for Windows. The node count includes the
+original:
+
+```sh
+xmq_clone_nodes 6
+xmq_start_instances
+```
+
+On the first invocation, stop the original server. Its `xmq` directory is moved
+to `xmq1`, preserving its UUID, certificates and accounts. Absolute paths inside
+its JSON configuration files are adjusted to the new directory. The default
+service configuration path changes with this move: start the original explicitly
+with `xmq_server -c xmq1`.
+
+Each missing `xmq2..xmqN` is cloned from `xmq1`. For node n, the MQTT, MQTT+SSL and
+web ports are the original ports plus n-1. For example, original ports 1883,
+8883 and 18883 become 1884, 8884 and 18884 on node 2. Clones get fresh UUIDs and
+keys, retain the original advertised host, and use node names suffixed with `-n`.
+They remain standalone until explicitly joined. Existing configurations are
+skipped without rewriting them; an existing directory without a configuration
+is reported rather than overwritten. Port range collisions are rejected before
+changes. A failed batch rolls back only its own newly created configurations.
+
+To add nodes while existing instances are running:
+
+```sh
+xmq_clone_nodes 8
+xmq_start_instances
+```
+
+Both `xmq_start_instances` and `xmq_start_instances.sh` are installed.
+The start script discovers all numbered configurations and launches only those
+without a running `xmq_server -c` process. With an optional N, it selects exactly
+`xmq1..xmqN` and checks every configuration exists before launching anything:
+
+```sh
+xmq_start_instances 8
+```
+
+New processes are detached with `nohup` and stdin `/dev/null`. Each configuration
+directory receives `xmq_server.pid` and `xmq_start.log`. All missing processes are
+launched before startup is checked, with a shared 30-second limit. Existing
+instances are not restarted. If a new node fails, other instances remain running
+and the script reports the log to inspect. Concurrent start invocations use a
+single directory lock under the configuration root.
+
+For a separate configuration root, the cloning script accepts an optional full
+source path as its second argument. `XMQ_SERVER` can select a particular server
+binary for either script. `xmq_server --configuration-root` prints the installed
+root used by configuration names and by the start script.

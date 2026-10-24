@@ -23,6 +23,9 @@
 #include "server/Cluster/NodeIdentity.h"
 
 #include <gtest/gtest.h>
+#include <set>
+#include <openssl/pem.h>
+#include <openssl/x509_vfy.h>
 
 using namespace std;
 using namespace sptk;
@@ -1267,4 +1270,139 @@ TEST(XMQ_Settings, configurationNamesUseTheInstalledParentEvenAfterSelectingAnot
               DirectoryNames::resolveConfigurationFile("xmq_server.conf"));
     EXPECT_EQ(filesystem::current_path() / "relative" / "node.conf",
               DirectoryNames::resolveConfigurationFile("relative/node.conf"));
+}
+
+TEST(XMQ_Settings, bulkCloneMovesTheOriginalAndOffsetsPortsWithoutChangingItsIdentity)
+{
+    const auto directory = emptyTestDirectory("xmq_bulk_clone");
+    const auto source = directory / "xmq" / "xmq_server.conf";
+    filesystem::create_directory(source.parent_path());
+    xdoc::Document document;
+    document.load(Buffer(g_testConfig));
+    document.root()->remove("bridges");
+    document.root()->findFirst("authentication")->set("database_uri", String("postgresql://unreachable.invalid/accounts"));
+    document.root()->findFirst("logging")->set("log_to", (source.parent_path() / "server.log").string());
+    const auto keys = document.root()->findFirst("connections")->findFirst("ssl_keys");
+    keys->set("certfile", (source.parent_path() / "certs/node.crt").string());
+    keys->set("keyfile", (source.parent_path() / "certs/node.key").string());
+    Buffer content;
+    document.exportTo(xdoc::DataFormat::JSON, content, true);
+    content.saveToFile(source);
+    const auto uuid = cluster::NodeIdentity::load(source.parent_path() / cluster::NodeIdentity::FileName);
+    String description;
+    SelfSignedCertificate::reissue(source.parent_path() / "certs/node.crt", source.parent_path() / "certs/node.key", "localhost", description);
+    Buffer originalKey;
+    originalKey.loadFromFile(source.parent_path() / "certs/node.key");
+    ASSERT_FALSE(Settings::cloneNodes(source, 3).empty());
+    EXPECT_FALSE(filesystem::exists(source.parent_path()));
+    EXPECT_EQ(uuid, cluster::NodeIdentity::load(directory / "xmq1" / cluster::NodeIdentity::FileName));
+    Buffer movedKey;
+    movedKey.loadFromFile(directory / "xmq1/certs/node.key");
+    EXPECT_EQ(String(originalKey), String(movedKey));
+    set<string> identities;
+    for (int index = 1; index <= 3; ++index)
+    {
+        const auto nodeDirectory = directory / ("xmq" + to_string(index));
+        identities.insert(cluster::NodeIdentity::load(nodeDirectory / cluster::NodeIdentity::FileName));
+        content.loadFromFile(nodeDirectory / "xmq_server.conf");
+        document.load(content);
+        CServerConfiguration node;
+        node.load(document.root());
+        for (const auto& listener: node.m_connections.m_listener)
+        {
+            if (listener.m_protocol.asString() == "MQTT")
+            {
+                EXPECT_EQ(1880 + index - 1, listener.m_port.asInteger());
+            }
+            else if (listener.m_protocol.asString() == "MQTT+SSL")
+            {
+                EXPECT_EQ(8880 + index - 1, listener.m_port.asInteger());
+            }
+        }
+        EXPECT_EQ(18880 + index - 1, node.m_web_service.m_listener_port.asInteger());
+        EXPECT_EQ((nodeDirectory / "certs/node.crt").string(), node.m_connections.m_ssl_keys.m_certfile.asString());
+    }
+    EXPECT_EQ(3U, identities.size());
+    vector<String> previous;
+    for (int index = 1; index <= 3; ++index)
+    {
+        content.loadFromFile(directory / ("xmq" + to_string(index)) / "xmq_server.conf");
+        previous.emplace_back(content);
+    }
+    // The original xmq directory is already gone; the batch resumes from xmq1.
+    ASSERT_FALSE(Settings::cloneNodes(source, 4).empty());
+    EXPECT_TRUE(filesystem::exists(directory / "xmq4/xmq_server.conf"));
+    for (int index = 1; index <= 3; ++index)
+    {
+        content.loadFromFile(directory / ("xmq" + to_string(index)) / "xmq_server.conf");
+        EXPECT_EQ(previous[index - 1], String(content));
+    }
+    EXPECT_FALSE(Settings::cloneNodes(source, 4).empty());
+}
+
+TEST(XMQ_Settings, bulkCloneRejectsExistingTargetsAndPortCollisionsBeforeMoving)
+{
+    const auto directory = emptyTestDirectory("xmq_bulk_preflight");
+    const auto source = directory / "xmq" / "xmq_server.conf";
+    filesystem::create_directory(source.parent_path());
+    xdoc::Document document;
+    document.load(Buffer(g_testConfig));
+    document.root()->remove("bridges");
+    Buffer content;
+    document.exportTo(xdoc::DataFormat::JSON, content, true);
+    content.saveToFile(source);
+    filesystem::create_directory(directory / "xmq2");
+    EXPECT_ANY_THROW(Settings::cloneNodes(source, 2));
+    EXPECT_TRUE(filesystem::exists(source));
+    filesystem::remove(directory / "xmq2");
+    document.root()->findFirst("web_service")->set("listener_port", 1881);
+    document.exportTo(xdoc::DataFormat::JSON, content, true);
+    content.saveToFile(source);
+    EXPECT_ANY_THROW(Settings::cloneNodes(source, 2));
+    EXPECT_TRUE(filesystem::exists(source));
+    EXPECT_FALSE(filesystem::exists(directory / "xmq1"));
+    EXPECT_ANY_THROW(Settings::cloneNodes(source, 0));
+    document.root()->findFirst("web_service")->set("listener_port", 18880);
+    document.root()->findFirst("authentication")->set("database_uri",
+        DirectoryNames::sqliteUri(directory / "missing" / "accounts.db"));
+    document.exportTo(xdoc::DataFormat::JSON, content, true);
+    content.saveToFile(source);
+    // SQLite snapshot failure happens after relocation: the source must be restored.
+    EXPECT_ANY_THROW(Settings::cloneNodes(source, 2));
+    Buffer restored;
+    restored.loadFromFile(source);
+    EXPECT_EQ(String(content), String(restored));
+    EXPECT_FALSE(filesystem::exists(directory / "xmq1"));
+    EXPECT_FALSE(filesystem::exists(directory / "xmq2"));
+}
+
+TEST(XMQ_Settings, peerAuthoritySelectsTheNamedCertificateInsteadOfOtherCertificatesOnTheSameHost)
+{
+    const auto directory = emptyTestDirectory("xmq_peer_authority");
+    const auto original = DirectoryNames::certsDirectory();
+    struct Restore { filesystem::path path; ~Restore() { DirectoryNames::setCertsDirectory(path); } } restore {original};
+    DirectoryNames::setCertsDirectory(directory);
+    const auto peers = Settings::peerCertificatesDirectory();
+    filesystem::create_directory(peers);
+    String description;
+    for (const auto* name: {"node1", "node2"})
+        SelfSignedCertificate::reissue(peers / (string(name) + ".crt"), directory / (string(name) + ".key"),
+                                       "same-host.example.test", description);
+    const auto verifies = [](const filesystem::path& certificate, const filesystem::path& authority)
+    {
+        unique_ptr<BIO, decltype(&BIO_free)> input(BIO_new_file(certificate.string().c_str(), "r"), BIO_free);
+        if (!input) return false;
+        unique_ptr<X509, decltype(&X509_free)> leaf(PEM_read_bio_X509(input.get(), nullptr, nullptr, nullptr), X509_free);
+        unique_ptr<X509_STORE, decltype(&X509_STORE_free)> store(X509_STORE_new(), X509_STORE_free);
+        unique_ptr<X509_STORE_CTX, decltype(&X509_STORE_CTX_free)> context(X509_STORE_CTX_new(), X509_STORE_CTX_free);
+        return leaf && store && context &&
+               X509_STORE_load_locations(store.get(), authority.string().c_str(), nullptr) == 1 &&
+               X509_STORE_CTX_init(context.get(), store.get(), leaf.get(), nullptr) == 1 &&
+               X509_verify_cert(context.get()) == 1;
+    };
+    EXPECT_TRUE(verifies(peers / "node2.crt", Settings::peerCertificateAuthority("node2")));
+    EXPECT_FALSE(verifies(peers / "node2.crt", Settings::peerCertificateAuthority("node1")));
+    EXPECT_EQ(peers / "node2.crt", Settings::peerCertificateAuthority("node2"));
+    EXPECT_EQ(peers / "node1.crt", Settings::peerCertificateAuthority("node1"));
+    EXPECT_NE(peers / "node1.crt", Settings::peerCertificateAuthority("../node1"));
 }

@@ -15,6 +15,7 @@
 #include "ServerNode.h"
 #include "Server.h"
 #include "server/Settings/Settings.h"
+#include "server/Settings/ClusterStore.h"
 #include "common/ClusterLinks.h"
 #include "common/mqtt/PublishMessage.h"
 
@@ -120,6 +121,7 @@ shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
 {
     // Advertised peer paths refer to another machine. Cluster connections always use this node's
     // certificate and trust store, including connections opened during mesh discovery.
+    m_server->getSettings()->refreshPeerCertificates();
     const auto& keysData = m_server->getSettings()->m_connections.m_ssl_keys;
 
     const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
@@ -135,7 +137,17 @@ shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
     auto authorityFile = keysData.m_cafile.asString();
     if (authorityFile.empty())
     {
-        authorityFile = Settings::buildPeerCertificateBundle().string();
+        String peerName = m_nodeSettings.m_node_name.asString();
+        // The first attach uses a temporary host_port name, before the peer introduces
+        // itself. Resolve its registered name by the advertised TLS address.
+        if (const auto store = m_server->getSettings()->clusterStore(); store && store->isClusterDatabase())
+            for (const auto& peer: store->nodes())
+                if (peer.m_hostPort == m_nodeSettings.m_host_port.asString())
+                {
+                    peerName = peer.m_name;
+                    break;
+                }
+        authorityFile = Settings::peerCertificateAuthority(peerName).string();
     }
 
     // Unlike a bridge, a cluster link is never left unverified. It carries the cluster password

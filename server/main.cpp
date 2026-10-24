@@ -181,6 +181,35 @@ int main(int argc, const char* argv[])
         return 1;
     }
 
+    if (serverCommandLine.hasOption("configuration-root"))
+    {
+        COUT(DirectoryNames::resolveConfigurationFile("xmq1").parent_path().parent_path().string());
+        return 0;
+    }
+
+    if (serverCommandLine.hasOption("clone-nodes"))
+    {
+        try
+        {
+            for (const auto* option: {"clone-node", "join-cluster", "leave-cluster", "reset",
+                                      "reset-configuration", "set-password", "users-file"})
+                if (serverCommandLine.hasOption(option))
+                    throw Exception(string("--clone-nodes cannot be combined with --") + option);
+            const string count = serverCommandLine.getOptionValue("clone-nodes").c_str();
+            if (count.empty() || count.find_first_not_of("0123456789") != string::npos || count.size() > 5)
+                throw Exception("Node count must be an integer between 1 and 65535.");
+            const auto result = Settings::cloneNodes(serverCommandLine.getOptionValue("configuration-file").c_str(),
+                                                    static_cast<unsigned>(stoul(count)));
+            COUT(result);
+            return 0;
+        }
+        catch (const std::exception& error)
+        {
+            CERR("Cannot create node configurations: " << error.what());
+            return 1;
+        }
+    }
+
     const bool joinCluster = serverCommandLine.hasOption("join-cluster");
     const bool leaveCluster = serverCommandLine.hasOption("leave-cluster");
     const bool clusterCommand = joinCluster || leaveCluster;

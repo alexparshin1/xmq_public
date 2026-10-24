@@ -583,6 +583,15 @@ INSTALL(TARGETS xmq_server xmq_pub xmq_sub xmq_con xmq_scn xmq_scn_cluster
         ARCHIVE DESTINATION lib
 )
 
+# Keep platform wrappers beside the server; configuration handling is shared C++ code.
+IF (WIN32)
+    INSTALL(FILES scripts/xmq_clone_nodes.cmd DESTINATION bin COMPONENT node-tools)
+ELSE ()
+    INSTALL(PROGRAMS scripts/xmq_clone_nodes.sh DESTINATION bin RENAME xmq_clone_nodes COMPONENT node-tools)
+    INSTALL(PROGRAMS scripts/xmq_start_instances.sh DESTINATION bin COMPONENT node-tools)
+    INSTALL(PROGRAMS scripts/xmq_start_instances.sh DESTINATION bin RENAME xmq_start_instances COMPONENT node-tools)
+ENDIF ()
+
 # Tests are an opt-in install component. EXCLUDE_FROM_ALL here applies to installation: an ordinary
 # `cmake --install` (and therefore CPack) omits the binary, while the install_tests target below can
 # request this component explicitly.
