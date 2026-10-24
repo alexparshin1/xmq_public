@@ -266,6 +266,7 @@ public:
      */
     void notifyAllNodes(Command clusterCommand, const std::string& content = {}) const;
     void notifyAccountsChanged() const;
+    void notifyUserChanged(char action, int64_t id, const std::string& username, const std::string& timestamp) const;
 
     /**
      * @brief Accepts and processes an incoming cluster message.

@@ -61,6 +61,9 @@ public:
     /// Reads every account and its groups out of the database into memory.
     void reload();
 
+    /// Refreshes one account after a cluster notification, using an indexed username lookup.
+    void refreshUser(const std::string& username);
+
     /**
      * @brief Makes the database hold exactly the accounts held in memory, and nothing else.
      *

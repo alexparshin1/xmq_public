@@ -23,6 +23,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <ranges>
 
 using namespace std;
 using namespace sptk;
@@ -360,6 +361,65 @@ TEST_F(XMQ_UserStoreTests, createsItsSchemaOnEveryDatabaseWeSupport)
 
         // Called at every start, so it has to be safe to call when everything is already there.
         EXPECT_NO_THROW(store.createSchema()) << name << ": creating twice must be harmless";
+    }
+}
+
+TEST_F(XMQ_UserStoreTests, refreshingOneChangedUserRemovesAndRecreatesItInTheLocalCache)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto pool = make_shared<DatabaseConnectionPool>(uri, 2);
+        auto store = make_shared<UserStore>(pool);
+
+        const auto originalId = store->addUser({.m_username = "delta-user",
+                                                .m_password = PasswordHash::hash("Original-Password1", 1000)});
+        ASSERT_GT(originalId, 0);
+
+        UserManager manager([] {});
+        manager.useStore(store);
+        ASSERT_TRUE(manager.authenticate("delta-user", "Original-Password1"));
+
+        // A different node changes the shared SQL row. Refreshing the username updates this
+        // manager's list and authentication cache without reloading every account.
+        auto updated = store->findUser("delta-user");
+        ASSERT_TRUE(updated);
+        updated->m_password = PasswordHash::hash("Updated-Password1", 1000);
+        store->updateUser(*updated);
+        manager.refreshUser("delta-user");
+        EXPECT_FALSE(manager.authenticate("delta-user", "Original-Password1"));
+        EXPECT_TRUE(manager.authenticate("delta-user", "Updated-Password1"));
+
+        // Removing it from the shared store must also remove it from the peer's cached list and
+        // authentication map.
+        store->removeUser(originalId);
+        manager.refreshUser("delta-user");
+        EXPECT_FALSE(manager.authenticate("delta-user", "Updated-Password1"));
+        const auto afterDelete = manager.getUsers(".*", true);
+        EXPECT_TRUE(ranges::none_of(afterDelete, [](const CUser& user)
+                                    { return user.m_username.asString() == "delta-user"; }));
+
+        // Reusing the name creates a new database row. The next refresh replaces the deleted
+        // cache entry, and only the new password authenticates.
+        const auto replacementId = store->addUser({.m_username = "delta-user",
+                                                   .m_password = PasswordHash::hash("Replacement-Password1", 1000)});
+        ASSERT_GT(replacementId, 0);
+        EXPECT_NE(originalId, replacementId);
+        manager.refreshUser("delta-user");
+        EXPECT_FALSE(manager.authenticate("delta-user", "Updated-Password1"));
+        EXPECT_TRUE(manager.authenticate("delta-user", "Replacement-Password1"));
+
+        const auto afterRecreate = manager.getUsers(".*", true);
+        const auto matches = ranges::count_if(afterRecreate, [](const CUser& user)
+                                              { return user.m_username.asString() == "delta-user"; });
+        EXPECT_EQ(1, matches);
+        for (const auto& user: afterRecreate)
+        {
+            if (user.m_username.asString() == "delta-user")
+            {
+                EXPECT_EQ(replacementId, user.m_id.asInt64());
+            }
+        }
     }
 }
 

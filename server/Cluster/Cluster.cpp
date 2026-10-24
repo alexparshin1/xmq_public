@@ -881,7 +881,7 @@ void Cluster::notifyAllNodes(const Command clusterCommand, const string& content
                 node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(DisconnectClient), string_view(content)));
                 break;
             case AccountsChanged:
-                node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(AccountsChanged), string_view{}));
+                node->publish(make_shared<mqtt::PublishMessage>(m_clusterTopics.getTopic(AccountsChanged), string_view(content)));
                 break;
             default:
                 break;
@@ -892,6 +892,19 @@ void Cluster::notifyAllNodes(const Command clusterCommand, const string& content
 void Cluster::notifyAccountsChanged() const
 {
     notifyAllNodes(Command::AccountsChanged);
+}
+
+void Cluster::notifyUserChanged(const char action, const int64_t id, const string& username, const string& timestamp) const
+{
+    xdoc::Document document;
+    document.root()->set("action", string(1, action));
+    document.root()->set("id", to_string(id));
+    document.root()->set("username", username);
+    document.root()->set("timestamp", timestamp);
+    Buffer payload;
+    document.exportTo(xdoc::DataFormat::JSON, payload, false);
+    notifyAllNodes(Command::AccountsChanged,
+                   string(reinterpret_cast<const char*>(payload.data()), payload.size()));
 }
 
 void Cluster::onAttachNodeRequest(const SPublishMessage& message)
@@ -1521,6 +1534,22 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
             }
             break;
         case AccountsChanged:
+            // An empty message covers group or anonymous-access changes. A user event carries
+            // its identity and refreshes only that indexed row from the shared SQL database.
+            if (!message->payload().empty())
+            {
+                xdoc::Document document;
+                document.load(string(message->payload()));
+                const auto root = document.root();
+                const auto action = root->getString("action");
+                const auto id = stoll(root->getString("id").c_str());
+                const auto timestamp = root->getString("timestamp");
+                const auto username = root->getString("username");
+                if ((action == "A" || action == "U" || action == "D") && id >= 0 && !username.empty() && !timestamp.empty())
+                {
+                    m_settings->userManager().refreshUser(username);
+                }
+            }
             m_server->extensions().accountsChanged();
             break;
         case Unknown:

@@ -723,7 +723,20 @@ void ControlService::UserControl(const CUserControl& input, CUserControlResponse
                 runningServer->extensions().accountsChanged();
                 if (const auto cluster = runningServer->cluster())
                 {
-                    cluster->notifyAccountsChanged();
+                    if (!input.m_user.isNull() && (input.m_action.asString() == "add" || input.m_action.asString() == "modify" || input.m_action.asString() == "remove"))
+                    {
+                        const auto action = input.m_action.asString() == "add" ? 'A' :
+                                            input.m_action.asString() == "modify" ? 'U' : 'D';
+                        const auto username = input.m_user.m_username.asString();
+                        const auto id = action == 'A' ? settings->userManager().findUser(username).m_id.asInt64() :
+                                                        input.m_user.m_id.asInt64();
+                        cluster->notifyUserChanged(action, id, username,
+                                                   DateTime::Now().isoDateTimeString(DateTime::PrintAccuracy::MILLISECONDS, true));
+                    }
+                    else
+                    {
+                        cluster->notifyAccountsChanged();
+                    }
                 }
             }
         }

@@ -496,6 +496,40 @@ void UserManager::reload()
     m_verificationCache.sizeFor(m_passwords.size());
 }
 
+void UserManager::refreshUser(const string& username)
+{
+    const auto store = [this]
+    {
+        const shared_lock lock(m_mutex);
+        return m_store;
+    }();
+    if (!store)
+    {
+        return;
+    }
+
+    // Read the shared database before taking the lock needed by CONNECT authentication.
+    const auto stored = store->findUser(username);
+    const unique_lock lock(m_mutex);
+    if (const auto old = m_passwords.find(username); old != m_passwords.end())
+    {
+        m_users.erase(old->second.m_id);
+        m_passwords.erase(old);
+    }
+    if (stored)
+    {
+        CUser entry;
+        entry.m_id.setInt64(stored->m_id);
+        entry.m_username = stored->m_username;
+        entry.m_password = stored->m_password;
+        entry.m_is_enabled = stored->m_enabled;
+        m_users[static_cast<uint64_t>(stored->m_id)] = entry;
+        m_passwords[stored->m_username] = {static_cast<uint64_t>(stored->m_id), stored->m_password};
+        observeSerialId(static_cast<uint64_t>(stored->m_id));
+    }
+    m_verificationCache.sizeFor(m_passwords.size());
+}
+
 void UserManager::storeUserUnlocked(const CUser& user) const
 {
     if (!m_store)
