@@ -1,0 +1,22 @@
+[Unit]
+Description=EMQX cluster node %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=emqx
+Group=emqx
+Type=simple
+EnvironmentFile=/etc/emqx/nodes/%i.env
+Environment=HOME=/var/lib/emqx/%i
+Environment=EMQX_DEFAULT_LOG_HANDLER=file
+Environment="ERL_FLAGS=+S 4:4 +SDcpu 2:2 +SDio 4"
+ExecStart=/bin/bash /usr/bin/emqx foreground
+ExecStop=/bin/bash -c '/usr/bin/emqx stop; exit 0'
+LimitNOFILE=8388608
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
