@@ -933,6 +933,9 @@ void Server::closeSession(const SClientSession& clientSession, const bool takeOv
             {
                 getClientSessionManager()->remove(clientSession);
             }
+            // A clean CONNECT may take over an in-memory persistent session. Removing its
+            // persisted record here also covers that path, which does not load a new session.
+            clientSession->unpersist();
             clientSession->clearProtocol();
             clientSession->clearSession();
             // The claim script wrote session_<id>_owner on CONNECT; a clean session that is

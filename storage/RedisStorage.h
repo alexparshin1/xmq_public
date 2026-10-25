@@ -68,28 +68,7 @@ public:
 
     [[nodiscard]] sptk::SRedisConnect getRedis();
 
-    /**
-     * @brief Asynchronously remove any persisted session for @p clientId.
-     *
-     * A clean-session connect must not leave a stale persisted session behind (possibly created by
-     * another cluster node). The lookup and deletes are Redis round-trips, so they are issued via
-     * RedisConnect's asynchronous API on a dedicated connection: the connecting reactor thread only
-     * queues the work and returns immediately, while the connection's own worker thread pipelines
-     * the round-trips. Failures are reported to the connection's async error handler and logged.
-     */
-    void cleanupSessionAsync(const std::string& clientId, const std::string& nodeName) const;
-
     [[nodiscard]] static std::string sessionMessagesHash(const SClientSession& session);
-
-    /**
-     * @brief The full Redis key for a session-scoped record, with the node's GUID if it is
-     *        not a cluster member on a shared storage. Callers that build session keys themselves
-     *        - the coordinator - only run while the node is a cluster member, so they are not
-     *        affected; the namespace is empty then.
-     * @param base              The base part of the key: "session_id" or "session_id_messages".
-     * @return The key as it is written in Redis.
-     */
-    [[nodiscard]] std::string sessionKey(const std::string& base) const;
 
     /**
      * @brief Redis server host and port, without the credentials.
@@ -106,8 +85,6 @@ private:
     sptk::URL          m_redisUrl; ///< Redis server URL, including the optional credentials.
     Server*            m_server {nullptr};
     bool               m_cleanStart {false}; ///< If true then clean the database upon the connecting.
-
-    sptk::SRedisConnect m_cleanupConnection; ///< Dedicated connection for asynchronous session cleanup.
 
     /// persistence.max_redis_connections of them, shared round-robin rather than one per thread:
     /// fewer connections carry more commands per write, and Redis spends its time on commands

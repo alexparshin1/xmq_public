@@ -17,6 +17,8 @@
 #include "test/ServerTests/ServerTests.h"
 #include "test/TestMqttClient.h"
 #include "test/SubscribeAndWait.h"
+#include "test/TestServers.h"
+#include <sptk5/net/RedisConnect.h>
 
 using namespace std;
 using namespace sptk;
@@ -87,6 +89,72 @@ TEST_P(XMQ_ServerTests, Session_Clean)
 TEST_P(XMQ_ServerTests, Session_Continue)
 {
     testSessionReconnect(false);
+}
+
+TEST_F(XMQ_ServerTests, Session_Clean_RemovesRedisState)
+{
+    const auto clientId = makeTestNames().m_subscriberClientId;
+    const auto host = Host("localhost", TestTcpPortNumber);
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    const auto waitFor = [](const function<bool()>& predicate, const chrono::milliseconds timeout)
+    {
+        const auto deadline = chrono::steady_clock::now() + timeout;
+        do
+        {
+            if (predicate())
+            {
+                return true;
+            }
+            this_thread::sleep_for(10ms);
+        } while (chrono::steady_clock::now() < deadline);
+        return predicate();
+    };
+
+    const auto sessionKey = "session_" + clientId;
+    const auto messagesKey = sessionKey + "_messages";
+    const auto qos2Key = sessionKey + "_qos2";
+    const auto ownerKey = sessionKey + "_owner";
+    const auto nodeSessionsKey = "node_primary_sessions";
+    const auto redisKeyExists = [&redis](const string& key)
+    {
+        return !redis.scan(key, 10).empty();
+    };
+    const auto stateExists = [&]
+    {
+        return redisKeyExists(sessionKey) || redis.isSetMember(nodeSessionsKey, clientId) ||
+               redisKeyExists(messagesKey) || redisKeyExists(qos2Key) || redisKeyExists(ownerKey);
+    };
+
+    auto persistentClient = make_shared<client::MqttClient>();
+    ASSERT_EQ(ReasonCode::Success,
+              persistentClient->connect(host, {clientId, "user", "secret"}, {.m_cleanSession = false},
+                                        ProtocolVersion::MqttV5));
+    ASSERT_TRUE(persistentClient->isConnected());
+    ASSERT_TRUE(waitFor([&]
+                        {
+                            return redis.isSetMember(nodeSessionsKey, clientId) &&
+                                   !redis.getValue(sessionKey).isNull();
+                        }, 5s)) << "persistent session was not stored in Redis";
+    persistentClient->disconnect();
+
+    auto cleanClient = make_shared<client::MqttClient>();
+    ASSERT_EQ(ReasonCode::Success,
+              cleanClient->connect(host, {clientId, "user", "secret"}, {.m_cleanSession = true},
+                                   ProtocolVersion::MqttV5));
+    ASSERT_TRUE(cleanClient->isConnected());
+    cleanClient->disconnect();
+
+    const auto cleared = waitFor([&]
+                                 {
+                                     return !stateExists();
+                                 }, 5s);
+    EXPECT_TRUE(cleared) << "clean session left Redis state for " << clientId
+                         << ": session=" << !redis.getValue(sessionKey).isNull()
+                         << ", node membership=" << redis.isSetMember(nodeSessionsKey, clientId)
+                         << ", qos2=" << redisKeyExists(qos2Key)
+                         << ", owner=" << redisKeyExists(ownerKey)
+                         << ", matching keys=" << redis.scan("*" + clientId + "*", 100).size();
 }
 
 TEST_F(XMQ_ServerTests, Session_Expiration)

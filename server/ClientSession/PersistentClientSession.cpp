@@ -70,6 +70,12 @@ void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreTyp
 
 void PersistentClientSession::redisRemoveSession(const Buffer& sessionData, const bool removeSessionMessages)
 {
+    const auto redis = getRedis();
+    if (!redis)
+    {
+        return;
+    }
+
     string              nodeName;
     string              clientId;
     ProtocolVersion     protocolVersion;
@@ -79,39 +85,51 @@ void PersistentClientSession::redisRemoveSession(const Buffer& sessionData, cons
     // Delete session key, the inbound QoS 2 ids that are meaningless without it, and the
     // cluster ownership marker the claim script wrote: with the session gone, there is
     // nothing left to own, and leaving the marker made Redis grow one key per connect.
-    (void) m_redisConnection->deleteKeys({"session_" + clientId, "session_" + clientId + "_qos2", "session_" + clientId + "_owner"});
+    (void) redis->deleteKeys({"session_" + clientId, "session_" + clientId + "_qos2", "session_" + clientId + "_owner"});
 
     if (removeSessionMessages)
     {
         // Delete session messages:
         const auto sessionMessagesKey = "session_" + clientId + "_messages";
-        (void) m_redisConnection->deleteKeys({sessionMessagesKey});
+        (void) redis->deleteKeys({sessionMessagesKey});
     }
 
     if (!nodeName.empty())
     {
         const auto nodeSessionsKey = "node_" + nodeName + "_sessions";
-        (void) m_redisConnection->deleteSetMembers(nodeSessionsKey, {clientId});
+        (void) redis->deleteSetMembers(nodeSessionsKey, {clientId});
     }
 }
 
 void PersistentClientSession::redisRemoveSession(const string& clientId, bool removeSessionMessages)
 {
-    if (!m_redisConnection || m_released)
+    if (m_released)
+    {
+        return;
+    }
+
+    // A clean session never runs initSession(), so m_redisConnection is not set for it: this is
+    // also the path that removes a record left behind by another node, and the storage's own
+    // connection is what reaches it. The session's own connection, when it has one, is preferred.
+    const auto redis = m_redisConnection ? m_redisConnection : getRedis();
+    if (!redis)
     {
         return;
     }
     const auto sessionKey = "session_" + clientId;
-    m_redisConnection->getValueAsync({sessionKey},
-                                     [this, removeSessionMessages](const Variant& sessionData)
-                                     {
-                                         if (sessionData.isNull())
-                                         {
-                                             return;
-                                         }
+    // The session is kept alive for the callback: a clean session's record is removed while the
+    // session may already be on its way out.
+    const auto session = static_pointer_cast<PersistentClientSession>(shared_from_this());
+    redis->getValueAsync({sessionKey},
+                         [session, removeSessionMessages](const Variant& sessionData)
+                         {
+                             if (sessionData.isNull())
+                             {
+                                 return;
+                             }
 
-                                         redisRemoveSession(sessionData.asBuffer(), removeSessionMessages);
-                                     });
+                             session->redisRemoveSession(sessionData.asBuffer(), removeSessionMessages);
+                         });
 }
 
 PersistentClientSession::SessionInitType
@@ -372,12 +390,9 @@ bool PersistentClientSession::load()
     if (isCleanSession())
     {
         // A clean session keeps no persistent state, so there is nothing to load. Any stale session
-        // left in Redis by a previous connection (possibly on another cluster node) is removed
-        // asynchronously, off the connecting reactor thread, to avoid blocking on Redis round-trips.
-        if (const auto redisStorage = server().getRedisStorage())
-        {
-            redisStorage->cleanupSessionAsync(clientId, server().getNodeName());
-        }
+        // left in Redis (possibly by another cluster node, whose release leaves the record behind)
+        // is removed asynchronously, off the connecting reactor thread.
+        redisRemoveSession(clientId, true);
         return false;
     }
     return initSession(clientId, isCleanSession());

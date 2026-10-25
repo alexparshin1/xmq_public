@@ -9,6 +9,7 @@
 #include "test/TestServers.h"
 
 #include <mutex>
+#include <sptk5/net/RedisConnect.h>
 
 using namespace std;
 using namespace sptk;
@@ -102,8 +103,62 @@ TEST_F(XMQ_ClusterTests, sessionMovesToTheNodeItsClientConnectsTo)
 }
 
 /**
- * Confirm that a client connecting to another node while still connected to the first takes its
- * session along, and the first connection is closed.
+ * Confirm that a clean session removes the persistent record another node left behind.
+ *
+ * Setup: Two nodes. A persistent subscriber on node 0 subscribes, disconnects, and a message is
+ * published for it. The client then connects to node 1 with a clean session, and disconnects.
+ *
+ * Verification: the record, its queued messages, its owner marker and node 0's session set entry
+ * are gone from Redis. A clean session that did not happen to take over an in-memory session on
+ * the node it reached - the cross-node case - must not leave state that a later persistent
+ * CONNECT would restore.
+ */
+TEST_F(XMQ_ClusterTests, cleanSessionRemovesARecordAnotherNodeLeftBehind)
+{
+    TestCluster  cluster(2);
+    const string topic = "ownership/clean";
+    const string clientId = "cleaned-up-subscriber";
+
+    auto subscriber = cluster.connect(0, clientId, false);
+    subscriber->subscribe(Destination(client::MqttClient::getTopic(topic), SubscriptionOptions(Qos::Qos1)));
+    subscriber->disconnect();
+    cluster.connect(0, "clean-publisher")->publish(topic, "queued", Qos::Qos1);
+
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    const auto sessionKey = "session_" + clientId;
+    const auto messagesKey = sessionKey + "_messages";
+    const auto ownerKey = sessionKey + "_owner";
+    const auto nodeSessionsKey = "node_" + TestCluster::nodeName(0) + "_sessions";
+    const auto keyExists = [&redis](const string& key)
+    {
+        return !redis.scan(key, 10).empty();
+    };
+
+    ASSERT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return keyExists(sessionKey) && keyExists(messagesKey) &&
+                                                redis.isSetMember(nodeSessionsKey, clientId);
+                                     }, 5s))
+        << "the persistent session was not stored before the clean connect";
+
+    auto cleanClient = make_shared<client::MqttClient>(logEngine());
+    ASSERT_EQ(ReasonCode::Success,
+              cleanClient->connect(TestCluster::host(1), ConnectCredentials(clientId, "user", "secret"),
+                                   {.m_cleanSession = true}, ProtocolVersion::MqttV5));
+    cleanClient->disconnect();
+
+    EXPECT_TRUE(TestCluster::waitFor([&]
+                                     {
+                                         return !keyExists(sessionKey) && !keyExists(messagesKey) &&
+                                                !keyExists(ownerKey) && !redis.isSetMember(nodeSessionsKey, clientId);
+                                     }, 5s))
+        << "a clean session left the record of node 0 behind: session=" << keyExists(sessionKey)
+        << ", messages=" << keyExists(messagesKey) << ", owner=" << keyExists(ownerKey)
+        << ", node membership=" << redis.isSetMember(nodeSessionsKey, clientId);
+}
+
+/**
  *
  * Setup: Two nodes. A persistent subscriber connected to node 0 connects again, under the same
  * client id, to node 1.

@@ -21,7 +21,6 @@
 
 #include <ranges>
 #include <sptk5/net/Host.h>
-#include <sptk5/xdoc/Document.h>
 
 using namespace std;
 using namespace sptk;
@@ -31,20 +30,8 @@ RedisStorage::RedisStorage(URL redisUrl, Server* server, const size_t connection
     : m_redisUrl(redisConnectionUrl(redisUrl))
     , m_server(server)
     , m_cleanStart(cleanStart)
-    , m_cleanupConnection(make_shared<RedisConnect>())
     , m_sharedConnections(max<size_t>(connectionPoolSize, 1))
 {
-    // Asynchronous cleanup failures never reach the per-operation callbacks, so surface them to the
-    // log via the connection's error handler.
-    m_cleanupConnection->setAsyncErrorHandler(
-        [server](const Exception& exception)
-        {
-            if (server != nullptr)
-            {
-                server->logMessage(LogSubject::SessionErrors, LogPriority::Error,
-                                   format("Asynchronous session cleanup failed: {}", exception.what()));
-            }
-        });
 }
 
 RedisStorage::~RedisStorage()
@@ -59,7 +46,6 @@ void RedisStorage::connect() const
     {
         clear();
     }
-    m_cleanupConnection->connect(m_redisUrl);
 }
 
 bool RedisStorage::waitForWrites(const chrono::milliseconds timeout) const
@@ -135,53 +121,7 @@ SRedisConnect RedisStorage::makeConnection() const
     return redisConnect;
 }
 
-void RedisStorage::cleanupSessionAsync(const string& clientId, const string& nodeName) const
-{
-    // The reactor thread only queues the work: getValueAsync returns immediately and the lookup,
-    // along with the conditional deletes issued from its callback, run on the connection's own
-    // worker thread (pipelined). Failures don't reach these callbacks; they are reported to the
-    // async error handler registered in the constructor, which logs them.
-    const auto redisConnection = m_cleanupConnection;
-    const auto sessionKey = this->sessionKey("session_" + clientId);
-
-    redisConnection->getValueAsync(
-        sessionKey,
-        [redisConnection, sessionKey, clientId, nodeName, this](const Variant& sessionInfo)
-        {
-            // Nothing persisted for this client: nothing to clean up.
-            if (sessionInfo.isNull())
-            {
-                return;
-            }
-
-            xdoc::Document sessionJson;
-            sessionJson.load(sessionInfo.asBuffer());
-            if (sessionJson.root()->getString("node_name").empty())
-            {
-                return;
-            }
-
-            // Drop the session record, its queued messages and its membership in the node's session
-            // set. The messages hash (see sessionMessagesHash()) would otherwise be orphaned.
-            const auto messagesBaseKey = "session_" + clientId + "_messages";
-            const auto sessionMessagesKey = this->sessionKey(messagesBaseKey);
-            const auto nodeSessionsKey = "node_" + nodeName + "_sessions";
-            redisConnection->deleteKeysAsync({sessionKey, sessionMessagesKey}, [](size_t)
-                                             {
-                                             });
-            redisConnection->deleteSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
-                                                   {
-                                                   });
-        });
-}
-
 std::string RedisStorage::sessionMessagesHash(const SClientSession& session)
 {
     return format("session_{}_messages", session->getClientId());
-}
-
-string RedisStorage::sessionKey(const string& base) const
-{
-    const auto& ns = m_server->getStorage()->sessionNamespace();
-    return ns.empty() ? base : (ns + ":" + base);
 }
