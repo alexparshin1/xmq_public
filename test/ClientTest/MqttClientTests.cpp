@@ -55,8 +55,8 @@ shared_ptr<LogEngine> XMQ_MqttClientTests::createLogEngine(const LogPriority min
 
 void XMQ_MqttClientTests::SetUp()
 {
-    static constexpr uint16_t MqttTcpPortNumber = 1884;
-    static constexpr uint16_t MqttSslPortNumber = 8884;
+    static constexpr uint16_t MqttTcpPortNumber = 1983;
+    static constexpr uint16_t MqttSslPortNumber = 8984;
     // By name, like Redis: the one Mosquitto these tests use runs on the farm host, and every
     // machine that runs them - the build containers, the FreeBSD and Windows machines - resolves
     // mosquitto_server to it. getServerHost() used the name only when something listened on the
@@ -245,7 +245,7 @@ TEST_F(XMQ_MqttClientTests, mosquittoConnectSsl)
     EXPECT_TRUE(client.isConnected());
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_F(XMQ_MqttClientTests, mosquittoSubscribeAndUnsubscribe)
 {
     Semaphore subscribeSemaphore;
@@ -293,7 +293,7 @@ TEST_F(XMQ_MqttClientTests, mosquittoSubscribeAndUnsubscribe)
     EXPECT_FALSE(client.isConnected());
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoLastWillAndTestament)
 {
     const auto protocolVersion = GetParam();
@@ -408,28 +408,28 @@ void mqttClientTestsReceive(Qos qos, ProtocolVersion protocolVersion)
 }
 } // namespace
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoReceiveQOS0)
 {
     const auto protocolVersion = GetParam();
     mqttClientTestsReceive(Qos::Qos0, protocolVersion);
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoReceiveQOS1)
 {
     const auto protocolVersion = GetParam();
     mqttClientTestsReceive(Qos::Qos1, protocolVersion);
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoReceiveQOS2)
 {
     const auto protocolVersion = GetParam();
     mqttClientTestsReceive(Qos::Qos2, protocolVersion);
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoPing)
 {
     const auto protocolVersion = GetParam();
@@ -463,7 +463,7 @@ TEST_P(XMQ_MqttClientTests, mosquittoPing)
     sender.disconnect();
 }
 
-/// Note: This test expects the mosquitto server at mosquitto_server:1884
+/// Note: This test expects the mosquitto server at mosquitto_server:1983
 TEST_P(XMQ_MqttClientTests, mosquittoRetain)
 {
     const auto protocolVersion = GetParam();

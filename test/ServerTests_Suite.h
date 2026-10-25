@@ -26,7 +26,7 @@ class XMQ_EXPORT ServerTests_Suite
     : public testing::Test
 {
 public:
-    static constexpr uint16_t MqttTcpPortNumber = 1884;
+    static constexpr uint16_t MqttTcpPortNumber = 1983;
     static constexpr uint16_t TestTcpPortNumber = 1880;
     static constexpr uint16_t TestSslPortNumber = 8880;
     static constexpr uint16_t TestServicePortNumber = 9880;

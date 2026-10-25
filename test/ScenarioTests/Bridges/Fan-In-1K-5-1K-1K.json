@@ -28,7 +28,7 @@
     "topics": "$share/perf/bridged/#",
     "server": {
       "hostname": "localhost",
-      "port": 1884,
+      "port": 1983,
       "username": "user",
       "password": "secret"
     }

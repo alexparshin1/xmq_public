@@ -52,7 +52,7 @@ TEST_P(XMQ_ServerPerformanceTests, PublishBulk_QOS0)
 
 #ifdef SSL_PERFORMANCE_TESTS
     testPerformance("xmq", TestSslPortNumber, messageCount, Qos::Qos0, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
-    testPerformance("mosquitto", 8884, messageCount, Qos::Qos0, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
+    testPerformance("mosquitto", 8984, messageCount, Qos::Qos0, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
 #endif
 }
 
@@ -69,7 +69,7 @@ TEST_P(XMQ_ServerPerformanceTests, PublishBulk_QOS1)
 #endif
 
 #ifdef SSL_PERFORMANCE_TESTS
-    testPerformance("mosquitto", 8884, messageCount, Qos::Qos1, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
+    testPerformance("mosquitto", 8984, messageCount, Qos::Qos1, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
     testPerformance("xmq", TestSslPortNumber, messageCount, Qos::Qos1, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
 #endif
 }
@@ -87,7 +87,7 @@ TEST_P(XMQ_ServerPerformanceTests, PublishBulk_QOS2)
 #endif
 
 #ifdef SSL_PERFORMANCE_TESTS
-    testPerformance("mosquitto", 8884, messageCount, Qos::Qos2, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
+    testPerformance("mosquitto", 8984, messageCount, Qos::Qos2, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
     testPerformance("xmq", TestSslPortNumber, messageCount, Qos::Qos2, senderCount, protocolVersion, ExternalClient::EncryptionMode::Tls);
 #endif
 }
