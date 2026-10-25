@@ -1,0 +1,110 @@
+{
+  "test": "Cluster-4-500K-Connections",
+  "status": "passed",
+  "date": "2026-10-25",
+  "started": "2026-10-25T19:23:00+11:00",
+  "finished": "2026-10-25T19:25:44+11:00",
+  "cluster": {
+    "nodes": 4,
+    "coordinator": "node-a",
+    "topology": [
+      {
+        "name": "node-a",
+        "private_ip": "172.31.13.230",
+        "instance_type": "c5n.4xlarge",
+        "vcpus": 16,
+        "memory_gb": 40,
+        "role": "coordinator, shared Redis and PostgreSQL"
+      },
+      {
+        "name": "node-b",
+        "private_ip": "172.31.13.222",
+        "instance_type": "c5n.2xlarge",
+        "vcpus": 8,
+        "memory_gb": 20,
+        "role": "member"
+      },
+      {
+        "name": "node-c",
+        "private_ip": "172.31.8.125",
+        "instance_type": "c5n.2xlarge",
+        "vcpus": 8,
+        "memory_gb": 20,
+        "role": "member"
+      },
+      {
+        "name": "node-d",
+        "private_ip": "172.31.11.169",
+        "instance_type": "c5n.2xlarge",
+        "vcpus": 8,
+        "memory_gb": 20,
+        "role": "member"
+      }
+    ],
+    "state_before_and_after": "all four nodes Clustered",
+    "links_per_node": 4,
+    "mqtt_port": 1884,
+    "mqtt_ssl_port": 8884,
+    "web_port": 18883,
+    "redis_uri": "redis://172.31.13.230:6379/4",
+    "accounts_database": "postgresql://xmq@172.31.13.230/xmq",
+    "authentication": "anonymous enabled for the duration of the run"
+  },
+  "scenario": {
+    "file": "LoadTest/AWS/Cluster-4-500K-Connections.json",
+    "type": "Connections",
+    "client_count": 500000,
+    "per_node_client_count": 125000,
+    "connection_rate_per_second": 5000,
+    "duration_seconds": 600,
+    "keep_alive_seconds": 300,
+    "protocol_version": 5,
+    "qos": 1,
+    "clean_session": true,
+    "id_prefix": "cluster4-"
+  },
+  "package": {
+    "name": "xmq-server",
+    "version": "1.0.0",
+    "source": "farm build_one.sh ubuntu-26.04 on theater",
+    "commit": "91b853b",
+    "sha256": "3b1f8fec849e83df5635f4ac3aed58641d774327e710c570a8f366d2c92e903e",
+    "file": "xmq-server_1.0.0_amd64.deb"
+  },
+  "client": {
+    "instance_type": "c5n.4xlarge",
+    "kernel": "7.0.0-1008-aws",
+    "xmq_scn_version": "1.0.0",
+    "source_addresses": 29,
+    "source_subnet": "172.31.14.150/24",
+    "bind_interfaces": 30,
+    "cpu_affinity": false
+  },
+  "results": {
+    "connected": 500000,
+    "failed": 0,
+    "average_latency_us": 564,
+    "median_latency_us": 556,
+    "average_rate_per_second": 4545,
+    "per_node_connected": {
+      "172.31.13.230": 125000,
+      "172.31.13.222": 125000,
+      "172.31.8.125": 125000,
+      "172.31.11.169": 125000
+    },
+    "exit_code": 0
+  },
+  "resource_usage_sampled": {
+    "node-a": {"rss_peak_mb": 414, "cpu_mean_percent": 3.7, "cpu_peak_percent": 7.4},
+    "node-b": {"rss_peak_mb": 414, "cpu_mean_percent": 3.3, "cpu_peak_percent": 7.2},
+    "node-c": {"rss_peak_mb": 415, "cpu_mean_percent": 4.3, "cpu_peak_percent": 8.8},
+    "node-d": {"rss_peak_mb": 415, "cpu_mean_percent": 5.1, "cpu_peak_percent": 9.9}
+  },
+  "artifacts": {
+    "console": "Cluster-4-500K-Connections.console",
+    "record": "Cluster-4-500K-Connections.txt",
+    "scenario": "Cluster-4-500K-Connections.json",
+    "console_sha256": "f2ac3364b7450888e0ca9fcd94ca1576e2b822ea31c793f0459bc7e26cbf48ee",
+    "scenario_sha256": "ec27a21ee54805ed593a74dc6c0585ea865fbdac2479904443107eff96eca5cb"
+  }
+}

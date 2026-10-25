@@ -1,0 +1,51 @@
+Server:   XMQ
+Version:  1.0.0
+Host:     AWS us-east-1a, cluster of 4 nodes: node-a c5n.4xlarge (16 vCPU, 40 GB) and
+          node-b/node-c/node-d c5n.2xlarge (8 vCPU, 20 GB each); Ubuntu 26.04,
+          kernel 7.0.0-1013-aws; XMQ 1.0.0 from the farm build 91b853b
+          (sha256 3b1f8fec849e83df5635f4ac3aed58641d774327e710c570a8f366d2c92e903e),
+          MQTT on port 1884, anonymous connections
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 1.0.0, no CPU affinity
+Cluster:  4 nodes (node-a 172.31.13.230, node-b 172.31.13.222,
+          node-c 172.31.8.125, node-d 172.31.11.169); node-a is the coordinator and
+          hosts the shared Redis (db 4) and PostgreSQL accounts database; 4 cluster
+          links per node; every node reported Clustered when the run started and ended
+Date:     2026-10-25
+Started:  2026-10-25 19:23 AEDT
+Finished: 2026-10-25 19:25:44 AEDT
+Scenario: Cluster-4-500K-Connections
+
+Note: a Connections scenario returns once every client is connected; duration_sec
+bounds the connection phase, and there is no publish phase to hold. Each of the four
+nodes accepted exactly 125000 connections.
+
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             49997      602us         4999
+10000ms         50000      552us         5000
+20000ms         50000      553us         5000
+30000ms         50000      556us         5000
+40000ms         50000      553us         5000
+50000ms         50000      576us         5000
+60000ms         50000      591us         5000
+70000ms         50000      542us         5000
+80000ms         50000      541us         5000
+90000ms         49983      570us         4998
+100000ms           20     6194us            2
+─────────────────────────────────────────────
+Average        500000      564us         4545
+Median                     556us
+
+Per node:
+  172.31.13.230:1884 (node-a) - 125000 connected / 125000 assigned
+  172.31.13.222:1884 (node-b) - 125000 connected / 125000 assigned
+  172.31.8.125:1884  (node-c) - 125000 connected / 125000 assigned
+  172.31.11.169:1884 (node-d) - 125000 connected / 125000 assigned
+
+Resource use, sampled every ~15 s while the connections were held:
+  node-a  RSS peak 414 MB, CPU mean 3.7%, peak 7.4%
+  node-b  RSS peak 414 MB, CPU mean 3.3%, peak 7.2%
+  node-c  RSS peak 415 MB, CPU mean 4.3%, peak 8.8%
+  node-d  RSS peak 415 MB, CPU mean 5.1%, peak 9.9%
+
+Result: rc=0, 500000/500000 connections established, no errors.
