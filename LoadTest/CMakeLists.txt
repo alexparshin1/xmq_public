@@ -9,6 +9,9 @@ FILE(GLOB XMQ_SCN_FILES *.sh)
 # Local to our own machines and ignored by git (see .gitignore): the glob would still find them on a
 # disk that has them, and the 0.9.18 package shipped both that way.
 LIST(FILTER XMQ_SCN_FILES EXCLUDE REGEX "/(aws_campaign|init_environment_client-host)\\.sh$")
+# Never install dot-files: CMake's glob matches hidden files, and a stray local script
+# (.run-fanout-v3.sh on one machine) made the install fail on a file that was not in git.
+LIST(FILTER XMQ_SCN_FILES EXCLUDE REGEX "/\\.[^/]*$")
 FILE(GLOB XMQ_SCN_SYSCTL_FILES setup/sysctl.d/*.conf)
 FILE(GLOB XMQ_SCN_LIMITS_FILES setup/limits.d/*.conf)
 FILE(GLOB XMQ_SCN_MODULES_FILES setup/modules-load.d/*.conf)
