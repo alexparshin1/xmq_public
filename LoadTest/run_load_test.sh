@@ -16,41 +16,6 @@
 
 set -euo pipefail
 
-# Nothing on a desktop machine stops it going to sleep in the middle of a half-hour test, and
-# when it does the run does not fail: the connections die, the broker falls idle, and the client
-# reports "Not connected" some minutes later, which reads exactly like a broker fault. It cost a
-# 30-minute run here on 2026-09-06 and is the likeliest explanation for two older records that
-# say only "did not complete". Re-exec under an idle inhibitor, once.
-if [[ -z "${XMQ_SLEEP_INHIBITED:-}" ]] && command -v systemd-inhibit > /dev/null 2>&1; then
-  export XMQ_SLEEP_INHIBITED=1
-  # Re-exec by absolute path through bash, not by "$0": systemd-inhibit execs its command
-  # directly, so a script invoked by a bare name ("bash run_load_test.sh", which is how it is run
-  # by hand) is looked up in PATH and not found - "Failed to execute". Called from
-  # run_scenario_set.sh the path was always absolute, which is why this hid until an AWS run.
-  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  # Asked for first, and only used if the answer is yes. A blocking inhibitor needs an active
-  # login session, so a run started detached - by a scheduler, or with setsid - is refused by
-  # polkit; exec'ing into it regardless made that refusal the end of the run rather than the loss
-  # of a precaution. The probe is one throwaway inhibitor, which either succeeds or does not.
-  if systemd-inhibit --what=sleep:idle --who="probe" --why="probe" --mode=block \
-                     true > /dev/null 2>&1; then
-    exec systemd-inhibit --what=sleep:idle --who="MQTT load test" \
-         --why="a run in progress must not be suspended" --mode=block bash "$self" "$@"
-  fi
-  # Detached, the inhibitor is still to be had from root - and is needed most there: a run left to
-  # itself is the one nobody is at the desk to keep awake. KDE suspended client-host eighteen minutes
-  # into such a run on 2026-10-05. Held for as long as this script runs, and released with it.
-  if sudo -n systemd-inhibit --what=sleep:idle --who="probe" --why="probe" --mode=block true > /dev/null 2>&1; then
-    sudo -n systemd-inhibit --what=sleep:idle --who="MQTT load test" \
-         --why="a run in progress must not be suspended" --mode=block sleep infinity > /dev/null 2>&1 &
-    sleep_inhibitor=$!
-    trap 'kill "$sleep_inhibitor" 2> /dev/null' EXIT
-  else
-    echo "   warning: no sleep inhibitor could be taken, so nothing here stops this machine" \
-         "suspending mid-run - run_scenario_set.sh checks afterwards whether it did" >&2
-  fi
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XMQ_SCN="xmq_scn"
 
@@ -78,10 +43,10 @@ Output:
   -v, --verbose             Print more details.
 
 Scenario overrides (passed through to xmq_scn; omit to use the scenario file's own values):
-  -h, --host N              Override server host (default: read from scenario file, fallback 1883 or ${XMQ_SERVER_HOST}).
-  -p, --port N              Override server port (default: read from scenario file, fallback 1883 or ${XMQ_SERVER_PORT}).
-  -u, --user <username>     Username for the server.
-  -P, --password <password> Password for the server.
+  -h, --host N              Override server host (default: ${XMQ_SERVER_HOST}).
+  -p, --port N              Override server port (default: ${XMQ_SERVER_PORT:-1883}).
+  -u, --user <username>     Username for the server (default: ${XMQ_CLIENT_USER}).
+  -P, --password <password> Password for the server (default: ${XMQ_CLIENT_PASSWORD}).
   -r, --connection-rate N   Client connection rate.
   -q, --qos N               Client connection QOS.
   -s, --payload-size N      Client PUBLISH message payload size.
@@ -111,8 +76,8 @@ payload_size=""
 keep_alive=""
 duration=""
 verbose=""
-username=""
-password=""
+username=${XMQ_CLIENT_USER:-}
+password=${XMQ_CLIENT_PASSWORD:-}
 progress="1"
 max_inflight=""
 
