@@ -29,24 +29,25 @@ Client identity / scenario:
 
 Secondary-IP setup (passed through to make_ip_addresses.sh):
   --iface IFACE             Interface to bind to, default: autodetect.
-  --subnet SUBNET           Subnet to bind to, default: 172.31.14 or ${XMQ_CLIENT_SUBNET}.
+  --subnet SUBNET           Subnet to bind to, default: 172.31.14 or ${XMQ_CLIENT_SUBNET:-172.31.14}.
   --prefix-len LEN          Subnet prefix length, default: 24.
-  --first OCTET             Subnet bind first IP address octet, default: 150 or ${XMQ_CLIENT_FIRST}.
-  --count N                 The number of IP addresses to bind to, default: 29 or ${XMQ_CLIENT_COUNT}.
+  --first OCTET             Subnet bind first IP address octet, default: 150 or ${XMQ_CLIENT_FIRST:-150}.
+  --count N                 The number of IP addresses to bind to, default: 29 or ${XMQ_CLIENT_COUNT:-29}.
   --skip-ip-setup           Don't run make_ip_addresses.sh (e.g. already done this session).
 
 OS tuning:
   --apply-sysctl            Apply client sysctl tuning (default: skipped, assumed already done).
 
 Output:
-  -R, --progress            Show progress bar(s).
+  -R, --progress            Show progress bar(s) (default).
+      --no-progress         Hide progress bar(s).
   -v, --verbose             Print more details.
 
 Scenario overrides (passed through to xmq_scn; omit to use the scenario file's own values):
-  -h, --host N              Override server host (default: ${XMQ_SERVER_HOST}).
+  -h, --host N              Override server host (default: ${XMQ_SERVER_HOST:-}).
   -p, --port N              Override server port (default: ${XMQ_SERVER_PORT:-1883}).
-  -u, --user <username>     Username for the server (default: ${XMQ_CLIENT_USER}).
-  -P, --password <password> Password for the server (default: ${XMQ_CLIENT_PASSWORD}).
+  -u, --user <username>     Username for the server (default: ${XMQ_CLIENT_USER:-}).
+  -P, --password <password> Password for the server (default: ${XMQ_CLIENT_PASSWORD:-}).
   -r, --connection-rate N   Client connection rate.
   -q, --qos N               Client connection QOS.
   -s, --payload-size N      Client PUBLISH message payload size.
@@ -103,6 +104,7 @@ while [[ $# -gt 0 ]]; do
     -u|--user) username="$2"; shift 2 ;;
     -P|--password) password="$2"; shift 2 ;;
     -R|--progress) progress=1; shift ;;
+    --no-progress) progress=""; shift ;;
     --help) usage; exit 0 ;;
     *) if [[ "$1" =~ \.json$ ]]; then
          scenario="$1"; shift 1
