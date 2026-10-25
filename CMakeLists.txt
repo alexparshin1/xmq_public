@@ -618,28 +618,25 @@ IF (NOT WIN32)
     # not needed at run time, and SPTK opens its database drivers by the same versioned name.
     # Executable, because rpm derives a library's Provides only from files that are.
     #
-    # Only the sqlite3 driver. It is what a standalone broker uses - the deployment expected to have
-    # no database server at all - and this version defaults to it. SPTK reaches a driver with dlopen
-    # at run time, so it is never a link-time dependency and never appears in ldd: it has to be
-    # listed here by hand, or it is silently absent until someone configures a broker to use it.
+    # The sqlite3 driver is what a standalone broker uses - the deployment expected to have no
+    # database server at all - and this version defaults to it. The postgresql driver is here
+    # because the cluster's shared accounts database is PostgreSQL: without it a node configured
+    # for a cluster cannot start, and the failure is a dlopen at run time rather than anything the
+    # package manager can see. SPTK reaches a driver with dlopen, so it is never a link-time
+    # dependency and never appears in ldd: it has to be listed here by hand, or it is silently
+    # absent until someone configures a broker to use it.
     #
-    # The mysql and postgresql drivers are deliberately not here, and this is a correction rather
-    # than an omission. They were shipped on the reasoning that the client libraries are small and
-    # come from the distribution's own repositories. Measured on a clean FreeBSD 15.1 rather than on
-    # a machine that already had everything, they are not: they turned "one package, 13 MB" into
-    # **thirty packages and 356 MB**, dragging in mysql84-client, postgresql14-client,
-    # openldap26-client, cyrus-sasl and behind them perl5, icu, groff and curl - onto a machine that
-    # only wants to run a broker. What the broker itself needs is openssl, pcre2 and brotli.
+    # The driver's own dependency, libpq5, is not bundled: it comes from the distribution, as do
+    # openssl, pcre2 and brotli, and is declared by the package's shlib dependencies. MySQL, Oracle
+    # and ODBC stay out for the same reason they always did - their clients are large, and a broker
+    # that does not use them should not install them. A cluster's accounts database is PostgreSQL.
     #
-    # They belong to the cluster configuration, which is not ready for production use and is an
-    # extension; the LDAP client is the same story before 1.0. They ship with the extensions that
-    # need them, not with every broker. Oracle and ODBC were never here, for the same reason.
     # By name, not by globbing: an earlier SPTK left behind on the build host sits in the same
     # directory under its own versioned names, and only the release this build was configured
     # against is wanted. A missing file is a configuration error, not a package without a driver.
     GET_FILENAME_COMPONENT(SPTK_LIBRARY_DIR ${SPTK_LIBRARY_CORE} DIRECTORY)
     SET(SPTK_RUNTIME_FILES)
-    FOREACH (sptkLibrary sputil5 spwsdl5 spdb5 spdb5_sqlite3)
+    FOREACH (sptkLibrary sputil5 spwsdl5 spdb5 spdb5_sqlite3 spdb5_postgresql)
         SET(sptkRuntimeFile "${SPTK_LIBRARY_DIR}/lib${sptkLibrary}.so.${SPTK_VERSION}")
         IF (NOT EXISTS "${sptkRuntimeFile}")
             MESSAGE(FATAL_ERROR "SPTK runtime library lib${sptkLibrary}.so.${SPTK_VERSION} not found in ${SPTK_LIBRARY_DIR}")
