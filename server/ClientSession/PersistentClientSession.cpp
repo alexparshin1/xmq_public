@@ -76,8 +76,10 @@ void PersistentClientSession::redisRemoveSession(const Buffer& sessionData, cons
     vector<Destination> destinations;
     unpack(sessionData, nodeName, clientId, protocolVersion, destinations);
 
-    // Delete session key, and the inbound QoS 2 ids that are meaningless without it:
-    (void) m_redisConnection->deleteKeys({"session_" + clientId, "session_" + clientId + "_qos2"});
+    // Delete session key, the inbound QoS 2 ids that are meaningless without it, and the
+    // cluster ownership marker the claim script wrote: with the session gone, there is
+    // nothing left to own, and leaving the marker made Redis grow one key per connect.
+    (void) m_redisConnection->deleteKeys({"session_" + clientId, "session_" + clientId + "_qos2", "session_" + clientId + "_owner"});
 
     if (removeSessionMessages)
     {
