@@ -1014,8 +1014,21 @@ SClientSession Server::takeOverExistingClientSession(const SClientSession& newSe
 {
     const std::scoped_lock lock(m_mutex);
 
+    // Authentication may have finished after this peer disconnected. Take one
+    // owning snapshot: a second getConnection() can already return nullptr.
+    const auto connection = newSession->getConnection();
+    if (!connection)
+    {
+        return {};
+    }
+    const auto socket = connection->getSocket();
+    if (!socket || !socket->active())
+    {
+        return {};
+    }
+
     existingSession->setHangup(false);
-    existingSession->setConnection(newSession->getConnection(), *getGenericProtocols());
+    existingSession->setConnection(connection, *getGenericProtocols());
     newSession->clearConnection();
 
     return existingSession;
@@ -1115,9 +1128,8 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
         // directory lookup. Until the answer comes, nothing more is read from this client.
         newClientSession->setAuthenticationPending(true);
 
-        const auto socketAddress = newClientSession->getConnection()
-                                       ? std::string(newClientSession->getConnection()->address())
-                                       : std::string {};
+        const auto connection = newClientSession->getConnection();
+        const auto socketAddress = connection ? std::string(connection->address()) : std::string {};
 
         // Asked of the socket, because that is what knows. A rule of the form "this client may
         // connect, but only over TLS" is one of the first an authentication extension is asked
@@ -1312,13 +1324,27 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
     const auto  protocolVersion = connectMessageParameters->m_protocolVersion;
     const auto& clientId = connectMessageParameters->getClientId();
 
+    // The extension/Redis reply can outlive the socket carrying CONNECT. Refuse
+    // that late completion before authenticate() can disconnect a live incumbent.
+    const auto pendingConnection = newClientSession->getConnection();
+    const auto unavailable = protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
+                                                                       : ReasonCode::ErrorServerNotAvailable;
+    if (!pendingConnection)
+    {
+        return unavailable;
+    }
+    const auto pendingSocket = pendingConnection->getSocket();
+    if (!pendingSocket || !pendingSocket->active())
+    {
+        return unavailable;
+    }
+
     auto reasonCode = connectMessage->getReasonCode();
     auto existingClientSession = getClientSession(clientId);
 
     if (reasonCode == ReasonCode::Success && connectMessage->getUsername() == "cluster")
     {
-        const auto connection = newClientSession->getConnection();
-        if (!connection || !dynamic_pointer_cast<SSLSocket>(connection->getSocket()))
+        if (!dynamic_pointer_cast<SSLSocket>(pendingSocket))
         {
             // Reject before authentication or takeover: a plain socket cannot own a cluster link.
             reasonCode = ReasonCode::ErrorNotAuthorized;
@@ -1364,9 +1390,7 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
         // Asked of the socket, because a refusal is worth nothing to whoever reads it without
         // saying where it came from - and by the time the answer is logged the connection may be
         // gone.
-        const auto remoteAddress = newClientSession->getConnection()
-                                       ? string(newClientSession->getConnection()->address())
-                                       : string {};
+        const auto remoteAddress = string(pendingConnection->address());
 
         reasonCode = authenticate(clientId,
                                   connectMessage->getUsername(),
@@ -1423,6 +1447,10 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
             // The takeover moves the connection to the existing session; everything below
             // (CONNACK, session continuation) must operate on that session, not newClientSession.
             clientSession = takeOverExistingClientSession(newClientSession, existingClientSession);
+            if (!clientSession)
+            {
+                return unavailable;
+            }
             // One-shot disarms a socket when its event fires, so the socket carrying this CONNECT
             // has to be re-armed once it belongs to the session that took over. Edge-triggered
             // leaves it armed and must be left alone: SocketPool only issues EPOLL_CTL_MOD for a
@@ -1483,9 +1511,8 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
 
     // The address goes as an attribute rather than a field: a fact the broker knows about an event
     // should not cost an ABI version to publish. Copied only if some extension asked for it.
-    const auto remoteAddress = clientSession->getConnection()
-                                   ? std::string(clientSession->getConnection()->address())
-                                   : std::string {};
+    const auto connected = clientSession->getConnection();
+    const auto remoteAddress = connected ? std::string(connected->address()) : std::string {};
 
     m_extensions.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, clientId, clientSession->getUsername(), {}, 0, 0,
                               false, {{ExtensionHost::remoteAddressAttribute, remoteAddress}});

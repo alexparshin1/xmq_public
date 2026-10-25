@@ -844,3 +844,31 @@ TEST_F(XMQ_ReconnectTests, Delivery_AcrossRapidReconnects_CleanSession)
 {
     expectDeliveryAcrossRapidReconnects(true, true, ProtocolVersion::MqttV31, 25);
 }
+
+// Authentication can complete after the peer has disconnected. Such a CONNECT
+// must neither take over a live session nor dereference the vanished connection.
+TEST_F(XMQ_ReconnectTests, LateAuthenticationForClosedConnectionLeavesExistingSessionAlive)
+{
+    const string clientId = "late-auth-closed-takeover";
+    const string topic = "takeover/late-auth-closed";
+    Semaphore received;
+    const auto existing = connectClient(clientId, false, [&](const SPublishMessage&) { received.post(); }, ProtocolVersion::MqttV5);
+    ASSERT_TRUE(existing->isConnected());
+    existing->subscribe(topic);
+    ASSERT_TRUE(publishAndWait(topic, received));
+
+    const auto existingSession = server()->getClientSessionManager()->find(clientId);
+    ASSERT_TRUE(existingSession);
+    const auto originalConnection = existingSession->getConnection();
+    ASSERT_TRUE(originalConnection);
+    const auto message = make_shared<ConnectMessage>(ConnectCredentials(clientId, "user", "secret"), nullptr, false, ProtocolVersion::MqttV5);
+    const auto disconnected = ClientSession::factory(server().get(), message->getParameters());
+    ASSERT_FALSE(disconnected->getConnection());
+    SClientSession surviving;
+    EXPECT_NE(ReasonCode::Success, server()->completeConnectMessage(disconnected, message, ExtensionHost::AuthDecision::Allow, &surviving));
+    EXPECT_FALSE(surviving);
+    EXPECT_EQ(originalConnection, existingSession->getConnection());
+    EXPECT_TRUE(existing->isConnected());
+    EXPECT_TRUE(publishAndWait(topic, received));
+    existing->disconnect();
+}
