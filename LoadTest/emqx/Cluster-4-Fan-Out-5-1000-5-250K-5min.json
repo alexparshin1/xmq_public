@@ -1,0 +1,62 @@
+{
+  "name": "Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX",
+  "type": "Fan-Out",
+  "comments": [
+    "Fan-Out-5-1000-5-250K-5min across a four-node EMQX 5.8.9 cluster on the home stand.",
+    "1 publisher node and 3 subscriber nodes: the 5 publishers connect to A; the 1000",
+    "subscribers are spread over B, C and D. No publisher shares a node with a subscriber,",
+    "so every one of the 250k/s deliveries crosses a cluster link.",
+    "Nodes: thinker11:1884 (A), thinker11:1885 (B), theater:1884 (C), theater:1885 (D).",
+    "EMQX authentication is disabled on this stand."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid",
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 1884
+      }
+    ]
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/#",
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 1885
+      },
+      {
+        "hostname": "theater",
+        "port": 1884
+      },
+      {
+        "hostname": "theater",
+        "port": 1885
+      }
+    ]
+  },
+  "server": {
+    "hostname": "thinker11",
+    "port": 1884,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 300,
+    "payload_size": 16,
+    "publish_rate": 50,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "name": "Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ",
+  "type": "Fan-Out",
+  "comments": [
+    "Fan-Out-5-1000-5-250K-5min across a four-node XMQ 1.0.0 cluster on the home stand.",
+    "1 publisher node and 3 subscriber nodes: the 5 publishers connect to A; the 1000",
+    "subscribers are spread over B, C and D. No publisher shares a node with a subscriber,",
+    "so every one of the 250k/s deliveries crosses a cluster link.",
+    "Nodes: thinker11:2884 (A), thinker11:2885 (B), theater:2886 (C), theater:2887 (D).",
+    "Supply MQTT credentials with --username and --password."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid",
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 2884
+      }
+    ]
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/#",
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 2885
+      },
+      {
+        "hostname": "theater",
+        "port": 2886
+      },
+      {
+        "hostname": "theater",
+        "port": 2887
+      }
+    ]
+  },
+  "server": {
+    "hostname": "thinker11",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 300,
+    "payload_size": 16,
+    "publish_rate": 50,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

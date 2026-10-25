@@ -1,0 +1,62 @@
+{
+  "name": "Cluster-4-P2P-50K-50K-50K-100K-XMQ",
+  "type": "Point-To-Point",
+  "comments": [
+    "Point-to-point, 100k messages/s, across a four-node XMQ 1.0.0 cluster on the home stand.",
+    "2 publisher nodes and 2 subscriber nodes: 50k publishers on A and B, 50k subscribers on",
+    "C and D, one subscriber per topic, 2 messages/s per publisher. Every message crosses a",
+    "cluster link and no publisher shares a node with its subscriber.",
+    "Nodes: thinker11:2884 (A), thinker11:2885 (B), theater:2886 (C), theater:2887 (D).",
+    "Supply MQTT credentials with --username and --password."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 50000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex",
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 2884
+      },
+      {
+        "hostname": "thinker11",
+        "port": 2885
+      }
+    ]
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 50000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex",
+    "servers": [
+      {
+        "hostname": "theater",
+        "port": 2886
+      },
+      {
+        "hostname": "theater",
+        "port": 2887
+      }
+    ]
+  },
+  "server": {
+    "hostname": "thinker11",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 600,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}
