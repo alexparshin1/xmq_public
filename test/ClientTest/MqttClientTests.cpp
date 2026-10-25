@@ -56,7 +56,7 @@ shared_ptr<LogEngine> XMQ_MqttClientTests::createLogEngine(const LogPriority min
 void XMQ_MqttClientTests::SetUp()
 {
     static constexpr uint16_t MqttTcpPortNumber = 1983;
-    static constexpr uint16_t MqttSslPortNumber = 8984;
+    static constexpr uint16_t MqttSslPortNumber = 8983;
     // By name, like Redis: the one Mosquitto these tests use runs on the farm host, and every
     // machine that runs them - the build containers, the FreeBSD and Windows machines - resolves
     // mosquitto_server to it. getServerHost() used the name only when something listened on the

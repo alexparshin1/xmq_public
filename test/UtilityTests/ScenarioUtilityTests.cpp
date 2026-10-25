@@ -477,7 +477,7 @@ TEST(ScenarioUtilityTests, ClientGroupCarriesItsOwnServer)
                                                 R"(,
     "server": {
       "hostname": "subscriber-host",
-      "port": 1884,
+      "port": 1983,
       "username": "other",
       "password": "other-secret"
     })");
@@ -489,7 +489,7 @@ TEST(ScenarioUtilityTests, ClientGroupCarriesItsOwnServer)
     EXPECT_EQ(scenario.m_server.m_hostname.asString(), "publisher-host");
     EXPECT_EQ(scenario.m_server.m_port.asInteger(), 1883);
     EXPECT_EQ(scenario.m_subscribers.m_server.m_hostname.asString(), "subscriber-host");
-    EXPECT_EQ(scenario.m_subscribers.m_server.m_port.asInteger(), 1884);
+    EXPECT_EQ(scenario.m_subscribers.m_server.m_port.asInteger(), 1983);
     EXPECT_EQ(scenario.m_subscribers.m_server.m_username.asString(), "other");
 
     filesystem::remove_all(tempDir);
