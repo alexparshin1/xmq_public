@@ -935,6 +935,10 @@ void Server::closeSession(const SClientSession& clientSession, const bool takeOv
             }
             clientSession->clearProtocol();
             clientSession->clearSession();
+            // The claim script wrote session_<id>_owner on CONNECT; a clean session that is
+            // gone has nothing left to own, and nothing else removes the marker. Only this
+            // node's own marker goes - see Coordinator::releaseSessionOwnership().
+            m_cluster.load()->releaseSessionOwnership(clientId);
         }
 
         logMessage(LogSubject::ServerConnections, LogPriority::Debug,

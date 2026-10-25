@@ -193,6 +193,14 @@ if (not owner) or owner == ARGV[1] or redis.call('EXISTS', ARGV[2] .. owner) == 
 end
 return owner)";
 
+// Drop this node's ownership marker when the session that carried it is gone: a clean session
+// ends at DISCONNECT, and without this the key the claim script wrote stays in Redis forever -
+// one key per connect. Only this node's own marker is removed, so a session already handed over
+// to another node is never undone by a late close.
+const string ReleaseOwnershipScript = R"(
+if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]) end
+return 1)";
+
 // Give a session this node holds to the node that asked for it.
 const string HandOverSessionScript = R"(
 if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2]) end
@@ -508,6 +516,12 @@ string Coordinator::claimSession(const string& clientId)
     const scoped_lock lock(m_mutex);
     const auto        result = eval(ClaimSessionScript, {format("session_{}_owner", clientId)}, {m_nodeId, AlivePrefix});
     return result.empty() ? string() : string(result[0].asString().c_str());
+}
+
+void Coordinator::releaseSessionOwnership(const string& clientId)
+{
+    const scoped_lock lock(m_mutex);
+    (void) eval(ReleaseOwnershipScript, {format("session_{}_owner", clientId)}, {m_nodeId});
 }
 
 bool Coordinator::claimOrphanSession(const string& clientId)

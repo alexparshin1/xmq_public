@@ -183,6 +183,23 @@ void Cluster::adoptSessions(const vector<string>& clientIds)
                });
 }
 
+void Cluster::releaseSessionOwnership(const string& clientId)
+{
+    auto* coordinator = m_coordinatorView.load();
+    if (coordinator == nullptr || !coordinator->isParticipating())
+    {
+        return;
+    }
+    try
+    {
+        coordinator->releaseSessionOwnership(clientId);
+    }
+    catch (const Exception& e)
+    {
+        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't release session ownership {}: {}", clientId, e.what()); });
+    }
+}
+
 void Cluster::dropSessionsOwnedElsewhere()
 {
     auto* coordinator = m_coordinatorView.load();

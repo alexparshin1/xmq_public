@@ -107,6 +107,17 @@ public:
     [[nodiscard]] bool claimSession(const std::string& clientId);
 
     /**
+     * @brief Give up this node's ownership marker for a session that is gone.
+     *
+     * The counterpart of claimSession(): a clean session ends at DISCONNECT and nothing else
+     * removes the marker the claim script wrote. Nothing to do for a node that is not in a
+     * cluster, or when another node owns the session.
+     *
+     * @param clientId          Client id.
+     */
+    void releaseSessionOwnership(const std::string& clientId);
+
+    /**
      * @return This node's GUID.
      */
     [[nodiscard]] const std::string& nodeId() const

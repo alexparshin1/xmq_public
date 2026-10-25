@@ -217,6 +217,17 @@ public:
     [[nodiscard]] std::string claimSession(const std::string& clientId);
 
     /**
+     * @brief Give up this node's ownership marker for a session that is gone.
+     *
+     * Removes session_<clientId>_owner when this node holds it; a marker written for a session
+     * that was handed over to another node is left alone.
+     *
+     * @param clientId          Client id.
+     * @throws sptk::Exception  Redis cannot be reached.
+     */
+    void releaseSessionOwnership(const std::string& clientId);
+
+    /**
      * @brief Hand a session this node holds to another node, which asked for it.
      * @param clientId          Client id.
      * @param nodeId            GUID of the node taking it.
