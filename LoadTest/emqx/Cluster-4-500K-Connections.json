@@ -1,0 +1,47 @@
+{
+  "name": "Cluster-4-500K-Connections-EMQX",
+  "type": "Connections",
+  "publishers": {
+    "id_prefix": "emqx4-",
+    "protocol_version": 5,
+    "client_count": 500000,
+    "qos": 1,
+    "clean_session": true,
+    "servers": [
+      {
+        "hostname": "thinker11",
+        "port": 1884
+      },
+      {
+        "hostname": "thinker11",
+        "port": 1885
+      },
+      {
+        "hostname": "theater",
+        "port": 1884
+      },
+      {
+        "hostname": "theater",
+        "port": 1885
+      }
+    ]
+  },
+  "server": {
+    "hostname": "thinker11",
+    "port": 1884,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "duration_sec": 600,
+    "payload_size": 16,
+    "connection_rate": 5000,
+    "keep_alive_sec": 300
+  },
+  "comments": [
+    "Home EMQX cluster: 4 nodes, two per host, EMQX 5.8.9 OSS.",
+    "thinker11:1884 (emqx1), thinker11:1885 (emqx2), theater:1884 (emqx3), theater:1885 (emqx4).",
+    "500000 clients at 5000 connections/second, 125000 per node; anonymous.",
+    "Run on thinker10 with --subnet 10.1.1 --first 150 --count 29."
+  ]
+}

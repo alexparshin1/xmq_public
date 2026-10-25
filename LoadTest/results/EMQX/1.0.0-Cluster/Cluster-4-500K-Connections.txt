@@ -1,0 +1,54 @@
+Server:   EMQX
+Version:  5.8.9, open source (Apache 2.0)
+Host:     home stand, cluster of 4 nodes, two per host: thinker11 (8 vCPU i7-8705G,
+          30 GB) and theater (8 vCPU i7-6770HQ, 29 GB); Ubuntu 26.04, kernel
+          7.0.0-38-generic / 7.0.0-34-generic; EMQX 5.8.9 OSS, two nodes per host,
+          four Erlang schedulers per node; MQTT ports 1884 and 1885 on each host;
+          authentication disabled, retainer disabled, logs at warning
+Client:   thinker10, 29 bound source addresses, xmq_scn 1.0.0, no CPU affinity
+Cluster:  4 nodes (emqx1@10.1.1.243:1884, emqx2@10.1.1.243:1885,
+          emqx3@10.1.1.242:1884, emqx4@10.1.1.242:1885); static discovery,
+          cluster name emqxcl; all four running when the run started and ended
+Date:     2026-10-25
+Started:  2026-10-25 20:08 AEDT
+Scenario: Cluster-4-500K-Connections-EMQX
+
+This is the home functional stand, not a published performance result: the load
+generator shares thinker10 with nothing, but each broker host runs two EMQX nodes
+on eight cores, and the client is one eight-core machine. Latency therefore
+includes host contention on both sides.
+
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             49976     6233us         4997
+10000ms         49996     5838us         4999
+20000ms         49995     7093us         4999
+30000ms         49976    10519us         4997
+40000ms         49923    19967us         4992
+50000ms         49843    14346us         4984
+60000ms         50187    83254us         5018
+70000ms         49653    31245us         4965
+80000ms         50201    93930us         5020
+90000ms         48743   246810us         4874
+100000ms         1507   275734us          150
+─────────────────────────────────────────────
+Average        500000    52173us         4545
+Median                   19967us
+
+Per node:
+  thinker11:1884 (emqx1) - 125000 connected / 125000 assigned
+  thinker11:1885 (emqx2) - 125000 connected / 125000 assigned
+  theater:1884   (emqx3) - 125000 connected / 125000 assigned
+  theater:1885   (emqx4) - 125000 connected / 125000 assigned
+
+Resource use, sampled every ~5 s while the connections were held:
+  emqx1  RSS peak 2547 MB, CPU mean 49.7%, peak 84.9%
+  emqx2  RSS peak 2556 MB, CPU mean 46.0%, peak 79.6%
+  emqx3  RSS peak 2834 MB, CPU mean 68.7%, peak 114.0%
+  emqx4  RSS peak 2668 MB, CPU mean 75.0%, peak 120.0%
+  (CPU is ps % of one core; each node has four schedulers.)
+
+Result: rc=0, 500000/500000 connections established, no errors.
+The client command inherited -u user -P Secret#123 from the environment; EMQX
+authentication is disabled, so the credentials are ignored. The published AWS
+run will pass no credentials.

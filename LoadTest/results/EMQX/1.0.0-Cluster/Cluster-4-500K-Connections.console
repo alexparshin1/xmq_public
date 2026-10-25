@@ -1,0 +1,29 @@
+Adding or verifying 29 addresses 10.1.1.150-178/24 to enp86s0..
+Executing:  xmq_scn --scenario emqx/Cluster-4-500K-Connections.json --bind-to-interfaces 10.1.1.150/24 --id-prefix emqx4- -h thinker11 -p 1884 -u user -P Secret#123 --qos 1
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 51 local interface(s).
+Topic namespace: thinker10:868f0125-34ee-4941-8315-50a02b2fe05d
+Scenario: Cluster-4-500K-Connections-EMQX [thinker10:868f0125-34ee-4941-8315-50a02b2fe05d] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             49976     6233us         4997
+10000ms         49996     5838us         4999
+20000ms         49995     7093us         4999
+30000ms         49976    10519us         4997
+40000ms         49923    19967us         4992
+50000ms         49843    14346us         4984
+60000ms         50187    83254us         5018
+70000ms         49653    31245us         4965
+80000ms         50201    93930us         5020
+90000ms         48743   246810us         4874
+100000ms         1507   275734us          150
+─────────────────────────────────────────────
+Average        500000    52173us         4545
+Median                   19967us
+
+Connecting publishers: thinker11:1884 - 125000 connected / 125000 assigned
+Connecting publishers: thinker11:1885 - 125000 connected / 125000 assigned
+Connecting publishers: theater:1884 - 125000 connected / 125000 assigned
+Connecting publishers: theater:1885 - 125000 connected / 125000 assigned
+rc=0

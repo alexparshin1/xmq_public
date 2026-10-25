@@ -1,0 +1,122 @@
+{
+  "test": "Cluster-4-500K-Connections-EMQX",
+  "status": "passed",
+  "environment": "home functional stand",
+  "date": "2026-10-25",
+  "started": "2026-10-25T20:08:00+11:00",
+  "cluster": {
+    "product": "EMQX",
+    "version": "5.8.9",
+    "license": "Apache 2.0 (open source)",
+    "nodes": 4,
+    "discovery": "static",
+    "cluster_name": "emqxcl",
+    "topology": [
+      {
+        "name": "emqx1@10.1.1.243",
+        "host": "thinker11",
+        "address": "10.1.1.243",
+        "mqtt_port": 1884,
+        "mqtt_ssl_port": 8884,
+        "dashboard_port": 18082,
+        "schedulers": 4
+      },
+      {
+        "name": "emqx2@10.1.1.243",
+        "host": "thinker11",
+        "address": "10.1.1.243",
+        "mqtt_port": 1885,
+        "mqtt_ssl_port": 8885,
+        "dashboard_port": 18083,
+        "schedulers": 4
+      },
+      {
+        "name": "emqx3@10.1.1.242",
+        "host": "theater",
+        "address": "10.1.1.242",
+        "mqtt_port": 1884,
+        "mqtt_ssl_port": 8884,
+        "dashboard_port": 18082,
+        "schedulers": 4
+      },
+      {
+        "name": "emqx4@10.1.1.242",
+        "host": "theater",
+        "address": "10.1.1.242",
+        "mqtt_port": 1885,
+        "mqtt_ssl_port": 8885,
+        "dashboard_port": 18083,
+        "schedulers": 4
+      }
+    ],
+    "state_before_and_after": "all four running_nodes, stopped_nodes empty",
+    "authentication": "disabled for the benchmark",
+    "retainer": "disabled",
+    "listeners": {
+      "max_connections": 2000000,
+      "acceptors": 64,
+      "backlog": 16384,
+      "buffer": "4KB",
+      "nodelay": true,
+      "keepalive": "120,30,3"
+    },
+    "mqtt": {
+      "max_inflight": 128,
+      "max_mqueue_len": 100000,
+      "force_shutdown_max_mailbox_size": 100000
+    },
+    "node_limits": {
+      "process_limit": 4194304,
+      "max_ports": 4194304,
+      "max_ets_tables": 524288,
+      "dist_buffer_size": 32768,
+      "nofile": 8388608
+    }
+  },
+  "scenario": {
+    "file": "LoadTest/emqx/Cluster-4-500K-Connections.json",
+    "type": "Connections",
+    "client_count": 500000,
+    "per_node_client_count": 125000,
+    "connection_rate_per_second": 5000,
+    "duration_seconds": 600,
+    "keep_alive_seconds": 300,
+    "protocol_version": 5,
+    "qos": 1,
+    "clean_session": true,
+    "id_prefix": "emqx4-"
+  },
+  "client": {
+    "host": "thinker10",
+    "source_addresses": 29,
+    "source_subnet": "10.1.1.150/24",
+    "bind_interfaces": 51,
+    "xmq_scn_version": "1.0.0",
+    "cpu_affinity": false
+  },
+  "results": {
+    "connected": 500000,
+    "failed": 0,
+    "average_latency_us": 52173,
+    "median_latency_us": 19967,
+    "average_rate_per_second": 4545,
+    "per_node_connected": {
+      "thinker11:1884": 125000,
+      "thinker11:1885": 125000,
+      "theater:1884": 125000,
+      "theater:1885": 125000
+    },
+    "exit_code": 0
+  },
+  "resource_usage_sampled": {
+    "emqx1": {"rss_peak_mb": 2547, "cpu_mean_percent": 49.7, "cpu_peak_percent": 84.9},
+    "emqx2": {"rss_peak_mb": 2556, "cpu_mean_percent": 46.0, "cpu_peak_percent": 79.6},
+    "emqx3": {"rss_peak_mb": 2834, "cpu_mean_percent": 68.7, "cpu_peak_percent": 114.0},
+    "emqx4": {"rss_peak_mb": 2668, "cpu_mean_percent": 75.0, "cpu_peak_percent": 120.0}
+  },
+  "notes": [
+    "Home stand only; published numbers come from AWS with four separate c5n.2xlarge nodes.",
+    "The client command inherited -u user -P Secret#123; EMQX authn is disabled and ignores them.",
+    "Two EMQX nodes share each 8-core host; schedulers are pinned to four per node."
+  ]
+}
