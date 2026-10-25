@@ -619,24 +619,24 @@ IF (NOT WIN32)
     # Executable, because rpm derives a library's Provides only from files that are.
     #
     # The sqlite3 driver is what a standalone broker uses - the deployment expected to have no
-    # database server at all - and this version defaults to it. The postgresql driver is here
-    # because the cluster's shared accounts database is PostgreSQL: without it a node configured
-    # for a cluster cannot start, and the failure is a dlopen at run time rather than anything the
-    # package manager can see. SPTK reaches a driver with dlopen, so it is never a link-time
-    # dependency and never appears in ldd: it has to be listed here by hand, or it is silently
-    # absent until someone configures a broker to use it.
+    # database server at all - and this version defaults to it. The postgresql and mysql drivers
+    # are here because the cluster's shared accounts database is one of those two: without the
+    # driver a node configured for a cluster cannot start, and the failure is a dlopen at run time
+    # rather than anything the package manager can see. SPTK reaches a driver with dlopen, so it
+    # is never a link-time dependency and never appears in ldd: it has to be listed here by hand,
+    # or it is silently absent until someone configures a broker to use it.
     #
-    # The driver's own dependency, libpq5, is not bundled: it comes from the distribution, as do
-    # openssl, pcre2 and brotli, and is declared by the package's shlib dependencies. MySQL, Oracle
-    # and ODBC stay out for the same reason they always did - their clients are large, and a broker
-    # that does not use them should not install them. A cluster's accounts database is PostgreSQL.
+    # The drivers' own dependencies, libpq5 and libmariadb3, are not bundled: they come from the
+    # distribution, as do openssl, pcre2 and brotli, and are declared by the package's shlib
+    # dependencies. Oracle and ODBC stay out for the same reason they always did - their clients
+    # are large, and a broker that does not use them should not install them.
     #
     # By name, not by globbing: an earlier SPTK left behind on the build host sits in the same
     # directory under its own versioned names, and only the release this build was configured
     # against is wanted. A missing file is a configuration error, not a package without a driver.
     GET_FILENAME_COMPONENT(SPTK_LIBRARY_DIR ${SPTK_LIBRARY_CORE} DIRECTORY)
     SET(SPTK_RUNTIME_FILES)
-    FOREACH (sptkLibrary sputil5 spwsdl5 spdb5 spdb5_sqlite3 spdb5_postgresql)
+    FOREACH (sptkLibrary sputil5 spwsdl5 spdb5 spdb5_sqlite3 spdb5_postgresql spdb5_mysql)
         SET(sptkRuntimeFile "${SPTK_LIBRARY_DIR}/lib${sptkLibrary}.so.${SPTK_VERSION}")
         IF (NOT EXISTS "${sptkRuntimeFile}")
             MESSAGE(FATAL_ERROR "SPTK runtime library lib${sptkLibrary}.so.${SPTK_VERSION} not found in ${SPTK_LIBRARY_DIR}")
