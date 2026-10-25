@@ -5,3 +5,5 @@
 libspdb5.so.5.6.15
 libsputil5.so.5.6.15
 libspwsdl5.so.5.6.15
+libpq5
+libmariadb3
