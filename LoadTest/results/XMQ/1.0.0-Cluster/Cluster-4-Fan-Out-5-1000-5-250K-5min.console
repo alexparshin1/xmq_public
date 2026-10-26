@@ -1,0 +1,50 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 51 local interface(s).
+Topic namespace: thinker10:e2e771c0-0622-4842-920f-9804058517ac
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ [thinker10:e2e771c0-0622-4842-920f-9804058517ac] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                 5      797us            0
+─────────────────────────────────────────────
+Average             5      797us            0
+Median                     797us
+
+Connecting publishers: thinker11:2884 - 5 connected / 5 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ [thinker10:e2e771c0-0622-4842-920f-9804058517ac] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                54     1047us         2700
+20ms               64    10978us         3200
+40ms              128    18925us         6400
+60ms               52    25648us         2600
+80ms              204    11280us        10200
+100ms              52    14313us         2600
+120ms             155     4230us         7750
+140ms             100      710us         5000
+160ms             100      719us         5000
+180ms              91      712us         4550
+─────────────────────────────────────────────
+Average          1000     8424us         5000
+Median                   10978us
+
+Connecting subscribers: thinker11:2885 - 334 connected / 334 assigned
+Connecting subscribers: theater:2886 - 333 connected / 333 assigned
+Connecting subscribers: theater:2887 - 333 connected / 333 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ [thinker10:e2e771c0-0622-4842-920f-9804058517ac]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7499775     3354us       249992
+30000ms       7499811     3256us       249993
+60000ms       7499767     3459us       249992
+90000ms       7500168     3022us       250005
+120000ms      7499861     3457us       249995
+150000ms      7500074     3223us       250002
+180000ms      7500387     3493us       250012
+210000ms      7499747     3384us       249991
+240000ms      7499893     3345us       249996
+270000ms      7497904     3000us       249930
+─────────────────────────────────────────────
+Average      74997387     3299us       249991
+Median                    3354us
+

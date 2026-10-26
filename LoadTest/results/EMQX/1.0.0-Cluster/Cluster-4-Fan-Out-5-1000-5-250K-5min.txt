@@ -1,0 +1,48 @@
+Server:   EMQX
+Version:  5.8.9, open source (Apache 2.0)
+Host:     home stand, cluster of 4 nodes, two per host: thinker11 (8 vCPU i7-8705G,
+          30 GB) and theater (8 vCPU i7-6770HQ, 29 GB); Ubuntu 26.04; EMQX 5.8.9 OSS,
+          two nodes per host, four Erlang schedulers per node; MQTT ports 1884 and 1885
+          on each host; authentication disabled for the run (the account check is separate,
+          see Cluster-4-comparison.md); retainer disabled, logs at warning
+Client:   thinker10, 51 bound source addresses 10.1.1.150-200, xmq_scn 1.0.0, no CPU affinity
+Cluster:  4 nodes (emqx1@10.1.1.243:1884, emqx2@10.1.1.243:1885,
+          emqx3@10.1.1.242:1884, emqx4@10.1.1.242:1885); static discovery,
+          cluster name emqxcl; all four running when the run started and ended
+Date:     2026-10-26
+Started:  2026-10-26 10:11:43 AEDT
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX
+Topology: 1 publisher node (A thinker11:1884),
+          3 subscriber nodes (B thinker11:1885, C theater:1884, D theater:1885)
+
+This is the home functional stand, not a published performance result: each broker
+host runs two nodes on eight cores and the load generator is one eight-core machine.
+Latency therefore includes host contention on both sides.
+
+Connections:
+Connecting publishers: thinker11:1884 - 5 connected / 5 assigned
+Connecting subscribers: thinker11:1885 - 334 connected / 334 assigned
+Connecting subscribers: theater:1884 - 333 connected / 333 assigned
+Connecting subscribers: theater:1885 - 333 connected / 333 assigned
+
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX [thinker10:78210fad-0e02-4db4-868e-9acd31f31258]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           3175224  3962895us       105840
+30000ms       3911504 15804328us       130383
+60000ms       3887626 25124953us       129587
+90000ms       3909684 34505800us       130322
+120000ms      3897894 43722418us       129929
+150000ms      3902908 53089808us       130096
+180000ms      3897099 62115787us       129903
+210000ms      3896947 71568346us       129898
+240000ms      3889261 80715811us       129642
+270000ms      3590171 90091544us       119672
+─────────────────────────────────────────────
+Average      37958318 48552027us       126527
+Median                53089808us
+
+
+Result: rc=0; 5 publishers and 1,000 subscribers connected. 37,958,318 deliveries completed in the
+300 s window, 50.6% of the 75,000,000 at the scenario's 250,000/s;
+average 126,527/s, median latency 53.1 s.

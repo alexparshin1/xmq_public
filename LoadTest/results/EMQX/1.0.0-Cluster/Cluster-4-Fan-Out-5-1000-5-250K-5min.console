@@ -1,0 +1,113 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 51 local interface(s).
+Topic namespace: thinker10:78210fad-0e02-4db4-868e-9acd31f31258
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX [thinker10:78210fad-0e02-4db4-868e-9acd31f31258] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                 5   958971us            0
+─────────────────────────────────────────────
+Average             5   958971us            0
+Median                  958971us
+
+Connecting publishers: thinker11:1884 - 5 connected / 5 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX [thinker10:78210fad-0e02-4db4-868e-9acd31f31258] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                 3     3873us          150
+20ms               13    31882us          650
+40ms               10    42502us          500
+60ms               17    61728us          850
+80ms               13    80353us          650
+100ms               6   102871us          300
+120ms              13   118236us          650
+140ms               8   135176us          400
+160ms              13   151549us          650
+180ms              14   170369us          700
+840ms              16   831228us          800
+860ms              40   845254us         2000
+880ms              32   853697us         1600
+900ms              15   870674us          750
+920ms              64   880288us         3200
+940ms              55   888234us         2750
+960ms              27   904489us         1350
+980ms              23   912171us         1150
+1080ms              9  1013884us          450
+1100ms             13  1021943us          650
+1200ms             10  1130071us          500
+1220ms              3  1151471us          150
+1240ms             34  1166279us         1700
+1260ms             28  1177492us         1400
+1280ms             45  1186478us         2250
+1300ms             53  1202045us         2650
+1320ms             41  1210612us         2050
+1340ms             41  1222370us         2050
+1360ms              8  1228991us          400
+2700ms              4  2583190us          200
+2980ms             16  2862496us          800
+3000ms              4  2862357us          200
+3060ms             21  2925187us         1050
+3460ms             15  3322932us          750
+3620ms             10  3483721us          500
+3680ms              1  3532861us           50
+3700ms              4  3562124us          200
+4020ms             10  3883370us          500
+4180ms             13  4032061us          650
+4280ms              9  4135213us          450
+4380ms              6  4240478us          300
+4620ms              1  4472784us           50
+4640ms              1  4492177us           50
+4680ms              1  4531896us           50
+4740ms              3  4599641us          150
+4760ms              9  4604357us          450
+4800ms             11  4643995us          550
+4900ms              9  4746474us          450
+4940ms              3  4783203us          150
+5000ms              3  4849395us          150
+5280ms              4  5128857us          200
+5440ms             13  5286645us          650
+5560ms              8  5409348us          400
+5580ms             12  5423202us          600
+5880ms             14  5724114us          700
+5900ms              7  5726200us          350
+5920ms              3  5762334us          150
+5940ms              7  5764361us          350
+6000ms              6  5827184us          300
+6060ms              5  5883899us          250
+6260ms              6  6096428us          300
+6480ms              1  6306999us           50
+6980ms             13  6799332us          650
+7000ms             12  6822690us          600
+7080ms              5  6898777us          250
+7280ms              2  7112318us          100
+7300ms             23  7123478us         1150
+7320ms              4  7128029us          200
+7360ms              4  7185519us          200
+7660ms              1  7468135us           50
+7900ms             13  7708178us          650
+7920ms             12  7730991us          600
+7940ms              4  7757969us          200
+─────────────────────────────────────────────
+Average          1000  2316184us          125
+Median                 3562124us
+
+Connecting subscribers: thinker11:1885 - 334 connected / 334 assigned
+Connecting subscribers: theater:1884 - 333 connected / 333 assigned
+Connecting subscribers: theater:1885 - 333 connected / 333 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-EMQX [thinker10:78210fad-0e02-4db4-868e-9acd31f31258]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           3175224  3962895us       105840
+30000ms       3911504 15804328us       130383
+60000ms       3887626 25124953us       129587
+90000ms       3909684 34505800us       130322
+120000ms      3897894 43722418us       129929
+150000ms      3902908 53089808us       130096
+180000ms      3897099 62115787us       129903
+210000ms      3896947 71568346us       129898
+240000ms      3889261 80715811us       129642
+270000ms      3590171 90091544us       119672
+─────────────────────────────────────────────
+Average      37958318 48552027us       126527
+Median                53089808us
+

@@ -1,0 +1,27 @@
+EMQX account check, home stand, 2026-10-26
+
+Server:   EMQX 5.8.9, open source
+Cluster:  4 nodes, two per host (thinker11 and theater)
+Method:   Management API on theater:18082
+          authenticator: password_based / built_in_database, sha256, salt suffix
+          account: user / User-Secret1 (the XMQ test account)
+          check listener: tcp:authcheck on 0.0.0.0:1886, enable_authn = true
+                         (created for the check, removed afterwards)
+
+With credentials, from thinker10:
+
+  xmq_pub -h theater -p 1886 -u user -P User-Secret1 -t bench/auth-check -m hello
+  Connect 1 clients: Elapsed 44.46ms, the rate is 22.73/sec.
+  Publish 1 messages: Elapsed 10.08ms
+
+Anonymous, from thinker10:
+
+  xmq_pub -h theater -p 1886 -t bench/auth-check -m hello
+  [ERROR] (bench-pub-anonymous) theater:1886: Authentication failed.
+  Connect 1 clients: Elapsed 3.73ms, failed 1
+  Not connected
+
+The main 1884/1885 listeners kept enable_authn = false: they carried the measured
+runs, and changing them without a restart would have made both nodes of a host bind
+one port. The authenticator and the account are in place for a restart that turns
+authentication on there.

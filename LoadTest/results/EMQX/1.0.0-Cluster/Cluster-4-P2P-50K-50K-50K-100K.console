@@ -1,0 +1,64 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 51 local interface(s).
+Topic namespace: thinker10:eaca192f-945b-4dc0-af18-4098f11d1c10
+Scenario: Cluster-4-P2P-50K-50K-50K-100K-EMQX [thinker10:eaca192f-945b-4dc0-af18-4098f11d1c10] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              4984    10349us         4984
+1000ms           4998     3288us         4998
+2000ms           5002     3246us         5002
+3000ms           4999     3652us         4999
+4000ms           4998     3251us         4998
+5000ms           5001     3463us         5001
+6000ms           4998     3887us         4998
+7000ms           5005     3558us         5005
+8000ms           4988     4739us         4988
+9000ms           5010     3758us         5010
+10000ms            17     2882us           17
+─────────────────────────────────────────────
+Average         50000     4316us         4545
+Median                    3558us
+
+Connecting publishers: thinker11:1884 - 25000 connected / 25000 assigned
+Connecting publishers: thinker11:1885 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K-EMQX [thinker10:eaca192f-945b-4dc0-af18-4098f11d1c10] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              2668   261619us         2668
+1000ms           2729   691812us         2729
+2000ms           2614  1176749us         2614
+3000ms           2582  1652702us         2582
+4000ms           2697  2137434us         2697
+5000ms           2628  2583435us         2628
+6000ms           2612  3081405us         2612
+7000ms           2661  3532058us         2661
+8000ms           2704  4002841us         2704
+9000ms           2697  4465434us         2697
+10000ms          3485  4821701us         3485
+11000ms          4616  5046842us         4616
+12000ms          7625  4873298us         7625
+13000ms          7682  4001181us         7682
+─────────────────────────────────────────────
+Average         50000  3415868us         3571
+Median                 3532058us
+
+Connecting subscribers: theater:1884 - 25000 connected / 25000 assigned
+Connecting subscribers: theater:1885 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K-EMQX [thinker10:eaca192f-945b-4dc0-af18-4098f11d1c10]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms            533021 27689814us         8883
+60000ms       1700698 77492826us        28344
+120000ms      2218522 104307530us        36975
+180000ms      1087770 149817545us        18129
+240000ms      1384590 217689661us        23076
+300000ms      2299507 240275480us        38325
+360000ms      2326191 278953871us        38769
+420000ms      2008640 320832798us        33477
+480000ms      1957314 363295036us        32621
+540000ms      2148165 396305251us        35802
+─────────────────────────────────────────────
+Average      17664418 240630736us        29440
+Median                240275480us
+

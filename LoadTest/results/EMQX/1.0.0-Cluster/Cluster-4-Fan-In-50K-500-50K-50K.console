@@ -1,0 +1,62 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 51 local interface(s).
+Topic namespace: thinker10:8c5c13e7-d209-42e9-bc10-72a3cf0e43d3
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K-EMQX [thinker10:8c5c13e7-d209-42e9-bc10-72a3cf0e43d3] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              4987     6888us         4987
+1000ms           5001     2865us         5001
+2000ms           4998     2542us         4998
+3000ms           5002     2755us         5002
+4000ms           4998     2817us         4998
+5000ms           4999     2767us         4999
+6000ms           5002     3183us         5002
+7000ms           4996     2714us         4996
+8000ms           5002     3153us         5002
+9000ms           4998     2816us         4998
+10000ms            17     2836us           17
+─────────────────────────────────────────────
+Average         50000     3249us         4545
+Median                    2817us
+
+Connecting publishers: thinker11:1884 - 16667 connected / 16667 assigned
+Connecting publishers: thinker11:1885 - 16667 connected / 16667 assigned
+Connecting publishers: theater:1884 - 16666 connected / 16666 assigned
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K-EMQX [thinker10:8c5c13e7-d209-42e9-bc10-72a3cf0e43d3] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                10     6260us         1000
+10ms               44    14494us         4400
+20ms               27    17539us         2700
+30ms               62    19399us         6200
+40ms               20    20270us         2000
+50ms               73    22125us         7300
+60ms               29    20951us         2900
+70ms               64    21919us         6400
+80ms               32    22464us         3200
+90ms               41    25028us         4100
+100ms              50    25590us         5000
+110ms              48    24381us         4800
+─────────────────────────────────────────────
+Average           500    21205us         4166
+Median                   21919us
+
+Connecting subscribers: theater:1885 - 500 connected / 500 assigned
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K-EMQX [thinker10:8c5c13e7-d209-42e9-bc10-72a3cf0e43d3]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             63573 27138561us         1059
+60000ms        333795 103776778us         5563
+120000ms      1073340 130428352us        17889
+180000ms      1011157 169560367us        16852
+240000ms      1140938 207587182us        19015
+300000ms      1162862 244382664us        19381
+360000ms      1074878 287055181us        17914
+420000ms      1128372 321280116us        18806
+480000ms      1082792 362924022us        18046
+540000ms      1170154 395996857us        19502
+─────────────────────────────────────────────
+Average       9241861 259283310us        15403
+Median                244382664us
+

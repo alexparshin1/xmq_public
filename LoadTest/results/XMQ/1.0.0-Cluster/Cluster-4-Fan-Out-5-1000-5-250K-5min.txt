@@ -1,0 +1,47 @@
+Server:   XMQ
+Version:  1.0.0, commit 3f25071
+Host:     home stand, cluster of 4 nodes, two per host: thinker11 (8 vCPU i7-8705G,
+          30 GB) and theater (8 vCPU i7-6770HQ, 29 GB); Ubuntu 26.04; four nodes as
+          test-cluster processes, MQTT ports 2884..2887; shared Redis theater:6379/4;
+          shared PostgreSQL accounts; MQTT authentication required (user/User-Secret1)
+Client:   thinker10, 51 bound source addresses 10.1.1.150-200, xmq_scn 1.0.0, no CPU affinity
+Cluster:  4 nodes (node1@thinker11:2884, node2@thinker11:2885,
+          node3@theater:2886, node4@theater:2887); all four members of one cluster,
+          one coordinator; the accounts and the session state are shared
+Date:     2026-10-26
+Started:  2026-10-26 10:44:05 AEDT
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ
+Topology: 1 publisher node (A node1 thinker11:2884),
+          3 subscriber nodes (B node2 thinker11:2885, C node3 theater:2886, D node4 theater:2887)
+
+This is the home functional stand, not a published performance result: each broker
+host runs two nodes on eight cores and the load generator is one eight-core machine.
+Latency therefore includes host contention on both sides.
+
+Connections:
+Connecting publishers: thinker11:2884 - 5 connected / 5 assigned
+Connecting subscribers: thinker11:2885 - 334 connected / 334 assigned
+Connecting subscribers: theater:2886 - 333 connected / 333 assigned
+Connecting subscribers: theater:2887 - 333 connected / 333 assigned
+
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min-XMQ [thinker10:e2e771c0-0622-4842-920f-9804058517ac]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7499775     3354us       249992
+30000ms       7499811     3256us       249993
+60000ms       7499767     3459us       249992
+90000ms       7500168     3022us       250005
+120000ms      7499861     3457us       249995
+150000ms      7500074     3223us       250002
+180000ms      7500387     3493us       250012
+210000ms      7499747     3384us       249991
+240000ms      7499893     3345us       249996
+270000ms      7497904     3000us       249930
+─────────────────────────────────────────────
+Average      74997387     3299us       249991
+Median                    3354us
+
+
+Result: rc=0; 5 publishers and 1,000 subscribers connected. 74,997,387 deliveries completed in the
+300 s window, 100.0% of the 75,000,000 at the scenario's 250,000/s;
+average 249,991/s, median latency 3.4 ms.
