@@ -5,8 +5,9 @@
     "Four-node AWS cluster: node-a 172.31.13.230 (A), node-b 172.31.13.222 (B),",
     "node-c 172.31.8.125 (C), node-d 172.31.11.169 (D); MQTT 1884 on each.",
     "The same file is used for XMQ and EMQX: the four nodes are rebuilt with one broker",
-    "at a time and keep their addresses, so only the broker changes. Anonymous, as the",
-    "500K connection trial.",
+    "at a time and keep their addresses, so only the broker changes. The account",
+    "user/User-Secret1 exists in the shared accounts database of whichever broker is",
+    "installed; authentication is part of the test, not a setup detail.",
     "2 publisher nodes (A, B) and 2 subscriber nodes (C, D): 50k publishers on A and B,",
     "50k subscribers on C and D, one subscriber per topic, 2 messages/s per publisher."
   ],
@@ -49,8 +50,8 @@
   "server": {
     "hostname": "172.31.13.230",
     "port": 1884,
-    "username": "",
-    "password": ""
+    "username": "user",
+    "password": "User-Secret1"
   },
   "parameters": {
     "connection_rate": 5000,

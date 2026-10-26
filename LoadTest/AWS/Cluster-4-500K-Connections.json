@@ -29,8 +29,8 @@
   "server": {
     "hostname": "172.31.13.230",
     "port": 1884,
-    "username": "",
-    "password": ""
+    "username": "user",
+    "password": "User-Secret1"
   },
   "parameters": {
     "duration_sec": 600,
@@ -41,8 +41,11 @@
   "comments": [
     "AWS four-node cluster: node-a 172.31.13.230, node-b 172.31.13.222, node-c 172.31.8.125, node-d 172.31.11.169; MQTT 1884 on each.",
     "500000 clients at 5000 connections/second, distributed evenly over the four nodes (125000 each).",
-    "Run on the AWS client c5n.4xlarge with 29 bound source addresses, anonymous MQTT connections.",
-    "The same file is used for XMQ and EMQX: the four nodes are rebuilt with one broker at a time and keep their addresses, so only the broker changes.",
+    "Run on the AWS client c5n.4xlarge with 29 bound source addresses, authenticated as user.",
+    "The same file is used for XMQ and EMQX: the four nodes are rebuilt with one broker",
+    "at a time and keep their addresses, so only the broker changes. The account",
+    "user/User-Secret1 exists in the shared accounts database of whichever broker is",
+    "installed; authentication is part of the test, not a setup detail.",
     "Nodes c5n.2xlarge, one AZ us-east-1a; node-a also hosts the cluster's PostgreSQL and Redis."
   ]
 }
