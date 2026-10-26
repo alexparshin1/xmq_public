@@ -1,0 +1,18 @@
+started 2026-10-26T09:47:01+11:00
+scenario dir: /home/alexeyp/cluster4-scenarios
+bind: 10.1.1.150/24
+=== emqx ===
+begin 2026-10-26T09:47:01+11:00 emqx Cluster-4-Fan-In-50K-500-50K-50K
+end 2026-10-26T10:11:43+11:00 emqx Cluster-4-Fan-In-50K-500-50K-50K rc=0
+begin 2026-10-26T10:11:43+11:00 emqx Cluster-4-Fan-Out-5-1000-5-250K-5min
+end 2026-10-26T10:16:59+11:00 emqx Cluster-4-Fan-Out-5-1000-5-250K-5min rc=0
+begin 2026-10-26T10:16:59+11:00 emqx Cluster-4-P2P-50K-50K-50K-100K
+end 2026-10-26T10:33:54+11:00 emqx Cluster-4-P2P-50K-50K-50K-100K rc=0
+=== xmq ===
+begin 2026-10-26T10:33:54+11:00 xmq Cluster-4-Fan-In-50K-500-50K-50K
+end 2026-10-26T10:44:05+11:00 xmq Cluster-4-Fan-In-50K-500-50K-50K rc=0
+begin 2026-10-26T10:44:05+11:00 xmq Cluster-4-Fan-Out-5-1000-5-250K-5min
+end 2026-10-26T10:49:08+11:00 xmq Cluster-4-Fan-Out-5-1000-5-250K-5min rc=0
+begin 2026-10-26T10:49:08+11:00 xmq Cluster-4-P2P-50K-50K-50K-100K
+end 2026-10-26T10:59:31+11:00 xmq Cluster-4-P2P-50K-50K-50K-100K rc=0
+finished 2026-10-26T10:59:31+11:00

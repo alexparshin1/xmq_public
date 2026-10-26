@@ -44,4 +44,4 @@ between nodes.
   50,000+50,000 clients (point-to-point) connected in every run.
 
 Scenarios: `LoadTest/Cluster-4-*.json` (XMQ) and `LoadTest/emqx/Cluster-4-*.json`
-(EMQX). Raw consoles sit beside each record; the run log is `Cluster-4-run.log`.
+(EMQX). Raw consoles sit beside each record; the run log is `Cluster-4-run.txt`.
