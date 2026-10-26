@@ -8,6 +8,7 @@
 #include "server/Settings/PasswordHash.h"
 #include "server/OSService.h"
 #include "server/NodeCommand.h"
+#include <atomic>
 #include <thread>
 #include <sptk5/net/TCPSocket.h>
 
@@ -263,12 +264,24 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     // The CLI uses this same local HTTP API. Simulate the service loop while it
     // waits for both transitions, rather than accepting an acknowledgement as success.
     {
-        std::jthread serviceLoop([&](std::stop_token stop)
+        // FreeBSD's libc++ has no jthread/stop_token: a plain thread and a flag, stopped and
+        // joined on every exit path, including an exception from controlNodeCluster().
+        struct ServiceLoop
         {
-            while (!stop.stop_requested())
+            atomic_bool stop {false};
+            thread      worker;
+            ~ServiceLoop()
+            {
+                stop = true;
+                if (worker.joinable()) worker.join();
+            }
+        } serviceLoop;
+        serviceLoop.worker = thread([&]
+        {
+            while (!serviceLoop.stop)
             {
                 OSService::processNodeActions(targetController);
-                std::this_thread::sleep_for(10ms);
+                this_thread::sleep_for(10ms);
             }
         });
         EXPECT_NO_THROW(controlNodeCluster(targetSettings->configurationPath(), true, "admin", "admin", 15s));

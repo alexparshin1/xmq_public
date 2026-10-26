@@ -158,7 +158,8 @@ TEST_F(XMQ_ControlServiceTests, settingsApplyOnControllerThreadAndRecoverFromFai
     EXPECT_EQ(oldPort, settings->nodeSettings().m_mqtt_port.asInteger());
     OSService::processNodeActions(controller);
     EXPECT_FALSE(settings->nodeSettingsStatus().first);
-    EXPECT_NE(String::npos, settings->nodeSettingsStatus().second.find("Settings applied"));
+    EXPECT_NE(String::npos, settings->nodeSettingsStatus().second.find("Settings applied"))
+        << settings->nodeSettingsStatus().second;
     ASSERT_TRUE(controller.isServing());
     EXPECT_EQ(1885, settings->nodeSettings().m_mqtt_port.asInteger());
     EXPECT_EQ("settings-renamed", settings->nodeSettings().m_node_name.asString());
@@ -389,7 +390,31 @@ TEST_F(XMQ_ControlServiceTests, loggingControl)
     EXPECT_FALSE(token.empty());
     HttpAuthentication authentication("bearer " + token);
 
+    // Start from what is in force: a CLogging sent whole replaces every field, and the subjects
+    // this test does not name would otherwise become empty - which the next Settings apply then
+    // refuses, with a message about SubjectLogLevels.disconnect rather than about this test.
+    input.m_action = "get";
+    m_controlService->LoggingControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    const auto originalLogging = output.m_logging;
+
+    struct RestoreLogging
+    {
+        ControlService&     service;
+        HttpAuthentication& authentication;
+        CLogging            logging;
+        ~RestoreLogging()
+        {
+            CLoggingControl request;
+            request.m_action = "set";
+            request.m_logging = logging;
+            CLoggingControlResponse ignored;
+            service.LoggingControl(request, ignored, &authentication);
+        }
+    } restoreLogging {*m_controlService, authentication, originalLogging};
+
     input.m_action = "set";
+    input.m_logging = originalLogging;
     input.m_logging.m_min_log_level = "WARNING";
     input.m_logging.m_log_to = (DirectoryNames::tempDirectory() / "test.log").string();
     input.m_logging.m_log_level.m_connect = "INFO";
@@ -590,6 +615,24 @@ TEST_F(XMQ_ControlServiceTests, persistenceControl)
     m_controlService->PersistenceControl(input, output, &authentication);
     verifyResult(output.m_result);
     const auto original = output.m_persistence;
+
+    // This is the fixture's own Settings object, shared by every test in the suite. Put the
+    // persistence settings back on every exit path, or the next test finds Redis at
+    // localhost:6379 - a stopped server on that port, and a failure that depends on the seed.
+    struct RestorePersistence
+    {
+        ControlService&     service;
+        HttpAuthentication& authentication;
+        CPersistence        persistence;
+        ~RestorePersistence()
+        {
+            CPersistenceControl request;
+            request.m_action = "set";
+            request.m_persistence = persistence;
+            CPersistenceControlResponse ignored;
+            service.PersistenceControl(request, ignored, &authentication);
+        }
+    } restorePersistence {*m_controlService, authentication, original};
 
     // Set (reuse whatever was returned but change one field if possible)
     input.m_action = "set";
