@@ -480,10 +480,11 @@ administrator sees in the interface. A node's first start on a shared database w
 ### Joining a cluster
 
 1. A node is given the cluster's two shared settings: the accounts database (PostgreSQL or MySQL) and the Redis
-   storage. On a new installation that is Initial Setup. On a running node the Dashboard's mode switch to **Cluster**
-   asks for both and writes the database URI into the bootstrap file; it forms the cluster when the storage is
-   empty. A node that is to join an existing cluster must already have the cluster's SQL URI in its bootstrap file,
-   because that is where the cluster's rows are; **Join cluster** on the Cluster screen then admits it. Nothing is
+   storage. On a new installation that is Initial Setup. On a running node it is **Settings**, which edits the Redis
+   connection and the accounts database and restarts MQTT; the target database must already hold an enabled
+   administrator account with the same password as the one signing in, so an empty database is Initial Setup's.
+   The Dashboard's mode switch to **Cluster** asks for both as well, and forms the cluster when the storage is empty.
+   **Join cluster** on the Cluster screen then admits the node to a cluster that is already there. Nothing is
    declared on the cluster's side first, and no invitation is sent.
 2. The node starts on that storage. If the storage holds no cluster, it becomes the first member and the coordinator.
    If it holds a cluster, the node joins it by itself. This is the same path `xmq_server --join-cluster` takes for a
@@ -507,6 +508,9 @@ administrator sees in the interface. A node's first start on a shared database w
 - **Dashboard:** the mode, `Standalone | Cluster`. Switching to **Cluster** asks for the shared Redis URI and the
   accounts database and forms the cluster when the storage is empty; joining a cluster that is already there is
   **Join cluster** on the Cluster screen.
+- **Settings:** the Redis connection and the accounts database of a running node, with the other node settings.
+  Saving them queues a restart of MQTT; a clustered node may not be moved to another storage or another cluster's
+  database this way - it leaves first.
 - **Cluster Configuration:** the nodes with their state, the coordinator, the number of open links and the last
   error; **Join cluster** for a node that already shares the database but is not a member, and **Remove**. Remove
   deletes a node that is not a member. A member is detached
@@ -557,8 +561,9 @@ In this order - each step leaves the system working:
   place (`ControlService` `disable`), and a member's Remove is available from its own dashboard first, or forced
   once its lease has expired (`removeClusterNode`).
   Left: `enable` still refuses a storage that holds a cluster and points at an invitation, and it must join the
-  cluster there instead, so that on an active node the Dashboard switch alone is enough once the cluster's database
-  is in its bootstrap file; `add`, `invite`, `accept` and `decline` go with the declaration and invitation flow.
+  cluster there instead, so that the Dashboard switch alone is enough on an active node; Settings already points a
+  running node at another Redis and accounts database. `add`, `invite`, `accept` and `decline` go with the
+  declaration and invitation flow.
 - [ ] The React side: the dashboard mode switch, the Cluster Configuration screen over `ClusterControl` with the
   node list, **Join cluster** and **Remove**.
   Done: the dashboard mode switch (`DashboardScreen`), the Cluster Configuration screen over `ClusterControl` with
