@@ -7,3 +7,8 @@ libsputil5.so.5.6.15
 libspwsdl5.so.5.6.15
 libpq5
 libmariadb3
+# The same two as the RPM packages name them: the soname, not the Debian package. Fedora's
+# PostgreSQL client library carries its private version in the soname.
+libpq.so.5
+libpq.so.private16-5
+libmariadb.so.3
