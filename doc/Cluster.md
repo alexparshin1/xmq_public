@@ -80,14 +80,15 @@
   carrying several shared subscriptions offers the message to each again. A node that crashes loses what its
   members held unacknowledged - nothing outside it knew of it.
 
-- [ ] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
+- [x] a node that loses the shared Redis storage for longer than its lease switches to cluster-offline state, disconnects
   all MQTT clients, and stops accepting new client connections and delivering messages. A change of coordinator is not
   seen by clients. Client service resumes once the node reaches the storage again.
   Done: the lease, cluster-offline (clients disconnected, CONNECT refused as "server unavailable"), a member that
   starts again rejoining by itself - `restartedNodeKeepsItsIdentityAndRejoins`, `enabledNodeJoinsByItself` - a node
   whose place went with the storage taking it back by itself (`aNodeWhoseMembershipWasClearedRejoinsByItself`), and
   cluster routing stopping while offline: the links are closed and not reopened until the node holds its lease
-  again (`anOfflineNodeClosesItsClusterLinks`).
+  again (`anOfflineNodeClosesItsClusterLinks`). A storage that stops answering rather than failing is covered by
+  `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`, and client refusal by `nodeWithoutStorageServesNoClients`.
 
 - [x] a node is its GUID, made on its first start and kept in `xmq_node.id` beside its configuration; its name is for
   people and unique in the cluster. A node may not take another node's name, a node already running elsewhere (a
@@ -543,13 +544,20 @@ In this order - each step leaves the system working:
   node's name and address; an unreachable database stops the start with the reason. The table is `xmq_node`,
   not `xmq_node`: the older name belongs to the bridge-era node table still present in shared databases.
   Left: the rest of the configuration - listeners, logging, limits, bridges - still comes from the file.
-- [ ] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
+- [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
   removed from the cluster names nothing the cluster uses while it serves on the same Redis.
+  Done: `Storage::setSessionNamespace()` prefixes every session key with the node's GUID; it is set when a node
+  starts standalone on a Redis that holds a cluster (`Cluster::start()`), when it leaves the cluster
+  (`ControlService` `disable`), and when it starts again after leaving. `aNodeThatLeavesCanRestartStandaloneWithoutRejoining`.
 - [ ] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.
   Compare a joining node's storage and cluster by those ids instead of by the URI, and keep the resolved address only
   for the error message.
 - [ ] Implement the state machine behind the screen: declared, invited, joining, refused, expired, failed; the
   computed `Clustered`/`Offline` from Redis. One active invitation per node, ten-minute lifetime.
+  Done: `Not Clustered`, `Standalone`, `Invited`, `Joining`, `Refused` and `Failed` are stored and shown;
+  `Clustered`/`Offline` are computed from Redis (`reportClusterState`), and an invitation replaces the node's
+  previous one (`ClusterStore::setInvitation`). Left: `Expired` is never set - `sendInvitation` writes
+  `expires_at` as the current time instead of ten minutes ahead, and nothing expires a stored or held invitation.
 - [x] Invitation transport: the server-level subscription to `cluster/invitation` (the server itself, not a client),
   authentication as the `cluster` user over TLS (the password checked by connecting before sending), the Redis and
   users database URIs in the invitation, and the refusal reply. `anInvitationFromTheClusterUserIsHeld` and its
@@ -568,13 +576,19 @@ In this order - each step leaves the system working:
   from its dialog and publishes the invitation, the invited node's own GUID taking the declared row's place;
   `remove` takes a declared node away and refuses a member, which is detached from its own screen first; `enable`
   makes this node the first member of a cluster on the storage it names, refusing a storage that already holds a
-  cluster - a cluster is joined by invitation - and asking for the restart. What the screen still owes: the
-  `disable` direction, which waits for the per-GUID session namespace below - a node that leaves would otherwise
-  serve on the storage its cluster uses - and a member's Remove, which waits for the same.
+  cluster - a cluster is joined by invitation - and asking for the restart. The `disable` direction, which needed
+  the per-GUID session namespace, is in place (`ControlService` `disable`), and a member's Remove is available from
+  its own dashboard first, or forced once its lease has expired (`removeClusterNode`).
 - [ ] The React side: the dashboard mode, the Cluster Configuration screen over `ClusterControl`, the Add and
   Invite dialogs, and Review/Accept/Decline on the invited node.
+  Done: the dashboard mode switch (`DashboardScreen`), the Cluster Configuration screen over `ClusterControl` with
+  the node list, Add and Remove (`ClusterScreen`). Left: the Invite dialog and Review/Accept/Decline on the invited
+  node.
 - [ ] Tests: the state machine and the checks as unit tests, invitation/accept/decline/expiry/rollback as cluster
   tests, and a `test_cluster.sh` scenario that invites a node and watches it join.
+  Done: invitation transport, accept/decline and rollback are cluster tests (`ClusterInvitationsTests`); the
+  server-side interface checks are unit tests (`ClusterControlTests`). Left: an expiry test, a state-machine unit
+  test for the stored transitions, and the `test_cluster.sh` scenario.
 
 ### Recovery without an operator
 
