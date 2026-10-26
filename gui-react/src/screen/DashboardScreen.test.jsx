@@ -15,3 +15,17 @@ test.each([
     if (uri !== displayed) expect(container.textContent).not.toContain(uri);
     expect(dashboard.state.cluster.database_uri).toBe(uri);
 });
+
+test.each([
+    [true, "Cluster"],
+    [false, "Standalone"]
+])("Dashboard shows the mode as text, not as a control (%s)", (enabled, mode) => {
+    const dashboard = new DashboardScreen({});
+    dashboard.state.cluster = {enabled};
+    const {container} = render(dashboard.renderCluster());
+    // Join and Leave on the Cluster Configuration page are the one way the mode changes; a second
+    // way here would be a second answer to the same question.
+    expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("input")).toBeNull();
+    expect(container.textContent).toContain(mode);
+});

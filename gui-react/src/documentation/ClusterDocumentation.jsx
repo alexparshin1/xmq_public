@@ -240,7 +240,8 @@ sudo systemctl enable --now xmq_server
 
             <h5>4. Join node B to the cluster</h5>
             <p>
-                On node A select <b>Cluster</b> mode on the <b>Dashboard</b> and confirm the
+                On node A's <b>Cluster Configuration</b> page select the <code>node-a</code> row and
+                press <b>Start cluster</b>, after confirming in <b>Settings</b> that the node uses the
                 shared accounts database and Redis storage. This creates the first member.
                 Keep node B in <b>Standalone</b> until you explicitly join it.
             </p>
@@ -303,7 +304,7 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
                 When Redis has no cluster members, the action panel offers <b>Start cluster</b>
                 for a selected Standalone node. Once it starts, open that node's Cluster page
                 to join the others. Offline members still belong to an existing cluster:
-                start one of them, enabling Cluster mode on its Dashboard if necessary.
+                start one of them, pressing Start cluster on its Cluster page if necessary.
             </p>
             <p>
                 <b>Remove node</b> deletes configuration, not membership. First leave the cluster.

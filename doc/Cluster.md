@@ -483,9 +483,9 @@ administrator sees in the interface. A node's first start on a shared database w
    storage. On a new installation that is Initial Setup. On a running node it is **Settings**, which edits the Redis
    connection and the accounts database and restarts MQTT; the target database must already hold an enabled
    administrator account with the same password as the one signing in, so an empty database is Initial Setup's.
-   The Dashboard's mode switch to **Cluster** asks for both as well, and forms the cluster when the storage is empty.
-   **Join cluster** on the Cluster screen then admits the node to a cluster that is already there. Nothing is
-   declared on the cluster's side first, and no invitation is sent.
+   The Dashboard shows the mode but does not change it. **Start cluster** on the Cluster Configuration screen
+   forms the cluster when the storage is empty; **Join cluster** there admits the node to a cluster that is already
+   there. Nothing is declared on the cluster's side first, and no invitation is sent.
 2. The node starts on that storage. If the storage holds no cluster, it becomes the first member and the coordinator.
    If it holds a cluster, the node joins it by itself. This is the same path `xmq_server --join-cluster` takes for a
    node that already shares the database.
@@ -505,14 +505,14 @@ administrator sees in the interface. A node's first start on a shared database w
 
 ### Interface
 
-- **Dashboard:** the mode, `Standalone | Cluster`. Switching to **Cluster** asks for the shared Redis URI and the
-  accounts database and forms the cluster when the storage is empty; joining a cluster that is already there is
-  **Join cluster** on the Cluster screen.
+- **Dashboard:** the mode, `Standalone | Cluster`, shown as text. It is not changed here: **Start cluster**,
+  **Join cluster** and **Leave cluster** on the Cluster Configuration screen are the one way the mode changes.
 - **Settings:** the Redis connection and the accounts database of a running node, with the other node settings.
   Saving them queues a restart of MQTT; a clustered node may not be moved to another storage or another cluster's
   database this way - it leaves first.
 - **Cluster Configuration:** the nodes with their state, the coordinator, the number of open links and the last
-  error; **Join cluster** for a node that already shares the database but is not a member, and **Remove**. Remove
+  error; **Start cluster** for a standalone node when the storage holds no cluster, **Join cluster** for a node that
+  already shares the database but is not a member, **Leave cluster**, and **Remove**. Remove
   deletes a node that is not a member. A member is detached
   first - its sessions are handed over - and then removed: its row is changed (`cluster_enabled` off) and the node
   is restarted. It keeps the same Redis, and writes its own sessions under a namespace of its GUID, so that a node
@@ -561,14 +561,14 @@ In this order - each step leaves the system working:
   place (`ControlService` `disable`), and a member's Remove is available from its own dashboard first, or forced
   once its lease has expired (`removeClusterNode`).
   Left: `enable` still refuses a storage that holds a cluster and points at an invitation, and it must join the
-  cluster there instead, so that the Dashboard switch alone is enough on an active node; Settings already points a
-  running node at another Redis and accounts database. `add`, `invite`, `accept` and `decline` go with the
-  declaration and invitation flow.
-- [ ] The React side: the dashboard mode switch, the Cluster Configuration screen over `ClusterControl` with the
-  node list, **Join cluster** and **Remove**.
-  Done: the dashboard mode switch (`DashboardScreen`), the Cluster Configuration screen over `ClusterControl` with
-  the node list, Join cluster and Remove (`ClusterScreen`); the Add node dialog is gone. Left: removing the Invite
-  dialog and the Review/Accept/Decline path.
+  cluster there instead, so that **Start cluster** on the Cluster Configuration screen is enough on an active node.
+  Settings already points a running node at another Redis and accounts database. `add`, `invite`, `accept` and
+  `decline` go with the declaration and invitation flow.
+- [ ] The React side: the Dashboard mode shown as text, and the Cluster Configuration screen over `ClusterControl`
+  with the node list, **Start cluster**, **Join cluster**, **Leave cluster** and **Remove**.
+  Done: the Dashboard shows the mode and no longer changes it, the Cluster Configuration screen over
+  `ClusterControl` with the node list, Start cluster, Join cluster, Leave cluster and Remove (`ClusterScreen`); the
+  Add node dialog is gone. Left: removing the Invite dialog and the Review/Accept/Decline path.
 - [ ] Tests: the stored transitions as unit tests, the self-join as cluster tests, and a `test_cluster.sh` scenario
   that joins a node and watches it join.
   Done: the server-side interface checks are unit tests (`ClusterControlTests`), and the start that joins is covered

@@ -42,11 +42,12 @@ function displayUri(uri) {
  * Cluster Configuration.
  *
  * The cluster is configured here, not by editing a file on each node: the nodes with their states,
- * Join cluster and Remove. Join cluster explicitly confirms a restart onto the shared Redis storage
- * for a node already using the same accounts database.
+ * Start cluster, Join cluster, Leave cluster and Remove. Start cluster forms a cluster on a
+ * Standalone node's configured Redis storage and accounts database; Join cluster explicitly confirms
+ * a restart onto the shared Redis storage for a node already using the same accounts database.
  *
- * The mode itself - Standalone or Cluster - is switched on the Dashboard; this page shows what
- * the mode means and what the cluster holds.
+ * The mode itself - Standalone or Cluster - is changed by those actions; the Dashboard only shows
+ * what it is.
  */
 export default class ClusterScreen extends BasicScreen {
 
@@ -277,7 +278,7 @@ export default class ClusterScreen extends BasicScreen {
         if (cluster.cluster_state === "offline") return <div role="status" className="inputScreenHint">
             The cluster still exists, but all its members are Offline:
             {" " + (cluster.cluster_members || []).map(node => node.name).join(", ") + ". "}
-            Start one of these members. On its Dashboard, enable Cluster mode if it is Standalone,
+            Start one of these members. On its Cluster page, press Start cluster if it is Standalone,
             or start MQTT if it is stopped. Then use that member's Cluster page to join other nodes.
             If a member cannot be restored after hardware or OS failure, isolate the failed server,
             select its row and use Force remove node. When no members remain, Start cluster becomes available.
@@ -289,7 +290,7 @@ export default class ClusterScreen extends BasicScreen {
         const offline = (cluster.cluster_members || []).filter(node => node.state === "Offline");
         if (offline.length) return <div role="status" className="inputScreenHint">
             Offline members: {offline.map(node => node.name).join(", ")}. Start the affected member;
-            on its Dashboard, enable Cluster mode if it is Standalone, or start MQTT if it is stopped.
+            on its Cluster page, press Start cluster if it is Standalone, or start MQTT if it is stopped.
             If hardware or OS failure prevents recovery, isolate that server and use Force remove node
             on its selected row. The remaining Clustered members can continue serving the cluster.
             {!cluster.enabled && " Open a Clustered member's Cluster page to join other nodes."}

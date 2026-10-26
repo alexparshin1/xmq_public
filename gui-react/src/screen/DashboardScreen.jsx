@@ -5,8 +5,7 @@ import BasicScreen from "./BasicScreen";
 import StatPanel, {Gauge, Stat, formatBytes, formatCount, formatDuration} from "../components/StatPanel";
 import PowerSwitch from "../components/PowerSwitch";
 import PageTitle from "../components/PageTitle";
-import DialogWindow from "../components/DialogWindow";
-import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
+import {confirmationWindow, errorWindow} from "../components/MessageWindow";
 
 function displayDatabaseUri(uri) {
     return (uri || "").replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/?#@]*):[^/]*@/i, "$1@");
@@ -15,12 +14,13 @@ function displayDatabaseUri(uri) {
 /**
  * Dashboard.
  *
- * For now it carries one control: starting and stopping the MQTT server. The interface is served
- * from outside the server, so it stays up while the server is stopped - which is what makes it
- * possible to correct a configuration that prevents the server from starting at all.
+ * The node's vital signs and the controls that are about this node alone: starting and stopping the
+ * MQTT server, and reading the mode, the storage and the accounts database. Changing the mode is not
+ * one of them - Start cluster, Join cluster and Leave cluster on the Cluster Configuration page are
+ * the one way it changes, so the two screens cannot disagree about how a node becomes a cluster member.
  *
- * Intended to grow into the place where the server's vital signs are shown; the layout leaves
- * room for that rather than centring a single button.
+ * The interface is served from outside the server, so it stays up while the server is stopped - which
+ * is what makes it possible to correct a configuration that prevents the server from starting at all.
  */
 export default class DashboardScreen extends BasicScreen {
     state = {
@@ -33,7 +33,6 @@ export default class DashboardScreen extends BasicScreen {
         rates: null,        // messages per second, worked out between polls
         pollSeconds: 10,
         cluster: null,      // last ClusterControl reply: the mode and what it works against
-        clusterDialog: false // the storage dialog, while the mode is being switched to Cluster
     }
 
     componentDidMount() {
@@ -158,68 +157,6 @@ export default class DashboardScreen extends BasicScreen {
                 }
                 this.setState({cluster: result});
                 return result;
-            });
-    }
-
-    /**
-     * Switches the cluster mode.
-     *
-     * Standalone to Cluster asks for the storage and turns the node into the first member of a
-     * cluster on it; the node then restarts into the cluster. Cluster to Standalone is answered by
-     * the server with what still has to come first, and the switch stays where it was.
-     * @param {string} mode  The chosen mode.
-     */
-    changeClusterMode(mode) {
-        const cluster = this.state.cluster;
-        if (!cluster) {
-            return;
-        }
-        if (mode === "Cluster" && cluster.enabled !== true) {
-            // The dialog asks for both shared settings, the accounts database included: a node
-            // whose accounts are a file of its own becomes the first member by being given one.
-            this.setState({clusterDialog: true});
-            return;
-        }
-        if (mode === "Standalone" && cluster.enabled === true) {
-            ControlAPI.asyncMakeAPICall("ClusterControl", {action: "disable"})
-                .then(result => {
-                    if (result === null) {
-                        return;
-                    }
-                    const error = ControlAPI.apiError(result);
-                    if (error) {
-                        errorWindow("Can't leave the cluster: " + error);
-                        return;
-                    }
-                    informationWindow("The node is restarting MQTT as a standalone server. This interface will " +
-                                      "remain available. MQTT clients will reconnect.");
-                    this.readCluster();
-                });
-        }
-    }
-
-    /**
-     * Turns this node into the first member of a cluster whose state lives in the named storage
-     * and whose accounts live in the named database.
-     * @param {string} redisUri     The shared storage.
-     * @param {string} databaseUri  The shared accounts database (PostgreSQL or MySQL).
-     */
-    enableCluster(redisUri, databaseUri) {
-        ControlAPI.asyncMakeAPICall("ClusterControl",
-                                    {action: "enable", redis_uri: redisUri, database_uri: databaseUri})
-            .then(result => {
-                if (result === null) {
-                    return;
-                }
-                const error = ControlAPI.apiError(result);
-                if (error) {
-                    errorWindow("Can't make this node a cluster node: " + error);
-                    return;
-                }
-                informationWindow("This node is becoming the first member of the cluster on " + redisUri +
-                                  ", with its accounts in " + displayDatabaseUri(databaseUri) + ", and is restarting MQTT into it. " +
-                                  "This interface will remain available. MQTT clients will reconnect.");
-                this.readCluster();
             });
     }
 
@@ -362,13 +299,8 @@ export default class DashboardScreen extends BasicScreen {
             <legend>Cluster</legend>
 
             <div className="inputScreenRow">
-                <label htmlFor="clusterMode" className="inputScreenLabel">Mode:</label>
-                <select id="clusterMode" className="inputScreenSelect"
-                        value={cluster.enabled === true ? "Cluster" : "Standalone"}
-                        onChange={(event) => this.changeClusterMode(event.target.value)}>
-                    <option value="Standalone">Standalone</option>
-                    <option value="Cluster">Cluster</option>
-                </select>
+                <label className="inputScreenLabel">Mode:</label>
+                <span>{cluster.enabled === true ? "Cluster" : "Standalone"}</span>
                 <span className="inputScreenHint">
                     {cluster.enabled === true
                         ? "This node works with " + (cluster.redis_uri || "no storage") +
@@ -378,27 +310,9 @@ export default class DashboardScreen extends BasicScreen {
             </div>
 
             <p style={{color: "#666", fontSize: "0.9em", maxWidth: "46em"}}>
-                Switching to Cluster asks for the two things every node of a cluster shares - the
-                storage and the accounts database - and turns this node into the first member of a
-                cluster on them; it restarts into the cluster. A node is added to a cluster that
-                already exists by invitation, from the Cluster Configuration page.
+                The mode is changed on the Cluster Configuration page, where a node starts a cluster,
+                joins one, or leaves it; this page only shows what the node is.
             </p>
-
-            {this.state.clusterDialog &&
-                <DialogWindow windowTitle="Start a Cluster"
-                              fields={[
-                                  {headerName: "Shared storage (Redis URI)", field: "redis_uri"},
-                                  {headerName: "Shared accounts database (PostgreSQL or MySQL)", field: "database_uri"}
-                              ]}
-                              values={{redis_uri: cluster.redis_uri || "",
-                                       database_uri: cluster.on_cluster_database ? (cluster.database_uri || "") : ""}}
-                              labelWidth={400} windowWidth={760} windowHeight={280}
-                              onSubmit={(result, values) => {
-                                  if (result === "Ok") {
-                                      this.enableCluster(values.redis_uri, values.database_uri);
-                                  }
-                              }}
-                              closeModal={() => this.setState({clusterDialog: false})}/>}
         </fieldset>;
     }
 
