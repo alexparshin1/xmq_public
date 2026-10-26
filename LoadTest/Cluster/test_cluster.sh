@@ -28,6 +28,7 @@
 #   test_cluster.sh up                 prepare (dirs, certificates, configuration), start every node
 #   test_cluster.sh down               stop every node
 #   test_cluster.sh start|stop <node>  one node (what a scenario timeline calls)
+#   test_cluster.sh crash <node>       kill one node outright, as a crash does: no handover, no lease release
 #   test_cluster.sh status             processes, ports, and what the cluster has written in Redis
 #   test_cluster.sh wipe               empty this test cluster's Redis database, and nothing else
 #   test_cluster.sh tail <node>        the node's console log
@@ -95,7 +96,7 @@ EXTENSION_LIBRARY=${EXTENSION_LIBRARY:-$HOME/cluster.run/lib/libxmq_user_databas
 # library: on Ubuntu, where the installed SPTK is not the version the project wants, the binary
 # names ~/.local in its runpath, and without this a node starts and dies with "cannot open shared
 # object file".
-SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster.run/lib:$HOME/sptk/lib}
+SERVER_LIBRARY_PATH=${SERVER_LIBRARY_PATH:-$HOME/cluster.run/lib:$HOME/sptk/lib:$HOME/.local/lib}
 # Two nodes on each machine, so that the links between them are links between hosts, and the test cluster
 # still leaves every machine able to carry its share of clients and traffic.
 NODES=${NODES:-"node1@client-host node2@client-host node3@server-host node4@server-host node5@farm-host node6@farm-host"}
@@ -372,6 +373,19 @@ stop_node() {
             sleep 0.25
         done
         kill -9 \"\$(cat \"\$pid_file\")\" 2>/dev/null
+        rm -f \"\$pid_file\""
+}
+
+# Take a node away the way a crash does: no SIGTERM, so no session handover and no lease released.
+# The cluster has to notice through the lease, which is what a chaos run is about.
+crash_node() {
+    local node=$1 dir
+    dir=$(node_dir "$node")
+    on_host "$(node_host_of "$node")" "
+        pid_file=\"$dir/xmq_server.pid\"
+        [ -f \"\$pid_file\" ] || { echo \"$(node_name "$node") is not running\" >&2; exit 3; }
+        kill -0 \"\$(cat \"\$pid_file\")\" 2>/dev/null || { rm -f \"\$pid_file\"; echo \"$(node_name "$node") is not running\" >&2; exit 3; }
+        kill -9 \"\$(cat \"\$pid_file\")\" 2>/dev/null || { echo \"$(node_name "$node") could not be killed\" >&2; exit 3; }
         rm -f \"\$pid_file\""
 }
 
@@ -725,6 +739,7 @@ case "${1:-help}" in
     down)    command_down ;;
     start)   start_node "${2:?node}" ;;
     stop)    stop_node "${2:?node}" ;;
+    crash)   crash_node "${2:?node}" ;;
     status)  command_status ;;
     wipe)    command_wipe ;;
     mark)    command_mark ;;

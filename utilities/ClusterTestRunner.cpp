@@ -22,6 +22,7 @@
 #include <sptk5/net/RedisConnect.h>
 #include <sptk5/net/URL.h>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -1161,7 +1162,9 @@ int ClusterTestRunner::report() const
         COUT(format("  {}  {}: {}", outcome.m_passed ? "PASS" : "FAIL", outcome.m_name, outcome.m_detail));
     }
 
-    const auto notRun = m_ran.size() - m_outcomes.size();
+    // A span check records one outcome per look, so the number of outcomes is not the number of
+    // checks; what did not run is what the flags say.
+    const auto notRun = static_cast<size_t>(count(m_ran.begin(), m_ran.end(), false));
     if (notRun > 0)
     {
         COUT(format("  ----  {} check(s) did not run", notRun));

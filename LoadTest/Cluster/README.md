@@ -40,6 +40,7 @@ test_cluster.sh up            # write configurations and certificates, start eve
 test_cluster.sh status        # nodes, ports, and the cluster keys in the shared storage
 test_cluster.sh stop node3    # stop one node
 test_cluster.sh start node3
+test_cluster.sh crash node3   # kill -9: no handover, no lease released
 test_cluster.sh down          # stop every node
 test_cluster.sh wipe          # remove the directories; the next up starts fresh
 ```
@@ -100,6 +101,32 @@ over a session of the load. A check may also carry:
 xmq_scn_cluster --scenario LoadTest/Cluster/the-second-node-comes-back.json
 xmq_scn_cluster --scenario ... --dry-run     # print the plan, run nothing
 ```
+
+## A chaos run
+
+`chaos_run.sh` is the survivability run: under the constant `chaos-p2p.json` load it kills each node
+outright - `kill -9`, so nothing hands over and no lease is released - and brings it back, one node at
+a time, over the whole run. The survivors must keep serving clients and carrying messages while a node
+is gone, and the victim must carry traffic again afterwards. Every node is taken in turn, so the
+coordinator and the nodes the load's clients are on are among the victims.
+
+```sh
+# three or more nodes; the defaults come from cluster.env
+./LoadTest/Cluster/chaos_run.sh --nodes "node1@client-host node2@client-host node3@server-host" \
+                               --duration 600 --cycle 90 --down 20
+./LoadTest/Cluster/chaos_run.sh ... --dry-run      # print the generated timeline
+```
+
+The timeline is fixed, not random: the same nodes are killed at the same seconds on every run, so a
+failure can be reproduced and looked at again. A cycle takes one node away for `--down` seconds and
+gives it 45 seconds to serve again before the next cycle; the run needs at least three nodes, because
+with two a crash leaves too little behind to prove that anything but the survivor still works.
+
+`chaos_run.sh` writes the test it runs to `$CLUSTER_DIR/chaos-run.generated.json` and a copy of the load
+with `duration_sec` set to `--duration` to `$CLUSTER_DIR/chaos-load.generated.json`; both are the record
+of what was run. The load reconnects clients whose node goes away, and skips their turns while they are
+reconnecting instead of ending the run, which is what makes it a measure of the cluster rather than of
+the load's patience. `--keep-cluster` and the other `xmq_scn_cluster` options pass through.
 
 ## The method
 

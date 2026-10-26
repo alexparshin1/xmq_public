@@ -1,0 +1,61 @@
+{
+  "name": "Cluster-Chaos-P2P",
+  "type": "Point-To-Point",
+  "comments": [
+    "The load a chaos run carries: the same shape as cluster-p2p-small, long enough to",
+    "outlast the crashes, and reconnecting, so that a client whose node is killed comes back",
+    "to it instead of ending the run. Publishers and subscribers sit on different nodes, which",
+    "is what makes the cluster route anything at all - 200 topics, one subscriber each, 2",
+    "messages per second per publisher.",
+    "",
+    "The accounts are the test cluster's: user/User-Secret1, from the cluster's shared accounts database."
+  ],
+  "publishers": {
+    "id_prefix": "chaos-publisher-",
+    "protocol_version": 5,
+    "client_count": 100,
+    "qos": 1,
+    "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 60,
+    "topics": "cluster/chaos/topic$clientindex",
+    "server": {
+      "hostname": "server-host",
+      "port": 2884,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "subscribers": {
+    "id_prefix": "chaos-subscriber-",
+    "protocol_version": 5,
+    "client_count": 100,
+    "qos": 1,
+    "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 60,
+    "topics": "cluster/chaos/topic$clientindex",
+    "server": {
+      "hostname": "server-host",
+      "port": 2885,
+      "username": "user",
+      "password": "User-Secret1"
+    }
+  },
+  "server": {
+    "hostname": "server-host",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 400,
+    "duration_sec": 600,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

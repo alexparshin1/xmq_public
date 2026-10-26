@@ -1048,6 +1048,14 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
 
     const auto qos = static_cast<Qos>(m_scenario.m_subscribers.m_qos.asInteger());
 
+    // A scenario that asks its clients to reconnect can outlive a broker: a chaos run takes a node
+    // away under the load, and the clients on it spend the outage reconnecting. Their turn is
+    // skipped while they are away - the survivor keeps carrying what it can - instead of the first
+    // publish ending the whole run. Without auto-reconnect a disconnect still ends it, as it should:
+    // there is nothing that would bring the client back.
+    const auto publishersReconnect = !m_scenario.m_publishers.m_auto_reconnect.isNull() &&
+                                     m_scenario.m_publishers.m_auto_reconnect.asBool();
+
     auto sendMessageCount = 0;
 
     // Duration-based scenarios carry no message_count to stop on: completion is only ever observed
@@ -1139,6 +1147,15 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             m_paceMaker->next();
         }
 
+        // A reconnecting client is not there to publish: its turn goes by at the pace the others
+        // keep, rather than the loop spinning through every turn of the outage, and the next client
+        // takes the next message.
+        if (publishersReconnect && !publisher->isConnected())
+        {
+            ++sendMessageCount;
+            continue;
+        }
+
         switch (testType)
         {
             using enum Type;
@@ -1160,24 +1177,37 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                 throw Exception("Unknown test type");
         }
 
-        if (latencyTraceEnabled || publishProperties)
+        try
         {
-            // A fresh properties object per message, not one reused across the loop: MqttClient's
-            // publish() stores the shared_ptr as-is (Message::setProperties() is an alias, not a
-            // copy), so a shared instance here would let every in-flight message's send thread
-            // mutate the same LatencyTrace concurrently. Whatever "-D publish ..." asked for is
-            // copied into that fresh object, which is also what a real client would pay.
-            auto messageProperties = publishProperties ? make_shared<MessageProperties>(*publishProperties)
-                                                       : make_shared<MessageProperties>();
-            if (latencyTraceEnabled)
+            if (latencyTraceEnabled || publishProperties)
             {
-                messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
+                // A fresh properties object per message, not one reused across the loop: MqttClient's
+                // publish() stores the shared_ptr as-is (Message::setProperties() is an alias, not a
+                // copy), so a shared instance here would let every in-flight message's send thread
+                // mutate the same LatencyTrace concurrently. Whatever "-D publish ..." asked for is
+                // copied into that fresh object, which is also what a real client would pay.
+                auto messageProperties = publishProperties ? make_shared<MessageProperties>(*publishProperties)
+                                                           : make_shared<MessageProperties>();
+                if (latencyTraceEnabled)
+                {
+                    messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
+                }
+                publisher->publish(topic, payload, qos, messageProperties);
             }
-            publisher->publish(topic, payload, qos, messageProperties);
+            else
+            {
+                publisher->publish(topic, payload, qos);
+            }
         }
-        else
+        catch (const exception& e)
         {
-            publisher->publish(topic, payload, qos);
+            // The connection can go between the check above and the send: a node taken away under the
+            // load is exactly that race. The client is reconnecting, so the message is lost, not the
+            // run; any other error, and a client that cannot come back, still ends it.
+            if (!publishersReconnect || !string_view(e.what()).starts_with("Not connected"))
+            {
+                throw;
+            }
         }
         ++sendMessageCount;
 
