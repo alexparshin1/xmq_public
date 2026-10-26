@@ -11,4 +11,5 @@ libmariadb3
 # PostgreSQL client library carries its private version in the soname.
 libpq.so.5
 libpq.so.private16-5
+libpq.so.private18-5
 libmariadb.so.3
