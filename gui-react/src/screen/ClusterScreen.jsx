@@ -5,7 +5,6 @@ import BasicScreen from "./BasicScreen";
 import "./InputScreen.css";
 import "./ClusterScreen.css";
 import PageTitle from "../components/PageTitle";
-import DialogWindow from "../components/DialogWindow";
 import {confirmationWindow, errorWindow} from "../components/MessageWindow";
 
 /**
@@ -42,9 +41,9 @@ function displayUri(uri) {
 /**
  * Cluster Configuration.
  *
- * The cluster is declared here, not by editing a file on each node: the nodes with their states,
- * Add, Join cluster and Remove. Join cluster explicitly confirms a restart onto shared Redis
- * storage for a node already using the same accounts database.
+ * The cluster is configured here, not by editing a file on each node: the nodes with their states,
+ * Join cluster and Remove. Join cluster explicitly confirms a restart onto the shared Redis storage
+ * for a node already using the same accounts database.
  *
  * The mode itself - Standalone or Cluster - is switched on the Dashboard; this page shows what
  * the mode means and what the cluster holds.
@@ -66,7 +65,6 @@ export default class ClusterScreen extends BasicScreen {
         cluster: null,      // last ClusterControl "get" reply
         error: null,        // why the last read failed, shown in place of the picture
         selected: null,     // every node action targets this row
-        dialog: null,       // "add" while the declaration dialog is open
         busy: false
     };
 
@@ -135,11 +133,6 @@ export default class ClusterScreen extends BasicScreen {
                 this.updateCluster(result);
                 return true;
             });
-    }
-
-    addNode(values) {
-        this.send("add", {node: {name: values.name, host_port: values.host_port}},
-                  "Can't add the node");
     }
 
     removeNode(row, force = false) {
@@ -240,8 +233,6 @@ export default class ClusterScreen extends BasicScreen {
         const buttonClass = "inputScreenSaveButton inputScreenActionButton";
         const starting = cluster.cluster_state === "empty";
         return <div className="clusterNodeActions">
-            <button className={buttonClass} disabled={busy}
-                    onClick={() => this.setState({dialog: "add"})}>Add node&hellip;</button>
             <div className="clusterSelectedNode" aria-live="polite">
                 {selected ? <>Selected node: <strong>{selected.name}</strong></> : "Select a node"}
             </div>
@@ -272,7 +263,7 @@ export default class ClusterScreen extends BasicScreen {
                        onSelectionChanged={row => this.setState({selected: row})}/>
             <p className="inputScreenHint">
                 Actions apply to the selected node, including when it is on another host.
-                Add node creates a configuration entry. Join cluster uses this node's cluster.
+                Join cluster admits a node that already shares this database.
             </p>
         </fieldset>;
     }
@@ -309,26 +300,6 @@ export default class ClusterScreen extends BasicScreen {
         return null;
     }
 
-    renderDialogs() {
-        if (this.state.dialog === "add") {
-            return <DialogWindow windowTitle="Add Node"
-                                 fields={[
-                                     {headerName: "Name", field: "name"},
-                                     {headerName: "Address", field: "host_port"}
-                                 ]}
-                                 values={{name: "", host_port: ""}}
-                                 windowWidth={520} windowHeight={240}
-                                 onSubmit={(result, values) => {
-                                     if (result === "Ok") {
-                                         this.addNode(values);
-                                     }
-                                 }}
-                                 closeModal={() => this.setState({dialog: null})}/>;
-        }
-
-        return null;
-    }
-
     render() {
         const {cluster, error} = this.state;
 
@@ -358,7 +329,6 @@ export default class ClusterScreen extends BasicScreen {
             {cluster && cluster.on_cluster_database ? this.renderClusterSettings() : null}
             {cluster && cluster.on_cluster_database ? this.renderNodes() : null}
 
-            {this.renderDialogs()}
         </div>;
     }
 }

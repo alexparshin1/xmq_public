@@ -108,7 +108,7 @@ broker, for what the cluster must not make worse.
 
 | Requirement | Covered by |
 |---|---|
-| Admission limit of 50 members, including offline members | unit: `fiftyFirstNodeIsRefused`, `AddDuplicateNode` |
+| Admission limit of 50 members, including offline members | unit: `fiftyFirstNodeIsRefused` |
 | client id unique, takeover | unit: `enforceUniqueClientId`, `connectedClientIsTakenOverAcrossNodes`, `sessionMovesToTheNodeItsClientConnectsTo`, `clusterAndOrdinarySessionsCannotTakeOverEachOther` |
 | coordinator, leases, succession | unit: `firstNodeCoordinatesAndEveryNodeIsOnline`, `nextNodeInOrderSucceedsTheCoordinator`, `coordinatorChangeDoesNotDisturbClients`, `clientsNeverSeeTheClusterAssignment` |
 | sessions survive a node going down | unit: `sessionOfANodeThatIsGoneIsTakenOver`; test cluster: `the-second-node-comes-back.json` |
@@ -431,7 +431,7 @@ subscribers.
 
 ## Cluster configuration and the interface
 
-The cluster is declared by an administrator in the interface, not by editing a file on each node.
+The cluster is configured in the interface, not by editing a file on each node.
 
 ### What lives where
 
@@ -441,13 +441,12 @@ The node's GUID stays where it is - `xmq_node.id` beside the configuration, not 
 
 The SQL database (PostgreSQL or MySQL - SQLite does not apply to a cluster) holds what is shared and what an
 administrator edits. The configuration is one table, `xmq_node`, in which a column is a setting and a row is a node. Every node whose
-configuration lives in this database has a row, member or not; a node the administrator declares with Add has one too,
-keyed by a GUID the inviter generates until the Invite learns the node's own and takes it over. The bridge-era table
-that held the name before is dropped when the schema is created - nothing reads it any more. The configuration is:
+configuration lives in this database has a row, member or not: a node writes its own on its first start, keyed by its
+GUID. The bridge-era table that held the name before is dropped when the schema is created - nothing reads it any
+more. The configuration is:
 `node_id` (the GUID, primary key), `name`, `host_port`, `state`, `last_error`, and the settings that used to be in
 the file - the Redis URI, the users database URI, the listeners and TLS key paths, `cluster_enabled`,
-`cluster_lease_seconds`, `cluster_links`. A second table, `xmq_cluster_invitation`, holds at most one active row per
-node: the node's GUID, a one-time token, the inviting node's address, `expires_at`.
+`cluster_lease_seconds`, `cluster_links`.
 
 Redis keeps the runtime (see *The shared storage is the arbiter*): `cluster:members`, the leases, the coordinator
 keys, sessions, queues and retained messages. Those are written several times per lease and are not configuration.
@@ -469,61 +468,52 @@ cannot tell whether it is a cluster node at all, and serving on a guess risks wr
 
 | State | Meaning |
 | --- | --- |
-| Not Clustered | declared by an administrator with Add, no invitation sent yet |
 | Standalone | the node's own row: it uses this database for its configuration and is not a member |
-| Invited | an invitation is active and the node has not answered |
-| Joining | accepted; the node is applying the configuration and restarting |
+| Joining | the node is applying the configuration and restarting into it |
 | Clustered | in `cluster:members` and holding its lease |
 | Offline | in `cluster:members`, lease expired - down or cut off from Redis |
-| Refused | the node declined the invitation |
-| Expired | no answer within the invitation's lifetime (10 minutes) |
-| Failed | the node accepted but did not join; the configuration was rolled back |
+| Failed | the node tried to join and did not; the configuration was rolled back |
 
 `Clustered` and `Offline` are computed from Redis and are never stored in SQL; the others are stored and are what the
-administrator sees in the interface.
+administrator sees in the interface. A node's first start on a shared database writes its row as `Standalone`.
 
-### Declaring and inviting
+### Joining a cluster
 
-1. On the dashboard, the mode is chosen: **Standalone** or **Cluster**. Switching a standalone node to Cluster asks
-   for the shared Redis URI and starts it as the first member and the coordinator. If the storage already holds a
-   cluster, the node refuses with an error saying so and asks for an invitation: a cluster is joined by invitation,
-   never by configuring a node to join it.
-2. **Add node** on the Cluster Configuration screen adds a row: name and TLS address. The node is `Not Clustered`;
-   nothing is contacted.
-3. **Invite** on a selected row opens a dialog asking for the password of the `cluster` user; the invitation is
-   published through the cluster's own MQTT client to the invited node's `cluster/invitation` topic, over TLS.
-   It carries the Redis URI, the users database URI and the inviting node's address and names - the invited node
-   is standalone and knows none of them. The `cluster` user's password is the same on every node of the cluster,
-   and the inviting node checks it by connecting: an authentication refusal is reported before the invitation is
-   sent.
-4. The invited node, subscribed to `cluster/invitation` at the server level (it needs no client), shows the
-   invitation on its own Cluster screen as a button. **Review** opens a confirmation that names every change:
-   persistence off -> the shared Redis, the local users database -> the shared one, the cluster enabled, the node
-   restarting and its clients disconnecting, and that local persistent sessions, queues and accounts are not carried
-   over (moving accounts is a separate operation, by its own request and from a given database URI).
-   **Accept** applies the configuration - the SQL database URI included, since that is in the bootstrap file - and
-   ends the process with the restart exit code; **Decline** answers the inviting node, which records `Refused`.
-5. Checks before the invitation is shown: the XMQ versions match, the Redis and the users database are reachable,
-   the node is not a member of another cluster, and the node is not already a member of this one. A failed check
-   shows the invitation with the reason; Accept is disabled while it stands. An invitation to a node that is
-   already a member of this cluster, with the same storage and users database, is ignored and answered as such.
-6. On Accept the node writes the new configuration and restarts. The first join of a node is by invitation only;
-   afterwards its own `cluster_enabled` brings it back, because its GUID has been admitted already. Every start
-   that joins checks the identity of the storage and of the users database just the same - `storage:id`,
-   `cluster:id`, `database_uri` - and a node that fails a check does not join. The inviting node learns of the
-   result from the state in SQL and from `cluster:members`; a node that does not join within the agreed time is
-   `Failed`, and the node that tried keeps its previous configuration (the last-good copy) and serves on it.
+1. A node is given the cluster's two shared settings: the accounts database (PostgreSQL or MySQL) and the Redis
+   storage. On a new installation that is Initial Setup. On a running node the Dashboard's mode switch to **Cluster**
+   asks for both and writes the database URI into the bootstrap file; it forms the cluster when the storage is
+   empty. A node that is to join an existing cluster must already have the cluster's SQL URI in its bootstrap file,
+   because that is where the cluster's rows are; **Join cluster** on the Cluster screen then admits it. Nothing is
+   declared on the cluster's side first, and no invitation is sent.
+2. The node starts on that storage. If the storage holds no cluster, it becomes the first member and the coordinator.
+   If it holds a cluster, the node joins it by itself. This is the same path `xmq_server --join-cluster` takes for a
+   node that already shares the database.
+3. Before it joins, the node checks that the XMQ versions match, that the peers' TLS certificates are trusted, that
+   `storage:id` and `cluster:id` name the cluster the peers name, that `authentication.database_uri` is the cluster's,
+   and that the node is not a member of another cluster. Admission is also refused when the cluster would grow past 50
+   members: an unreachable member still counts until its removal is committed.
+4. The node writes the configuration and restarts its MQTT service into it; the interface stays up when the switch is
+   made on a running node. Its row goes `Standalone` to `Joining`, and Redis then says `Clustered`. Local persistent
+   sessions, queues and accounts are not carried over; moving accounts is a separate operation, by its own request
+   and from a given database URI.
+5. A join that fails - the broker does not come up, or a check refuses it - puts the previous configuration back,
+   marks the row `Failed` with the reason, and exits with the restart code so that the service manager brings the
+   node back on the old configuration. The node then serves standalone again.
+6. Afterwards the node's own `cluster_enabled` brings it back, its GUID having been admitted; every start that joins
+   runs the same checks. The node's clients disconnect while it leaves standalone mode.
 
 ### Interface
 
-- **Dashboard:** the mode, `Standalone | Cluster`.
-- **Cluster Configuration:** the declared nodes with their state, the coordinator, the number of open links and the
-  last error; **Add node**, **Invite**, **Remove**. Remove deletes a node that is not a member. A member is detached
+- **Dashboard:** the mode, `Standalone | Cluster`. Switching to **Cluster** asks for the shared Redis URI and the
+  accounts database and forms the cluster when the storage is empty; joining a cluster that is already there is
+  **Join cluster** on the Cluster screen.
+- **Cluster Configuration:** the nodes with their state, the coordinator, the number of open links and the last
+  error; **Join cluster** for a node that already shares the database but is not a member, and **Remove**. Remove
+  deletes a node that is not a member. A member is detached
   first - its sessions are handed over - and then removed: its row is changed (`cluster_enabled` off) and the node
   is restarted. It keeps the same Redis, and writes its own sessions under a namespace of its GUID, so that a node
   that is no longer in the cluster names nothing the cluster uses.
-- **Permissions:** add, invite, accept, decline and remove are for the administrative group of the node's own
-  users.
+- **Permissions:** join and remove are for the administrative group of the node's own users.
 
 ## Release plan
 
@@ -537,12 +527,12 @@ administrator sees in the interface.
 In this order - each step leaves the system working:
 
 - [ ] Move the shared settings to SQL: `xmq_node` (a column is a setting, a row is a node, the GUID is the
-  key) and `xmq_cluster_invitation`; a bootstrap loader that reads the SQL URI from the file and everything else from
+  key); a bootstrap loader that reads the SQL URI from the file and everything else from
   the database. Keep `node_id` in `xmq_node.id`. A node that cannot reach SQL refuses to start and says why.
-  Done: the tables, `ClusterStore`, and the loader - a node's row is created from its configuration on the first
+  Done: the table, `ClusterStore`, and the loader - a node's row is created from its configuration on the first
   start and read in place of it afterwards for the storage, the accounts database, the cluster switches and the
-  node's name and address; an unreachable database stops the start with the reason. The table is `xmq_node`,
-  not `xmq_node`: the older name belongs to the bridge-era node table still present in shared databases.
+  node's name and address; an unreachable database stops the start with the reason. The table is `xmq_node`;
+  the older `xmq_node_state` belonged to the bridge era and is dropped.
   Left: the rest of the configuration - listeners, logging, limits, bridges - still comes from the file.
 - [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
   removed from the cluster names nothing the cluster uses while it serves on the same Redis.
@@ -552,43 +542,33 @@ In this order - each step leaves the system working:
 - [ ] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.
   Compare a joining node's storage and cluster by those ids instead of by the URI, and keep the resolved address only
   for the error message.
-- [ ] Implement the state machine behind the screen: declared, invited, joining, refused, expired, failed; the
-  computed `Clustered`/`Offline` from Redis. One active invitation per node, ten-minute lifetime.
-  Done: `Not Clustered`, `Standalone`, `Invited`, `Joining`, `Refused` and `Failed` are stored and shown;
-  `Clustered`/`Offline` are computed from Redis (`reportClusterState`), and an invitation replaces the node's
-  previous one (`ClusterStore::setInvitation`). Left: `Expired` is never set - `sendInvitation` writes
-  `expires_at` as the current time instead of ten minutes ahead, and nothing expires a stored or held invitation.
-- [x] Invitation transport: the server-level subscription to `cluster/invitation` (the server itself, not a client),
-  authentication as the `cluster` user over TLS (the password checked by connecting before sending), the Redis and
-  users database URIs in the invitation, and the refusal reply. `anInvitationFromTheClusterUserIsHeld` and its
-  siblings; the inviter's side is `invitingANodeDeliversTheInvitation`, including the `cluster/hello` by which it
-  learns the invited node's GUID.
-- [x] Accept on the invited node, at the server level: the offered configuration is written into the node's own
-  file, the process exits with the restart code 78, and the row goes Invited to Joining at the next start.
-  `acceptingAnInvitationAppliesTheConfigurationAndAsksToRestart`; Decline answers the inviter on cluster/refusal and
-  the inviter marks the row Refused - `decliningAnInvitationAnswersTheInviter`. The rollback to the last-good
-  configuration with `Failed` when the join does not happen is in place too, wired into the start that follows the
-  accept. Left: the confirmation the screen shows before Accept - the Review dialog.
-- [x] The server side of the interface: `ClusterControl` with get, enable, add, remove, invite, accept and decline.
-  `get` answers the whole picture - the mode, the declared nodes with states computed from the storage over the
-  stored ones, the coordinator, the open links and the invitation the node holds with what accepting it would
-  change. `add` declares a row with a GUID the inviter generates; `invite` takes the cluster account's password
-  from its dialog and publishes the invitation, the invited node's own GUID taking the declared row's place;
-  `remove` takes a declared node away and refuses a member, which is detached from its own screen first; `enable`
-  makes this node the first member of a cluster on the storage it names, refusing a storage that already holds a
-  cluster - a cluster is joined by invitation - and asking for the restart. The `disable` direction, which needed
-  the per-GUID session namespace, is in place (`ControlService` `disable`), and a member's Remove is available from
-  its own dashboard first, or forced once its lease has expired (`removeClusterNode`).
-- [ ] The React side: the dashboard mode, the Cluster Configuration screen over `ClusterControl`, the Add and
-  Invite dialogs, and Review/Accept/Decline on the invited node.
+- [ ] Implement the state machine behind the screen: `Standalone`, `Joining` and `Failed` stored, and the
+  computed `Clustered`/`Offline` from Redis. One row per node, written by the node itself on its first start.
+  Done: `Standalone`, `Joining` and `Failed` are stored and shown; `Clustered`/`Offline` are computed from Redis
+  (`reportClusterState`), and a failed join restores the last-good configuration. Left: a unit test for the stored
+  transitions, and dropping `Not Clustered`, `Invited`, `Refused` and `Expired`, which belonged to the declaration
+  and invitation flow and are no longer reached.
+- [ ] The server side of the interface: `ClusterControl` with get, enable, disable, join, start, remove and retire.
+  `get` answers the whole picture - the mode, the nodes with states computed from the storage over the
+  stored ones, the coordinator and the open links. `join` makes this node a member of the cluster its database
+  names, and `enable` makes it the first member on the storage it names, asking for the restart; `remove` takes a
+  node away and refuses a member, which is detached from its own screen first; `start` and `retire` cover a
+  configuration that is not running. The `disable` direction, which needed the per-GUID session namespace, is in
+  place (`ControlService` `disable`), and a member's Remove is available from its own dashboard first, or forced
+  once its lease has expired (`removeClusterNode`).
+  Left: `enable` still refuses a storage that holds a cluster and points at an invitation, and it must join the
+  cluster there instead, so that on an active node the Dashboard switch alone is enough once the cluster's database
+  is in its bootstrap file; `add`, `invite`, `accept` and `decline` go with the declaration and invitation flow.
+- [ ] The React side: the dashboard mode switch, the Cluster Configuration screen over `ClusterControl` with the
+  node list, **Join cluster** and **Remove**.
   Done: the dashboard mode switch (`DashboardScreen`), the Cluster Configuration screen over `ClusterControl` with
-  the node list, Add and Remove (`ClusterScreen`). Left: the Invite dialog and Review/Accept/Decline on the invited
-  node.
-- [ ] Tests: the state machine and the checks as unit tests, invitation/accept/decline/expiry/rollback as cluster
-  tests, and a `test_cluster.sh` scenario that invites a node and watches it join.
-  Done: invitation transport, accept/decline and rollback are cluster tests (`ClusterInvitationsTests`); the
-  server-side interface checks are unit tests (`ClusterControlTests`). Left: an expiry test, a state-machine unit
-  test for the stored transitions, and the `test_cluster.sh` scenario.
+  the node list, Join cluster and Remove (`ClusterScreen`); the Add node dialog is gone. Left: removing the Invite
+  dialog and the Review/Accept/Decline path.
+- [ ] Tests: the stored transitions as unit tests, the self-join as cluster tests, and a `test_cluster.sh` scenario
+  that joins a node and watches it join.
+  Done: the server-side interface checks are unit tests (`ClusterControlTests`), and the start that joins is covered
+  by `ClusterJoinTests` and `ClusterCoordinatorTests`. Left: a state-machine unit test for the stored transitions,
+  a self-join test without an invitation, and the `test_cluster.sh` scenario.
 
 ### Recovery without an operator
 
@@ -645,19 +625,19 @@ accounts files are copied when there is no database. Extension configuration and
 the setup template are copied, but peer certificates and runtime state are not.
 The clone has its own log and starts with `clean_start` disabled.
 
-Start the new node explicitly, then use the usual cluster admission flow:
+Start the new node explicitly, then join it to the cluster:
 
 ```sh
 xmq_server -c xmq2
 ```
 
-The clone is standalone until admitted; copying a configuration does not copy
+The clone is standalone until it joins; copying a configuration does not copy
 cluster membership. Its first start registers the new identity in the shared SQL
 database when one is configured.
 
 ### Joining and leaving from the command line
 
-With the cloned node running, request admission through its own control API:
+With the cloned node running, join the cluster through its own control API:
 
 ```sh
 xmq_server -c xmq2 --join-cluster

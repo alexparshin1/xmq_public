@@ -158,5 +158,5 @@ test("without a selection every node action is disabled", () => {
     for (const name of [/Join cluster/, /Leave cluster/, /Retire configuration/, /^Remove node/, /Force remove/]) {
         expect(view.getByRole("button", {name})).toBeDisabled();
     }
-    expect(view.getByRole("button", {name: /Add node/})).toBeEnabled();
+    expect(view.queryByRole("button", {name: /Add node/})).not.toBeInTheDocument();
 });
