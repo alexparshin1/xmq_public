@@ -621,6 +621,26 @@ void Cluster::stop()
             node->disconnect();
         }
     }
+
+    // A link message may have been dispatched just before its handler was cleared. It reaches
+    // back into the server, so the server must not go on to destroy what it uses - its logging
+    // mutex, among the rest - while one is still running. The wait is bounded: a wedged link is
+    // a reason to report, not to keep a stopping server alive.
+    if (m_activeLinkCallbacks.load() != 0)
+    {
+        const auto deadline = chrono::steady_clock::now() + 10s;
+        while (m_activeLinkCallbacks.load() != 0 && chrono::steady_clock::now() < deadline)
+        {
+            this_thread::sleep_for(1ms);
+        }
+        if (const auto left = m_activeLinkCallbacks.load(); left != 0)
+        {
+            logMessage(LogPriority::Warning, [left]
+                       {
+                           return format("Stopping: {} cluster link message(s) are still being dispatched.", left);
+                       });
+        }
+    }
 }
 
 Coordinator& Cluster::coordinatorForCluster()
@@ -816,9 +836,33 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
     if (rc == ReasonCode::Success)
     {
         registerConnectedNode(node);
-        node->onMessage([this, node](const SPublishMessage& message)
+        // The link's receive thread can be inside this callback while the server is being
+        // destroyed: disconnect() clears the handler for what comes next, but not for a message
+        // already being dispatched. A weak reference lets that callback either keep the cluster
+        // alive for its duration or see that it is gone - without it, the callback reached a
+        // destroyed Server and locked its logging mutex, which libc++ reports as "mutex lock
+        // failed: Invalid argument" on FreeBSD.
+        const auto weakCluster = weak_from_this();
+        node->onMessage([weakCluster, node](const SPublishMessage& message)
                         {
-                            acceptClusterMessage(message, node->getName());
+                            const auto cluster = weakCluster.lock();
+                            if (!cluster)
+                            {
+                                return;
+                            }
+                            // Counted for as long as this message is being dispatched: stop() waits
+                            // for the count to fall before the server it reaches into is destroyed.
+                            struct ActiveGuard
+                            {
+                                Cluster& cluster;
+                                explicit ActiveGuard(Cluster& cluster)
+                                    : cluster(cluster)
+                                {
+                                    ++cluster.m_activeLinkCallbacks;
+                                }
+                                ~ActiveGuard() { --cluster.m_activeLinkCallbacks; }
+                            } guard {*cluster};
+                            cluster->acceptClusterMessage(message, node->getName());
                         });
         publishSubscriptionSnapshot(node);
 

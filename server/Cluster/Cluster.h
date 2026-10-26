@@ -43,6 +43,7 @@ class ServerNode;
  * @brief Server nodes connected to this server.
  */
 class XMQ_EXPORT Cluster final
+    : public std::enable_shared_from_this<Cluster>
 {
 public:
     /**
@@ -473,6 +474,7 @@ private:
     std::string                          m_nodeId;                 ///< This node's GUID.
     std::thread                          m_rejoinThread;           ///< Links to the other members after startup(), then keeps the links.
     std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
+    std::atomic_size_t                   m_activeLinkCallbacks {0}; ///< Link messages being dispatched into this cluster.
 
     /// A session another node asked for, to be let go of: client id and the asking node's GUID.
     using ReleaseRequest = std::pair<std::string, std::string>;
