@@ -1,0 +1,63 @@
+{
+  "name": "Cluster-4-Fan-Out-5-1000-5-250K-5min",
+  "type": "Fan-Out",
+  "comments": [
+    "Four-node AWS cluster: node-a 172.31.13.230 (A), node-b 172.31.13.222 (B),",
+    "node-c 172.31.8.125 (C), node-d 172.31.11.169 (D); MQTT 1884 on each.",
+    "The same file is used for XMQ and EMQX: the four nodes are rebuilt with one broker",
+    "at a time and keep their addresses, so only the broker changes. Anonymous, as the",
+    "500K connection trial.",
+    "1 publisher node (A) and 3 subscriber nodes (B, C, D): the 5 publishers on A,",
+    "the 1000 subscribers spread over B, C and D. Every delivery crosses a cluster link."
+  ],
+  "publishers": {
+    "id_prefix": "test-publisher-",
+    "protocol_version": 5,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid",
+    "servers": [
+      {
+        "hostname": "172.31.13.230",
+        "port": 1884
+      }
+    ]
+  },
+  "subscribers": {
+    "id_prefix": "test-subscriber-",
+    "protocol_version": 5,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/#",
+    "servers": [
+      {
+        "hostname": "172.31.13.222",
+        "port": 1884
+      },
+      {
+        "hostname": "172.31.8.125",
+        "port": 1884
+      },
+      {
+        "hostname": "172.31.11.169",
+        "port": 1884
+      }
+    ]
+  },
+  "server": {
+    "hostname": "172.31.13.230",
+    "port": 1884,
+    "username": "",
+    "password": ""
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 300,
+    "payload_size": 16,
+    "publish_rate": 50,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}
