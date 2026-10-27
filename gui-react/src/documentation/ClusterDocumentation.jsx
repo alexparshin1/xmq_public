@@ -36,8 +36,9 @@ export default function ClusterDocumentation() {
                     what an administrator edits: a row is a node, a column is a setting. A node
                     that cannot reach the database does not start.</li>
                 <li><b>Redis</b> reachable from both nodes - membership, leases, sessions and
-                    retained messages. Any database number works; the cluster keeps its keys
-                    under <code>cluster:</code> and its sessions under
+                    retained messages. Initial Setup and Settings offer Redis database numbers
+                    0 through 16. Every cluster node must use the same number and credentials;
+                    the cluster keeps its keys under <code>cluster:</code> and its sessions under
                     <code>session_&lt;client_id&gt;</code>.</li>
                 <li><b>Nothing else.</b> The TLS certificates the nodes link to one another with
                     are created by the nodes themselves, one per node, during the initial setup -
@@ -114,9 +115,11 @@ sudo systemctl enable --now xmq_server
                 <li><b>Ports</b>: check <b>MQTT port</b> (<code>1883</code>),
                     <b> MQTT+SSL port</b> (<code>8883</code>), and <b>Web interface port</b>
                     (<code>18883</code>). Change them if needed; all three must differ.</li>
-                <li><b>Redis</b>: enter the Redis hostname in <b>Redis host</b> and its port
-                    in <b>port</b> (default <code>6379</code>). Use the Redis server that all
-                    nodes will share.</li>
+                <li><b>Redis</b>: enter the Redis hostname in <b>Redis host</b>, its port
+                    (default <code>6379</code>), and a database number from <code>0</code> to
+                    <code>16</code>. If Redis requires authentication, also enter its username
+                    and password. Use the same Redis server, database number and credentials on
+                    every node.</li>
                 <li><b>Accounts Database</b>: the <b>User Database URI</b> row contains
                     a server-type selector, <b>host</b>, and <b>database</b> (default
                     <code> xmq</code>). Select <b>PostgreSQL</b> (or <b>MySQL</b>), enter the
@@ -189,9 +192,8 @@ sudo systemctl enable --now xmq_server
                     database server type, <b>host</b>, <b>database</b>, <b>Database user</b>,
                     and <b>Database password</b> as node A, so that the assembled URI points
                     every node at the same shared accounts and cluster configuration.</li>
-                <li><b>Redis host must be identical on every node.</b> Use the same Redis
-                    hostname and port as node A. If a Redis database number is specified later
-                    in a URI, that number must also be the same on every node.</li>
+                <li><b>Redis settings must be identical on every node.</b> Use the same Redis
+                    hostname, port, database number, username and password as node A.</li>
             </ul>
 
             <p>
@@ -240,8 +242,7 @@ sudo systemctl enable --now xmq_server
 
             <h5>4. Join node B to the cluster</h5>
             <p>
-                On node A's <b>Cluster Configuration</b> page select the <code>node-a</code> row and
-                press <b>Start cluster</b>, after confirming in <b>Settings</b> that the node uses the
+                On node A select <b>Cluster</b> mode on the <b>Dashboard</b> and confirm the
                 shared accounts database and Redis storage. This creates the first member.
                 Keep node B in <b>Standalone</b> until you explicitly join it.
             </p>
@@ -304,7 +305,7 @@ xmq_sub -h node-b -p 1883 -u admin --password admin -t cluster/test -C 1 -W 5`}<
                 When Redis has no cluster members, the action panel offers <b>Start cluster</b>
                 for a selected Standalone node. Once it starts, open that node's Cluster page
                 to join the others. Offline members still belong to an existing cluster:
-                start one of them, pressing Start cluster on its Cluster page if necessary.
+                start one of them, enabling Cluster mode on its Dashboard if necessary.
             </p>
             <p>
                 <b>Remove node</b> deletes configuration, not membership. First leave the cluster.

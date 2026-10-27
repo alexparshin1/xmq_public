@@ -7,11 +7,11 @@ export default function SetupDocumentation() {
             <h4 id="basic-setup">Basic MQTT setup</h4>
 
             <p>
-                Everything in this section can be set from the configuration interface, and is written back to
-                <code>/etc/xmq/xmq_server.conf</code>. The user data is stored in the file
-                <code>/etc/xmq/xmq_users.conf</code>. Hand-editing these files is still possible;
-                if you do, restart the server afterwards, since a running server rewrites the files
-                when settings change and would overwrite your edit.
+                The configuration interface writes server settings to
+                <code>/etc/xmq/xmq_server.conf</code>. User accounts can be kept in the local
+                SQLite database or in a shared PostgreSQL or MySQL database. Use the interface to
+                change settings and accounts so the running server and stored configuration stay
+                in step.
             </p>
             <p>
                 The XMQ configuration interface is available through the browser at{" "}
@@ -26,19 +26,21 @@ export default function SetupDocumentation() {
             <h5>Starting from scratch</h5>
 
             <p>
-                The <b>Initial Setup</b> page asks for the few settings a working server cannot be
-                without &mdash; an administrator password, a node name, the MQTT, MQTT+SSL, and
-                interface ports, and optionally a Redis address &mdash; and builds a configuration
-                around them. It is the quickest way to bring up a new installation, and the way
-                back to a known state when a configuration has been edited into a corner.
+                The <b>Initial Setup</b> page starts a new installation or replaces its server
+                configuration. It asks for administrator and cluster passwords, node name and
+                address, MQTT, MQTT+SSL and Web interface ports, optional Redis connection details,
+                and the User Database location. The node name starts with this host's hostname.
+                Redis can use database number 0 through 16 and optional username and password;
+                its host, port and credentials are checked when they are entered.
             </p>
 
             <p>
-                The <code>admin</code> account comes first on that page because it is what the
-                interface is administered through: setup creates the account if it is not there,
-                and gives it the password entered either way, so the configuration it produces
-                always comes with a way in. Since a session carries the password it signed in with,
-                changing it ends the current session &mdash; sign in again with the new password.
+                The <code>admin</code> account is the administrator account for the interface.
+                Setup requires its password and a matching repeat, plus a cluster password and a
+                matching repeat. On a shared database that already has accounts, the supplied
+                administrator and cluster passwords are checked against the existing accounts;
+                setup preserves those users. On an empty database, it initializes the administrator
+                and cluster accounts. A local SQLite setup replaces the local accounts.
             </p>
 
             <p>
@@ -61,22 +63,14 @@ export default function SetupDocumentation() {
             </p>
 
             <p>
-                It is the one page that discards settings rather than changing them. Everything it
-                does not ask about is taken from <code>/etc/xmq/xmq_server.conf.template</code>, the
-                copy of the shipped configuration the installer leaves behind, so listeners,
-                bridges, limits, and logging settings all go back to their defaults. The template
-                itself is only read; the result is written to <code>xmq_server.conf</code>.
-            </p>
-
-            <p>
-                The accounts are reset with them: <code>xmq_users.conf</code> is rewritten with
-                <code>admin</code>, using the password entered on the page, and the internal
-                <code>cluster</code> account, using the cluster password entered on the page.
-                Enter the same cluster password on every node sharing the user database.
-                Setup does not enable cluster membership; use Enable on the first node and
-                Join cluster for the others. MQTT clients that authenticate will need their
-                accounts adding again on the Users page. Installed certificate files are kept,
-                being files of their own rather than configuration.
+                Settings not requested on this page come from
+                <code>/etc/xmq/xmq_server.conf.template</code>. Listeners, bridges, limits and
+                logging settings therefore return to the template defaults. Installed certificate
+                files are kept, but their configured paths are reset. Initial Setup does not join a
+                cluster: it leaves the node Standalone. For a shared SQL database, enter the same
+                database and Redis settings, administrator password and cluster password on every
+                node. Submit and restart checks the Redis and PostgreSQL or MySQL connections
+                before applying the new configuration.
             </p>
 
             <p>
@@ -89,14 +83,33 @@ export default function SetupDocumentation() {
                 the browser nowhere.
             </p>
 
+            <h5>Change node settings after setup</h5>
+
+            <p>
+                <b>Configuration → Settings</b>, immediately after Initial Setup in the menu,
+                edits this node's name and advertised address, MQTT and Web ports, Redis connection,
+                and User Database. Redis settings include host, port, database number (0–16), and
+                optional username and password. The User Database can be local SQLite or a
+                PostgreSQL or MySQL database with a host, port, name, user and password. Use
+                <b> Test connections</b> before saving; passwords are masked, and leaving a stored
+                mask unchanged keeps the current password.
+            </p>
+
+            <p>
+                <b>Save and restart MQTT</b> checks the connections and restarts MQTT; client
+                connections briefly drop and reconnect. Existing accounts and other configuration
+                are preserved. Changing the Redis address does not move sessions or queued
+                messages. Leave the cluster before changing a clustered node to different Redis
+                storage or a different accounts database. If the Web port changes, Settings shows
+                the new interface address after applying the change.
+            </p>
+
             <p>
                 A missing configuration is not an error: the server writes a starting one from
                 <code>xmq_server.conf.template</code>, or from its own defaults if the template is
-                gone too, and comes up on the ports above. A missing <code>xmq_users.conf</code> is
-                written too, with an <code>admin</code> account that has no password and the
-                internal <code>cluster</code> account. No accounts are installed by the package:
-                a password shipped in a file is a password everyone who downloaded the package
-                knows.
+                gone too, and comes up on the ports above. A fresh local accounts database has an
+                <code>admin</code> account with no password until Initial Setup is completed. No
+                usable password is installed by the package.
             </p>
 
             <h5>When the interface will not start</h5>
@@ -158,8 +171,8 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             <p>
                 These are the standard MQTT ports, so most clients need no port setting at all.
                 If another broker on the same host already holds them, either stop it or move one
-                of the two: the Listeners page changes XMQ's ports, and the change takes effect as
-                soon as the listener is saved.
+                of the two: the Listeners page changes listener ports, while Settings also
+                provides the MQTT, MQTT+SSL and Web interface ports.
             </p>
 
             <p>
@@ -170,11 +183,10 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             </p>
 
             <p>
-                The service port itself is set on the <b>Service</b> page, and changing it takes
-                effect at once: the interface starts answering on the new port before it stops
-                answering on the old one, and the page follows it there. Connections already open
-                are served to the end. If something else already holds the port, the interface
-                stays where it is and the page says so.
+                The Web interface port can be changed on <b>Settings</b> or the <b>Service</b>
+                page. Settings applies it with the MQTT restart; the interface follows the new
+                address after the change. If something else already holds the port, the interface
+                stays where it is and reports the failure.
             </p>
 
             <h5>SSL certificates</h5>
@@ -243,8 +255,8 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
                 Without persistence the server keeps everything in memory and nothing survives a
                 restart. With it, client sessions, their subscriptions, and undelivered QoS 1 and
                 QoS 2 messages are stored in Redis. Redis is a separate service, not part of XMQ:
-                install and start it yourself, then enable persistence on the <b>Persistence</b>
-                page.
+                install and start it yourself, then configure it on Initial Setup, Settings or the
+                <b>Persistence</b> page.
             </p>
 
             <p>
