@@ -659,10 +659,11 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
 
     checkPort(configuration.m_web_service.m_listener_port, "web_service.listener_port", true);
 
+    // Zero is not a bad lease: Cluster.cpp reads it, like an absent setting, as the default.
     if (!configuration.m_cluster.m_lease_seconds.isNull() &&
-        configuration.m_cluster.m_lease_seconds.asInteger() < 1)
+        configuration.m_cluster.m_lease_seconds.asInteger() < 0)
     {
-        throw invalid_argument("The configuration key 'cluster.lease_seconds' should be at least 1.");
+        throw invalid_argument("The configuration key 'cluster.lease_seconds' should not be negative.");
     }
     if (!configuration.m_cluster.m_links.isNull() && configuration.m_cluster.m_links.asInteger() < 0)
     {

@@ -66,6 +66,26 @@ filesystem::path testDirectory()
  * A check has to work before a restart, which is the moment it is for: it must not open a
  * database, create an account or rewrite the file it was given.
  */
+TEST(XMQ_ConfigurationFile, zeroLeaseSecondsMeansTheDefaultAndANegativeOneIsRefused)
+{
+    const auto directory = testDirectory();
+    const auto path = directory / "xmq_server.conf";
+    Strings    warnings;
+
+    auto text = configurationText();
+    text = text.replace(R"("cluster": {)", R"("cluster": {"lease_seconds": 0, "links": 0, )");
+    Buffer(text).saveToFile(path);
+    const auto leaseError = Settings::checkConfiguration(path, warnings);
+    EXPECT_TRUE(leaseError.empty()) << leaseError.c_str();
+
+    text = text.replace(R"("lease_seconds": 0)", R"("lease_seconds": -1)");
+    Buffer(text).saveToFile(path);
+    const auto error = Settings::checkConfiguration(path, warnings);
+    EXPECT_NE(error.find("cluster.lease_seconds"), String::npos) << error.c_str();
+
+    filesystem::remove_all(directory);
+}
+
 TEST(XMQ_ConfigurationFile, checkConfigurationNamesWhatIsWrong)
 {
     const auto directory = testDirectory();
