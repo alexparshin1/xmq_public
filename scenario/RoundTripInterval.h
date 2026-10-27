@@ -16,6 +16,9 @@
 #include "client/MqttClient.h"
 #include "service/CTestScenario.h"
 
+#include <cstdint>
+#include <map>
+
 namespace xmq {
 
 /**
@@ -25,10 +28,16 @@ class RoundTripLatency
 {
 public:
     using Clock = std::chrono::high_resolution_clock;
+    /// Latency buckets, log-spaced: eight per power of two, so an approximate percentile is
+    /// within an eighth of the value. Kept per interval and merged for the run's percentiles;
+    /// the sums and counts alone cannot answer a percentile question.
+    using Histogram = std::map<uint32_t, uint64_t>;
+
     struct Interval
     {
         size_t                    m_count {0};
         std::chrono::microseconds m_summaryLatency {0};
+        Histogram                 m_histogram;
     };
 
     RoundTripLatency() = default;
@@ -50,6 +59,14 @@ public:
 
     std::chrono::microseconds averageLatency() const;
 
+    /**
+     * @brief A percentile of the individual message latencies, or 0 when there are none.
+     *
+     * Approximate: the histogram has eight buckets per power of two, so the answer is the upper
+     * edge of the bucket the rank falls in.
+     */
+    [[nodiscard]] std::chrono::microseconds percentile(double percent) const;
+
     void print(const std::string& scenarioTitle) const;
 
     static RoundTripLatency combine(const std::vector<RoundTripLatency>& roundTripLatencies)
@@ -65,11 +82,19 @@ public:
         }
         for (const auto& roundTripLatency: roundTripLatencies)
         {
+            for (const auto& [bucket, samples]: roundTripLatency.m_totalHistogram)
+            {
+                summaryRoundTripLatency.m_totalHistogram[bucket] += samples;
+            }
             for (const auto& [intervalTime, intervalData]: roundTripLatency.m_intervals)
             {
-                auto& [count, summaryLatency] = summaryRoundTripLatency.m_intervals[intervalTime];
+                auto& [count, summaryLatency, histogram] = summaryRoundTripLatency.m_intervals[intervalTime];
                 summaryLatency += intervalData.m_summaryLatency;
                 count += intervalData.m_count;
+                for (const auto& [bucket, samples]: intervalData.m_histogram)
+                {
+                    histogram[bucket] += samples;
+                }
             }
         }
         return summaryRoundTripLatency;
@@ -80,6 +105,8 @@ private:
     sptk::SynchronizedQueue<std::chrono::microseconds> m_started;
     std::chrono::microseconds                          m_summaryLatency {0};
     size_t                                             m_count {0};
+    Histogram                                          m_histogram;
+    Histogram                                          m_totalHistogram;
     std::chrono::microseconds                          m_groupIntervalDuration {0};
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;

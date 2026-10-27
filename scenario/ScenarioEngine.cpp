@@ -514,6 +514,8 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     {
         roundTripLatency.stop();
         roundTripLatency.print(scenarioTitle);
+        COUT("PaceMaker re-bases: " << m_paceMaker->reBases()
+                                   << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
     }
 
     if (!group.m_servers.empty())
@@ -1239,6 +1241,12 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     auto summaryPublishLatency = RoundTripLatency::combine(clientPublishLatencies);
 
     summaryPublishLatency.print(scenarioTitle);
+
+    if (m_paceMaker)
+    {
+        COUT("PaceMaker re-bases: " << m_paceMaker->reBases()
+                                   << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
+    }
 
     if (latencyTraceEnabled)
     {

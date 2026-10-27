@@ -56,11 +56,24 @@ public:
         return m_interval;
     }
 
+    /**
+     * @brief How many times the schedule was re-based because the callers fell behind.
+     *
+     * A non-zero count means the offered rate was lower than the configured one for part of the
+     * run - coordinated omission, and the reason a latency figure from that run is optimistic.
+     */
+    size_t reBases()
+    {
+        const std::lock_guard lock(m_mutex);
+        return m_rebases;
+    }
+
 private:
     std::mutex                            m_mutex;           ///< Guards the slot-reservation state below.
     std::chrono::nanoseconds              m_interval;        ///< Spacing between consecutive ticks.
     std::chrono::steady_clock::time_point m_nextDeadline;    ///< Deadline of the next tick to hand out.
     bool                                  m_started {false}; ///< Whether the baseline has been set.
+    size_t                                m_rebases {0};     ///< Times the callers fell behind and the schedule was reset.
 };
 
 } // namespace xmq

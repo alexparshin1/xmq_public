@@ -27,6 +27,11 @@ Requires SPTK 5.6.16.
 
 ### Changed
 
+- **`xmq_scn` reports per-message latency percentiles and how often its pacing fell behind.** A
+  run now ends with p50, p95, p99 and p99.9 of the individual deliveries, not only interval means,
+  and with the number of times `PaceMaker` re-based its schedule because the generator could not
+  keep the requested rate. A non-zero count means the offered load was lower for part of the run
+  and the latency figures are optimistic - coordinated omission made visible instead of silent.
 - **A configuration is validated before it is saved, not only before it is loaded.** An edit
   through the configuration interface that would stop the next start is refused with the key's
   name instead of being written to disk and caught on the reload that follows.

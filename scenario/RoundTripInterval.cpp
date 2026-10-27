@@ -13,12 +13,67 @@
 
 #include "RoundTripInterval.h"
 
+#include <algorithm>
+#include <bit>
+#include <cmath>
 #include <ranges>
 
 using namespace std;
 using namespace chrono;
 using namespace sptk;
 using namespace xmq;
+
+namespace {
+
+uint32_t histogramBucket(const int64_t microseconds)
+{
+    const auto value = static_cast<uint64_t>(max<int64_t>(microseconds, 1));
+    const auto power = bit_width(value) - 1; // floor(log2(value))
+    const auto base = uint64_t(1) << power;
+    return static_cast<uint32_t>(power * 8 + ((value - base) * 8) / base);
+}
+
+microseconds histogramCeiling(const uint32_t bucket)
+{
+    const auto power = bucket / 8;
+    const auto fraction = bucket % 8;
+    const auto base = uint64_t(1) << power;
+    return microseconds(base + (base * (fraction + 1)) / 8);
+}
+
+void addToHistogram(RoundTripLatency::Histogram& histogram, const microseconds latency)
+{
+    ++histogram[histogramBucket(latency.count())];
+}
+
+microseconds percentileOf(const RoundTripLatency::Histogram& histogram, const double percent)
+{
+    uint64_t total = 0;
+    for (const auto& samples: histogram | views::values)
+    {
+        total += samples;
+    }
+    if (total == 0)
+    {
+        return {};
+    }
+
+    const auto rank = static_cast<uint64_t>(
+        clamp(ceil(percent / 100.0 * static_cast<double>(total)), 1.0, static_cast<double>(total)));
+
+    uint64_t seen = 0;
+    for (const auto& [bucket, samples]: histogram)
+    {
+        seen += samples;
+        if (seen >= rank)
+        {
+            return histogramCeiling(bucket);
+        }
+    }
+    return histogramCeiling(histogram.rbegin()->first);
+}
+
+} // namespace
 
 RoundTripLatency::RoundTripLatency(const RoundTripLatency& other)
 {
@@ -29,6 +84,8 @@ RoundTripLatency::RoundTripLatency(const RoundTripLatency& other)
     m_intervals = other.m_intervals;
     m_summaryLatency = other.m_summaryLatency;
     m_count = other.m_count;
+    m_histogram = other.m_histogram;
+    m_totalHistogram = other.m_totalHistogram;
 }
 
 void RoundTripLatency::start(const microseconds groupInterval)
@@ -40,6 +97,8 @@ void RoundTripLatency::start(const microseconds groupInterval)
 
     m_summaryLatency = microseconds(0);
     m_count = 0;
+    m_histogram.clear();
+    m_totalHistogram.clear();
     m_intervals.clear();
 }
 
@@ -63,11 +122,16 @@ void RoundTripLatency::storeCurrentInterval()
         // aligned across objects and across delivery gaps (m_intervals.size() would drift after
         // an interval with no samples).
         const auto interval = duration_cast<microseconds>(m_nextIntervalTime - m_groupIntervalDuration - m_startTime);
-        auto& [count, summaryLatency] = m_intervals[interval];
+        auto& [count, summaryLatency, histogram] = m_intervals[interval];
         count += m_count;
         summaryLatency += m_summaryLatency;
+        for (const auto& [bucket, samples]: m_histogram)
+        {
+            histogram[bucket] += samples;
+        }
         m_summaryLatency = {};
         m_count = 0;
+        m_histogram.clear();
     }
     m_nextIntervalTime += m_groupIntervalDuration;
 }
@@ -91,6 +155,8 @@ void RoundTripLatency::received()
         }
 
         m_summaryLatency += latency;
+        addToHistogram(m_histogram, latency);
+        addToHistogram(m_totalHistogram, latency);
         ++m_count;
     }
 }
@@ -99,6 +165,8 @@ void RoundTripLatency::add(const microseconds duration)
 {
     const std::scoped_lock lock(m_mutex);
     m_summaryLatency += duration;
+    addToHistogram(m_histogram, duration);
+    addToHistogram(m_totalHistogram, duration);
     ++m_count;
 }
 
@@ -113,7 +181,7 @@ microseconds RoundTripLatency::averageLatency() const
     const std::scoped_lock lock(m_mutex);
     microseconds           summaryLatency {0};
     size_t                 count {0};
-    for (const auto& [_count, _summaryLatency]: m_intervals | std::views::values)
+    for (const auto& [_count, _summaryLatency, _histogram]: m_intervals | std::views::values)
     {
         summaryLatency += _summaryLatency;
         count += _count;
@@ -125,6 +193,12 @@ microseconds RoundTripLatency::averageLatency() const
     }
 
     return {};
+}
+
+microseconds RoundTripLatency::percentile(const double percent) const
+{
+    const std::scoped_lock lock(m_mutex);
+    return percentileOf(m_totalHistogram, percent);
 }
 
 void RoundTripLatency::print(const string& scenarioTitle) const
@@ -176,6 +250,10 @@ void RoundTripLatency::print(const string& scenarioTitle) const
         auto medianLatency = intervalAverageLatencies[intervalAverageLatencies.size() / 2];
         COUT(std::format("{:<10} {:>10} {:>10} {:>12}", "Average", totalCount, totalLatency / totalCount, averageRate));
         COUT(std::format("{:<21} {:>10}", "Median", medianLatency));
+        COUT("Percentiles          p50 " << percentileOf(m_totalHistogram, 50)
+                                       << ", p95 " << percentileOf(m_totalHistogram, 95)
+                                       << ", p99 " << percentileOf(m_totalHistogram, 99)
+                                       << ", p99.9 " << percentileOf(m_totalHistogram, 99.9));
     }
     else
     {

@@ -20,6 +20,32 @@ using namespace filesystem;
 XMQ_ScenarioTests::ScenarioMap XMQ_ScenarioTests::m_basicTestScenarios;
 XMQ_ScenarioTests::ScenarioMap XMQ_ScenarioTests::m_encryptedTestScenarios;
 
+TEST(RoundTripLatencyTests, percentilesComeFromTheSamplesNotTheIntervalMeans)
+{
+    RoundTripLatency latency;
+    latency.start(1s);
+    for (int64_t microseconds = 100; microseconds <= 10000; microseconds += 100)
+    {
+        latency.add(std::chrono::microseconds(microseconds));
+    }
+
+    // Buckets are an eighth of a power of two, so the answer is the bucket's upper edge: the
+    // point is that it follows the samples, not that it is exact to the microsecond.
+    const auto p50 = latency.percentile(50).count();
+    const auto p99 = latency.percentile(99).count();
+    EXPECT_GE(p50, 5000);
+    EXPECT_LE(p50, 5200);
+    EXPECT_GE(p99, 9900);
+    EXPECT_LE(p99, 10300);
+}
+
+TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
+{
+    RoundTripLatency latency;
+    latency.start(1s);
+    EXPECT_EQ(latency.percentile(99).count(), 0);
+}
+
 void XMQ_ScenarioTests::loadScenarioGroup(const path& scenarioDirectory, map<ScenarioEngine::Type, shared_ptr<ScenarioEngine>>& scenarios)
 {
     for (auto const& dir_entry: directory_iterator{scenarioDirectory})

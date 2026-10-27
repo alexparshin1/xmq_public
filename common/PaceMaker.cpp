@@ -48,6 +48,7 @@ bool PaceMaker::next()
             // requested rate). Re-base off the freshly sampled clock to avoid an unbounded
             // catch-up burst that would defeat the pacing.
             m_nextDeadline = now;
+            ++m_rebases;
         }
 
         deadline = m_nextDeadline;
