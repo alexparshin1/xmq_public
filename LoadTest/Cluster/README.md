@@ -155,6 +155,36 @@ Without `--target-adapter` the script kills the `xmq_server` process for a numbe
 (`~/.local/etc/xmq<N>/xmq_server.conf`). QoS 1 is at-least-once, so the result allows duplicate
 deliveries and fails on loss; it reports both counts.
 
+## Measuring how long migration takes
+
+`session_migration_time.py` answers the timing questions that the pass/fail test above does not:
+how long N persistent sessions take to move off a node that has failed, and what a graceful
+`Leave cluster` does to them. It creates N persistent sessions on one node, then either kills that
+node or asks it to leave, and watches the shared Redis:
+
+- `session_<client id>_owner` is the node serving a session, and `cluster:alive:<node id>` is its
+  lease. A session is migrated when its owner is a live node other than the target.
+- In `crash` mode it reports the time from the kill to lease expiry, and from the kill to the last
+  session owned by a survivor, with first/p50/p95/last per-session times. The lease is what keeps
+  another node from taking the sessions before it expires, so it dominates the result.
+- In `leave` mode it reports the duration of the control operation and how many sessions the
+  cluster adopts by itself. A graceful leave removes the node, its lease and its ownership markers;
+  the surviving cluster does not walk the departed node's sessions and adopt them, so they remain
+  unowned until their clients reconnect. The script then reconnects a sample to a survivor and
+  times the claim.
+
+```sh
+XMQ_ADMIN_PASSWORD=... python3 LoadTest/Cluster/session_migration_time.py \
+    --mode both --sessions 1000 --password User-Secret1 \
+    --target node3 --target-port 2886 --survivor node1 --survivor-port 2884
+```
+
+The local test cluster is the default: `node3` on port 2886 is killed or leaves, `node1` on 2884
+receives the reconnects, and `redis://theater:6379/4` is the shared store. The script restarts the
+killed node and rejoins the node that left, and removes the sessions it made. It needs the admin
+password for `--leave-cluster` and does not use it in crash mode. The output is `summary.txt` and
+`summary.json` under `~/session-migration-results/<timestamp>/`.
+
 ## The method
 
 1. A publish immediately after a SUBACK measures how fast the cluster tells the publishing node about
