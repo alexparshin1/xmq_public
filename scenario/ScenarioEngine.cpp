@@ -43,6 +43,9 @@ namespace {
 /// measurement has started.
 constexpr uint32_t warmupSequenceBit = 0x80000000u;
 
+// The payload's first four bytes, not a message property: the sequence has to survive MQTT 3,
+// which has no properties. LatencyTrace, the other per-message metadata, is an MQTT 5 user
+// property (see common/mqtt/properties/MessageProperties.cpp), so the two never overlap.
 void writeMessageSequence(Buffer& payload, const uint32_t sequence)
 {
     auto* data = payload.data();
