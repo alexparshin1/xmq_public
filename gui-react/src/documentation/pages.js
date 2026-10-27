@@ -18,7 +18,11 @@ export const documentationPages = [
     {id: "cluster", label: "Cluster", path: "/xmq_doc_cluster",
         title: "Setting up a Cluster",
         description: "Shared accounts and Redis, node certificates, and joining a cluster.",
-        anchors: ["cluster-setup"]}
+        anchors: ["cluster-setup"]},
+    {id: "load-balancer", label: "Load Balancer", path: "/xmq_doc_load_balancer",
+        title: "A Load Balancer in Front of a Cluster",
+        description: "IPVS and HAProxy in front of an XMQ cluster, without session affinity.",
+        anchors: ["load-balancer"]}
 ];
 
 export function documentationPage(id) {

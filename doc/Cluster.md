@@ -46,7 +46,8 @@
 
 - [x] an external load balancer can connect a client to any node in the cluster. It is the requirement above seen
   through a load balancer: no session affinity is needed, because the session moves to the node the client connected
-  to. Tests: the same ones; there is no test with an actual load balancer in front.
+  to. Tests: `LoadTest/Cluster/clients-through-a-load-balancer.json`, behind the IPVS balancer `test_cluster.sh lb up`
+  writes, with a node stopped under load and returned to the balancing.
 
 - [x] a node can be connected and disconnected to/from the cluster. When a node is disconnected (or crashed), one or more of the cluster
   nodes should load its sessions and be ready to migrate them to the clients re-connecting from disconnected node.
@@ -125,7 +126,7 @@ broker, for what the cluster must not make worse.
 | cluster-offline, and returning to service | unit: `nodeWithoutStorageServesNoClients`, `nodeWhoseStorageStopsAnsweringGoesOfflineAndReturns`; test cluster: `the-storage-goes-away-from-one-machine.json` |
 | in-flight shared-subscription deliveries across a failure | unit: `sharedQos1MessagesSurviveAMemberNodeStopping`, `sharedQos1MessagesANodeTookSurviveItStopping`, `sharedQos1MessagesForSeveralSubscriptionsSurviveAMemberNodeStopping`, `sharedQos1MessagesOfAnEndedSessionGoToAnotherMember` |
 | a message published as a session moves | unit: `messagePublishedAsASessionMovesReachesIt`, `messagesPublishedWhileASessionMovesArriveOnce` |
-| a load balancer in front | not covered |
+| a load balancer in front | test cluster: `clients-through-a-load-balancer.json` through `test_cluster.sh lb up` |
 | the cluster as one broker in `$SYS` | not decided |
 
 "Not covered" means what it says: no test speaks to it yet.
