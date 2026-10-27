@@ -1,0 +1,78 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 30 local interface(s).
+Topic namespace: ip-172-31-14-144:2d8a32dc-d4e5-42e5-8a74-5e067d37c023
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:2d8a32dc-d4e5-42e5-8a74-5e067d37c023] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              4997     1121us         4997
+1000ms           5000      877us         5000
+2000ms           5000      560us         5000
+3000ms           4999      620us         4999
+4000ms           5001      591us         5001
+5000ms           5000      556us         5000
+6000ms           4999      692us         4999
+7000ms           5000      595us         5000
+8000ms           5001      632us         5001
+9000ms           5000      594us         5000
+10000ms             3      543us            3
+─────────────────────────────────────────────
+Average         50000      684us         4545
+Median                     595us
+
+Connecting publishers: 172.31.13.230:1884 - 25000 connected / 25000 assigned
+Connecting publishers: 172.31.13.222:1884 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:2d8a32dc-d4e5-42e5-8a74-5e067d37c023] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              5088     1082us         5088
+1000ms           5001      545us         5001
+2000ms           4998      648us         4998
+3000ms           5000      663us         5000
+4000ms           5001      550us         5001
+5000ms           4999      506us         4999
+6000ms           5000      673us         5000
+7000ms           5000      637us         5000
+8000ms           5001      599us         5001
+9000ms           4912      478us         4912
+─────────────────────────────────────────────
+Average         50000      639us         5000
+Median                     637us
+
+Connecting subscribers: 172.31.8.125:1884 - 25000 connected / 25000 assigned
+Connecting subscribers: 172.31.11.169:1884 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:2d8a32dc-d4e5-42e5-8a74-5e067d37c023]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           1199948     1977us        99995
+12000ms       1200002      504us       100000
+24000ms       1199996      515us        99999
+36000ms       1200005      509us       100000
+48000ms       1199997      511us        99999
+60000ms       1199995      504us        99999
+72000ms       1200004      518us       100000
+84000ms       1199999      507us        99999
+96000ms       1200004      513us       100000
+108000ms      1137708      513us        94809
+─────────────────────────────────────────────
+Average      11937658      658us        99480
+Median                     513us
+
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:2d8a32dc-d4e5-42e5-8a74-5e067d37c023] - message path latency breakdown (11937658 samples, 0 rejected as non-monotonic)
+Phase                                         Latency, us
+─────────────────────────────────────────────────────────────
+Publish accepted -> client wire-out                   13
+Client wire-out -> server wire-in                    n/a
+Reactor ready -> packet read                         n/a
+Packet read -> decode start                            4
+Server decode                                          2
+Server decode -> handler                               0
+Server handler -> delivery                           362
+Server delivery -> wire-out                            4
+Server wire-out -> client wire-in                    138
+Client decode                                          1
+Client decode -> subscriber callback                   0
+Server total (reactor ready -> wire-out)             n/a
+Total (publish accepted -> subscriber callback)        655
+n/a: the broker stamps when the reactor woke a session only if it was started with XMQ_LATENCY_TRACE set.
+

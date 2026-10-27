@@ -1,0 +1,60 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 30 local interface(s).
+Topic namespace: ip-172-31-14-144:0cac75fe-c310-4f92-8991-6b75be2a8a94
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K [ip-172-31-14-144:0cac75fe-c310-4f92-8991-6b75be2a8a94] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              4992     1969us         4992
+1000ms           4999     1846us         4999
+2000ms           4999     1846us         4999
+3000ms           5000     1872us         5000
+4000ms           5001     1862us         5001
+5000ms           5000     1797us         5000
+6000ms           5000     1809us         5000
+7000ms           5000     1825us         5000
+8000ms           5001     1864us         5001
+9000ms           4998     1841us         4998
+10000ms            10     1755us           10
+─────────────────────────────────────────────
+Average         50000     1853us         4545
+Median                    1846us
+
+Connecting publishers: 172.31.13.230:1884 - 16667 connected / 16667 assigned
+Connecting publishers: 172.31.13.222:1884 - 16667 connected / 16667 assigned
+Connecting publishers: 172.31.8.125:1884 - 16666 connected / 16666 assigned
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K [ip-172-31-14-144:0cac75fe-c310-4f92-8991-6b75be2a8a94] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                16     8145us         1600
+10ms               76    15062us         7600
+20ms               95    15776us         9500
+30ms               94     5476us         9400
+40ms               49     1589us         4900
+50ms               51     1617us         5100
+60ms               49     1575us         4900
+70ms               10     1674us         1000
+80ms               15    11860us         1500
+90ms               45    14901us         4500
+─────────────────────────────────────────────
+Average           500     8782us         5000
+Median                    8145us
+
+Connecting subscribers: 172.31.11.169:1884 - 500 connected / 500 assigned
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K [ip-172-31-14-144:0cac75fe-c310-4f92-8991-6b75be2a8a94]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           2999956     3893us        49999
+60000ms       3000001     3325us        50000
+120000ms      3000001     1349us        50000
+180000ms      2999918     1114us        49998
+240000ms      3000082     1027us        50001
+300000ms      3000000      889us        50000
+360000ms      2999997      833us        49999
+420000ms      2999999      844us        49999
+480000ms      3000002      829us        50000
+540000ms      2992037      803us        49867
+─────────────────────────────────────────────
+Average      29991993     1491us        49986
+Median                    1027us
+

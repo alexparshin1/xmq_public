@@ -1,0 +1,41 @@
+{
+ "broker": "XMQ 1.0.0",
+ "note": "XMQ only: the comparison pace is set by what both brokers can sustain.",
+ "rungs": [
+  {
+   "rate": 10000,
+   "connected": 500000,
+   "steady_rate": 10000,
+   "median_us": 617,
+   "average_us": 656,
+   "result": "pass"
+  },
+  {
+   "rate": 20000,
+   "connected": 500000,
+   "steady_rate": 19540,
+   "median_us": 527893,
+   "average_us": 418288,
+   "result": "knee"
+  },
+  {
+   "rate": 40000,
+   "connected": 500000,
+   "steady_rate": 21552,
+   "median_us": 6366457,
+   "average_us": 4824417,
+   "result": "saturated"
+  },
+  {
+   "rate": 80000,
+   "connected": 500000,
+   "steady_rate": 21436,
+   "median_us": 9339035,
+   "average_us": 8317802,
+   "result": "saturated"
+  }
+ ],
+ "headroom": 10000,
+ "knee": 20000,
+ "first_failure": 40000
+}

@@ -1,0 +1,32 @@
+Server:   EMQX
+Version:  5.8.9
+Host:     AWS us-east-1a, four c5n.2xlarge nodes (8 vCPU, 21 GiB each), Ubuntu 26.04; EMQX 5.8.9 OSS (Apache 2.0), one node per host
+Settings: EMQX 5.8.9 OSS, cluster of 4 nodes (static seeds), MQTT 1884, listen 2M connections, 64 acceptors, authentication disabled, retainer off, session expiry as shipped
+CPU Load: 405% mean / 568% peak (cluster total)
+Max RAM:  9.87 Gb (cluster total)
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 1.0.0, no CPU affinity
+Date:     2026-10-27
+Scenario: Cluster-4-500K-Connections
+
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms             49990     1760us         4999  2.42 Gb
+10000ms         50003     1695us         5000  2.42 Gb
+20000ms         49998     1725us         4999  4.97 Gb
+30000ms         50001     1698us         5000  4.97 Gb
+40000ms         50000     1709us         5000  6.77 Gb
+50000ms         50000     1723us         5000  6.77 Gb
+60000ms         50001     1708us         5000  6.77 Gb
+70000ms         49997     1724us         4999  8.40 Gb
+80000ms         50002     1724us         5000  8.40 Gb
+90000ms         50000     1717us         5000  9.87 Gb
+100000ms            8     1683us            0  9.87 Gb
+────────────────────────────────────────────────────────
+Average        500000     1718us         4545  9.87 Gb
+Median                    1717us  9.87 Gb
+
+Per node:
+  node-a: RSS peak 2.23 Gb, CPU mean 88%, peak 141%
+  node-b: RSS peak 2.59 Gb, CPU mean 97%, peak 142%
+  node-c: RSS peak 2.64 Gb, CPU mean 102%, peak 138%
+  node-d: RSS peak 2.40 Gb, CPU mean 117%, peak 150%

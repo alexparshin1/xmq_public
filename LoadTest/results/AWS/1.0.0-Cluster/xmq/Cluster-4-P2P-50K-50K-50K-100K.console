@@ -1,0 +1,60 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 30 local interface(s).
+Topic namespace: ip-172-31-14-144:4a6a910d-8a8c-4654-b3bc-0c29a6d06fad
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:4a6a910d-8a8c-4654-b3bc-0c29a6d06fad] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              4997     1160us         4997
+1000ms           5000      712us         5000
+2000ms           4999      672us         4999
+3000ms           5001      866us         5001
+4000ms           5000      819us         5000
+5000ms           4999      617us         4999
+6000ms           5001      653us         5001
+7000ms           5000      549us         5000
+8000ms           5000      583us         5000
+9000ms           5000      578us         5000
+10000ms             3      778us            3
+─────────────────────────────────────────────
+Average         50000      721us         4545
+Median                     672us
+
+Connecting publishers: 172.31.13.230:1884 - 25000 connected / 25000 assigned
+Connecting publishers: 172.31.13.222:1884 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:4a6a910d-8a8c-4654-b3bc-0c29a6d06fad] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              5088     1031us         5088
+1000ms           4999      596us         4999
+2000ms           5000      549us         5000
+3000ms           5001      576us         5001
+4000ms           5000      561us         5000
+5000ms           5000      514us         5000
+6000ms           5001      571us         5001
+7000ms           4999      551us         4999
+8000ms           5000      516us         5000
+9000ms           4912      536us         4912
+─────────────────────────────────────────────
+Average         50000      601us         5000
+Median                     561us
+
+Connecting subscribers: 172.31.8.125:1884 - 25000 connected / 25000 assigned
+Connecting subscribers: 172.31.11.169:1884 - 25000 connected / 25000 assigned
+Scenario: Cluster-4-P2P-50K-50K-50K-100K [ip-172-31-14-144:4a6a910d-8a8c-4654-b3bc-0c29a6d06fad]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           5999951      572us        99999
+60000ms       5999998      486us        99999
+120000ms      6000003      489us       100000
+180000ms      5999995      487us        99999
+240000ms      6000002      489us       100000
+300000ms      5999998      489us        99999
+360000ms      6000006      487us       100000
+420000ms      5999997      491us        99999
+480000ms      5999997      490us        99999
+540000ms      5938732      487us        98978
+─────────────────────────────────────────────
+Average      59938679      497us        99897
+Median                     489us
+

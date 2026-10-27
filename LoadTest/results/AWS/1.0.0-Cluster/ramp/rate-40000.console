@@ -1,0 +1,37 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 30 local interface(s).
+Topic namespace: ip-172-31-14-144:2f87b664-5abc-43b4-aad6-52bf6547a46c
+Scenario: Cluster-4-500K-Connections [ip-172-31-14-144:2f87b664-5abc-43b4-aad6-52bf6547a46c] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             30718   246350us        24574
+1250ms          31058   721826us        24846
+2500ms          31130  1182567us        24904
+3750ms          30867  1668018us        24693
+5000ms          24799  2201499us        19839
+6250ms          26940  2813753us        21552
+7500ms          29131  3373644us        23304
+8750ms          25728  3894141us        20582
+10000ms         20812  4601199us        16649
+11250ms         21062  5335129us        16849
+12500ms         31377  5941265us        25101
+13750ms         33296  6366457us        26636
+15000ms         34793  6765086us        27834
+16250ms         34490  7148865us        27592
+17500ms         32228  7581284us        25782
+18750ms         21839  7987233us        17471
+20000ms          6814  9016183us         5451
+21250ms          7266 10123946us         5812
+22500ms          7490 11162286us         5992
+23750ms          6525 12276007us         5220
+25000ms          7129 13346509us         5703
+26250ms          4508 14192163us         3606
+─────────────────────────────────────────────
+Average        500000  4824417us        18181
+Median                 6366457us
+
+Connecting publishers: 172.31.13.230:1884 - 125000 connected / 125000 assigned
+Connecting publishers: 172.31.13.222:1884 - 125000 connected / 125000 assigned
+Connecting publishers: 172.31.8.125:1884 - 125000 connected / 125000 assigned
+Connecting publishers: 172.31.11.169:1884 - 125000 connected / 125000 assigned

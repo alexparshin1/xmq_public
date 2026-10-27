@@ -1,110 +1,243 @@
 {
-  "test": "Cluster-4-500K-Connections",
-  "status": "passed",
-  "date": "2026-10-25",
-  "started": "2026-10-25T19:23:00+11:00",
-  "finished": "2026-10-25T19:25:44+11:00",
-  "cluster": {
+  "campaign": "1.0.0 four-node AWS cluster",
+  "date": "2026-10-27",
+  "stand": {
+    "region": "us-east-1a",
     "nodes": 4,
-    "coordinator": "node-a",
-    "topology": [
-      {
-        "name": "node-a",
-        "private_ip": "172.31.13.230",
-        "instance_type": "c5n.4xlarge",
-        "vcpus": 16,
-        "memory_gb": 40,
-        "role": "coordinator, shared Redis and PostgreSQL"
-      },
-      {
-        "name": "node-b",
-        "private_ip": "172.31.13.222",
-        "instance_type": "c5n.2xlarge",
-        "vcpus": 8,
-        "memory_gb": 20,
-        "role": "member"
-      },
-      {
-        "name": "node-c",
-        "private_ip": "172.31.8.125",
-        "instance_type": "c5n.2xlarge",
-        "vcpus": 8,
-        "memory_gb": 20,
-        "role": "member"
-      },
-      {
-        "name": "node-d",
-        "private_ip": "172.31.11.169",
-        "instance_type": "c5n.2xlarge",
-        "vcpus": 8,
-        "memory_gb": 20,
-        "role": "member"
-      }
-    ],
-    "state_before_and_after": "all four nodes Clustered",
-    "links_per_node": 4,
+    "node_instance_type": "c5n.2xlarge",
+    "node_spec": "8 vCPU (4 physical), 21 GiB",
+    "redis": {
+      "instance_type": "c5n.2xlarge",
+      "version": "8.0.5",
+      "db": 4
+    },
+    "client": {
+      "instance_type": "c5n.4xlarge",
+      "source_addresses": 29,
+      "cpu_affinity": false
+    },
     "mqtt_port": 1884,
-    "mqtt_ssl_port": 8884,
-    "web_port": 18883,
-    "redis_uri": "redis://172.31.13.230:6379/4",
-    "accounts_database": "postgresql://xmq@172.31.13.230/xmq",
-    "authentication": "anonymous enabled for the duration of the run"
-  },
-  "scenario": {
-    "file": "LoadTest/AWS/Cluster-4-500K-Connections.json",
-    "type": "Connections",
-    "client_count": 500000,
-    "per_node_client_count": 125000,
-    "connection_rate_per_second": 5000,
-    "duration_seconds": 600,
-    "keep_alive_seconds": 300,
-    "protocol_version": 5,
+    "cluster_link_port": 8884,
+    "protocol": "MQTT 5",
     "qos": 1,
-    "clean_session": true,
-    "id_prefix": "cluster4-"
+    "payload_bytes": 16
   },
   "package": {
     "name": "xmq-server",
     "version": "1.0.0",
-    "source": "farm build_one.sh ubuntu-26.04 on theater",
-    "commit": "91b853b",
-    "sha256": "3b1f8fec849e83df5635f4ac3aed58641d774327e710c570a8f366d2c92e903e",
-    "file": "xmq-server_1.0.0_amd64.deb"
+    "file": "xmq-server_1.0.0_amd64.deb",
+    "sha256": "7f4635570c613ef1ef40d8dea19bea73508a055e6943250a51d1a93cd52ea4c0",
+    "commit": "4919dd6",
+    "source": "farm build_one.sh ubuntu-26.04 on theater"
   },
-  "client": {
-    "instance_type": "c5n.4xlarge",
-    "kernel": "7.0.0-1008-aws",
-    "xmq_scn_version": "1.0.0",
-    "source_addresses": 29,
-    "source_subnet": "172.31.14.150/24",
-    "bind_interfaces": 30,
-    "cpu_affinity": false
-  },
-  "results": {
-    "connected": 500000,
-    "failed": 0,
-    "average_latency_us": 564,
-    "median_latency_us": 556,
-    "average_rate_per_second": 4545,
-    "per_node_connected": {
-      "172.31.13.230": 125000,
-      "172.31.13.222": 125000,
-      "172.31.8.125": 125000,
-      "172.31.11.169": 125000
+  "comparison": {
+    "broker": {
+      "name": "emqx",
+      "version": "5.8.9",
+      "licence": "Apache 2.0",
+      "file": "emqx-5.8.9-ubuntu24.04-amd64.deb",
+      "sha256": "2ebb47cb14118af0345e1af518509279506ab3ea9e57a3a0f879f0d443a8f9c7"
     },
-    "exit_code": 0
+    "note": "EMQX 5.8.9 is the last Apache 2.0 release that clusters; enterprise 6.x was not used."
   },
-  "resource_usage_sampled": {
-    "node-a": {"rss_peak_mb": 414, "cpu_mean_percent": 3.7, "cpu_peak_percent": 7.4},
-    "node-b": {"rss_peak_mb": 414, "cpu_mean_percent": 3.3, "cpu_peak_percent": 7.2},
-    "node-c": {"rss_peak_mb": 415, "cpu_mean_percent": 4.3, "cpu_peak_percent": 8.8},
-    "node-d": {"rss_peak_mb": 415, "cpu_mean_percent": 5.1, "cpu_peak_percent": 9.9}
+  "method": {
+    "one_broker_at_a_time": true,
+    "cluster_restarted_before_every_scenario": true,
+    "shared_store_flushed_before_every_scenario": true,
+    "systemd_service": true,
+    "cpu_affinity": false,
+    "same_connect_rate_for_both_brokers": "5000 connections/s in the 500K scenario"
   },
-  "artifacts": {
-    "console": "Cluster-4-500K-Connections.console",
-    "record": "Cluster-4-500K-Connections.txt",
-    "scenario": "Cluster-4-500K-Connections.json",
-    "console_sha256": "f2ac3364b7450888e0ca9fcd94ca1576e2b822ea31c793f0459bc7e26cbf48ee",
-    "scenario_sha256": "ec27a21ee54805ed593a74dc6c0585ea865fbdac2479904443107eff96eca5cb"
+  "scenarios": {
+    "xmq": {
+      "Cluster-4-500K-Connections": {
+        "description": "500K connections, 5000/s, 500000 clients",
+        "console": {
+          "file": "Cluster-4-500K-Connections.console",
+          "sha256": "50e1012883043682e1e98e04aa63f9c73e82466a1f3bf6a718fedf9a20e2e161"
+        },
+        "sample": {
+          "file": "Cluster-4-500K-Connections.sample",
+          "sha256": "5fafbef21622b54c9637bb728436d195bc819b31460ddf7c65fa32bb85a986a9"
+        },
+        "txt": {
+          "file": "Cluster-4-500K-Connections.txt",
+          "sha256": "be8a524c657201c23518f0c32b51cc59734b978c4e3bf83b2beff166c21a5df5"
+        },
+        "average": {
+          "count": 500000,
+          "latency_us": 544,
+          "rate_per_second": 4545
+        },
+        "median_latency_us": 542
+      },
+      "Cluster-4-Fan-In-50K-500-50K-50K": {
+        "description": "fan-in, 50000 publishers, 500 subscribers, 50000/s",
+        "console": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.console",
+          "sha256": "5f7a8fc0f6adce8d52b4aaeb8c1dbff567382401b112aad12698372e0699b6ce"
+        },
+        "sample": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.sample",
+          "sha256": "4672a9580eba5db4118eba4331686fae46cc5448adbe6504b56c14db2b1cca5e"
+        },
+        "txt": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.txt",
+          "sha256": "59201ea193f6b4fa20aa98a3fc0a918908f8da60412a4ffad2b34e123def21f9"
+        },
+        "average": {
+          "count": 29995082,
+          "latency_us": 465,
+          "rate_per_second": 49991
+        },
+        "median_latency_us": 426
+      },
+      "Cluster-4-Fan-Out-5-1000-5-250K-5min": {
+        "description": "fan-out, 5 publishers, 1000 subscribers, 250000 deliveries/s",
+        "console": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.console",
+          "sha256": "f93f24a7a4af667a7543d6b3ed326f63d7391ea5d476839233e1352c12d796ff"
+        },
+        "sample": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.sample",
+          "sha256": "06039894713c21c6a4ff762edd6a9f8a86a34e00ab5cedbe5388f79acdf6b718"
+        },
+        "txt": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.txt",
+          "sha256": "69001879b225b684d6eb2c3da71777f355e59b9ad0a32e28c60c39fcf61be373"
+        },
+        "average": {
+          "count": 74998001,
+          "latency_us": 1241,
+          "rate_per_second": 249993
+        },
+        "median_latency_us": 1239
+      },
+      "Cluster-4-P2P-50K-50K-50K-100K": {
+        "description": "point-to-point, 50000 publishers and subscribers, 100000/s",
+        "console": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.console",
+          "sha256": "dcb285dd400d13a5ee4a56525bc19e6235b99b352ac93e0276eb5f71fe4fd7e9"
+        },
+        "sample": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.sample",
+          "sha256": "a44c926a2401f191e81c3b3d6b4393b71316bbfe90544784144a89a90db591a0"
+        },
+        "txt": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.txt",
+          "sha256": "ee4e62102624b9d922797d865598edbfba50f875d27885cb512cdebab75a8aa0"
+        },
+        "average": {
+          "count": 59938679,
+          "latency_us": 497,
+          "rate_per_second": 99897
+        },
+        "median_latency_us": 489
+      }
+    },
+    "emqx": {
+      "Cluster-4-500K-Connections": {
+        "description": "500K connections, 5000/s, 500000 clients",
+        "console": {
+          "file": "Cluster-4-500K-Connections.console",
+          "sha256": "ae12b8252aa8affaf097ec9b92be60e9dcc9bed14b8c4d1245face530da17116"
+        },
+        "sample": {
+          "file": "Cluster-4-500K-Connections.sample",
+          "sha256": "d17aa5301cd9aa5386028c442255543611ca5eff5ffd5f200d7160607e5c2f40"
+        },
+        "txt": {
+          "file": "Cluster-4-500K-Connections.txt",
+          "sha256": "67b4c351da118d52789cb6a6f58f4437abe8e5b88ea56eaaa8e73824f2bcfda5"
+        },
+        "average": {
+          "count": 500000,
+          "latency_us": 1718,
+          "rate_per_second": 4545
+        },
+        "median_latency_us": 1717
+      },
+      "Cluster-4-Fan-In-50K-500-50K-50K": {
+        "description": "fan-in, 50000 publishers, 500 subscribers, 50000/s",
+        "console": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.console",
+          "sha256": "57cc326bfaf944dd529e5a2f5f669f325b3338a32f21b443682ad01ce44f1eb8"
+        },
+        "sample": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.sample",
+          "sha256": "465f1f871601542189a489d7eba84d8f6de6adc5807cf703151b6e9320f2e460"
+        },
+        "txt": {
+          "file": "Cluster-4-Fan-In-50K-500-50K-50K.txt",
+          "sha256": "267488059b0a1f927c2bc4ce48b7a08a371d94ce22a7153c30f18f5fe7515db6"
+        },
+        "average": {
+          "count": 29991993,
+          "latency_us": 1491,
+          "rate_per_second": 49986
+        },
+        "median_latency_us": 1027
+      },
+      "Cluster-4-Fan-Out-5-1000-5-250K-5min": {
+        "description": "fan-out, 5 publishers, 1000 subscribers, 250000 deliveries/s",
+        "console": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.console",
+          "sha256": "d86223adc73d19b03f01b7e929655c07d74fff9e9f21d61f1e2e12daf168e2b7"
+        },
+        "sample": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.sample",
+          "sha256": "722737683b2caaed5b5b9759dfdcad297796cea9badae12865bf88ac8b65dee1"
+        },
+        "txt": {
+          "file": "Cluster-4-Fan-Out-5-1000-5-250K-5min.txt",
+          "sha256": "a1dbf1bb586d6b2fe51b2de003be8bdc205040aa67f1fb92f905fa8234040e9e"
+        },
+        "average": {
+          "count": 74997654,
+          "latency_us": 1652,
+          "rate_per_second": 249992
+        },
+        "median_latency_us": 1661
+      },
+      "Cluster-4-P2P-50K-50K-50K-100K": {
+        "description": "point-to-point, 50000 publishers and subscribers, 100000/s",
+        "console": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.console",
+          "sha256": "9a69bfe8ebbb0961021ecf0bbcde2bfa896fc1cbcba91ccfd6f8af7a06bdea68"
+        },
+        "sample": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.sample",
+          "sha256": "b2fdfebaaa2004c9e2d7a775121ac9c35b1aa73c977ac74ca6d5a0aa49a13975"
+        },
+        "txt": {
+          "file": "Cluster-4-P2P-50K-50K-50K-100K.txt",
+          "sha256": "65a9bc08b10dcdc13fcd565c46f89757e97ab3701144586d0e1efb53d6d23c37"
+        },
+        "average": {
+          "count": 59904187,
+          "latency_us": 944,
+          "rate_per_second": 99840
+        },
+        "median_latency_us": 892
+      }
+    }
+  },
+  "notes": {
+    "p2p": "The first P2P run reported 20 ms and did not reproduce; the published P2P record is the 600 s repeat (489 us), and the first run is in p2p-diagnostics/.",
+    "comparison": "The comparison pace is what both brokers sustain. The connection-rate ladder and its ceiling are XMQ-only and labelled as such."
+  },
+  "chaos": {
+    "crashes": 6,
+    "duration_s": 600,
+    "down_s": 20,
+    "checks_passed": 45,
+    "checks_failed": 0,
+    "logs_clean": true
+  },
+  "ramp": {
+    "broker": "XMQ 1.0.0",
+    "headroom_per_second": 10000,
+    "knee_per_second": 20000,
+    "first_failure_per_second": 40000
   }
 }

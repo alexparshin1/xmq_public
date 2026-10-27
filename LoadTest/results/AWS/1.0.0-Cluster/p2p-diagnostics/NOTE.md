@@ -1,0 +1,1 @@
+Diagnostics, not published results. The first P2P run reported a 20 ms median; the trace run and the repeat in xmq/ show 0.5 ms. The 20 ms run did not reproduce and is kept here as an outlier, not as a result.

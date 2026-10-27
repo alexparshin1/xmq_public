@@ -1,0 +1,50 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Binding clients to 30 local interface(s).
+Topic namespace: ip-172-31-14-144:ac244996-f042-44d9-a956-e776e2674ceb
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min [ip-172-31-14-144:ac244996-f042-44d9-a956-e776e2674ceb] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                 5      665us            0
+─────────────────────────────────────────────
+Average             5      665us            0
+Median                     665us
+
+Connecting publishers: 172.31.13.230:1884 - 5 connected / 5 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min [ip-172-31-14-144:ac244996-f042-44d9-a956-e776e2674ceb] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                82     4843us         4100
+20ms              131     2393us         6550
+40ms               99     2513us         4950
+60ms               99      523us         4950
+80ms               91      792us         4550
+100ms             110     1172us         5500
+120ms             100      551us         5000
+140ms             100      529us         5000
+160ms             100      511us         5000
+180ms              88      525us         4400
+─────────────────────────────────────────────
+Average          1000     1418us         5000
+Median                     792us
+
+Connecting subscribers: 172.31.13.222:1884 - 334 connected / 334 assigned
+Connecting subscribers: 172.31.8.125:1884 - 333 connected / 333 assigned
+Connecting subscribers: 172.31.11.169:1884 - 333 connected / 333 assigned
+Scenario: Cluster-4-Fan-Out-5-1000-5-250K-5min [ip-172-31-14-144:ac244996-f042-44d9-a956-e776e2674ceb]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           7500000     1237us       250000
+30000ms       7500000     1276us       250000
+60000ms       7500000     1226us       250000
+90000ms       7500000     1222us       250000
+120000ms      7500000     1239us       250000
+150000ms      7500000     1264us       250000
+180000ms      7500000     1249us       250000
+210000ms      7500000     1221us       250000
+240000ms      7500000     1234us       250000
+270000ms      7498001     1243us       249933
+─────────────────────────────────────────────
+Average      74998001     1241us       249993
+Median                    1239us
+

@@ -1,0 +1,31 @@
+Server:   XMQ
+Version:  1.0.0
+Host:     AWS us-east-1a, four c5n.2xlarge nodes (8 vCPU, 21 GiB each), Ubuntu 26.04; XMQ 1.0.0 farm package sha256 7f4635570c613ef1ef40d8dea19bea73508a055e6943250a51d1a93cd52ea4c0, commit 4919dd6
+Settings: XMQ 1.0.0, cluster of 4 nodes, MQTT 1884, TLS cluster links 8884, shared Redis 172.31.8.54 db 4, PostgreSQL accounts 172.31.13.230, authentication user/User-Secret1
+CPU Load: 646% mean / 745% peak (cluster total)
+Max RAM:  440 Mb (cluster total)
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 1.0.0, no CPU affinity
+Date:     2026-10-27
+Scenario: Cluster-4-Fan-In-50K-500-50K-50K
+
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           2999980      521us        49999  252 Mb
+60000ms       3000000      405us        50000  422 Mb
+120000ms      2999996      412us        49999  423 Mb
+180000ms      3000007      592us        50000  424 Mb
+240000ms      2999992      403us        49999  431 Mb
+300000ms      2999999      559us        49999  431 Mb
+360000ms      3000001      406us        50000  434 Mb
+420000ms      2999972      513us        49999  435 Mb
+480000ms      3000027      409us        50000  438 Mb
+540000ms      2995108      426us        49918  438 Mb
+────────────────────────────────────────────────────────
+Average      29995082      465us        49991  438 Mb
+Median                     426us  438 Mb
+
+Per node:
+  node-a: RSS peak 116 Mb, CPU mean 106%, peak 125%
+  node-b: RSS peak 125 Mb, CPU mean 118%, peak 137%
+  node-c: RSS peak 123 Mb, CPU mean 116%, peak 133%
+  node-d: RSS peak 77 Mb, CPU mean 306%, peak 351%
