@@ -68,6 +68,13 @@ public:
         return m_rebases;
     }
 
+    /// Forget the re-bases of the warm-up, so the report counts only the measured window.
+    void resetReBases()
+    {
+        const std::lock_guard lock(m_mutex);
+        m_rebases = 0;
+    }
+
 private:
     std::mutex                            m_mutex;           ///< Guards the slot-reservation state below.
     std::chrono::nanoseconds              m_interval;        ///< Spacing between consecutive ticks.

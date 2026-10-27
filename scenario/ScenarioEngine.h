@@ -106,6 +106,19 @@ public:
     }
 
     /**
+     * @brief Run the scenario for this long before measurement starts.
+     *
+     * The same clients, topics and rates, but nothing recorded: no latency sample, no completed
+     * message count. It warms the broker, its caches and the client loop so that the measured
+     * window does not begin with a cold start. Zero, the default, measures from the first
+     * message; xmq_scn sets thirty seconds unless --warmup says otherwise.
+     */
+    void warmup(const std::chrono::seconds duration)
+    {
+        m_warmup = duration;
+    }
+
+    /**
      * @brief Sets how often the publish phase reports a row of results.
      *
      * By default the run is divided into ten intervals, which makes the resolution depend on the
@@ -191,7 +204,10 @@ private:
     }
     LatencyTraceTotal                m_latencyTraceTotal;
     std::atomic_bool                 m_scenarioCompleted;
+    std::atomic_bool                 m_warmingUp {false};
+    std::atomic<int64_t>             m_measurementEndNs {0};
     std::atomic_size_t               m_receivedMessageCount {0};
+    std::chrono::seconds             m_warmup {0};
     sptk::Semaphore                  m_allMessagesReceived;
     std::shared_ptr<PaceMaker>       m_paceMaker;
     bool                             m_showProgress {false};
@@ -254,7 +270,7 @@ private:
      */
     void                             checkSystemLimits(size_t clientCount) const;
 
-    void                             subscribeClients(size_t subscriberCount, size_t durationSeconds, size_t totalMessageCount, std::vector<RoundTripLatency>& clientPublishLatency);
+    void                             subscribeClients(size_t subscriberCount, size_t totalMessageCount, std::vector<RoundTripLatency>& clientPublishLatency);
 };
 
 } // namespace xmq

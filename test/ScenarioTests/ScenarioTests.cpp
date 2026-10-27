@@ -34,9 +34,9 @@ TEST(RoundTripLatencyTests, percentilesComeFromTheSamplesNotTheIntervalMeans)
     const auto p50 = latency.percentile(50).count();
     const auto p99 = latency.percentile(99).count();
     EXPECT_GE(p50, 5000);
-    EXPECT_LE(p50, 5200);
+    EXPECT_LE(p50, 5100);
     EXPECT_GE(p99, 9900);
-    EXPECT_LE(p99, 10300);
+    EXPECT_LE(p99, 10100);
 }
 
 TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
@@ -44,6 +44,41 @@ TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
     RoundTripLatency latency;
     latency.start(1s);
     EXPECT_EQ(latency.percentile(99).count(), 0);
+}
+
+TEST(RoundTripLatencyTests, sequencesPairOutOfOrderAndLostMessagesDoNotShiftTheRest)
+{
+    RoundTripLatency latency;
+    latency.start(1s);
+
+    latency.sent(1);
+    this_thread::sleep_for(10ms);
+    latency.sent(2);
+    this_thread::sleep_for(10ms);
+    latency.sent(3);
+
+    // Two arrives before one: FIFO pairing would give it one's send time.
+    latency.received(2);
+    latency.received(1);
+    // Three is lost.
+    latency.cancel(3);
+
+    latency.stop();
+
+    EXPECT_EQ(latency.unmatchedReceived(), 0);
+    // One waited about 20 ms, two about 10 ms; the average follows the sequences, not arrival order.
+    const auto average = std::chrono::duration_cast<std::chrono::milliseconds>(latency.averageLatency()).count();
+    EXPECT_GE(average, 12);
+    EXPECT_LE(average, 18);
+}
+
+TEST(RoundTripLatencyTests, aDeliveryWithoutASendIsUnmatched)
+{
+    RoundTripLatency latency;
+    latency.start(1s);
+    latency.received(42);
+    EXPECT_EQ(latency.unmatchedReceived(), 1);
+    EXPECT_EQ(latency.count(), 0);
 }
 
 void XMQ_ScenarioTests::loadScenarioGroup(const path& scenarioDirectory, map<ScenarioEngine::Type, shared_ptr<ScenarioEngine>>& scenarios)
@@ -290,6 +325,30 @@ TEST_F(XMQ_ScenarioTests, BasicPointToPointScenario)
     {
         FAIL() << e.what();
     }
+}
+
+TEST_F(XMQ_ScenarioTests, WarmupRunsTheSameLoadBeforeMeasurement)
+{
+    ScenarioEngine engine;
+    engine.load(path(XMQ_TEST_SCENARIO_DIRECTORY) / "Basic" / "Point-To-Point-1K-1K-1K-1K.json");
+    auto& scenario = engine.scenario();
+    scenario.m_publishers.m_client_count = 1;
+    scenario.m_subscribers.m_client_count = 1;
+    scenario.m_parameters.m_duration_sec = 1;
+    scenario.m_parameters.m_publish_rate = 20;
+    engine.warmup(1s);
+
+    vector<RoundTripLatency> latencies;
+    engine.connectClients(latencies, engine.name());
+
+    const auto started = std::chrono::steady_clock::now();
+    engine.publish(latencies, engine.name());
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    engine.disconnectClients();
+
+    // One second of warm-up and one of measurement; the exact time is the loop's business.
+    EXPECT_GE(elapsed, 1800ms);
+    EXPECT_LE(elapsed, 5000ms);
 }
 
 // The same four scenarios over TLS. The encrypted listener used to carry a connect test and a

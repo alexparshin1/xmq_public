@@ -25,20 +25,22 @@ using namespace xmq;
 
 namespace {
 
+constexpr auto bucketsPerPower = uint32_t(64);
+
 uint32_t histogramBucket(const int64_t microseconds)
 {
     const auto value = static_cast<uint64_t>(max<int64_t>(microseconds, 1));
     const auto power = bit_width(value) - 1; // floor(log2(value))
     const auto base = uint64_t(1) << power;
-    return static_cast<uint32_t>(power * 8 + ((value - base) * 8) / base);
+    return power * bucketsPerPower + static_cast<uint32_t>(((value - base) * bucketsPerPower) / base);
 }
 
 microseconds histogramCeiling(const uint32_t bucket)
 {
-    const auto power = bucket / 8;
-    const auto fraction = bucket % 8;
+    const auto power = bucket / bucketsPerPower;
+    const auto fraction = bucket % bucketsPerPower;
     const auto base = uint64_t(1) << power;
-    return microseconds(base + (base * (fraction + 1)) / 8);
+    return microseconds(base + (base * (fraction + 1)) / bucketsPerPower);
 }
 
 void addToHistogram(RoundTripLatency::Histogram& histogram, const microseconds latency)
@@ -86,6 +88,8 @@ RoundTripLatency::RoundTripLatency(const RoundTripLatency& other)
     m_count = other.m_count;
     m_histogram = other.m_histogram;
     m_totalHistogram = other.m_totalHistogram;
+    m_startedBySequence = other.m_startedBySequence;
+    m_unmatchedReceived = other.m_unmatchedReceived;
 }
 
 void RoundTripLatency::start(const microseconds groupInterval)
@@ -99,6 +103,8 @@ void RoundTripLatency::start(const microseconds groupInterval)
     m_count = 0;
     m_histogram.clear();
     m_totalHistogram.clear();
+    m_startedBySequence.clear();
+    m_unmatchedReceived = 0;
     m_intervals.clear();
 }
 
@@ -112,6 +118,18 @@ void RoundTripLatency::sent()
 {
     const std::scoped_lock lock(m_mutex);
     m_started.push_back(duration_cast<microseconds>(Clock::now().time_since_epoch()));
+}
+
+void RoundTripLatency::sent(const uint32_t sequence)
+{
+    const std::scoped_lock lock(m_mutex);
+    m_startedBySequence[sequence] = duration_cast<microseconds>(Clock::now().time_since_epoch());
+}
+
+void RoundTripLatency::cancel(const uint32_t sequence)
+{
+    const std::scoped_lock lock(m_mutex);
+    m_startedBySequence.erase(sequence);
 }
 
 void RoundTripLatency::storeCurrentInterval()
@@ -161,6 +179,32 @@ void RoundTripLatency::received()
     }
 }
 
+void RoundTripLatency::received(const uint32_t sequence)
+{
+    const std::scoped_lock lock(m_mutex);
+
+    const auto started = m_startedBySequence.find(sequence);
+    if (started == m_startedBySequence.end())
+    {
+        ++m_unmatchedReceived;
+        return;
+    }
+
+    const auto now = Clock::now();
+    const auto latency = duration_cast<microseconds>(now.time_since_epoch()) - started->second;
+    m_startedBySequence.erase(started);
+
+    while (m_groupIntervalDuration.count() > 0 && now > m_nextIntervalTime)
+    {
+        storeCurrentInterval();
+    }
+
+    m_summaryLatency += latency;
+    addToHistogram(m_histogram, latency);
+    addToHistogram(m_totalHistogram, latency);
+    ++m_count;
+}
+
 void RoundTripLatency::add(const microseconds duration)
 {
     const std::scoped_lock lock(m_mutex);
@@ -199,6 +243,12 @@ microseconds RoundTripLatency::percentile(const double percent) const
 {
     const std::scoped_lock lock(m_mutex);
     return percentileOf(m_totalHistogram, percent);
+}
+
+size_t RoundTripLatency::unmatchedReceived() const
+{
+    const std::scoped_lock lock(m_mutex);
+    return m_unmatchedReceived;
 }
 
 void RoundTripLatency::print(const string& scenarioTitle) const
@@ -251,9 +301,15 @@ void RoundTripLatency::print(const string& scenarioTitle) const
         COUT(std::format("{:<10} {:>10} {:>10} {:>12}", "Average", totalCount, totalLatency / totalCount, averageRate));
         COUT(std::format("{:<21} {:>10}", "Median", medianLatency));
         COUT("Percentiles          p50 " << percentileOf(m_totalHistogram, 50)
+                                       << ", p90 " << percentileOf(m_totalHistogram, 90)
                                        << ", p95 " << percentileOf(m_totalHistogram, 95)
                                        << ", p99 " << percentileOf(m_totalHistogram, 99)
                                        << ", p99.9 " << percentileOf(m_totalHistogram, 99.9));
+        if (m_unmatchedReceived > 0)
+        {
+            COUT("Unmatched deliveries: " << m_unmatchedReceived
+                                         << " had a sequence number with no recorded send (duplicate, warm-up or another run)");
+        }
     }
     else
     {

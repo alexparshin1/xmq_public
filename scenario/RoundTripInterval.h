@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 
 namespace xmq {
 
@@ -28,8 +29,8 @@ class RoundTripLatency
 {
 public:
     using Clock = std::chrono::high_resolution_clock;
-    /// Latency buckets, log-spaced: eight per power of two, so an approximate percentile is
-    /// within an eighth of the value. Kept per interval and merged for the run's percentiles;
+    /// Latency buckets, log-spaced: sixty-four per power of two, so an approximate percentile is
+    /// within about 1.6% of the value. Kept per interval and merged for the run's percentiles;
     /// the sums and counts alone cannot answer a percentile question.
     using Histogram = std::map<uint32_t, uint64_t>;
 
@@ -49,9 +50,30 @@ public:
 
     void sent();
 
+    /**
+     * @brief Record the send time of a message by its sequence number.
+     *
+     * The sequence travels in the payload, so the receive side can pair a delivery with its own
+     * send even after losses, duplicates or reordering. FIFO pairing cannot do that: one lost
+     * message shifts every later pairing and turns the loss into a constant apparent latency.
+     */
+    void sent(uint32_t sequence);
+
     void storeCurrentInterval();
 
     void received();
+
+    /**
+     * @brief Pair a delivery with the send recorded under @p sequence, if there is one.
+     *
+     * A delivery with no send - a duplicate, a message from another run, or a warm-up message
+     * that arrived after the measurement started - is counted as unmatched and changes no
+     * percentile.
+     */
+    void received(uint32_t sequence);
+
+    /// Forget a send that failed, so it cannot be mistaken for a lost delivery.
+    void cancel(uint32_t sequence);
 
     void add(std::chrono::microseconds duration);
 
@@ -62,10 +84,13 @@ public:
     /**
      * @brief A percentile of the individual message latencies, or 0 when there are none.
      *
-     * Approximate: the histogram has eight buckets per power of two, so the answer is the upper
-     * edge of the bucket the rank falls in.
+     * Approximate: the histogram has sixty-four buckets per power of two, so the answer is the
+     * upper edge of the bucket the rank falls in, within about 1.6% of the true value.
      */
     [[nodiscard]] std::chrono::microseconds percentile(double percent) const;
+
+    /// Deliveries whose sequence number had no recorded send.
+    [[nodiscard]] size_t unmatchedReceived() const;
 
     void print(const std::string& scenarioTitle) const;
 
@@ -82,6 +107,7 @@ public:
         }
         for (const auto& roundTripLatency: roundTripLatencies)
         {
+            summaryRoundTripLatency.m_unmatchedReceived += roundTripLatency.m_unmatchedReceived;
             for (const auto& [bucket, samples]: roundTripLatency.m_totalHistogram)
             {
                 summaryRoundTripLatency.m_totalHistogram[bucket] += samples;
@@ -107,6 +133,8 @@ private:
     size_t                                             m_count {0};
     Histogram                                          m_histogram;
     Histogram                                          m_totalHistogram;
+    std::unordered_map<uint32_t, std::chrono::microseconds> m_startedBySequence;
+    size_t                                             m_unmatchedReceived {0};
     std::chrono::microseconds                          m_groupIntervalDuration {0};
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;

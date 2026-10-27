@@ -28,10 +28,17 @@ Requires SPTK 5.6.16.
 ### Changed
 
 - **`xmq_scn` reports per-message latency percentiles and how often its pacing fell behind.** A
-  run now ends with p50, p95, p99 and p99.9 of the individual deliveries, not only interval means,
-  and with the number of times `PaceMaker` re-based its schedule because the generator could not
-  keep the requested rate. A non-zero count means the offered load was lower for part of the run
-  and the latency figures are optimistic - coordinated omission made visible instead of silent.
+  run now ends with p50, p90, p95, p99 and p99.9 of the individual deliveries, not only interval
+  means, and with the number of times `PaceMaker` re-based its schedule because the generator could
+  not keep the requested rate. A non-zero count means the offered load was lower for part of the
+  run and the latency figures are optimistic - coordinated omission made visible instead of silent.
+- **A delivery is paired with its own send by a sequence number, not by arrival order.** The first
+  four payload bytes carry a 32-bit sequence; a lost or reordered message no longer shifts every
+  later latency, which is what made EMQX's fan-in rerun look like a constant 126 seconds. A
+  delivery with no matching send is reported as unmatched instead of being paired with a stranger.
+- **`xmq_scn` warms up for 30 seconds before measuring.** The same clients, topics and rate run
+  first with samples and counts discarded (`--warmup`, 0 disables), so the reported window does
+  not begin with a cold broker or a cold client loop.
 - **A configuration is validated before it is saved, not only before it is loaded.** An edit
   through the configuration interface that would stop the next start is refused with the key's
   name instead of being written to disk and caught on the reload that follows.

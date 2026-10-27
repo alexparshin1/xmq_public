@@ -47,7 +47,7 @@ the files the article links to.
 
 Action: none for the article; the scenario files it names are MQTT 5.
 
-### 4. The generator is the bottleneck by our own account - partially holds
+### 4. The generator is the bottleneck by our own account - partially addressed
 
 Three separate points:
 
@@ -113,7 +113,10 @@ and repeats for the key scenarios.
 
 ## Status
 
-Items 1-3 are implemented with this review: both article drafts carry the generator-cost,
-PaceMaker and EMQX-rerun notes, and `xmq_scn` now reports per-message percentiles and the number
-of PaceMaker re-bases. Items 4-5 - message-identity correlation and a warmed-up, repeated
-campaign - remain, and neither is a change to the published numbers without a new series.
+Items 1-4 are implemented: both article drafts carry the generator-cost, PaceMaker and EMQX-rerun
+notes; `xmq_scn` reports per-message percentiles and PaceMaker re-bases; a message's first four
+payload bytes carry a 32-bit sequence, so a delivery is paired with its own send rather than with
+whatever arrived next; and every run warms up for 30 seconds before measurement starts.
+
+Item 5 remains: a warmed-up, repeated campaign has not been run, so none of the published numbers
+has changed. The next series is the first that can use the new pairing and percentiles.

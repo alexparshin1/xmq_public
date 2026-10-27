@@ -39,6 +39,31 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+/// Set on a warm-up message's sequence: the receive side ignores it, even if it arrives after the
+/// measurement has started.
+constexpr uint32_t warmupSequenceBit = 0x80000000u;
+
+void writeMessageSequence(Buffer& payload, const uint32_t sequence)
+{
+    auto* data = payload.data();
+    data[0] = static_cast<char>((sequence >> 24) & 0xFF);
+    data[1] = static_cast<char>((sequence >> 16) & 0xFF);
+    data[2] = static_cast<char>((sequence >> 8) & 0xFF);
+    data[3] = static_cast<char>(sequence & 0xFF);
+}
+
+optional<uint32_t> messageSequence(const PublishMessage& message)
+{
+    const auto payload = message.payload();
+    if (payload.size() < sizeof(uint32_t))
+    {
+        return nullopt;
+    }
+    const auto* data = reinterpret_cast<const unsigned char*>(payload.data());
+    return (static_cast<uint32_t>(data[0]) << 24) | (static_cast<uint32_t>(data[1]) << 16) |
+           (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[3]);
+}
+
 size_t indexStart(const CTestClientGroup& group)
 {
     return group.m_client_index_start.isNull() ? 0 : static_cast<size_t>(group.m_client_index_start.asInteger());
@@ -537,10 +562,8 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     return clients;
 }
 
-void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durationSeconds, const size_t totalMessageCount, vector<RoundTripLatency>& clientPublishLatency)
+void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t totalMessageCount, vector<RoundTripLatency>& clientPublishLatency)
 {
-    const auto testEndTime = steady_clock::now() + seconds(durationSeconds);
-
     m_latencyTraceTotal.clear();
 
     Stopwatch stopwatch;
@@ -571,15 +594,19 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
             }
             continue;
         }
-        subscriber->onMessage([this, totalMessageCount, durationSeconds, testEndTime, &clientPublishLatency, latencyIndex](const auto& message)
+        subscriber->onMessage([this, totalMessageCount, &clientPublishLatency, latencyIndex](const auto& message)
                               {
-                                  if (m_scenarioCompleted.load())
+                                  if (m_scenarioCompleted.load() || m_warmingUp.load())
                                   {
                                       return;
                                   }
                                   if (message->is(Message::Type::Publish))
                                   {
-                                      clientPublishLatency[latencyIndex].received();
+                                      if (const auto sequence = messageSequence(*message);
+                                          sequence && (*sequence & warmupSequenceBit) == 0)
+                                      {
+                                          clientPublishLatency[latencyIndex].received(*sequence);
+                                      }
                                       // ClientReceive was already snapped in Session::receiveMessages(),
                                       // right before this callback ran; only present when the publisher
                                       // attached a trace (see publish()'s latencyTraceEnabled gate).
@@ -592,8 +619,10 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t durat
                                       }
                                   }
                                   const auto count = ++m_receivedMessageCount;
+                                  const auto measurementEndNs = m_measurementEndNs.load();
                                   if ((totalMessageCount > 0 && count == totalMessageCount) ||
-                                      (durationSeconds > 0 && steady_clock::now() > testEndTime))
+                                      (measurementEndNs != 0 &&
+                                       steady_clock::now().time_since_epoch().count() >= measurementEndNs))
                                   {
                                       m_scenarioCompleted = true;
                                       m_allMessagesReceived.post();
@@ -925,7 +954,7 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
 
     clientPublishLatencies.resize(subscriberCount);
 
-    subscribeClients(subscriberCount, durationSeconds, totalMessageCount, clientPublishLatencies);
+    subscribeClients(subscriberCount, totalMessageCount, clientPublishLatencies);
 }
 
 void ScenarioEngine::disconnectClients()
@@ -1020,7 +1049,12 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     vector<const Topic*> topics = makeTopicList(publisherCount, topicCount, publisherTopicTemplate);
 
     const auto payloadSize = static_cast<size_t>(m_scenario.m_parameters.m_payload_size.asInteger());
-    Buffer     payload;
+    if (payloadSize < sizeof(uint32_t))
+    {
+        throw Exception("The payload must be at least 4 bytes: the first four carry the message "
+                        "sequence number that pairs a delivery with its send.");
+    }
+    Buffer payload;
     payload.fill('#', payloadSize);
 
     // The per-hop phase breakdown (LatencyPhase::ServerWireIn..ClientReceive) travels as an MQTT5
@@ -1058,16 +1092,19 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     const auto publishersReconnect = !m_scenario.m_publishers.m_auto_reconnect.isNull() &&
                                      m_scenario.m_publishers.m_auto_reconnect.asBool();
 
-    auto sendMessageCount = 0;
+    size_t   sendMessageCount = 0;
+    uint64_t messageIndex = 0;
+    uint32_t sequenceCounter = 0;
 
     // Duration-based scenarios carry no message_count to stop on: completion is only ever observed
-    // on the receiving side (onMessage flips m_scenarioCompleted once now > testEndTime). Bound the
-    // sending loop on the wall clock too, so a delivery stall - which keeps that callback from ever
-    // firing - cannot spin here forever.
+    // on the receiving side (onMessage flips m_scenarioCompleted for the measurement window). Bound
+    // the sending loop on the wall clock too, so a delivery stall - which keeps that callback from
+    // ever firing - cannot spin here forever.
     const auto durationSeconds = static_cast<size_t>(m_scenario.m_parameters.m_duration_sec.asInteger());
-    const auto publishDeadline = durationSeconds > 0
-                                     ? std::optional {steady_clock::now() + seconds(durationSeconds)}
-                                     : std::nullopt;
+    auto       publishStartTime = steady_clock::now();
+    auto       publishDeadline = durationSeconds > 0
+                                    ? std::optional {publishStartTime + seconds(durationSeconds)}
+                                    : std::nullopt;
 
     Stopwatch stopwatch;
     stopwatch.start();
@@ -1076,7 +1113,6 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     // count when publishMessageCount is set, elapsed milliseconds against the duration otherwise.
     // A total of 0 (neither bound set) means progress can't be shown; ProgressBar::update() is a
     // no-op in that case, so the call sites below don't need to special-case it.
-    const auto  publishStartTime = steady_clock::now();
     const auto  progressTotal = publishMessageCount > 0
                                     ? static_cast<size_t>(publishMessageCount)
                                     : (durationSeconds > 0 ? durationSeconds * 1000 : 0);
@@ -1112,26 +1148,63 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
-    for (auto& clientPublishLatency: clientPublishLatencies)
+    const auto beginMeasurement = [&]
     {
-        clientPublishLatency.start(groupInterval);
+        publishStartTime = steady_clock::now();
+        publishDeadline = durationSeconds > 0
+                              ? std::optional {publishStartTime + seconds(durationSeconds)}
+                              : std::nullopt;
+        m_measurementEndNs = durationSeconds > 0
+                                 ? (publishStartTime + seconds(durationSeconds)).time_since_epoch().count()
+                                 : 0;
+        for (auto& clientPublishLatency: clientPublishLatencies)
+        {
+            clientPublishLatency.start(groupInterval);
+        }
+        m_receivedMessageCount = 0;
+        m_scenarioCompleted = false;
+        if (m_paceMaker)
+        {
+            m_paceMaker->resetReBases();
+        }
+        stopwatch.start();
+    };
+
+    auto warmupDeadline = m_warmup > seconds(0) ? std::optional {steady_clock::now() + m_warmup} : std::nullopt;
+    m_warmingUp = warmupDeadline.has_value();
+    if (!m_warmingUp.load())
+    {
+        beginMeasurement();
     }
 
     while (true)
     {
-        if ((publishMessageCount && sendMessageCount == publishMessageCount) || m_scenarioCompleted.load())
+        const auto now = steady_clock::now();
+
+        if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)
         {
-            break;
+            m_warmingUp = false;
+            warmupDeadline.reset();
+            beginMeasurement();
         }
 
-        if (publishDeadline && steady_clock::now() > *publishDeadline)
+        if (!m_warmingUp.load())
         {
-            break;
+            if ((publishMessageCount && sendMessageCount == publishMessageCount) || m_scenarioCompleted.load())
+            {
+                break;
+            }
+
+            if (publishDeadline && now > *publishDeadline)
+            {
+                break;
+            }
         }
 
-        auto        publisherIndex = sendMessageCount % publisherCount;
+        const auto  publisherIndex = messageIndex % publisherCount;
         const auto  publisher = m_publishers[publisherIndex];
-        const auto* topic = topics[sendMessageCount % topicCount];
+        const auto* topic = topics[messageIndex % topicCount];
+        ++messageIndex;
 
         // Nothing from a client the broker never answered, nor to one: its turn is skipped, and
         // the pace stays that of the others.
@@ -1140,7 +1213,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
              (testType == Type::PointToPoint && static_cast<size_t>(publisherIndex) < m_subscribers.size() &&
               !answered(m_subscribers[publisherIndex]))))
         {
-            ++sendMessageCount;
+            if (!m_warmingUp.load())
+            {
+                ++sendMessageCount;
+            }
             continue;
         }
 
@@ -1154,30 +1230,41 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         // takes the next message.
         if (publishersReconnect && !publisher->isConnected())
         {
-            ++sendMessageCount;
+            if (!m_warmingUp.load())
+            {
+                ++sendMessageCount;
+            }
             continue;
         }
 
-        switch (testType)
+        const auto sequence = sequenceCounter++ | (m_warmingUp.load() ? warmupSequenceBit : 0);
+
+        if (!m_warmingUp.load())
         {
-            using enum Type;
-            case FanIn:
-                // Shared subscription: each message is delivered to exactly one subscriber,
-                // so record the send once in the shared latency object.
-                clientPublishLatencies[0].sent();
-                break;
-            case FanOut:
-                for (auto& clientPublishLatency: clientPublishLatencies)
-                {
-                    clientPublishLatency.sent();
-                }
-                break;
-            case PointToPoint:
-                clientPublishLatencies[publisherIndex].sent();
-                break;
-            default:
-                throw Exception("Unknown test type");
+            switch (testType)
+            {
+                using enum Type;
+                case FanIn:
+                    // Shared subscription: each message is delivered to exactly one subscriber,
+                    // so record the send once in the shared latency object.
+                    clientPublishLatencies[0].sent(sequence);
+                    break;
+                case FanOut:
+                    for (auto& clientPublishLatency: clientPublishLatencies)
+                    {
+                        clientPublishLatency.sent(sequence);
+                    }
+                    break;
+                case PointToPoint:
+                    clientPublishLatencies[publisherIndex].sent(sequence);
+                    break;
+                default:
+                    throw Exception("Unknown test type");
+            }
         }
+
+        Buffer messagePayload(payload);
+        writeMessageSequence(messagePayload, sequence);
 
         try
         {
@@ -1194,15 +1281,22 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                 {
                     messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
                 }
-                publisher->publish(topic, payload, qos, messageProperties);
+                publisher->publish(topic, messagePayload, qos, messageProperties);
             }
             else
             {
-                publisher->publish(topic, payload, qos);
+                publisher->publish(topic, messagePayload, qos);
             }
         }
         catch (const exception& e)
         {
+            if (!m_warmingUp.load())
+            {
+                for (auto& clientPublishLatency: clientPublishLatencies)
+                {
+                    clientPublishLatency.cancel(sequence);
+                }
+            }
             // The connection can go between the check above and the send: a node taken away under the
             // load is exactly that race. The client is reconnecting, so the message is lost, not the
             // run; any other error, and a client that cannot come back, still ends it.
@@ -1211,7 +1305,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                 throw;
             }
         }
-        ++sendMessageCount;
+        if (!m_warmingUp.load())
+        {
+            ++sendMessageCount;
+        }
 
         if (m_showProgress && static_cast<size_t>(sendMessageCount) % progressStep == 0)
         {
@@ -1221,6 +1318,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             progressBar.update(progressCurrent, progressTotal);
         }
     }
+
+    m_warmingUp = false;
 
     // Never block indefinitely waiting for the receiving side to signal completion. If delivery stalls
     // (or a duration-based run publishes its whole window without a message arriving past testEndTime),

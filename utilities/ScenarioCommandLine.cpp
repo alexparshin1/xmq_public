@@ -46,6 +46,10 @@ ScenarioCommandLine::ScenarioCommandLine(const std::vector<std::string>& args)
                     "Number of messages to publish.");
     defineParameter("duration", "d", "seconds", R"(^\d+$)", alwaysVisible, "0",
                     "Test duration, seconds. When set, publishing continues until the duration expires.");
+    defineParameter("warmup", "", "seconds", R"(^\d+$)", alwaysVisible, "30",
+                    "Run the same clients, topics and rate for this long before measurement starts, "
+                    "so the reported window does not begin with a cold broker. Samples and counts "
+                    "from the warm-up are discarded. 0 disables it.");
     defineParameter("connection-rate", "R", "number", R"(^\d+$)", alwaysVisible, "0",
                     "Client connection rate, connections per second.");
     defineParameter("qos", "q", "QOS", R"(^(0|1|2)$)", alwaysVisible, "0",

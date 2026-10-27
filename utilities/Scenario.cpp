@@ -445,6 +445,7 @@ void Scenario::executeScenario() const
 
     overrideScenarioParameters(engine.scenario());
     engine.showProgress(commandLine().hasOption("progress"));
+    engine.warmup(chrono::seconds(commandLine().getOptionValue("warmup").toInt()));
     // Null unless --encrypted, --cafile or --cert/--key were given; see RunDefinition::load().
     engine.sslKeys(runDefinition().m_sslKeys);
 
