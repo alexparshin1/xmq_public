@@ -1,0 +1,13 @@
+Cluster session migration result
+Target broker: node-c (172.31.8.125:1884)
+Recovery broker: 172.31.11.169:1884
+Expected and published: 10000
+Live observer unique: 10000
+Live observer not received by deadline (120s): 0 (0.0000%)
+Received payloads: 10000
+Unique received: 10000
+Not received by deadline (120s): 0 (0.0000%)
+Duplicates: 0
+Observer duplicates: 0
+Unexpected: 0
+Result: PASS

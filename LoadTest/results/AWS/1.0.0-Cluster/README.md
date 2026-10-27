@@ -33,6 +33,7 @@ The comparison is EMQX 5.8.9, Apache 2.0 — the last Apache-licensed release th
     emqx/             the same four runs on EMQX 5.8.9
     ramp/             XMQ-only connection-rate ladder (10K/20K/40K/80K per second)
     chaos/            the survivability run: 6 crashes over 600 s, one node down 20 s per cycle
+    stateful-migration/  a persistent session moving from a killed node to another node
     p2p-diagnostics/  the P2P latency investigation and the first P2P run (not published)
 
 `metadata.json` has the stand, packages, method and per-scenario medians.
@@ -55,6 +56,22 @@ says so next to the P2P entry.
 The persistence-off A/B that was planned to test the 20 ms guess was not run: the scenario uses
 `clean_session=true`, so no delivery record is written at all, and the trace run shows no store
 cost in the path. The write-behind delay could not have produced that number.
+
+## Clean sessions and stateful migration
+
+The four throughput scenarios and the chaos run use `clean_session=true`. A clean session ends with
+its connection and leaves no subscription or queued delivery to migrate, so those runs measure
+routing throughput and survivability, not session migration. The site says so on both pages.
+
+Session migration was measured separately on the same stand, with a real persistent session:
+
+- a subscriber with `clean_session=false` and a fixed client id connected to `node-c`;
+- `node-c` was killed with `SIGKILL` through the systemd adapter, so no handover and no lease release;
+- 10,000 unique QoS 1 messages were published at 100/s from `node-a` while `node-c` was down;
+- the same client id reconnected to `node-d` and received all 10,000, with 0 missing and 0 duplicates;
+- a live clean subscriber on `node-b` received all 10,000 as well, showing that publishing continued.
+
+The run is in `stateful-migration/`; `summary.txt` is the result and the logs are the record.
 
 ## The connection-rate ceiling
 

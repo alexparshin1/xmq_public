@@ -128,6 +128,33 @@ of what was run. The load reconnects clients whose node goes away, and skips the
 reconnecting instead of ending the run, which is what makes it a measure of the cluster rather than of
 the load's patience. `--keep-cluster` and the other `xmq_scn_cluster` options pass through.
 
+The chaos load uses clean sessions, so it does not carry session state across a crash. That is a
+deliberate part of what it measures - serving and delivery while nodes die - but it means a passing
+chaos run says nothing about migration.
+
+## A stateful migration run
+
+`failover-session-migration.py` is the companion check: a persistent session must survive its owner
+being killed, with the messages published during the outage. It connects a subscriber with
+`clean_session=false` and a fixed client id to the target node, kills the node with the same
+`kill -9` adapter the chaos run uses, publishes unique QoS 1 messages while the node is down, and
+reconnects the same client id to a survivor. It also runs a clean observer on a third node, so a
+publisher that stalled is distinguishable from a session that did not migrate.
+
+```sh
+XMQ_CLIENT_USER=user XMQ_CLIENT_PASSWORD=User-Secret1 \
+python3 LoadTest/Cluster/failover-session-migration.py \
+    --target-host node-c --target-port 1884 --target-node node-c \
+    --target-adapter '~/cluster/test_cluster.sh' \
+    --publisher-host node-a --survivor-host node-d --observer-host node-b \
+    --redis-host <redis> --redis-db 4 \
+    --message-count 10000 --publish-rate 100 --output-dir ~/migration-run
+```
+
+Without `--target-adapter` the script kills the `xmq_server` process for a numbered local instance
+(`~/.local/etc/xmq<N>/xmq_server.conf`). QoS 1 is at-least-once, so the result allows duplicate
+deliveries and fails on loss; it reports both counts.
+
 ## The method
 
 1. A publish immediately after a SUBACK measures how fast the cluster tells the publishing node about

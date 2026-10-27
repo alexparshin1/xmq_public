@@ -224,7 +224,49 @@
   },
   "notes": {
     "p2p": "The first P2P run reported 20 ms and did not reproduce; the published P2P record is the 600 s repeat (489 us), and the first run is in p2p-diagnostics/.",
-    "comparison": "The comparison pace is what both brokers sustain. The connection-rate ladder and its ceiling are XMQ-only and labelled as such."
+    "comparison": "The comparison pace is what both brokers sustain. The connection-rate ladder and its ceiling are XMQ-only and labelled as such.",
+    "clean_sessions": "The four throughput scenarios and the chaos load use clean_session=true; they do not exercise session migration. The stateful_migration entry is the separate persistent-session check."
+  },
+  "stateful_migration": {
+    "result": "PASS",
+    "target_node": "node-c",
+    "recovery_node": "node-d",
+    "publisher_node": "node-a",
+    "observer_node": "node-b",
+    "messages": 10000,
+    "publish_rate_per_second": 100,
+    "delivered": 10000,
+    "missing": 0,
+    "duplicates": 0,
+    "observer_delivered": 10000,
+    "observer_missing": 0,
+    "subscriber_session": "persistent, clean_session=false, same client id before and after the kill",
+    "files": {
+      "summary": {
+        "file": "stateful-migration/summary.txt",
+        "sha256": "1fe45aceb5c007d5faa4584f4020ea1eca672298c1b2855a35df220007d46bed"
+      },
+      "subscriber_before_failure": {
+        "file": "stateful-migration/subscriber-before-failure.log",
+        "sha256": "1056c15e3f3b0c5f2439ba4dfd9cc559b8075c2a331660ee104e609bc7baa815"
+      },
+      "publish_during_outage": {
+        "file": "stateful-migration/publish-during-outage.log",
+        "sha256": "a372798985c3c6907db484801e0cfcab13e07a849313f1e7ee9ccd73ee174015"
+      },
+      "live_observer": {
+        "file": "stateful-migration/live-observer.log",
+        "sha256": "47e23e83d3a337f9fa1f69ebf9a24082e244cba62abd0378283e741c29762074"
+      },
+      "subscriber_after_migration": {
+        "file": "stateful-migration/subscriber-after-migration.log",
+        "sha256": "fb185be51e61b44b893fbdbb82ee4977d55493d950e11cceb7517a37d8642659"
+      },
+      "expected_sequences": {
+        "file": "stateful-migration/expected-sequences.txt",
+        "sha256": "5a9eca3cdd8be88794e85686f4f99b6dfd5d2c53d8aac05d1e1f9a9ba4bfd62f"
+      }
+    }
   },
   "chaos": {
     "crashes": 6,
