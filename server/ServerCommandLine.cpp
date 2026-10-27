@@ -59,6 +59,9 @@ ServerCommandLine::ServerCommandLine()
     defineParameter("log-file", "l", "log file", "", alwaysVisible,
                     "xmq_server.log", "Log file path.");
     defineOption("reset", "r", alwaysVisible, "Reset persistent storage. Overrides configuration.");
+    defineOption("check-config", "", alwaysVisible,
+                 "Check the configuration file selected by -c and exit. Nothing is started, no database "
+                 "is opened and the file is not changed. Warnings name keys that have no effect.");
     defineOption("reset-configuration", "", alwaysVisible,
                  "Replace the configuration file with a starting one and carry on: MQTT on 1883 and 8883, "
                  "the configuration interface on 18883, persistence off. The way back when a configuration "

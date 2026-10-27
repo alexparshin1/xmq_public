@@ -260,17 +260,18 @@ String replacePathDelimiter(const filesystem::path& path)
 {
     return String(path.string()).replace("\\\\", "/");
 }
+
+// Defined below the loading code, beside the rest of the file-writing helpers.
+String expandConfigurationText(const Buffer& config, const filesystem::path& logTo);
+void   collectUnknownKeys(const WSComplexType& type, const xdoc::SNode& node, const String& path,
+                          Strings& warnings);
+void   validateConfigurationValues(const CServerConfiguration& configuration, Strings& warnings);
 }
 
 void Settings::loadConfigurationUnlocked(const Buffer& config)
 {
-    String     configString(config);
     const auto logTo = filesystem::path(m_logging.m_log_to.asString().c_str());
-    configString = configString
-                   .replace(R"(\$\{ProgramData\})", replacePathDelimiter(DirectoryNames::confDirectory()))
-                   .replace(R"(\$\{ProgramCerts\})", replacePathDelimiter(DirectoryNames::certsDirectory()))
-                   .replace(R"(\$\{ProgramTemp\})", replacePathDelimiter(DirectoryNames::tempDirectory()))
-                   .replace(R"(\$\{ProgramLogs\})", replacePathDelimiter(logTo));
+    const auto configString = expandConfigurationText(config, logTo);
 
     xdoc::Document document;
     document.load(configString);
@@ -284,6 +285,17 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     const bool hasClusterPassword = clusterNode && clusterNode->findFirst("password");
 
     WSComplexType::load(document.root());
+
+    // Values the field types cannot bound, and keys nothing reads. The first stops a start with
+    // the key's name; the second is a warning, because a configuration carrying an old or
+    // misspelled key still runs and refusing it would strand an installation over a comment.
+    Strings warnings;
+    validateConfigurationValues(*this, warnings);
+    collectUnknownKeys(*this, document.root(), "", warnings);
+    for (const auto& warning: warnings)
+    {
+        CERR(warning);
+    }
 
     initialize();
     if (hasUsersElement || hasClusterPassword)
@@ -360,29 +372,6 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     m_bridgeManager.initialize(m_changed);
     m_listenerManager.initialize(m_changed);
 
-    // "auto" and 0 both mean "decide from the hardware", and anything else has to be a number in
-    // range. The schema already refuses everything that is neither, so this is about the range.
-    const auto checkThreadSetting = [](const String& value, const char* name)
-    {
-        const auto text = String(value).trim().toLowerCase();
-        if (text.empty() || text == "auto" || text == "0")
-        {
-            return;
-        }
-        constexpr auto minThreads = 1;
-        constexpr auto maxThreads = 256;
-        if (const auto count = text.toInt();
-            count < minThreads || count > maxThreads)
-        {
-            throw invalid_argument(String("The server_limits.") + name +
-                                   " setting should be \"auto\", 0, or a number in range [1..256]");
-        }
-    };
-
-    checkThreadSetting(m_server_limits.m_send_threads.asString(), "send_threads");
-    checkThreadSetting(m_server_limits.m_receive_threads.asString(), "receive_threads");
-    checkThreadSetting(m_server_limits.m_delivery_threads.asString(), "delivery_threads");
-
     if (m_changed)
     {
         saveConfigurationUnlocked();
@@ -414,6 +403,29 @@ void Settings::loadConfiguration(const filesystem::path& configurationFile, cons
     loadConfigurationUnlocked(config);
 }
 
+void Settings::loadConfigurationFrom(const filesystem::path& configurationFile,
+                                     const filesystem::path& lastGoodFile,
+                                     const filesystem::path& usersFile)
+{
+    const WriteLock lock(m_mutex);
+
+    m_usersPath = usersFile;
+    m_configurationPath = configurationFile;
+
+    Buffer config;
+    config.loadFromFile(lastGoodFile);
+    m_startupWarning = "Configuration file " + configurationFile.string() +
+                       " could not be read; the last good configuration was used instead (" +
+                       lastGoodFile.string() + ").";
+    loadConfigurationUnlocked(config);
+}
+
+String Settings::startupWarning() const
+{
+    const ReadLock lock(m_mutex);
+    return m_startupWarning;
+}
+
 void Settings::updateUsers()
 {
     const WriteLock lock(m_mutex);
@@ -425,6 +437,12 @@ void Settings::updateUsers()
 
 void Settings::saveConfigurationUnlocked(Buffer& config) const
 {
+    // The write is guarded as well as the read: an edit through the interface must not be able to
+    // put a file on disk that the next start will refuse. Warnings are not repeated here - they
+    // belong to the load, where the key came from the file rather than from a field being set.
+    Strings warnings;
+    validateConfigurationValues(*this, warnings);
+
     xdoc::Document document;
     WSComplexType::unload(document.root());
     if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
@@ -468,6 +486,190 @@ void restrictToOwnerAndGroup(const filesystem::path& path)
     }
 }
 
+/**
+ * @brief Write a file so that a reader never sees a half-written one.
+ *
+ * Written beside the target and renamed over it: rename is atomic on the filesystems an
+ * installation lives on, so the file is either the old one or the new one. A crash in the middle
+ * of a write used to leave a truncated configuration, which is exactly what a broker cannot start
+ * from and what an interface cannot repair.
+ */
+void saveAtomically(const filesystem::path& path, const Buffer& data)
+{
+    auto temporary = path;
+    temporary += ".tmp";
+
+    try
+    {
+        data.saveToFile(temporary);
+        restrictToOwnerAndGroup(temporary);
+
+        error_code errorCode;
+        filesystem::rename(temporary, path, errorCode);
+        if (errorCode)
+        {
+            throw Exception("Can't replace " + path.string() + ": " + errorCode.message());
+        }
+    }
+    catch (...)
+    {
+        error_code ignored;
+        filesystem::remove(temporary, ignored);
+        throw;
+    }
+}
+
+/**
+ * @brief Resolve the placeholders a configuration may carry.
+ *
+ * Kept apart from loading so that --check-config reads a file the same way a start does without
+ * starting anything.
+ */
+String expandConfigurationText(const Buffer& config, const filesystem::path& logTo)
+{
+    String configString(config);
+    return configString.replace(R"(\$\{ProgramData\})", replacePathDelimiter(DirectoryNames::confDirectory()))
+        .replace(R"(\$\{ProgramCerts\})", replacePathDelimiter(DirectoryNames::certsDirectory()))
+        .replace(R"(\$\{ProgramTemp\})", replacePathDelimiter(DirectoryNames::tempDirectory()))
+        .replace(R"(\$\{ProgramLogs\})", replacePathDelimiter(logTo));
+}
+
+/**
+ * @brief Keys an older configuration may carry that are deliberately no longer read.
+ *
+ * They are handled by the migration in loadConfigurationUnlocked() rather than ignored: the
+ * accounts once lived in the configuration, and the cluster secret used to as well. Warning about
+ * them on every start would train the reader to ignore the warning that matters.
+ */
+bool isLegacyConfigurationKey(const String& path, const String& name)
+{
+    return (path == "authentication" && name == "users") ||
+           (path == "cluster" && name == "password") ||
+           (path == "persistence" && name == "max_threads") ||
+           (path == "logging" && name == "log_level_available");
+}
+
+/**
+ * @brief Warn about object keys the configuration does not define.
+ *
+ * A mistyped key is accepted by the loader, which reads the fields it knows and leaves the rest
+ * alone, so the setting silently does nothing. Walking the document against the same field lists
+ * the loader uses turns that into something the reader can see. Arrays are not descended into:
+ * their elements are the generated types' business, and the keys inside them have no effect on
+ * the file as a whole.
+ */
+void collectUnknownKeys(const WSComplexType& type, const xdoc::SNode& node, const String& path,
+                        Strings& warnings)
+{
+    for (const auto& child: node->nodes())
+    {
+        const String name(std::string(child->getName()));
+        String       childPath = path;
+        if (!childPath.empty())
+        {
+            childPath += ".";
+        }
+        childPath += name;
+
+        WSType* field = nullptr;
+        try
+        {
+            field = type.getField(name);
+        }
+        catch (const Exception&)
+        {
+            if (!isLegacyConfigurationKey(path, name))
+            {
+                warnings.push_back("Unknown configuration key '" + childPath +
+                                   "' has no effect. Check its spelling.");
+            }
+            continue;
+        }
+
+        if (const auto* complex = dynamic_cast<const WSComplexType*>(field))
+        {
+            collectUnknownKeys(*complex, child, childPath, warnings);
+        }
+    }
+}
+
+/**
+ * @brief Check the values whose range the field types cannot express.
+ *
+ * Throws on the first value that would stop the broker from serving, naming the key rather than
+ * the class that carries it. Returns what is unusual but usable in @p warnings.
+ */
+void validateConfigurationValues(const CServerConfiguration& configuration, Strings& warnings)
+{
+    const auto checkThreadCount = [](const String& value, const String& key)
+    {
+        const auto text = String(value).trim().toLowerCase();
+        if (text.empty() || text == "auto" || text == "0")
+        {
+            return;
+        }
+        const auto count = text.toInt();
+        if (count < 1 || count > 256)
+        {
+            throw invalid_argument("The configuration key '" + key +
+                                   "' should be \"auto\", 0, or a number in range [1..256].");
+        }
+    };
+
+    checkThreadCount(configuration.m_server_limits.m_send_threads.asString(),
+                     "server_limits.send_threads");
+    checkThreadCount(configuration.m_server_limits.m_receive_threads.asString(),
+                     "server_limits.receive_threads");
+    checkThreadCount(configuration.m_server_limits.m_delivery_threads.asString(),
+                     "server_limits.delivery_threads");
+
+    const auto checkPort = [](const WSInteger& value, const String& key, const bool allowZero)
+    {
+        if (value.isNull())
+        {
+            return;
+        }
+        const auto port = value.asInteger();
+        if (port < (allowZero ? 0 : 1) || port > 65535)
+        {
+            throw invalid_argument("The configuration key '" + key + "' should be a port number" +
+                                   (allowZero ? " between 0 and 65535." : " between 1 and 65535."));
+        }
+    };
+
+    size_t listenerIndex = 0;
+    for (const auto& listener: configuration.m_connections.m_listener)
+    {
+        const auto prefix = "connections.listener[" + to_string(listenerIndex++) + "]";
+        checkPort(listener.m_port, prefix + ".port", false);
+        if (!listener.m_threads.isNull())
+        {
+            const auto threads = listener.m_threads.asInteger();
+            if (threads < 1 || threads > 256)
+            {
+                throw invalid_argument("The configuration key '" + prefix +
+                                       ".threads' should be a number in range [1..256].");
+            }
+        }
+        if (listener.m_protocol.asString().empty())
+        {
+            throw invalid_argument("The configuration key '" + prefix + ".protocol' cannot be empty.");
+        }
+    }
+
+    checkPort(configuration.m_web_service.m_listener_port, "web_service.listener_port", true);
+
+    if (!configuration.m_cluster.m_lease_seconds.isNull() &&
+        configuration.m_cluster.m_lease_seconds.asInteger() < 1)
+    {
+        throw invalid_argument("The configuration key 'cluster.lease_seconds' should be at least 1.");
+    }
+    if (!configuration.m_cluster.m_links.isNull() && configuration.m_cluster.m_links.asInteger() < 0)
+    {
+        warnings.push_back("The configuration key 'cluster.links' is negative; a node will open no links.");
+    }
+}
+
 } // namespace
 
 void Settings::saveConfigurationUnlocked() const
@@ -479,8 +681,7 @@ void Settings::saveConfigurationUnlocked() const
 
     Buffer config;
     saveConfigurationUnlocked(config);
-    config.saveToFile(m_configurationPath);
-    restrictToOwnerAndGroup(m_configurationPath);
+    saveAtomically(m_configurationPath, config);
 }
 
 filesystem::path Settings::usersPathUnlocked() const
@@ -947,13 +1148,7 @@ String Settings::applyInvitationAccept(const String& redisUri, const String& dat
 
 filesystem::path Settings::lastGoodPath() const
 {
-    return filesystem::path(m_configurationPath.string() + ".lastgood");
-}
-
-void Settings::clearPendingAccept()
-{
-    error_code errorCode;
-    filesystem::remove(lastGoodPath(), errorCode);
+    return lastGoodConfigurationPath(m_configurationPath);
 }
 
 String Settings::keepLastGoodConfiguration()
@@ -964,8 +1159,7 @@ String Settings::keepLastGoodConfiguration()
     {
         Buffer current;
         saveConfigurationUnlocked(current);
-        current.saveToFile(lastGoodPath());
-        restrictToOwnerAndGroup(lastGoodPath());
+        saveAtomically(lastGoodPath(), current);
         return {};
     }
     catch (const exception& error)
@@ -1022,8 +1216,7 @@ String Settings::rollbackPendingAccept(const String& reason)
 
         // The previous configuration, as it was: the last-good copy is written over the failed
         // one, and the marker goes with it. The controller reloads it before recreating MQTT.
-        previous.saveToFile(m_configurationPath);
-        restrictToOwnerAndGroup(m_configurationPath);
+        saveAtomically(m_configurationPath, previous);
 
         error_code errorCode;
         filesystem::remove(lastGoodPath(), errorCode);
@@ -1242,8 +1435,7 @@ void Settings::saveUsersToFileUnlocked(const filesystem::path& usersPath) const
 
     Buffer usersConfig;
     document.exportTo(xdoc::DataFormat::JSON, usersConfig, true);
-    usersConfig.saveToFile(usersPath);
-    restrictToOwnerAndGroup(usersPath);
+    saveAtomically(usersPath, usersConfig);
 }
 
 void Settings::initialize()
@@ -2385,8 +2577,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     const String oldConfiguration(original);
     const auto rollback = [pool, shared, previous, id, path, oldConfiguration] {
         // Restore the file even when restoring the database fails.
-        Buffer(oldConfiguration).saveToFile(path);
-        restrictToOwnerAndGroup(path);
+        saveAtomically(path, Buffer(oldConfiguration));
         if (shared)
         {
             ClusterStore target(pool);
@@ -2473,6 +2664,44 @@ bool Settings::administratorPasswordSet() const
     return m_userManager.hasPassword(administratorUsername());
 }
 
+String Settings::checkConfiguration(const filesystem::path& configurationFile, Strings& warnings)
+{
+    try
+    {
+        error_code errorCode;
+        if (!filesystem::exists(configurationFile, errorCode))
+        {
+            return "The configuration file doesn't exist: " + configurationFile.string();
+        }
+
+        Buffer config;
+        config.loadFromFile(configurationFile);
+
+        // The same path resolution a start does, so a placeholder cannot make a valid file look
+        // invalid or the other way round.
+        const auto configString = expandConfigurationText(config, DirectoryNames::logsDirectory() / "xmq_server.log");
+
+        xdoc::Document document;
+        document.load(configString);
+
+        CServerConfiguration parsed;
+        parsed.load(document.root());
+
+        validateConfigurationValues(parsed, warnings);
+        collectUnknownKeys(parsed, document.root(), "", warnings);
+    }
+    catch (const std::exception& error)
+    {
+        return error.what();
+    }
+    return {};
+}
+
+filesystem::path Settings::lastGoodConfigurationPath(const filesystem::path& configurationFile)
+{
+    return filesystem::path(configurationFile.string() + ".lastgood");
+}
+
 String Settings::createConfiguration(const filesystem::path& configurationFile, const filesystem::path& fallbackTemplate)
 {
     error_code errorCode;
@@ -2500,12 +2729,12 @@ String Settings::createConfiguration(const filesystem::path& configurationFile, 
     {
         Buffer templateText;
         templateText.loadFromFile(templateFile);
-        templateText.saveToFile(configurationFile);
+        saveAtomically(configurationFile, templateText);
         return "copied from " + templateFile.string();
     }
 
     const Buffer defaultConfiguration(defaultConfigurationText());
-    defaultConfiguration.saveToFile(configurationFile);
+    saveAtomically(configurationFile, defaultConfiguration);
     return "built-in defaults";
 }
 

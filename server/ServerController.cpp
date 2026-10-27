@@ -332,9 +332,13 @@ bool ServerController::startServing(string& reason)
     {
         m_xmqServer = make_unique<Server>(m_settings, m_logEngine);
 
-        // The start after an Accept worked: the node is in the cluster, and the previous
-        // configuration is no longer what it would fall back to.
-        m_settings->clearPendingAccept();
+        // The configuration just ran, so it is the one a later start may fall back to. Written
+        // after the server is up rather than before: a configuration that failed to start must
+        // never replace the copy that worked.
+        if (const auto error = m_settings->keepLastGoodConfiguration(); !error.empty())
+        {
+            CERR("Cannot keep the last good configuration: " << error);
+        }
         return true;
     }
     catch (const exception& exception)

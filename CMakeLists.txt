@@ -332,9 +332,8 @@ ENDIF ()
 
 
 # Exactly this SPTK release, and no other. SPTK's soname carries its whole version, so the binaries
-# built here name these libraries and load nothing else; the package carries the same release in
-# lib/xmq-sptk. Changing it is part of moving XMQ to a new SPTK, together with the CHANGELOG's
-# "Requires SPTK" line.
+# built here name these libraries and load nothing else. Changing it is part of moving XMQ to a new
+# SPTK, together with the CHANGELOG's "Requires SPTK" line.
 SET(XMQ_SPTK_VERSION "5.6.16")
 FIND_PACKAGE(SPTK ${XMQ_SPTK_VERSION} EXACT QUIET)
 IF (NOT SPTK_FOUND AND SPTK_NOT_FOUND_REASON)
@@ -551,20 +550,22 @@ ADD_DEPENDENCIES(xmq_service xmq_service_sources)
 ADD_EXECUTABLE(xmq_server server/main.cpp)
 TARGET_LINK_LIBRARIES(xmq_server xmq_base xmq_storage xmq_common xmq_service xmq_server_core)
 
-# Every installed program loads SPTK from lib/xmq-sptk, the package's own copy, and from nowhere
-# else. It used to be $ORIGIN:$ORIGIN/../lib on the broker alone, which found SPTK in the prefix's
-# shared lib/ - where the package put it, and so replaced the SPTK of every other program on the
-# machine and collided with SPTK's own packages - and the utilities had no SPTK path at all, finding
-# it only through the loader cache. A private directory is on no search path but these, so nothing
-# else on the machine sees it, and it holds exactly the release in XMQ_SPTK_VERSION.
-#
+# SPTK is not a package dependency of XMQ. The libraries XMQ needs are part of the XMQ package and
+# installed into the prefix's lib; SPTK itself is not installed by it as a separate package. A
+# development install under $HOME already has those libraries in the same directory.
+SET(xmqPrefixInHome FALSE)
+IF (NOT WIN32 AND NOT "$ENV{HOME}" STREQUAL "")
+    STRING(FIND "${CMAKE_INSTALL_PREFIX}" "$ENV{HOME}" xmqPrefixPosition)
+    IF (xmqPrefixPosition EQUAL 0)
+        SET(xmqPrefixInHome TRUE)
+    ENDIF ()
+ENDIF ()
+
 # Written as DT_RPATH (see the linker flag above), so LD_LIBRARY_PATH cannot put another copy first.
 # Setting INSTALL_RPATH on a target *replaces* CMAKE_INSTALL_RPATH rather than adding to it, so the
 # pinned libstdc++ directory above has to be carried over explicitly.
 IF (UNIX AND NOT APPLE)
-    # Prefer bundled core libraries, then optional SQL drivers installed in this prefix.
-    # Drivers are dlopened by soname and are intentionally not bundled with standalone XMQ.
-    SET(XMQ_INSTALL_RPATH "$ORIGIN/../lib/xmq-sptk:$ORIGIN/../lib")
+    SET(XMQ_INSTALL_RPATH "$ORIGIN/../lib")
     IF (GCC_LIBSTDCXX_DIR)
         SET(XMQ_INSTALL_RPATH "${XMQ_INSTALL_RPATH}:${GCC_LIBSTDCXX_DIR}")
     ENDIF ()
@@ -607,29 +608,19 @@ INSTALL(DIRECTORY test/ScenarioTests/Basic test/ScenarioTests/Enterprise test/Sc
         DESTINATION share/xmq
 )
 
-IF (NOT WIN32)
-    # SPTK travels inside this package. It is linked dynamically (see cmake/FindSPTK.cmake), so it
-    # has to be here or the broker does not start - but shipping it also keeps the promise the
-    # static link used to keep, that a user downloads one file and installs it.
+IF (NOT WIN32 AND NOT xmqPrefixInHome)
+    # The SPTK libraries XMQ links are part of the XMQ package, not a dependency of it: a host
+    # that installs XMQ from the farm must not have to install SPTK separately. They go into the
+    # prefix's lib beside XMQ, named by the soname the binaries ask for - the soname carries the
+    # whole version, so that file is the only name needed at run time, and SPTK opens its database
+    # drivers by the same versioned name. A development install under $HOME already has SPTK in
+    # that directory and copies nothing.
     #
-    # One file per library, named by its soname - lib<name>.so.<SPTK version> - into lib/xmq-sptk, the
-    # directory the RPATH of every installed program names. The soname carries the whole version, so
-    # that file is the only name a binary built here asks for; the development link lib<name>.so is
-    # not needed at run time, and SPTK opens its database drivers by the same versioned name.
-    # Executable, because rpm derives a library's Provides only from files that are.
-    #
-    # The sqlite3 driver is what a standalone broker uses - the deployment expected to have no
-    # database server at all - and this version defaults to it. The postgresql and mysql drivers
-    # are here because the cluster's shared accounts database is one of those two: without the
-    # driver a node configured for a cluster cannot start, and the failure is a dlopen at run time
-    # rather than anything the package manager can see. SPTK reaches a driver with dlopen, so it
-    # is never a link-time dependency and never appears in ldd: it has to be listed here by hand,
-    # or it is silently absent until someone configures a broker to use it.
-    #
-    # The drivers' own dependencies, libpq5 and libmariadb3, are not bundled: they come from the
-    # distribution, as do openssl, pcre2 and brotli, and are declared by the package's shlib
-    # dependencies. Oracle and ODBC stay out for the same reason they always did - their clients
-    # are large, and a broker that does not use them should not install them.
+    # The sqlite3 driver is what a standalone broker uses. The postgresql and mysql drivers are
+    # here because the cluster's shared accounts database is one of those two: without the driver
+    # a node configured for a cluster cannot start, and the failure is a dlopen at run time rather
+    # than anything the package manager can see. SPTK reaches a driver with dlopen, so it is never
+    # a link-time dependency and never appears in ldd: it has to be listed here by hand.
     #
     # By name, not by globbing: an earlier SPTK left behind on the build host sits in the same
     # directory under its own versioned names, and only the release this build was configured
@@ -643,7 +634,7 @@ IF (NOT WIN32)
         ENDIF ()
         LIST(APPEND SPTK_RUNTIME_FILES "${sptkRuntimeFile}")
     ENDFOREACH ()
-    INSTALL(FILES ${SPTK_RUNTIME_FILES} DESTINATION lib/xmq-sptk
+    INSTALL(FILES ${SPTK_RUNTIME_FILES} DESTINATION lib
             PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 ENDIF ()
 
@@ -657,14 +648,6 @@ IF (BUILD_PACKAGE)
     #
     # So packaging is simply not offered for such a tree, rather than offered and wrong. Configure
     # with -DCMAKE_INSTALL_PREFIX=/usr/local to build one.
-    SET(xmqPrefixInHome FALSE)
-    IF (NOT WIN32 AND NOT "$ENV{HOME}" STREQUAL "")
-        STRING(FIND "${CMAKE_INSTALL_PREFIX}" "$ENV{HOME}" xmqPrefixPosition)
-        IF (xmqPrefixPosition EQUAL 0)
-            SET(xmqPrefixInHome TRUE)
-        ENDIF ()
-    ENDIF ()
-
     IF (xmqPrefixInHome)
         MESSAGE("Packaging:          off, prefix is under $ENV{HOME}")
     ELSE ()

@@ -12,6 +12,32 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.16.
 
+### Added
+
+- **`xmq_server --check-config` checks a configuration before it is used.** It reads the file
+  selected by `-c`, resolves the same placeholders a start does, and validates syntax, field
+  types and values that have a range - without starting MQTT, opening a database or changing the
+  file. A port outside 1-65535 or a thread count outside `auto`, 0 and 1-256 is refused with the
+  key's name, and a key nothing reads is reported as a warning instead of being silently ignored.
+- **A configuration that cannot be read starts from the last good copy.** The last configuration
+  that brought MQTT up is kept beside the file as `xmq_server.conf.lastgood`; when the configured
+  file is broken, the broker starts on that copy, writes the reason to the log, and a later save
+  repairs the configured file. Previously the copy existed only for rolling back a failed cluster
+  join, so a hand edit that broke the file left nothing to start from.
+
+### Changed
+
+- **A configuration is validated before it is saved, not only before it is loaded.** An edit
+  through the configuration interface that would stop the next start is refused with the key's
+  name instead of being written to disk and caught on the reload that follows.
+- **The XMQ package carries the SPTK libraries it needs, but not in `lib/xmq-sptk`.** They are
+  installed into the prefix's `lib` beside XMQ and are part of the XMQ package; SPTK is not a
+  package dependency. A development install under `$HOME` uses the SPTK already installed there
+  and copies nothing.
+- **Configuration and accounts files are written through a temporary file and renamed.** A crash
+  in the middle of a save leaves the previous file intact rather than a truncated one, which is
+  what a broker and the interface could no longer read.
+
 ## 1.0.0 — 2026-10-17
 
 Requires SPTK 5.6.15.

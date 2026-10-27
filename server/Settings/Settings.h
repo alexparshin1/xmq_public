@@ -50,6 +50,28 @@ public:
     void loadConfiguration(const std::filesystem::path& configurationFile,
                            const std::filesystem::path& usersFile = {});
 
+    /**
+     * @brief Load a configuration from the last good copy, keeping the path it will be saved to.
+     *
+     * Used by the start when the configured file cannot be read: the broker runs on the copy it
+     * last started successfully with, and a save repairs the configured file rather than the copy.
+     *
+     * @param configurationFile Path the configuration belongs at, broken or not.
+     * @param lastGoodFile      The copy to read.
+     * @param usersFile         Users file, or empty for the one beside the configuration.
+     */
+    void loadConfigurationFrom(const std::filesystem::path& configurationFile,
+                               const std::filesystem::path& lastGoodFile,
+                               const std::filesystem::path& usersFile = {});
+
+    /**
+     * @brief Why the last start fell back to the last good copy, or empty when it did not.
+     *
+     * Kept until the log engine is up, so the start can report it in the log as well as on the
+     * terminal - the configuration is loaded before there is anywhere else to write it.
+     */
+    [[nodiscard]] sptk::String startupWarning() const;
+
     void              setLogPriority(sptk::LogPriority logPriority);
     sptk::LogPriority getLogPriority() const;
 
@@ -224,6 +246,26 @@ public:
     static sptk::String createConfiguration(const std::filesystem::path& configurationFile,
                                             const std::filesystem::path& fallbackTemplate = configurationTemplatePath());
 
+    /**
+     * @brief Check a configuration file without starting anything or changing it.
+     *
+     * The file is read and validated as a start would validate it - syntax, field types, values
+     * that have a range - but no database is opened, no account is touched and the file is not
+     * rewritten. What a start would only warn about is returned as warnings.
+     *
+     * @param configurationFile File to check.
+     * @param warnings          Receives what is usable but probably not what was meant.
+     * @return empty when the file is usable, or what is wrong with it.
+     */
+    static sptk::String checkConfiguration(const std::filesystem::path& configurationFile,
+                                           sptk::Strings& warnings);
+
+    /**
+     * @brief Where the last successfully started configuration is kept.
+     */
+    [[nodiscard]] static std::filesystem::path lastGoodConfigurationPath(
+        const std::filesystem::path& configurationFile);
+
     /// Move xmq to xmq1 and create xmq2..xmqN with ports offset by index - 1.
     /// Existing configurations are skipped; the first move requires a stopped source.
     /// On failure, rolls back only changes made by this batch.
@@ -303,6 +345,8 @@ private:
     /// start with it; loading the configuration itself does not throw, because tools and tests read
     /// a configuration without starting anything from it.
     sptk::String                  m_clusterConfigurationError;
+    /// What the start should report about the configuration before the log engine exists.
+    sptk::String                  m_startupWarning;
 
     /**
      * @brief Initialize internal data from the JSON object.
@@ -473,12 +517,6 @@ public:
      * error text, or empty when the configuration is on disk.
      */
     sptk::String applyInvitationAccept(const sptk::String& redisUri, const sptk::String& databaseUri);
-
-    /**
-     * @brief A start after Accept succeeded: the node joined, and the previous configuration is
-     * no longer needed - the last-good copy is removed.
-     */
-    void clearPendingAccept();
 
     /// Capture the running configuration before changing role (SQL overrides included).
     sptk::String keepLastGoodConfiguration();

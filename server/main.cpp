@@ -187,6 +187,27 @@ int main(int argc, const char* argv[])
         return 0;
     }
 
+    if (serverCommandLine.hasOption("check-config"))
+    {
+        const filesystem::path configurationPath = serverCommandLine.hasOption("configuration-file")
+                                                       ? DirectoryNames::resolveConfigurationFile(
+                                                             serverCommandLine.getOptionValue("configuration-file").c_str())
+                                                       : DirectoryNames::confDirectory() / "xmq_server.conf";
+        Strings warnings;
+        const auto error = Settings::checkConfiguration(configurationPath, warnings);
+        for (const auto& warning: warnings)
+        {
+            CERR("Warning: " << warning);
+        }
+        if (!error.empty())
+        {
+            CERR("Configuration " << configurationPath.string() << " is not usable: " << error);
+            return 1;
+        }
+        COUT("Configuration " << configurationPath.string() << " is valid.");
+        return 0;
+    }
+
     if (serverCommandLine.hasOption("clone-nodes"))
     {
         try
@@ -343,8 +364,30 @@ int main(int argc, const char* argv[])
     }
     catch (const Exception& exception)
     {
+        // A configuration that cannot be read is usually one somebody edited by hand. The copy the
+        // last successful start kept is the way back that needs no operator: the broker starts on
+        // it, says so, and the next save repairs the file it was told to use.
+        const auto lastGood = Settings::lastGoodConfigurationPath(serverConfigurationPath);
+        error_code errorCode;
+        if (serverConfigurationPath.empty() || !filesystem::exists(lastGood, errorCode))
+        {
+            CERR("Can't load configuration file " << serverConfigurationPath.string() << ": " << exception.message());
+            return 1;
+        }
+
         CERR("Can't load configuration file " << serverConfigurationPath.string() << ": " << exception.message());
-        return 1;
+        CERR("Using the last good configuration " << lastGood.string() << ".");
+        try
+        {
+            const filesystem::path usersPath = serverCommandLine.getOptionValue("users-file").c_str();
+            settings = make_shared<Settings>();
+            settings->loadConfigurationFrom(serverConfigurationPath, lastGood, usersPath);
+        }
+        catch (const Exception& fallback)
+        {
+            CERR("Can't load the last good configuration " << lastGood.string() << ": " << fallback.message());
+            return 1;
+        }
     }
 
     if (serverCommandLine.hasOption("debug"))
@@ -380,6 +423,11 @@ int main(int argc, const char* argv[])
 
     try
     {
+        if (const auto warning = settings->startupWarning(); !warning.empty())
+        {
+            logger.warning(warning);
+        }
+
         logger.info("Configuration:        " + serverConfigurationPath.string());
         logger.info("Log to:               " + logDestination(logFilePath));
         logger.info("Log level:            " + LogEngine::priorityName(logEngine->minPriority()));

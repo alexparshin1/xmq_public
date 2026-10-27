@@ -11,12 +11,11 @@
 # linking libsqlite3 or libpq itself.
 XMQ_ADD_EXTENSION(xmq_user_database SOURCES ${CMAKE_CURRENT_LIST_DIR}/UserDatabase.cpp SPTK OPENSSL)
 
-# The SPTK it links is the broker's own copy, in lib/xmq-sptk beside this library's directory - see
-# the install rules in the top CMakeLists.txt. Inside a running broker the libraries are already
-# loaded by soname and this changes nothing; it is what makes the library resolve on its own, for
-# ldd and for anything else that loads it.
+# The SPTK it links lives in the prefix's lib directory, one level above the extensions. Inside a
+# running broker the libraries are already loaded by soname and this changes nothing; it is what
+# makes the library resolve on its own, for ldd and for anything else that loads it.
 IF (UNIX AND NOT APPLE)
-    SET(xmqUserDatabaseRpath "$ORIGIN/../xmq-sptk")
+    SET(xmqUserDatabaseRpath "$ORIGIN/..")
     IF (GCC_LIBSTDCXX_DIR)
         SET(xmqUserDatabaseRpath "${xmqUserDatabaseRpath}:${GCC_LIBSTDCXX_DIR}")
     ENDIF ()

@@ -176,6 +176,13 @@ sudo service xmq_server status`}</pre>
                     <td>Use a configuration file other than the default</td>
                 </tr>
                 <tr>
+                    <td><code>--check-config</code></td>
+                    <td>Check the file selected by <code>-c</code> and exit, without starting anything
+                        or changing the file. Names a value that is out of range, and warns about
+                        keys nothing reads &mdash; use it before a restart
+                    </td>
+                </tr>
+                <tr>
                     <td><code>-l</code>, <code>--log-file</code></td>
                     <td>Write the log somewhere other than the configured path</td>
                 </tr>
