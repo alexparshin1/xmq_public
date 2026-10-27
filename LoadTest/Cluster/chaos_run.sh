@@ -11,6 +11,7 @@
 #
 # Usage:
 #   chaos_run.sh [--nodes "node1@host node2@host node3@host"] [--duration 600] [--cycle 90] [--down 20]
+#                [--port 1884]
 #
 # The defaults come from the test cluster's cluster.env. At least three nodes are required: with two,
 # a crash leaves a cluster too small to prove that anything but the survivor still works.
@@ -34,6 +35,10 @@ while [ $# -gt 0 ]; do
         --duration) DURATION=$2; shift 2 ;;
         --cycle)    CYCLE=$2; shift 2 ;;
         --down)     DOWN=$2; shift 2 ;;
+        # Nodes on one machine are numbered by the runner (2884, 2885, ...); a stand where every
+        # node is a service on its own host may use the same port everywhere, which is what this
+        # states in the generated plan. Without it the runner's default applies.
+        --port)     NODE_PORT=$2; shift 2 ;;
         -h|--help)  usage; exit 0 ;;
         *)          break ;;
     esac
@@ -51,6 +56,7 @@ if [ -f "$CLUSTER_DIR/cluster.env" ]; then
     done < "$CLUSTER_DIR/cluster.env"
 fi
 
+NODE_PORT=${NODE_PORT:-}
 NODES=${NODES:-}
 if [ -z "$NODES" ]; then
     echo "No nodes: name them with --nodes or run test_cluster.sh up first." >&2
@@ -135,8 +141,10 @@ for index in "${!NAMES[@]}"; do
     node_first=0
     stop=$(node_command "$host" 'crash {node}')
     start=$(node_command "$host" 'start {node}')
-    printf '    { "name": "%s", "host": "%s", "stop": "%s", "start": "%s" }' \
-        "$name" "$host" "$stop" "$start" >> "$NODE_LIST"
+    port_field=
+    [ -n "$NODE_PORT" ] && port_field=$(printf ', "port": %s' "$NODE_PORT")
+    printf '    { "name": "%s", "host": "%s"%s, "stop": "%s", "start": "%s" }' \
+        "$name" "$host" "$port_field" "$stop" "$start" >> "$NODE_LIST"
 done
 
 # Every node is asked to serve, and every ordered pair to carry a message: the timeline uses some
