@@ -1,0 +1,54 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Topic namespace: ip-172-31-14-144:be41c763-172c-4c9e-8afa-93c207616b79
+Scenario: LavinMQ P2P 1K persistent [ip-172-31-14-144:be41c763-172c-4c9e-8afa-93c207616b79] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                98     1157us         4900
+20ms              100     3970us         5000
+40ms               99     1017us         4950
+60ms              101      441us         5050
+80ms               91      422us         4550
+100ms             108     3681us         5400
+120ms             102      363us         5100
+140ms              76      496us         3800
+160ms             123     1010us         6150
+180ms             101      325us         5050
+200ms               1      302us           50
+─────────────────────────────────────────────
+Average          1000     1324us         4545
+Median                     496us
+
+Scenario: LavinMQ P2P 1K persistent [ip-172-31-14-144:be41c763-172c-4c9e-8afa-93c207616b79] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms                88     5814us         4400
+20ms              111      536us         5550
+40ms              102      461us         5100
+60ms               94      340us         4700
+80ms              106     2487us         5300
+100ms              98      452us         4900
+120ms             102      329us         5100
+140ms              65      357us         3250
+160ms             135     3277us         6750
+180ms              77      271us         3850
+200ms              22     9650us         1100
+─────────────────────────────────────────────
+Average          1000     1690us         4545
+Median                     461us
+
+Scenario: LavinMQ P2P 1K persistent [ip-172-31-14-144:be41c763-172c-4c9e-8afa-93c207616b79]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms              6000      170us         1000
+6000ms           6000      157us         1000
+12000ms          6000      122us         1000
+18000ms          6000      117us         1000
+24000ms          6000      157us         1000
+30000ms          6000      125us         1000
+36000ms          6000      115us         1000
+42000ms          5095      170us          849
+─────────────────────────────────────────────
+Average         47095      141us          981
+Median                     157us
+

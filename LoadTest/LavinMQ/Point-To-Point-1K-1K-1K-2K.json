@@ -1,0 +1,38 @@
+{
+  "publishers": {
+    "id_prefix": "lavin-pub-",
+    "protocol_version": 4,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "lavin-sub-",
+    "protocol_version": 4,
+    "client_count": 1000,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/topic$clientindex"
+  },
+  "server": {
+    "hostname": "172.31.13.230",
+    "port": 1884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 60,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  },
+  "name": "LavinMQ P2P 1K",
+  "type": "Point-To-Point",
+  "comments": [
+    "Exploratory LavinMQ 2.10.3 run: MQTT 3.1.1, 1k publishers and 1k subscribers, 2 msg/s each = 2k msg/s.",
+    "Not a published benchmark result."
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "publishers": {
+    "id_prefix": "lavin-pub-",
+    "protocol_version": 4,
+    "client_count": 10000,
+    "qos": 1,
+    "clean_session": false,
+    "topics": "test/topic$clientindex"
+  },
+  "subscribers": {
+    "id_prefix": "lavin-sub-",
+    "protocol_version": 4,
+    "client_count": 10000,
+    "qos": 1,
+    "clean_session": false,
+    "topics": "test/topic$clientindex"
+  },
+  "server": {
+    "hostname": "172.31.13.230",
+    "port": 1884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 60,
+    "payload_size": 16,
+    "publish_rate": 1,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  },
+  "name": "LavinMQ P2P 10K persistent",
+  "type": "Point-To-Point",
+  "comments": [
+    "Exploratory LavinMQ 2.10.3 persistence run: clean_session=false on both groups, 10k publishers and 10k subscribers, 10k msg/s.",
+    "LavinMQ stores each MQTT session as a durable queue; QoS 1 deliveries are persisted.",
+    "Not a published benchmark result."
+  ]
+}

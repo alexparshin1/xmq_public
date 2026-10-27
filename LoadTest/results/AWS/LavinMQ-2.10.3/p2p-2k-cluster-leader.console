@@ -1,0 +1,53 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Topic namespace: ip-172-31-14-144:25da67cd-7f02-4643-a9fe-924407c53e28
+Scenario: LavinMQ P2P 2K [ip-172-31-14-144:25da67cd-7f02-4643-a9fe-924407c53e28] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               198     3708us         4950
+40ms              199     1410us         4975
+80ms              202     1287us         5050
+120ms             199      290us         4975
+160ms             199      319us         4975
+200ms             202      498us         5050
+240ms             200      273us         5000
+280ms             200      285us         5000
+320ms             200      303us         5000
+360ms             199      305us         4975
+400ms               2      242us           50
+─────────────────────────────────────────────
+Average          2000      865us         4545
+Median                     305us
+
+Scenario: LavinMQ P2P 2K [ip-172-31-14-144:25da67cd-7f02-4643-a9fe-924407c53e28] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               202      705us         5050
+40ms              200      276us         5000
+80ms              199      325us         4975
+120ms             201      271us         5025
+160ms             198      310us         4950
+200ms             202      248us         5050
+240ms             200      289us         5000
+280ms             200      270us         5000
+320ms             200      323us         5000
+360ms             198      288us         4950
+─────────────────────────────────────────────
+Average          2000      331us         5000
+Median                     289us
+
+Scenario: LavinMQ P2P 2K [ip-172-31-14-144:25da67cd-7f02-4643-a9fe-924407c53e28]
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms             24000      145us         4000
+6000ms          23999      138us         3999
+12000ms         24001      136us         4000
+18000ms         24000      143us         4000
+24000ms         24000     1924us         4000
+30000ms         23991      138us         3998
+36000ms         24009      138us         4001
+42000ms          7720      151us         1286
+─────────────────────────────────────────────
+Average        175720      384us         3660
+Median                     143us
+

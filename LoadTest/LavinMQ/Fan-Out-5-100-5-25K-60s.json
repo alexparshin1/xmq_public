@@ -1,0 +1,38 @@
+{
+  "name": "LavinMQ Fan-Out 100",
+  "type": "Fan-Out",
+  "comments": [
+    "Exploratory LavinMQ 2.10.3 run: MQTT 3.1.1, 5 publishers, 100 subscribers on test/#.",
+    "Not a published benchmark result."
+  ],
+  "publishers": {
+    "id_prefix": "lavin-pub-",
+    "protocol_version": 4,
+    "client_count": 5,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/$clientid"
+  },
+  "subscribers": {
+    "id_prefix": "lavin-sub-",
+    "protocol_version": 4,
+    "client_count": 100,
+    "qos": 1,
+    "clean_session": true,
+    "topics": "test/#"
+  },
+  "server": {
+    "hostname": "172.31.13.230",
+    "port": 1884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 5000,
+    "duration_sec": 60,
+    "payload_size": 16,
+    "publish_rate": 50,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}

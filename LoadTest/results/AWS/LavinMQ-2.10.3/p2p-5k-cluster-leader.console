@@ -1,0 +1,53 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Topic namespace: ip-172-31-14-144:0db7d95d-c1a2-4715-8656-83c2da503957
+Scenario: LavinMQ P2P 5K [ip-172-31-14-144:0db7d95d-c1a2-4715-8656-83c2da503957] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               498     4373us         4980
+100ms             499     3454us         4990
+200ms             501     5934us         5010
+300ms             444     4379us         4440
+400ms             556    11934us         5560
+500ms             496     6062us         4960
+600ms             500     1360us         5000
+700ms             435    13985us         4350
+800ms             380    28945us         3800
+900ms             130    47210us         1300
+1000ms              8   137798us           80
+1500ms             73   696057us          730
+1600ms            357   128357us         3570
+1700ms             38   129243us          380
+1800ms             40   185513us          400
+1900ms             45   305248us          450
+─────────────────────────────────────────────
+Average          5000    33233us         2500
+Median                   28945us
+
+Scenario: LavinMQ P2P 5K [ip-172-31-14-144:0db7d95d-c1a2-4715-8656-83c2da503957] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               409    22146us         4090
+100ms             374    18165us         3740
+200ms             130    55952us         1300
+400ms               1   222514us           10
+1000ms            162   708342us         1620
+1100ms            500     8150us         5000
+1200ms            305     2731us         3050
+1300ms            130    47505us         1300
+2300ms            621   211168us         6210
+2400ms            361      362us         3610
+2500ms            130    53246us         1300
+3500ms            194   734269us         1940
+3600ms             58    65080us          580
+4600ms            601   225335us         6010
+4700ms            478      350us         4780
+4800ms            130    65489us         1300
+5000ms              1   207909us           10
+5800ms            202   669835us         2020
+5900ms            213      375us         2130
+─────────────────────────────────────────────
+Average          5000   142659us          833
+Median                   55952us
+
+Only 3681 of 5000 subscriptions were acknowledged within the timeout

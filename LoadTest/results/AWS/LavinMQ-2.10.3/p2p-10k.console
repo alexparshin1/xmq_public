@@ -1,0 +1,54 @@
+CPU affinity: not applied - disabled by default; use --use-cpu-affinity to enable
+
+Topic namespace: ip-172-31-14-144:9ada718a-ae09-4d86-9095-d6208bf1c61b
+Scenario: LavinMQ P2P 10K [ip-172-31-14-144:9ada718a-ae09-4d86-9095-d6208bf1c61b] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               999     1399us         4995
+200ms             993     1751us         4965
+400ms            1007     4263us         5035
+600ms             967     1532us         4835
+800ms             999    13316us         4995
+1000ms            965    12983us         4825
+1200ms            947    24034us         4735
+1400ms            180    48067us          900
+1800ms            646   108761us         3230
+2000ms            596    37380us         2980
+2200ms             84   210840us          420
+2400ms            864    64867us         4320
+2600ms            346    42590us         1730
+2800ms              1   230038us            5
+3000ms            346   180787us         1730
+3200ms              4   212365us           20
+3400ms             48   272585us          240
+3600ms              8   585719us           40
+─────────────────────────────────────────────
+Average         10000    32859us         2631
+Median                   48067us
+
+Scenario: LavinMQ P2P 10K [ip-172-31-14-144:9ada718a-ae09-4d86-9095-d6208bf1c61b] (connect clients)
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms               705    10677us         3525
+1000ms            292   449211us         1460
+1200ms           1054     2399us         5270
+1400ms            130    66237us          650
+2400ms            976   136552us         4880
+2600ms            508    20520us         2540
+3600ms            575   232134us         2875
+3800ms           1001      347us         5005
+4000ms            270    42420us         1350
+5000ms            850   159388us         4250
+5200ms            467      794us         2335
+5400ms            131   195259us          655
+6200ms            420   314048us         2100
+6400ms           1035      534us         5175
+6600ms            559      372us         2795
+6800ms            130   116483us          650
+7600ms            311   424821us         1555
+7800ms            586     4124us         2930
+─────────────────────────────────────────────
+Average         10000    88258us         1250
+Median                   66237us
+
+Only 3734 of 10000 subscriptions were acknowledged within the timeout
