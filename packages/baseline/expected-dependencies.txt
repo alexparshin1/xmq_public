@@ -1,15 +1,3 @@
 # Dependencies this release's package may declare that the previous release's did not, one per line,
 # versions stripped, as inspect_package.py prints them. Each one is something every installation now
 # pulls in. Cleared at every release.
-# 1.0.1: XMQ bundles SPTK 5.6.15 instead of 5.6.14.
-libspdb5.so.5.6.15
-libsputil5.so.5.6.15
-libspwsdl5.so.5.6.15
-libpq5
-libmariadb3
-# The same two as the RPM packages name them: the soname, not the Debian package. Fedora's
-# PostgreSQL client library carries its private version in the soname.
-libpq.so.5
-libpq.so.private16-5
-libpq.so.private18-5
-libmariadb.so.3
