@@ -1,0 +1,91 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 1.0.0: clustering, survivability, and TLS at the front
+  Date:  2026-10-27 (the date of the release - change it if the release moves)
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ 1.0.0 is out. It is the first release under a compatibility promise: the extension ABI,
+    the configuration keys and the control API stay as they are through 1.x. You can download it
+    <a href='/downloads'>here</a>.
+</p>
+
+<h3>Clustering</h3>
+<p>
+    This is the release that makes XMQ a cluster. Nodes share one Redis store and one accounts
+    database, and a client may connect to any of them: the node it reaches takes its session, with
+    its subscriptions and queued messages, wherever that session was before. Which node answered a
+    client is no longer something the client, or its session, has to remember.
+</p>
+<p>
+    A cluster has a coordinator, and each node holds a lease in Redis. When a node dies, its lease
+    expires, the survivors adopt its sessions and keep collecting for them, and a client that comes
+    back anywhere finds its session again. When the coordinator itself goes, the next node in the
+    order takes over in a new term. Cluster links are MQTT over TLS, and a cluster admits up to ten
+    nodes.
+</p>
+<p>
+    We measured it on four AWS <code>c5n.2xlarge</code> nodes and a single client, against EMQX 5.8.9,
+    the last Apache-licensed release of EMQX that clusters. The
+    <a href='/xmq_tests_cluster'>four-node cluster results</a> have the method and the charts.
+</p>
+<p>
+    Throughput is only half of it. In the <a href='/xmq_tests_chaos'>survivability run</a>, each node
+    was killed outright with <code>kill -9</code> and left down for 20 seconds while the cluster
+    carried traffic: 45 of 45 checks passed, the survivors kept serving and delivering, and every
+    node carried traffic again after it came back. The throughput scenarios use clean sessions and
+    do not exercise session state; a separate persistent-session check moved 10,000 queued QoS 1
+    messages from a killed node to another with no loss.
+</p>
+
+<h3>Persistence that holds when the disk is slow</h3>
+<p>
+    Two changes, one problem. The broker looked a connecting client's stored session up with a
+    request that held a thread until Redis answered: with Redis syncing every write
+    (<code>appendfsync always</code>) on a USB hard disk, 0.9.19 refused 32,000 of 40,000
+    connections. The lookup is asynchronous now and CONNECT completes when the answer comes -
+    no refusals on the same disk.
+</p>
+<p>
+    And a message's persistence record waits 10&nbsp;ms before it is written, and is never written
+    at all if the message has been acknowledged by then. On that same disk, with every write
+    synced: <b>60,000 persistent messages a second at 159&nbsp;µs</b>. 0.9.19 managed 1,500 a
+    second.
+</p>
+
+<h3>TLS at the front</h3>
+<p>
+    The thread counts behind <code>auto</code> are four send, six receive and four delivery.
+    Decryption happens on the receive path, and the old counts - read from the core count - left
+    point-to-point over TLS at 100,000 messages a second at 549&nbsp;µs; at the new ones it is
+    273&nbsp;µs, against FlashMQ's 254&nbsp;µs. The trade is deliberate and not free: the
+    plain-text scenarios give back 3 to 18 per cent.
+</p>
+
+<h3>Fixed</h3>
+<ul class='news'>
+    <li>On Windows a client that failed the TLS handshake could bring the broker down - a port
+        scanner on the TLS port was enough. The accepted socket was closed twice, the second time
+        in a way meant for files; it is closed once now, on every platform.</li>
+    <li>MQTT client shutdown could clear a callback while it was running, or destroy the client
+        before its receiver returned - a crash during reconnects and bridge rebuilds.</li>
+</ul>
+
+<h3>Smaller things worth knowing</h3>
+<ul class='news'>
+    <li><code>xmq_server --set-password</code> asks for the password at a terminal and does not
+        echo it. From a pipe it reads standard input as before.</li>
+    <li>RPM packages install beside the standalone SPTK packages without conflicting
+        <code>.build-id</code> links.</li>
+    <li>The Docker image no longer sets the administrator's password from
+        <code>XMQ_ADMIN_PASSWORD</code>: it reset the password on every start and showed it in
+        <code>docker inspect</code>. Set it once with <code>xmq_server --set-password admin</code>
+        inside the container and keep <code>/etc/xmq</code> in a volume. A container that relied on
+        the variable and kept no volume has no administrator password after the upgrade.</li>
+</ul>
