@@ -97,22 +97,22 @@
     <ROW Component="init_environment_aws.sh" ComponentId="{5FBEFC7F-C608-4C8B-AD02-E82FC9BDE258}" Directory_="xmq_1_Dir" Attributes="0" KeyPath="make_ip_addresses.sh" Type="0"/>
     <ROW Component="lib" ComponentId="{40BB5BF9-4207-40F8-ADB1-6038938ACB0E}" Directory_="lib_Dir" Attributes="0"/>
     <ROW Component="libcrypto3x64.dll" ComponentId="{35E5D119-AB11-42DC-BF78-78DFF12CFBE0}" Directory_="bin_Dir" Attributes="256" KeyPath="libcrypto3x64.dll"/>
-    <ROW Component="libiconv2.dll" ComponentId="{61CD88EF-A36A-4C6B-9E18-C806984A9506}" Directory_="bin_Dir" Attributes="256" KeyPath="libiconv2.dll"/>
-    <ROW Component="libintl9.dll" ComponentId="{AC49C68C-3659-4E70-95E9-5ACCDCE166DD}" Directory_="bin_Dir" Attributes="256" KeyPath="libintl9.dll"/>
-    <ROW Component="libmariadb.dll" ComponentId="{BA5E66B2-9325-4DEC-A606-4A9CE70E3A4F}" Directory_="bin_Dir" Attributes="256" KeyPath="libmariadb.dll"/>
-    <ROW Component="libpq.dll" ComponentId="{FC85573B-E71E-44CE-8A0E-3091C38778E1}" Directory_="bin_Dir" Attributes="256" KeyPath="libpq.dll"/>
+    <ROW Component="libiconv2.dll" ComponentId="{EBD8A292-79E3-454D-AA5F-E43EACCC5FF8}" Directory_="bin_Dir" Attributes="256" KeyPath="libiconv2.dll"/>
+    <ROW Component="libintl9.dll" ComponentId="{506C21AB-4E46-4700-82D6-19AEA521E1D5}" Directory_="bin_Dir" Attributes="256" KeyPath="libintl9.dll"/>
+    <ROW Component="libmariadb.dll" ComponentId="{7EF1A852-17CC-49E5-87D3-DEE78547F753}" Directory_="bin_Dir" Attributes="256" KeyPath="libmariadb.dll"/>
+    <ROW Component="libpq.dll" ComponentId="{D2A811CD-A00E-4B42-BE36-A5DE605EA0E4}" Directory_="bin_Dir" Attributes="256" KeyPath="libpq.dll"/>
     <ROW Component="libssl3x64.dll" ComponentId="{9DB1E2C3-5B71-482D-B683-56F4081AB07A}" Directory_="bin_Dir" Attributes="256" KeyPath="libssl3x64.dll"/>
-    <ROW Component="libwinpthread1.dll" ComponentId="{669F371F-3D65-4404-95C6-4285917F2227}" Directory_="bin_Dir" Attributes="256" KeyPath="libwinpthread1.dll"/>
+    <ROW Component="libwinpthread1.dll" ComponentId="{B96F7E18-2B8D-43D5-8B44-B32ACDBCC5FC}" Directory_="bin_Dir" Attributes="256" KeyPath="libwinpthread1.dll"/>
     <ROW Component="main.6a21d5fa.css" ComponentId="{FAAC88BF-BE7A-44ED-940C-CCBE185397CC}" Directory_="css_Dir" Attributes="0" KeyPath="main.a9a4b9f2.css" Type="0"/>
     <ROW Component="mqtt.conf" ComponentId="{B74255E1-CC90-40DC-8463-50BD89D37833}" Directory_="limits.d_Dir" Attributes="0" KeyPath="mqtt.conf" Type="0"/>
     <ROW Component="mqtt.conf_1" ComponentId="{6925CBD1-2CC1-42B2-B64A-4C961187EF98}" Directory_="sysctl.d_Dir" Attributes="0" KeyPath="mqtt.conf_1" Type="0"/>
     <ROW Component="nf_conntrack.conf" ComponentId="{16287D30-25EF-4716-9F3B-CF790C63E9C6}" Directory_="modulesload.d_Dir" Attributes="0" KeyPath="nf_conntrack.conf" Type="0"/>
     <ROW Component="pcre28.dll" ComponentId="{03DDA407-E2CC-45F1-AB78-1902446EBEEF}" Directory_="bin_Dir" Attributes="256" KeyPath="pcre28.dll"/>
     <ROW Component="spdb5.dll" ComponentId="{463F61F9-36D4-4BDA-BC75-7C05F8A38A96}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5.dll"/>
-    <ROW Component="spdb5_mysql.dll" ComponentId="{6F9EF097-4EF3-4307-9FFA-7B5CE9AB7F2D}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_mysql.dll"/>
-    <ROW Component="spdb5_odbc.dll" ComponentId="{5052C382-7BF7-40B8-A79F-AC4DBBF12AF4}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_odbc.dll"/>
-    <ROW Component="spdb5_postgresql.dll" ComponentId="{B2BD4851-1819-4554-AEE2-D9DB1798E9BB}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_postgresql.dll"/>
-    <ROW Component="spdb5_sqlite3.dll" ComponentId="{88B86748-D2D4-464B-A09E-7328DD9A23B9}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_sqlite3.dll"/>
+    <ROW Component="spdb5_mysql.dll" ComponentId="{A965A384-C6FF-42C5-99A3-6CD438199043}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_mysql.dll"/>
+    <ROW Component="spdb5_odbc.dll" ComponentId="{47B175CA-BEF4-426B-A77D-4BC955A01533}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_odbc.dll"/>
+    <ROW Component="spdb5_postgresql.dll" ComponentId="{24F17BB8-C97E-4246-A6D9-131AA49DA90D}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_postgresql.dll"/>
+    <ROW Component="spdb5_sqlite3.dll" ComponentId="{F81835A3-BAC5-48FA-9F8D-0D68DE891231}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_sqlite3.dll"/>
     <ROW Component="sputil5.dll" ComponentId="{1A8EFBB4-12C8-41CB-AA90-84015F3955AB}" Directory_="bin_Dir" Attributes="256" KeyPath="sputil5.dll"/>
     <ROW Component="spwsdl5.dll" ComponentId="{7F8D7895-FCBB-40F8-A779-2141BC4EFDDC}" Directory_="bin_Dir" Attributes="256" KeyPath="spwsdl5.dll"/>
     <ROW Component="sqlite3.dll" ComponentId="{FA25FD6A-419D-4097-A045-6749ED9D77EA}" Directory_="bin_Dir" Attributes="256" KeyPath="sqlite3.dll"/>
@@ -145,8 +145,8 @@
     <ROW File="sputil5.dll" Component_="sputil5.dll" FileName="sputil5.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\sputil5.dll" SelfReg="false"/>
     <ROW File="spwsdl5.dll" Component_="spwsdl5.dll" FileName="spwsdl5.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spwsdl5.dll" SelfReg="false"/>
     <ROW File="zlib.dll" Component_="zlib.dll" FileName="zlib.dll" Attributes="0" SourcePath="..\..\..\Program Files\zlib\bin\zlib.dll" SelfReg="false"/>
-    <ROW File="libcrypto3x64.dll" Component_="libcrypto3x64.dll" FileName="LIBCRY~1.DLL|libcrypto-3-x64.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libcrypto-3-x64.dll" SelfReg="false"/>
-    <ROW File="libssl3x64.dll" Component_="libssl3x64.dll" FileName="LIBSSL~1.DLL|libssl-3-x64.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libssl-3-x64.dll" SelfReg="false"/>
+    <ROW File="libcrypto3x64.dll" Component_="libcrypto3x64.dll" FileName="LIBCRY~1.DLL|libcrypto-3-x64.dll" Attributes="0" SourcePath="..\..\..\Program Files\OpenSSL-Win64\bin\libcrypto-3-x64.dll" SelfReg="false"/>
+    <ROW File="libssl3x64.dll" Component_="libssl3x64.dll" FileName="LIBSSL~1.DLL|libssl-3-x64.dll" Attributes="0" SourcePath="..\..\..\Program Files\OpenSSL-Win64\bin\libssl-3-x64.dll" SelfReg="false"/>
     <ROW File="pcre28.dll" Component_="pcre28.dll" FileName="pcre2-8.dll" Attributes="0" SourcePath="..\..\..\Program Files\PCRE2\bin\pcre2-8.dll" SelfReg="false"/>
     <ROW File="README" Component_="README" FileName="README" Attributes="0" SourcePath="..\README.md" SelfReg="false"/>
     <ROW File="xmq_server.conf.template" Component_="xmq_server.conf.template" FileName="XMQ_SE~1.TEM|xmq_server.conf.template" Version="65535.65535.65535.65535" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_server.conf.template" SelfReg="false"/>
@@ -208,15 +208,15 @@
     <ROW File="main.a99ad8d4.js" Component_="fd62c76.chunk.js" FileName="MAINA9~1.JS|main.a99ad8d4.js" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.a99ad8d4.js" SelfReg="false"/>
     <ROW File="main.a99ad8d4.js.LICENSE.txt" Component_="fd62c76.chunk.js" FileName="MAINA9~1.TXT|main.a99ad8d4.js.LICENSE.txt" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.a99ad8d4.js.LICENSE.txt" SelfReg="false"/>
     <ROW File="sqlite3.dll" Component_="sqlite3.dll" FileName="sqlite3.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\sqlite3.dll" SelfReg="false"/>
-    <ROW File="spdb5_odbc.dll" Component_="spdb5_odbc.dll" FileName="SPDB5_~1.DLL|spdb5_odbc.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_odbc.dll" SelfReg="false"/>
-    <ROW File="spdb5_postgresql.dll" Component_="spdb5_postgresql.dll" FileName="SPDB5_~2.DLL|spdb5_postgresql.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_postgresql.dll" SelfReg="false"/>
-    <ROW File="spdb5_sqlite3.dll" Component_="spdb5_sqlite3.dll" FileName="SPDB5_~3.DLL|spdb5_sqlite3.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_sqlite3.dll" SelfReg="false"/>
-    <ROW File="spdb5_mysql.dll" Component_="spdb5_mysql.dll" FileName="SPDB5_~4.DLL|spdb5_mysql.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_mysql.dll" SelfReg="false"/>
-    <ROW File="libmariadb.dll" Component_="libmariadb.dll" FileName="LIBMAR~1.DLL|libmariadb.dll" Attributes="0" SourcePath="..\..\..\Program Files\MariaDB\MariaDB Connector C 64-bit\lib\libmariadb.dll" SelfReg="false"/>
-    <ROW File="libiconv2.dll" Component_="libiconv2.dll" FileName="LIBICO~1.DLL|libiconv-2.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libiconv-2.dll" SelfReg="false"/>
-    <ROW File="libintl9.dll" Component_="libintl9.dll" FileName="LIBINT~1.DLL|libintl-9.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libintl-9.dll" SelfReg="false"/>
     <ROW File="libpq.dll" Component_="libpq.dll" FileName="libpq.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libpq.dll" SelfReg="false"/>
     <ROW File="libwinpthread1.dll" Component_="libwinpthread1.dll" FileName="LIBWIN~1.DLL|libwinpthread-1.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libwinpthread-1.dll" SelfReg="false"/>
+    <ROW File="libiconv2.dll" Component_="libiconv2.dll" FileName="LIBICO~1.DLL|libiconv-2.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libiconv-2.dll" SelfReg="false"/>
+    <ROW File="libintl9.dll" Component_="libintl9.dll" FileName="LIBINT~1.DLL|libintl-9.dll" Attributes="0" SourcePath="..\..\..\Program Files\PostgreSQL\18\bin\libintl-9.dll" SelfReg="false"/>
+    <ROW File="spdb5_mysql.dll" Component_="spdb5_mysql.dll" FileName="SPDB5_~1.DLL|spdb5_mysql.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_mysql.dll" SelfReg="false"/>
+    <ROW File="spdb5_odbc.dll" Component_="spdb5_odbc.dll" FileName="SPDB5_~2.DLL|spdb5_odbc.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_odbc.dll" SelfReg="false"/>
+    <ROW File="spdb5_postgresql.dll" Component_="spdb5_postgresql.dll" FileName="SPDB5_~3.DLL|spdb5_postgresql.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_postgresql.dll" SelfReg="false"/>
+    <ROW File="spdb5_sqlite3.dll" Component_="spdb5_sqlite3.dll" FileName="SPDB5_~4.DLL|spdb5_sqlite3.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\spdb5_sqlite3.dll" SelfReg="false"/>
+    <ROW File="libmariadb.dll" Component_="libmariadb.dll" FileName="LIBMAR~1.DLL|libmariadb.dll" Attributes="0" SourcePath="..\..\..\Program Files\MariaDB\MariaDB Connector C 64-bit\lib\libmariadb.dll" SelfReg="false"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.BootstrOptComponent">
     <ROW BootstrOptKey="GlobalOptions" DownloadFolder="[AppDataFolder][|Manufacturer]\[|ProductName]\prerequisites" Options="2"/>
@@ -511,15 +511,15 @@
     <ROW Feature_="XMQServer" Component_="xmqnotrack.service"/>
     <ROW Feature_="XMQServer" Component_="xmq_scn_cluster.exe"/>
     <ROW Feature_="XMQServer" Component_="sqlite3.dll"/>
+    <ROW Feature_="XMQServer" Component_="libpq.dll"/>
+    <ROW Feature_="XMQServer" Component_="libwinpthread1.dll"/>
+    <ROW Feature_="XMQServer" Component_="libiconv2.dll"/>
+    <ROW Feature_="XMQServer" Component_="libintl9.dll"/>
+    <ROW Feature_="XMQServer" Component_="spdb5_mysql.dll"/>
     <ROW Feature_="XMQServer" Component_="spdb5_odbc.dll"/>
     <ROW Feature_="XMQServer" Component_="spdb5_postgresql.dll"/>
     <ROW Feature_="XMQServer" Component_="spdb5_sqlite3.dll"/>
-    <ROW Feature_="XMQServer" Component_="spdb5_mysql.dll"/>
     <ROW Feature_="XMQServer" Component_="libmariadb.dll"/>
-    <ROW Feature_="XMQServer" Component_="libiconv2.dll"/>
-    <ROW Feature_="XMQServer" Component_="libintl9.dll"/>
-    <ROW Feature_="XMQServer" Component_="libpq.dll"/>
-    <ROW Feature_="XMQServer" Component_="libwinpthread1.dll"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiInstExSeqComponent">
     <ROW Action="AI_DOWNGRADE" Condition="AI_NEWERPRODUCTFOUND AND (UILevel &lt;&gt; 5)" Sequence="210"/>
