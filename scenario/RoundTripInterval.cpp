@@ -300,11 +300,13 @@ void RoundTripLatency::print(const string& scenarioTitle) const
         auto medianLatency = intervalAverageLatencies[intervalAverageLatencies.size() / 2];
         COUT(std::format("{:<10} {:>10} {:>10} {:>12}", "Average", totalCount, totalLatency / totalCount, averageRate));
         COUT(std::format("{:<21} {:>10}", "Median", medianLatency));
-        COUT("Percentiles          p50 " << percentileOf(m_totalHistogram, 50)
-                                       << ", p90 " << percentileOf(m_totalHistogram, 90)
-                                       << ", p95 " << percentileOf(m_totalHistogram, 95)
-                                       << ", p99 " << percentileOf(m_totalHistogram, 99)
-                                       << ", p99.9 " << percentileOf(m_totalHistogram, 99.9));
+        COUT("");
+        COUT("Percentiles");
+        COUT(std::format("{:<6} {}", "p50", percentileOf(m_totalHistogram, 50)));
+        COUT(std::format("{:<6} {}", "p90", percentileOf(m_totalHistogram, 90)));
+        COUT(std::format("{:<6} {}", "p95", percentileOf(m_totalHistogram, 95)));
+        COUT(std::format("{:<6} {}", "p99", percentileOf(m_totalHistogram, 99)));
+        COUT(std::format("{:<6} {}", "p99.9", percentileOf(m_totalHistogram, 99.9)));
         if (m_unmatchedReceived > 0)
         {
             COUT("Unmatched deliveries: " << m_unmatchedReceived
