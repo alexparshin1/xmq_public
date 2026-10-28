@@ -674,3 +674,52 @@ TEST_F(XMQ_UserStoreTests, anAccountWithNoPasswordSurvivesTheRoundTrip)
         EXPECT_FALSE(both[1].m_password.empty()) << name;
     }
 }
+
+// The version is what a running node polls to learn that another node - or a command-line
+// `--set-password`, which is not a node at all - changed an account. A change that leaves it where
+// it was is a change every other node keeps serving the old password for, until each of them is
+// restarted. That is exactly what happened on a Windows cluster: the password was set in the shared
+// database, the nodes went on refusing it, and only a restart of both made it take effect.
+TEST_F(XMQ_UserStoreTests, everyChangeRaisesTheVersionOtherNodesPoll)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+
+        auto version = store.version();
+        EXPECT_EQ(1, version) << name << ": a fresh store starts at version 1";
+
+        const auto userId = store.addUser({.m_username = "version-user",
+                                           .m_password = PasswordHash::hash("Version-Password1", 1000)});
+        ASSERT_GT(userId, 0);
+        EXPECT_GT(store.version(), version) << name << ": adding an account";
+        version = store.version();
+
+        auto user = store.findUser("version-user");
+        ASSERT_TRUE(user);
+        user->m_password = PasswordHash::hash("Version-Password2", 1000);
+        store.updateUser(*user);
+        EXPECT_GT(store.version(), version) << name << ": changing an account's password";
+        version = store.version();
+
+        auto group = store.addGroup({.m_name = "version-group"});
+        EXPECT_GT(store.version(), version) << name << ": adding a group";
+        version = store.version();
+
+        store.addUserToGroup(userId, group);
+        EXPECT_GT(store.version(), version) << name << ": adding a membership";
+        version = store.version();
+
+        store.removeUserFromGroup(userId, group);
+        EXPECT_GT(store.version(), version) << name << ": removing a membership";
+        version = store.version();
+
+        store.removeUser(userId);
+        EXPECT_GT(store.version(), version) << name << ": removing an account";
+        version = store.version();
+
+        store.removeGroup(group);
+        EXPECT_GT(store.version(), version) << name << ": removing a group";
+    }
+}

@@ -195,6 +195,17 @@ public:
     std::pair<int64_t, int64_t> createStandardGroups();
 
 private:
+    /**
+     * @brief Moves the store's version on, over the connection that made the change.
+     *
+     * Every write calls it, so that the version a node polls is never behind what the store holds:
+     * an account changed by one node - or by `xmq_server --set-password`, which is not a node at all
+     * - has to reach the others without a restart of them. A change that raises the version without
+     * writing, or the other way round, is a change the other nodes will not see; the two are done
+     * on one connection, in that order, to keep that true.
+     */
+    void raiseVersion(const sptk::AutoDatabaseConnection& connection);
+
     /// What this driver needs after the closing bracket of a CREATE TABLE, if anything.
     [[nodiscard]] sptk::String tableSuffix() const;
 

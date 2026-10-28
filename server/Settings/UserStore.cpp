@@ -267,6 +267,14 @@ int64_t UserStore::version()
     return version;
 }
 
+void UserStore::raiseVersion(const AutoDatabaseConnection& connection)
+{
+    Query update(connection.connection(),
+                 "UPDATE " + String(string(versionTable)) + " SET version = version + 1, updated_at = :updated_at");
+    update.param("updated_at") = nowUtc();
+    update.exec();
+}
+
 int64_t UserStore::addUser(const User& user)
 {
     const AutoDatabaseConnection connection(*m_database);
@@ -282,6 +290,7 @@ int64_t UserStore::addUser(const User& user)
     insert.param("updated_at") = user.m_updatedAt.empty() ? nowUtc() : user.m_updatedAt;
     insert.param("updated_by") = user.m_updatedBy;
     insert.exec();
+    raiseVersion(connection);
 
     const auto added = findUser(user.m_username);
     return added ? added->m_id : 0;
@@ -587,6 +596,7 @@ void UserStore::initializeSetupPasswords(const String& adminPassword, const Stri
     Query credential(connection->connection(), String("INSERT INTO xmq_cluster_credential (id, secret) VALUES (1, :secret)") + suffix);
     credential.param("secret") = clusterPassword;
     credential.exec();
+    raiseVersion(*connection);
     transaction.commit();
 }
 
@@ -615,6 +625,7 @@ void UserStore::setClusterSecret(const String& secret)
     Query query(connection.connection(), String("INSERT INTO xmq_cluster_credential (id, secret) VALUES (1, :secret)") + suffix);
     query.param("secret") = secret;
     query.exec();
+    raiseVersion(connection);
 }
 
 void UserStore::updateUser(const User& user)
@@ -633,6 +644,7 @@ void UserStore::updateUser(const User& user)
     update.param("updated_at") = user.m_updatedAt.empty() ? nowUtc() : user.m_updatedAt;
     update.param("updated_by") = user.m_updatedBy;
     update.exec();
+    raiseVersion(connection);
 }
 
 void UserStore::removeUser(const int64_t userId)
@@ -644,6 +656,7 @@ void UserStore::removeUser(const int64_t userId)
                                         "DELETE FROM " + String(string(userTable)) + " WHERE id = :id");
     remove.param("id") = userId;
     remove.exec();
+    raiseVersion(connection);
 }
 
 int64_t UserStore::addGroup(const Group& group)
@@ -657,6 +670,7 @@ int64_t UserStore::addGroup(const Group& group)
     insert.param("updated_at") = group.m_updatedAt.empty() ? nowUtc() : group.m_updatedAt;
     insert.param("updated_by") = group.m_updatedBy;
     insert.exec();
+    raiseVersion(connection);
 
     const auto added = findGroup(group.m_name);
     return added ? added->m_id : 0;
@@ -709,6 +723,7 @@ void UserStore::removeGroup(const int64_t groupId)
                                         "DELETE FROM " + String(string(userGroupTable)) + " WHERE id = :id");
     remove.param("id") = groupId;
     remove.exec();
+    raiseVersion(connection);
 }
 
 void UserStore::addUserToGroup(const int64_t userId, const int64_t groupId)
@@ -738,6 +753,7 @@ void UserStore::addUserToGroup(const int64_t userId, const int64_t groupId)
     insert.param("user_id") = userId;
     insert.param("group_id") = groupId;
     insert.exec();
+    raiseVersion(connection);
 }
 
 void UserStore::removeUserFromGroup(const int64_t userId, const int64_t groupId)
@@ -750,6 +766,7 @@ void UserStore::removeUserFromGroup(const int64_t userId, const int64_t groupId)
     remove.param("user_id") = userId;
     remove.param("group_id") = groupId;
     remove.exec();
+    raiseVersion(connection);
 }
 
 std::vector<UserStore::Group> UserStore::groupsOfUser(const int64_t userId)
