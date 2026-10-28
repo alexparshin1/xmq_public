@@ -281,8 +281,9 @@ int main(int argc, const char* argv[])
             node.m_mqtt_port = port("mqtt-port");
             node.m_mqtt_ssl_port = port("mqtt-ssl-port");
             node.m_web_service_port = port("web-port");
-            COUT(Settings::cloneNode(serverCommandLine.getOptionValue("clone-node").c_str(),
-                                    serverCommandLine.getOptionValue("configuration-file").c_str(), node));
+            const auto message = Settings::cloneNode(serverCommandLine.getOptionValue("clone-node").c_str(),
+                                                     serverCommandLine.getOptionValue("configuration-file").c_str(), node);
+            COUT(message);
             return 0;
         }
         catch (const std::exception& exception)
@@ -335,14 +336,23 @@ int main(int argc, const char* argv[])
                                                                  "configuration-file").c_str())
                                                            : DirectoryNames::confDirectory() / "xmq_server.conf";
             DirectoryNames::setConfigurationFile(configurationPath);
+            // Done before it is printed, never inside COUT: the macro holds the console lock for
+            // the whole statement, and both calls below print their own messages - the password
+            // command says why when the accounts database cannot be reached. Printing under the
+            // lock a second time from the same thread is a deadlock on a mutex that is not
+            // recursive: the command hung on Linux and, the lock being a system one there, aborted
+            // on Windows. Found on a Windows node whose accounts database was unreachable.
             if (clusterCommand)
             {
-                COUT(controlNodeCluster(configurationPath, joinCluster, account, password));
+                const auto message = controlNodeCluster(configurationPath, joinCluster, account, password);
+                COUT(message);
             }
             else
             {
                 const filesystem::path usersPath = serverCommandLine.getOptionValue("users-file").c_str();
-                COUT(Settings::setAccountPassword(configurationPath, usersPath, account, password) << ".");
+                auto                      message = Settings::setAccountPassword(configurationPath, usersPath, account, password);
+                message += ".";
+                COUT(message);
             }
         }
         catch (const Exception& exception)
