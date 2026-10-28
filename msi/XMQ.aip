@@ -204,7 +204,6 @@
     <ROW File="mqtt.conf_1" Component_="mqtt.conf_1" FileName="MQTT~1.CON|mqtt.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\sysctl.d\mqtt.conf" SelfReg="false"/>
     <ROW File="port_range.conf" Component_="mqtt.conf_1" FileName="PORT_R~1.CON|port_range.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\sysctl.d\port_range.conf" SelfReg="false"/>
     <ROW File="xmqnotrack.service" Component_="xmqnotrack.service" FileName="XMQ-NO~1.SER|xmq-notrack.service" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\systemd\xmq-notrack.service" SelfReg="false"/>
-    <ROW File="xmq_server.conf" Component_="xmq_server.conf.template" FileName="XMQ_SE~1.CON|xmq_server.conf" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_server.conf" SelfReg="false"/>
     <ROW File="xmq_extensions.conf.template" Component_="xmq_server.conf.template" FileName="XMQ_EX~1.TEM|xmq_extensions.conf.template" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_extensions.conf.template" SelfReg="false"/>
     <ROW File="logo192.png" Component_="assetmanifest.json" FileName="logo192.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo192.png" SelfReg="false"/>
     <ROW File="logo512.png" Component_="assetmanifest.json" FileName="logo512.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo512.png" SelfReg="false"/>
