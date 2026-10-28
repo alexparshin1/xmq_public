@@ -368,6 +368,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     else
         for (const auto& endpoint : group.m_servers)
             serverHosts.emplace_back(endpoint.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger()));
+    const auto serverHostsPtr = make_shared<const vector<Host>>(serverHosts);
 
     SynchronizedQueue<size_t> clientIndices;
     vector<microseconds>      connectionLatency(clientCount);
@@ -443,7 +444,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     roundTripLatency.start(statsInterval);
     for (size_t i = 0; i < threadCount; ++i)
     {
-        threads.emplace_back([this, &group, &serverHosts, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
+        threads.emplace_back([this, &group, serverHostsPtr, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
                               clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys]
                              {
                                  size_t clientIndex = 0;
@@ -461,10 +462,26 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      }
 
                                      const auto* endpoint = group.m_servers.empty() ? nullptr : &group.m_servers[clientIndex % group.m_servers.size()];
-                                     const auto& target = serverHosts[clientIndex % serverHosts.size()];
+                                     const auto& target = (*serverHostsPtr)[clientIndex % serverHostsPtr->size()];
                                      ConnectCredentials connectCredentials((m_topicNamespace.empty() ? "" : m_topicNamespace + "/") + clientIdPrefix + to_string(indexStart(group) + clientIndex),
                                          endpoint && !endpoint->m_username.isNull() ? endpoint->m_username.asString() : serverCredentials.getUsername(),
                                          endpoint && !endpoint->m_password.isNull() ? endpoint->m_password.asString() : serverCredentials.getPassword());
+
+                                     // A client whose node goes away moves to the next node in the group's list,
+                                     // rather than asking the node that just failed to take it back. One attempt per
+                                     // node in turn also means a dead node is skipped: the next reconnect attempts
+                                     // the next address. With one server this stays the old behaviour.
+                                     auto clientConnectParameters = connectParameters;
+                                     if (clientConnectParameters.m_autoReconnect && serverHostsPtr->size() > 1)
+                                     {
+                                         const auto attempt = make_shared<atomic_size_t>(0);
+                                         clientConnectParameters.m_reconnectDestination =
+                                             [serverHostsPtr, clientIndex, attempt]
+                                             {
+                                                 const auto step = attempt->fetch_add(1, memory_order_relaxed) + 1;
+                                                 return (*serverHostsPtr)[(clientIndex + step) % serverHostsPtr->size()];
+                                             };
+                                     }
 
                                      // A failed connect (bad hostname, refused connection, ...) must not escape this
                                      // thread: an uncaught exception here would call std::terminate and kill the whole
@@ -473,7 +490,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      try
                                      {
                                          const auto counted = make_shared<atomic_bool>(false);
-                                         auto       client = connectClientAsync(target, connectParameters, protocolVersion, clientIndex, clientCount,
+                                         auto       client = connectClientAsync(target, clientConnectParameters, protocolVersion, clientIndex, clientCount,
                                                                                 connectedCount, allConnected, roundTripLatency, connectCredentials,
                                                                                 connectProperties, sslKeys, counted);
 

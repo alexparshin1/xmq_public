@@ -1,0 +1,71 @@
+{
+  "name": "Cluster-P2P-round-robin",
+  "type": "Point-To-Point",
+  "comments": [
+    "The cluster test without a load balancer, for hosts where IPVS and keepalived are not",
+    "available - Windows in particular. Every client group lists all six nodes; xmq_scn",
+    "connects client i to server i modulo six, so the clients are spread across the cluster.",
+    "Subscribers are shifted by one node so a publisher and its subscriber sit on different",
+    "nodes and the cluster has to route the message.",
+    "",
+    "A client whose node goes away does not stay on it: with auto_reconnect and more than one",
+    "server, each reconnect attempt asks for the next node in the list, so the client moves to",
+    "a survivor. This is not keepalived: there is no health check and no removal of a node from",
+    "the list. The load-balancer scenario stays Linux-only.",
+    "",
+    "The accounts are the test cluster's: user/User-Secret1, from the cluster's shared accounts",
+    "database."
+  ],
+  "publishers": {
+    "id_prefix": "rr-publisher-",
+    "protocol_version": 5,
+    "client_count": 200,
+    "qos": 1,
+    "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 30,
+    "topics": "cluster/rr-topic$clientindex",
+    "servers": [
+      {"hostname": "node1", "port": 2884},
+      {"hostname": "node2", "port": 2885},
+      {"hostname": "node3", "port": 2886},
+      {"hostname": "node4", "port": 2887},
+      {"hostname": "node5", "port": 2888},
+      {"hostname": "node6", "port": 2889}
+    ]
+  },
+  "subscribers": {
+    "id_prefix": "rr-subscriber-",
+    "protocol_version": 5,
+    "client_count": 200,
+    "qos": 1,
+    "clean_session": true,
+    "auto_reconnect": true,
+    "reconnect_interval": 2,
+    "reconnect_attempts": 30,
+    "topics": "cluster/rr-topic$clientindex",
+    "servers": [
+      {"hostname": "node2", "port": 2885},
+      {"hostname": "node3", "port": 2886},
+      {"hostname": "node4", "port": 2887},
+      {"hostname": "node5", "port": 2888},
+      {"hostname": "node6", "port": 2889},
+      {"hostname": "node1", "port": 2884}
+    ]
+  },
+  "server": {
+    "hostname": "node1",
+    "port": 2884,
+    "username": "user",
+    "password": "User-Secret1"
+  },
+  "parameters": {
+    "connection_rate": 400,
+    "duration_sec": 150,
+    "payload_size": 16,
+    "publish_rate": 2,
+    "keep_alive_sec": 300,
+    "max_inflight_messages": 1024
+  }
+}
