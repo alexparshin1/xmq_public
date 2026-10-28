@@ -17,7 +17,12 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 using namespace std;
 using namespace sptk;
@@ -51,10 +56,19 @@ String configurationText(const int mqttPort = 18886, const String& extra = {})
     return text;
 }
 
+int processId()
+{
+#ifdef _WIN32
+    return _getpid();
+#else
+    return ::getpid();
+#endif
+}
+
 filesystem::path testDirectory()
 {
     const auto directory = filesystem::temp_directory_path() /
-                           ("xmq_configuration_" + to_string(::getpid()));
+                           ("xmq_configuration_" + to_string(processId()));
     filesystem::remove_all(directory);
     filesystem::create_directories(directory);
     return directory;
