@@ -55,17 +55,11 @@
     <ROW Directory="include_Dir" Directory_Parent="APPDIR" DefaultDir="include"/>
     <ROW Directory="js_Dir" Directory_Parent="static_Dir" DefaultDir="js"/>
     <ROW Directory="lib_Dir" Directory_Parent="XMQ_Dir" DefaultDir="lib"/>
-    <ROW Directory="limits.d_Dir" Directory_Parent="setup_Dir" DefaultDir="limits.d"/>
-    <ROW Directory="modulesload.d_Dir" Directory_Parent="setup_Dir" DefaultDir="MODULE~1.D|modules-load.d"/>
-    <ROW Directory="nftables.d_Dir" Directory_Parent="setup_Dir" DefaultDir="nftables.d"/>
     <ROW Directory="react_Dir" Directory_Parent="APPDIR" DefaultDir="react"/>
     <ROW Directory="resources_Dir" Directory_Parent="sptk5_Dir" DefaultDir="RESOUR~1|resources"/>
-    <ROW Directory="setup_Dir" Directory_Parent="xmq_1_Dir" DefaultDir="setup"/>
     <ROW Directory="share_Dir" Directory_Parent="APPDIR" DefaultDir="share"/>
     <ROW Directory="sptk5_Dir" Directory_Parent="share_Dir" DefaultDir="sptk5"/>
     <ROW Directory="static_Dir" Directory_Parent="react_Dir" DefaultDir="static"/>
-    <ROW Directory="sysctl.d_Dir" Directory_Parent="setup_Dir" DefaultDir="sysctl.d"/>
-    <ROW Directory="systemd_Dir" Directory_Parent="setup_Dir" DefaultDir="systemd"/>
     <ROW Directory="topicguard_Dir" Directory_Parent="extensions_Dir" DefaultDir="TOPIC-~1|topic-guard"/>
     <ROW Directory="xmq_1_Dir" Directory_Parent="share_Dir" DefaultDir="xmq"/>
     <ROW Directory="xmq_Dir" Directory_Parent="include_Dir" DefaultDir="xmq"/>
@@ -86,7 +80,6 @@
     <ROW Component="ProductInformation" ComponentId="{1A999732-BDB1-418B-AD45-2D93AA0BF2D7}" Directory_="APPDIR" Attributes="260" KeyPath="Version"/>
     <ROW Component="README" ComponentId="{15B2512E-40FF-4AFF-A094-2579055F148B}" Directory_="APPDIR" Attributes="0" KeyPath="README" Type="0"/>
     <ROW Component="README.md" ComponentId="{7E29B434-AE5E-41D6-B7F7-2F7670AB46D6}" Directory_="extension_Dir" Attributes="0" KeyPath="README.md" Type="0"/>
-    <ROW Component="README.md_1" ComponentId="{3CF1F810-C24C-4DCC-934B-5AA038ADBFD1}" Directory_="setup_Dir" Attributes="0" KeyPath="README.md_1" Type="0"/>
     <ROW Component="SHORTCUTDIR" ComponentId="{DD8A71D5-5BEF-471A-AFD5-305596314644}" Directory_="SHORTCUTDIR" Attributes="0"/>
     <ROW Component="TopicGuard.cpp" ComponentId="{A0AD436D-DCA4-4A5D-AB49-AD1971039C45}" Directory_="topicguard_Dir" Attributes="0" KeyPath="TopicGuard.cpp" Type="0"/>
     <ROW Component="XMQInterface.url" ComponentId="{AB972DD5-DC47-4FFE-8D9E-881C77A08B08}" Directory_="APPDIR" Attributes="0" KeyPath="XMQInterface.url" Type="0"/>
@@ -94,7 +87,6 @@
     <ROW Component="assetmanifest.json" ComponentId="{8B72F105-326A-4CF9-AA1A-FD388E2B9072}" Directory_="react_Dir" Attributes="0" KeyPath="assetmanifest.json" Type="0"/>
     <ROW Component="event_provider.rc" ComponentId="{6BB545F6-F173-45A3-B625-3AB090BA6D6A}" Directory_="resources_Dir" Attributes="0" KeyPath="event_provider.rc" Type="0"/>
     <ROW Component="fd62c76.chunk.js" ComponentId="{FBA106DB-A51A-4550-B5A9-8D360D6FDF8A}" Directory_="js_Dir" Attributes="0" KeyPath="fd62c76.chunk.js" Type="0"/>
-    <ROW Component="init_environment_aws.sh" ComponentId="{5FBEFC7F-C608-4C8B-AD02-E82FC9BDE258}" Directory_="xmq_1_Dir" Attributes="0" KeyPath="make_ip_addresses.sh" Type="0"/>
     <ROW Component="lib" ComponentId="{40BB5BF9-4207-40F8-ADB1-6038938ACB0E}" Directory_="lib_Dir" Attributes="0"/>
     <ROW Component="libcrypto3x64.dll" ComponentId="{35E5D119-AB11-42DC-BF78-78DFF12CFBE0}" Directory_="bin_Dir" Attributes="256" KeyPath="libcrypto3x64.dll"/>
     <ROW Component="libiconv2.dll" ComponentId="{EBD8A292-79E3-454D-AA5F-E43EACCC5FF8}" Directory_="bin_Dir" Attributes="256" KeyPath="libiconv2.dll"/>
@@ -104,9 +96,6 @@
     <ROW Component="libssl3x64.dll" ComponentId="{9DB1E2C3-5B71-482D-B683-56F4081AB07A}" Directory_="bin_Dir" Attributes="256" KeyPath="libssl3x64.dll"/>
     <ROW Component="libwinpthread1.dll" ComponentId="{B96F7E18-2B8D-43D5-8B44-B32ACDBCC5FC}" Directory_="bin_Dir" Attributes="256" KeyPath="libwinpthread1.dll"/>
     <ROW Component="main.6a21d5fa.css" ComponentId="{FAAC88BF-BE7A-44ED-940C-CCBE185397CC}" Directory_="css_Dir" Attributes="0" KeyPath="main.a9a4b9f2.css" Type="0"/>
-    <ROW Component="mqtt.conf" ComponentId="{B74255E1-CC90-40DC-8463-50BD89D37833}" Directory_="limits.d_Dir" Attributes="0" KeyPath="mqtt.conf" Type="0"/>
-    <ROW Component="mqtt.conf_1" ComponentId="{6925CBD1-2CC1-42B2-B64A-4C961187EF98}" Directory_="sysctl.d_Dir" Attributes="0" KeyPath="mqtt.conf_1" Type="0"/>
-    <ROW Component="nf_conntrack.conf" ComponentId="{16287D30-25EF-4716-9F3B-CF790C63E9C6}" Directory_="modulesload.d_Dir" Attributes="0" KeyPath="nf_conntrack.conf" Type="0"/>
     <ROW Component="pcre28.dll" ComponentId="{03DDA407-E2CC-45F1-AB78-1902446EBEEF}" Directory_="bin_Dir" Attributes="256" KeyPath="pcre28.dll"/>
     <ROW Component="spdb5.dll" ComponentId="{463F61F9-36D4-4BDA-BC75-7C05F8A38A96}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5.dll"/>
     <ROW Component="spdb5_mysql.dll" ComponentId="{A965A384-C6FF-42C5-99A3-6CD438199043}" Directory_="bin_Dir" Attributes="256" KeyPath="spdb5_mysql.dll"/>
@@ -123,8 +112,6 @@
     <ROW Component="xmq_server.conf.template" ComponentId="{06BF6951-57A3-4D39-B43C-7B45D57AF21A}" Directory_="XMQ_Dir" Attributes="0" KeyPath="xmq_server.conf.template" Type="0"/>
     <ROW Component="xmq_server.exe" ComponentId="{6D48CF00-3518-4131-81F1-52143D651487}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_server.exe"/>
     <ROW Component="xmq_sub.exe" ComponentId="{B621A3A1-84CE-468A-AF41-9250F417B821}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_sub.exe"/>
-    <ROW Component="xmqnotrack.nft" ComponentId="{8E3729B6-7BCF-4CB9-9E9D-DF5739AD2D5F}" Directory_="nftables.d_Dir" Attributes="0" KeyPath="xmqnotrack.nft" Type="0"/>
-    <ROW Component="xmqnotrack.service" ComponentId="{FC854652-E1C2-4F94-AE8E-0A0A57EEE0C1}" Directory_="systemd_Dir" Attributes="0" KeyPath="xmqnotrack.service" Type="0"/>
     <ROW Component="zlib.dll" ComponentId="{802BB144-7BD5-4307-AB39-08948973CFAC}" Directory_="bin_Dir" Attributes="256" KeyPath="zlib.dll"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiFeatsComponent">
@@ -155,9 +142,6 @@
     <ROW File="FanIn1K51K1K.json" Component_="Connections10k100.json" FileName="FAN-IN~1.JSO|Fan-In-1K-5-1K-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Fan-In-1K-5-1K-1K.json" SelfReg="false"/>
     <ROW File="FanOut11k11K.json" Component_="Connections10k100.json" FileName="FAN-OU~1.JSO|Fan-Out-1-1k-1-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Fan-Out-1-1k-1-1K.json" SelfReg="false"/>
     <ROW File="PointToPoint1K1K1K1K.json" Component_="Connections10k100.json" FileName="POINT-~1.JSO|Point-To-Point-1K-1K-1K-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Basic\Point-To-Point-1K-1K-1K-1K.json" SelfReg="false"/>
-    <ROW File="make_ip_addresses.sh" Component_="init_environment_aws.sh" FileName="MAKE_I~1.SH|make_ip_addresses.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\make_ip_addresses.sh" SelfReg="false"/>
-    <ROW File="remove_ip_addresses.sh" Component_="init_environment_aws.sh" FileName="REMOVE~1.SH|remove_ip_addresses.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\remove_ip_addresses.sh" SelfReg="false"/>
-    <ROW File="run_load_test.sh" Component_="init_environment_aws.sh" FileName="RUN_LO~1.SH|run_load_test.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\run_load_test.sh" SelfReg="false"/>
     <ROW File="FanOut510005250K.json" Component_="FanOut510005250K.json" FileName="FAN-OU~1.JSO|Fan-Out-5-1000-5-250K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Enterprise\Fan-Out-5-1000-5-250K.json" SelfReg="false"/>
     <ROW File="PointToPoint20Kpersistent.json" Component_="FanOut510005250K.json" FileName="POINT-~1.JSO|Point-To-Point-20K-persistent.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Enterprise\Point-To-Point-20K-persistent.json" SelfReg="false"/>
     <ROW File="PointToPoint50K50K50K50K.json" Component_="FanOut510005250K.json" FileName="POINT-~2.JSO|Point-To-Point-50K-50K-50K-50K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Enterprise\Point-To-Point-50K-50K-50K-50K.json" SelfReg="false"/>
@@ -180,7 +164,6 @@
     <ROW File="FanIn1K51K1K.json_1" Component_="FanIn1K51K1K.json" FileName="FAN-IN~1.JSO|Fan-In-1K-5-1K-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Bridges\Fan-In-1K-5-1K-1K.json" SelfReg="false"/>
     <ROW File="FanOut11k11K.json_1" Component_="FanIn1K51K1K.json" FileName="FAN-OU~1.JSO|Fan-Out-1-1k-1-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Bridges\Fan-Out-1-1k-1-1K.json" SelfReg="false"/>
     <ROW File="PointToPoint1K1K1K1K.json_1" Component_="FanIn1K51K1K.json" FileName="POINT-~1.JSO|Point-To-Point-1K-1K-1K-1K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Bridges\Point-To-Point-1K-1K-1K-1K.json" SelfReg="false"/>
-    <ROW File="broker_versions.sh" Component_="init_environment_aws.sh" FileName="BROKER~1.SH|broker_versions.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\broker_versions.sh" SelfReg="false"/>
     <ROW File="XmqExtension.cmake" Component_="XmqExtension.cmake" FileName="XMQEXT~1.CMA|XmqExtension.cmake" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\cmake\XmqExtension.cmake" SelfReg="false"/>
     <ROW File="PointToPoint50K50K50K100K.json" Component_="FanOut510005250K.json" FileName="POINT-~3.JSO|Point-To-Point-50K-50K-50K-100K.json" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\Enterprise\Point-To-Point-50K-50K-50K-100K.json" SelfReg="false"/>
     <ROW File="AllowList.cpp" Component_="AllowList.cpp" FileName="ALLOWL~1.CPP|AllowList.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\allow-list\AllowList.cpp" SelfReg="false"/>
@@ -188,22 +171,11 @@
     <ROW File="CMakeLists.txt_1" Component_="CMakeLists.txt" FileName="CMAKEL~1.TXT|CMakeLists.txt" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\event-log\CMakeLists.txt" SelfReg="false"/>
     <ROW File="EventLog.cpp" Component_="CMakeLists.txt" FileName="EventLog.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\event-log\EventLog.cpp" SelfReg="false"/>
     <ROW File="TopicGuard.cpp" Component_="TopicGuard.cpp" FileName="TOPICG~1.CPP|TopicGuard.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\topic-guard\TopicGuard.cpp" SelfReg="false"/>
-    <ROW File="init_environment_aws.sh" Component_="init_environment_aws.sh" FileName="INIT_E~1.SH|init_environment_aws.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\init_environment_aws.sh" SelfReg="false"/>
-    <ROW File="preflight.sh" Component_="init_environment_aws.sh" FileName="PREFLI~1.SH|preflight.sh" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\preflight.sh" SelfReg="false"/>
-    <ROW File="mqtt.conf" Component_="mqtt.conf" FileName="MQTT~1.CON|mqtt.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\limits.d\mqtt.conf" SelfReg="false"/>
-    <ROW File="nf_conntrack.conf" Component_="nf_conntrack.conf" FileName="NF_CON~1.CON|nf_conntrack.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\modules-load.d\nf_conntrack.conf" SelfReg="false"/>
-    <ROW File="xmqnotrack.nft" Component_="xmqnotrack.nft" FileName="XMQ-NO~1.NFT|xmq-notrack.nft" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\nftables.d\xmq-notrack.nft" SelfReg="false"/>
-    <ROW File="README.md_1" Component_="README.md_1" FileName="README.md" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\README.md" SelfReg="false"/>
-    <ROW File="mqtt.conf_1" Component_="mqtt.conf_1" FileName="MQTT~1.CON|mqtt.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\sysctl.d\mqtt.conf" SelfReg="false"/>
-    <ROW File="port_range.conf" Component_="mqtt.conf_1" FileName="PORT_R~1.CON|port_range.conf" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\sysctl.d\port_range.conf" SelfReg="false"/>
-    <ROW File="xmqnotrack.service" Component_="xmqnotrack.service" FileName="XMQ-NO~1.SER|xmq-notrack.service" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\setup\systemd\xmq-notrack.service" SelfReg="false"/>
     <ROW File="xmq_extensions.conf.template" Component_="xmq_server.conf.template" FileName="XMQ_EX~1.TEM|xmq_extensions.conf.template" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_extensions.conf.template" SelfReg="false"/>
     <ROW File="logo192.png" Component_="assetmanifest.json" FileName="logo192.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo192.png" SelfReg="false"/>
     <ROW File="logo512.png" Component_="assetmanifest.json" FileName="logo512.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo512.png" SelfReg="false"/>
     <ROW File="xmq_scn_cluster.exe" Component_="xmq_scn_cluster.exe" FileName="XMQ_SC~1.EXE|xmq_scn_cluster.exe" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\bin\xmq_scn_cluster.exe" SelfReg="false" DigSign="true"/>
     <ROW File="main.a9a4b9f2.css" Component_="main.6a21d5fa.css" FileName="MAINA9~1.CSS|main.a9a4b9f2.css" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\css\main.a9a4b9f2.css" SelfReg="false"/>
-    <ROW File="main.875097a0.js" Component_="fd62c76.chunk.js" FileName="MAIN87~1.JS|main.875097a0.js" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.875097a0.js" SelfReg="false"/>
-    <ROW File="main.875097a0.js.LICENSE.txt" Component_="fd62c76.chunk.js" FileName="MAIN87~1.TXT|main.875097a0.js.LICENSE.txt" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.875097a0.js.LICENSE.txt" SelfReg="false"/>
     <ROW File="main.a99ad8d4.js" Component_="fd62c76.chunk.js" FileName="MAINA9~1.JS|main.a99ad8d4.js" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.a99ad8d4.js" SelfReg="false"/>
     <ROW File="main.a99ad8d4.js.LICENSE.txt" Component_="fd62c76.chunk.js" FileName="MAINA9~1.TXT|main.a99ad8d4.js.LICENSE.txt" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\static\js\main.a99ad8d4.js.LICENSE.txt" SelfReg="false"/>
     <ROW File="sqlite3.dll" Component_="sqlite3.dll" FileName="sqlite3.dll" Attributes="0" SourcePath="..\..\..\Program Files\SPTK\bin\sqlite3.dll" SelfReg="false"/>
@@ -489,7 +461,6 @@
     <ROW Feature_="XMQServer" Component_="Connections10k100.json"/>
     <ROW Feature_="XMQServer" Component_="xmq_server.conf.template"/>
     <ROW Feature_="XMQServer" Component_="FanOut510005250K.json"/>
-    <ROW Feature_="XMQServer" Component_="init_environment_aws.sh"/>
     <ROW Feature_="XMQServer" Component_="AI_ExePath"/>
     <ROW Feature_="XMQServer" Component_="XMQInterface.url"/>
     <ROW Feature_="XMQServer" Component_="README.md"/>
@@ -502,12 +473,6 @@
     <ROW Feature_="XMQServer" Component_="AllowList.cpp"/>
     <ROW Feature_="XMQServer" Component_="CMakeLists.txt"/>
     <ROW Feature_="XMQServer" Component_="TopicGuard.cpp"/>
-    <ROW Feature_="XMQServer" Component_="mqtt.conf"/>
-    <ROW Feature_="XMQServer" Component_="nf_conntrack.conf"/>
-    <ROW Feature_="XMQServer" Component_="xmqnotrack.nft"/>
-    <ROW Feature_="XMQServer" Component_="README.md_1"/>
-    <ROW Feature_="XMQServer" Component_="mqtt.conf_1"/>
-    <ROW Feature_="XMQServer" Component_="xmqnotrack.service"/>
     <ROW Feature_="XMQServer" Component_="xmq_scn_cluster.exe"/>
     <ROW Feature_="XMQServer" Component_="sqlite3.dll"/>
     <ROW Feature_="XMQServer" Component_="libpq.dll"/>
