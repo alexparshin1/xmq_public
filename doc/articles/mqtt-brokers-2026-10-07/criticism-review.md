@@ -118,5 +118,8 @@ notes; `xmq_scn` reports per-message percentiles and PaceMaker re-bases; a messa
 payload bytes carry a 32-bit sequence, so a delivery is paired with its own send rather than with
 whatever arrived next; and every run warms up for 30 seconds before measurement starts.
 
-Item 5 remains: a warmed-up, repeated campaign has not been run, so none of the published numbers
-has changed. The next series is the first that can use the new pairing and percentiles.
+Item 5 remains in full: a warmed-up, repeated campaign over all brokers has not been run, so none
+of the published numbers has changed. A 10,000/100 fan-in control on EMQX Enterprise 6.3.1 did
+complete with the new generator: 2,999,997 deliveries at 10,000/s, median 353 us, p99 632 us, no
+PaceMaker re-bases. The 50K/500 control is not reproducible on that instance: EMQX either kills
+subscribers at its 48 MB heap limit or the host is OOM-killed at 512 MB.
