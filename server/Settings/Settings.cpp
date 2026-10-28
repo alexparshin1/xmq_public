@@ -2779,5 +2779,11 @@ String Settings::setAccountPassword(const filesystem::path& configurationFile, c
     account.m_password = password;
     users.modifyUser(account);
 
-    return "password set for '" + username + "' in " + settings.usersPathUnlocked().string();
+    // Say where it went. The accounts file is only one of the two places: with a database the
+    // password never touches xmq_users.conf, and naming that file anyway sent the operator looking
+    // for a change that was not there.
+    const auto target = settings.m_accountsInDatabase
+                            ? String("the database ") + UriSecret::hidden(settings.userDatabaseUriUnlocked())
+                            : String(settings.usersPathUnlocked().string());
+    return "password set for '" + username + "' in " + target;
 }
