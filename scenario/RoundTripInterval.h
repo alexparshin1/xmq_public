@@ -94,6 +94,9 @@ public:
 
     void print(const std::string& scenarioTitle) const;
 
+    /// The same result, with box-drawing borders, for a terminal. Plain text when redirected.
+    void printBoxed(const std::string& scenarioTitle) const;
+
     static RoundTripLatency combine(const std::vector<RoundTripLatency>& roundTripLatencies)
     {
         RoundTripLatency summaryRoundTripLatency({});

@@ -16,7 +16,14 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <ranges>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace std;
 using namespace chrono;
@@ -24,6 +31,26 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+
+bool stdoutIsTerminal()
+{
+#ifdef _WIN32
+    return _isatty(_fileno(stdout)) != 0;
+#else
+    return isatty(STDOUT_FILENO) != 0;
+#endif
+}
+
+std::string repeated(std::string_view unit, const size_t count)
+{
+    std::string result;
+    result.reserve(unit.size() * count);
+    for (size_t i = 0; i < count; ++i)
+    {
+        result += unit;
+    }
+    return result;
+}
 
 constexpr auto bucketsPerPower = uint32_t(64);
 
@@ -253,6 +280,12 @@ size_t RoundTripLatency::unmatchedReceived() const
 
 void RoundTripLatency::print(const string& scenarioTitle) const
 {
+    if (stdoutIsTerminal())
+    {
+        printBoxed(scenarioTitle);
+        return;
+    }
+
     const std::scoped_lock lock(m_mutex);
     COUT("Scenario: " << scenarioTitle);
     COUT(std::format("{:<10} {:>10} {:>10} {:>12}", "Interval", "Count", "Latency", "Rate/s"));
@@ -324,6 +357,111 @@ void RoundTripLatency::print(const string& scenarioTitle) const
     else
     {
         COUT(std::format("{:<10} {:>10} {:>10} {:>12}", "Average", 0, "?", "?"));
+    }
+    COUT("");
+}
+
+void RoundTripLatency::printBoxed(const string& scenarioTitle) const
+{
+    const std::scoped_lock lock(m_mutex);
+    COUT("Scenario: " << scenarioTitle);
+
+#ifdef _WIN32
+    constexpr auto v = "|";
+    constexpr auto h = "-";
+    constexpr auto tl = "+", tm = "+", tr = "+", ml = "+", mm = "+", mr = "+", bl = "+", bm = "+", br = "+";
+#else
+    constexpr auto v = "│";
+    constexpr auto h = "─";
+    constexpr auto tl = "┌", tm = "┬", tr = "┐", ml = "├", mm = "┼", mr = "┤", bl = "└", bm = "┴", br = "┘";
+#endif
+
+    const auto line4 = [&](const char* left, const char* middle, const char* right)
+    {
+        COUT(left << repeated(h, 10) << middle << repeated(h, 10) << middle << repeated(h, 10) << middle
+                 << repeated(h, 12) << right);
+    };
+    const auto row4 = [&](const string_view a, const string_view b, const string_view c, const string_view d)
+    {
+        COUT(v << std::format("{:<10}", a) << v << std::format("{:>10}", b) << v
+              << std::format("{:>10}", c) << v << std::format("{:>12}", d) << v);
+    };
+    const auto line2 = [&](const char* left, const char* middle, const char* right)
+    {
+        COUT(left << repeated(h, 7) << middle << repeated(h, 12) << right);
+    };
+    const auto row2 = [&](const string_view label, const string_view value)
+    {
+        COUT(v << std::format("{:<7}", label) << v << std::format("{:>12}", value) << v);
+    };
+
+    line4(tl, tm, tr);
+    row4("Interval", "Count", "Latency", "Rate/s");
+    line4(ml, mm, mr);
+
+    const auto           intervalSeconds = duration<double>(m_groupIntervalDuration).count();
+    size_t               totalCount = 0;
+    microseconds         totalLatency {0};
+    vector<microseconds> intervalAverageLatencies;
+
+    for (const auto& [interval, intervalData]: m_intervals)
+    {
+        totalCount += intervalData.m_count;
+        totalLatency += intervalData.m_summaryLatency;
+        const auto intervalText = std::format("{}", duration_cast<milliseconds>(interval));
+        if (intervalData.m_count == 0)
+        {
+            row4(intervalText, "0", "?", "?");
+            continue;
+        }
+        const auto rate = intervalSeconds > 0 ? static_cast<size_t>(intervalData.m_count / intervalSeconds) : 0;
+        const auto averageLatency = intervalData.m_summaryLatency / intervalData.m_count;
+        row4(intervalText, std::to_string(intervalData.m_count), std::format("{}", averageLatency),
+             std::to_string(rate));
+        intervalAverageLatencies.emplace_back(averageLatency);
+    }
+
+    line4(ml, mm, mr);
+
+    if (totalCount)
+    {
+        const auto totalSeconds = !m_intervals.empty()
+                                      ? duration<double>(m_intervals.rbegin()->first + m_groupIntervalDuration).count()
+                                      : 0.0;
+        const auto averageRate = totalSeconds > 0 ? static_cast<size_t>(totalCount / totalSeconds) : 0;
+        ranges::sort(intervalAverageLatencies);
+        const auto medianLatency = intervalAverageLatencies[intervalAverageLatencies.size() / 2];
+        row4("Average", std::to_string(totalCount), std::format("{}", totalLatency / totalCount),
+             std::to_string(averageRate));
+        row4("Median", "", std::format("{}", medianLatency), "");
+    }
+    else
+    {
+        row4("Average", "0", "?", "?");
+    }
+
+    line4(bl, bm, br);
+
+    COUT("");
+    COUT("Percentiles");
+    line2(tl, tm, tr);
+    row2("Metric", "Latency");
+    line2(ml, mm, mr);
+    row2("p50", std::format("{}", percentileOf(m_totalHistogram, 50)));
+    row2("p90", std::format("{}", percentileOf(m_totalHistogram, 90)));
+    row2("p95", std::format("{}", percentileOf(m_totalHistogram, 95)));
+    row2("p99", std::format("{}", percentileOf(m_totalHistogram, 99)));
+    if (totalCount >= 1000)
+    {
+        row2("p99.9", std::format("{}", percentileOf(m_totalHistogram, 99.9)));
+    }
+    row2("max", std::format("{}", percentileOf(m_totalHistogram, 100)));
+    line2(bl, bm, br);
+
+    if (m_unmatchedReceived > 0)
+    {
+        COUT("Unmatched deliveries: " << m_unmatchedReceived
+                                     << " had a sequence number with no recorded send (duplicate, warm-up or another run)");
     }
     COUT("");
 }
