@@ -306,7 +306,15 @@ void RoundTripLatency::print(const string& scenarioTitle) const
         COUT(std::format("{:<6} {}", "p90", percentileOf(m_totalHistogram, 90)));
         COUT(std::format("{:<6} {}", "p95", percentileOf(m_totalHistogram, 95)));
         COUT(std::format("{:<6} {}", "p99", percentileOf(m_totalHistogram, 99)));
-        COUT(std::format("{:<6} {}", "p99.9", percentileOf(m_totalHistogram, 99.9)));
+        // Below a thousand samples the 99.9th percentile is the maximum: one slow delivery is
+        // enough to set it, and calling that a percentile says more about the sample count than
+        // about the tail. Print it only when enough deliveries make it a percentile, and always
+        // print the maximum so the worst delivery is not hidden.
+        if (totalCount >= 1000)
+        {
+            COUT(std::format("{:<6} {}", "p99.9", percentileOf(m_totalHistogram, 99.9)));
+        }
+        COUT(std::format("{:<6} {}", "max", percentileOf(m_totalHistogram, 100)));
         if (m_unmatchedReceived > 0)
         {
             COUT("Unmatched deliveries: " << m_unmatchedReceived
