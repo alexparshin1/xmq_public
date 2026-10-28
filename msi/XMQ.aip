@@ -63,7 +63,8 @@
     <ROW Directory="topicguard_Dir" Directory_Parent="extensions_Dir" DefaultDir="TOPIC-~1|topic-guard"/>
     <ROW Directory="xmq_1_Dir" Directory_Parent="share_Dir" DefaultDir="xmq"/>
     <ROW Directory="xmq_extensionsd_Dir" Directory_Parent="XMQ_Dir" DefaultDir="XMQ_EX~1.D|xmq_extensions.d"/>
-    <ROW Directory="xmqextensions_Dir" Directory_Parent="lib_Dir" DefaultDir="XMQEXT~1|xmq-extensions"/>
+    <ROW Directory="applib_Dir" Directory_Parent="APPDIR" DefaultDir="lib"/>
+    <ROW Directory="xmqextensions_Dir" Directory_Parent="applib_Dir" DefaultDir="XMQEXT~1|xmq-extensions"/>
     <ROW Directory="xmq_Dir" Directory_Parent="include_Dir" DefaultDir="xmq"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.SideBySideGuidComponent">
