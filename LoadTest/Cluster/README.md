@@ -46,6 +46,11 @@ Linux command: the front-end sends it to the control host, because IPVS and keep
 on Windows. `cluster-p2p-round-robin.json` is the load-balancer-free cluster scenario, for hosts
 without IPVS.
 
+`cluster-p2p-two-windows-nodes.json` is the same idea for two installs of the Windows package - the
+brokers as services, each on its own machine, with the shared Redis and accounts database on another
+host. Its server list is the pair's addresses, and a run that stops one node's service shows the
+other taking the clients over: every client reconnects to the next server in the list.
+
 `xmq_scn_cluster` itself and the tests need neither WSL nor Git Bash.
 
 ```sh
