@@ -30,10 +30,23 @@ Nodes are processes, not services, so a test can stop one in the middle of a run
 configuration, certificate and log in its own directory under `$CLUSTER_DIR` (default `~/cluster.run`; `~/cluster` links to this directory of the test cluster worktree), and
 is started through a launcher of its own, so an interrupted run does not take the nodes with it.
 
-`test_cluster.sh` is bash, and the Windows package leaves it out. On Windows it runs under WSL
-(`wsl --install`), which is the same environment as on Linux, or under Git Bash (Git for Windows,
-with its `bin` on `PATH`), which is lighter but has no `pgrep`. Either way, `bash test_cluster.sh ...`.
-`xmq_scn_cluster` itself and the tests need neither.
+`test_cluster.sh` is bash and does not run on Windows. The Windows package has
+`test_cluster.ps1` and `test_cluster.cmd` instead: a native front-end that uses the OpenSSH client
+that ships with Windows and forwards the command to a Linux control host which has
+`test_cluster.sh`. No WSL and no Git Bash are needed:
+
+```powershell
+$env:CLUSTER_CONTROL_HOST = "theater"   # a Linux host with ~/cluster/test_cluster.sh
+.\test_cluster.cmd status
+.\test_cluster.cmd start node1
+```
+
+`CLUSTER_CONTROL_USER` names the account on that host; it defaults to `alexeyp`. `lb` is still a
+Linux command: the front-end sends it to the control host, because IPVS and keepalived do not exist
+on Windows. `cluster-p2p-round-robin.json` is the load-balancer-free cluster scenario, for hosts
+without IPVS.
+
+`xmq_scn_cluster` itself and the tests need neither WSL nor Git Bash.
 
 ```sh
 test_cluster.sh up            # write configurations and certificates, start every node
