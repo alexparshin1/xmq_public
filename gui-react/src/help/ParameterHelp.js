@@ -496,7 +496,7 @@ const ParameterHelp = {
             "the server hold."
         ],
         range: "1 .. 65535",
-        suggested: "1024",
+        suggested: "128",
         min: 1,
         max: 65535
     },

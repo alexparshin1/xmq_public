@@ -29,7 +29,7 @@
   },
   "queue_limits": {
     "max_size": 1024,
-    "max_inflight_messages": 1024,
+    "max_inflight_messages": 128,
     "max_bytes": 1048576
   },
   "server_limits": {

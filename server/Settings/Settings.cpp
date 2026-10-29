@@ -168,7 +168,7 @@ const char* defaultConfigurationText()
   },
   "queue_limits": {
     "max_size": 16384,
-    "max_inflight_messages": 1024,
+    "max_inflight_messages": 128,
     "max_bytes": 0
   },
   "server_limits": {
@@ -241,7 +241,9 @@ Settings::Settings()
     constexpr auto defaultMqttPort = 1883;
     constexpr auto defaultListenerThreads = 4;
     constexpr auto defaultQueueSizeLimit = 16384;
-    constexpr auto defaultInflightMessagesLimit = 1024;
+    // Mosquitto's default, too. The window is per session and counts against a slow client's
+    // memory, so a large one is a promise the server may not want to keep by default.
+    constexpr auto defaultInflightMessagesLimit = 128;
     constexpr auto defaultQueueBytesLimit = 0;
 
     CListener defaultListener;

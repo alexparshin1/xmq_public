@@ -50,6 +50,20 @@ Requires SPTK 5.6.16.
   in the middle of a save leaves the previous file intact rather than a truncated one, which is
   what a broker and the interface could no longer read.
 
+### Fixed
+
+- **`queue_limits` now bounds what a slow subscriber makes the broker hold.** `max_size` was read,
+  validated and shown in the interface but applied nowhere, and the in-flight window was taken
+  from the client's `Receive Maximum` (32 768 when the client sent none) rather than from
+  `max_inflight_messages`. A subscriber that stopped reading grew its queue until the node ran
+  out of memory: on a two-node Windows cluster, 3000 subscriptions fanned out to one topic took
+  each broker to 16-17 GB of virtual memory and stopped both services. `max_size` is now enforced
+  per session, `max_bytes` bounds the same queue in payload and topic bytes, and
+  `max_inflight_messages` caps the window the client asked for. The newest message is dropped
+  when the queue is full, because what is already queued has waited longest, and the drop is
+  logged once and then every 1000 messages. Defaults are 16 384 messages, no byte limit and 1024
+  in flight; the shipped configuration uses 1024 messages, 1 MiB and 128 in flight.
+
 ## 1.0.0 — 2026-10-17
 
 Requires SPTK 5.6.15.

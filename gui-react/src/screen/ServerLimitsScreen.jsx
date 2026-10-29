@@ -22,7 +22,7 @@ export default class ServerLimitsScreen extends BasicScreen {
         max_topic_alias: 128,
         max_packet_size: 256 * 1024 * 1024,
         max_size: 16384,
-        max_inflight_messages: 1024,
+        max_inflight_messages: 128,
         max_bytes: 0
     };
 
