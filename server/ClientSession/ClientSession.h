@@ -550,6 +550,15 @@ protected:
     void queueMessageDelivery(SMessageDispatch& messageDispatch) const override;
     void restoreMessageDelivery(SMessageDispatch& messageDispatch) const override;
 
+    /**
+     * @brief Counts a publish the queue limits refused, and logs it every thousandth time.
+     *
+     * Called at both refusal points - the check before the delivery record is made, and the
+     * queue's own refusal - so the log, $SYS/broker/messages/publish/dropped and the control API
+     * all report the same number.
+     */
+    void countDroppedPublish();
+
     void ackPublishMessage(const Message* message, ReasonCode reasonCode) override;
     void handleConnectMessage(const SMessage& message) override;
     void handleDisconnect(const Message* message) override;

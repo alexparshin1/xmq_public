@@ -12,6 +12,16 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.17.
 
+### Fixed
+
+- **`$SYS/broker/messages/publish/dropped` counts the drops now.** The metric, and the
+  `messages_publish_dropped` field of the control API that reads it, were declared, published and
+  never incremented: a broker whose queue limits refused a publish still reported 0, and the only
+  trace was the warning line in the log. The count is fed from both places a publish is refused -
+  the check before the delivery record is made and the queue's own refusal - so it agrees with the
+  log instead of trailing it. An operator watching the limit work is the point of having it;
+  without the counter, tuning `queue_limits` meant reading the log.
+
 ## 1.0.1 — 2026-10-29
 
 Requires SPTK 5.6.16.

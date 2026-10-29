@@ -108,6 +108,11 @@ void SystemStatistics::registerSentData(const size_t dataSize, const size_t anyM
     m_sent.published.fetch_add(publishedMessages, memory_order_relaxed);
 }
 
+void SystemStatistics::registerPublishDropped(const size_t count)
+{
+    m_publishDropped.fetch_add(count, memory_order_relaxed);
+}
+
 void SystemStatistics::registerConnectedClient(const bool existingSessionIsConnected, const bool existingSessionIsClean)
 {
     std::scoped_lock lock(m_mutex);
@@ -343,6 +348,7 @@ atomic<uint64_t>* SystemStatistics::trafficCounter(const SysTopicKind topicKind)
         case BrokerLoadBytesSent: return &m_sent.bytes;
         case BrokerMessagesSent: return &m_sent.messages;
         case BrokerMessagesPublishSent: return &m_sent.published;
+        case BrokerMessagesPublishDropped: return &m_publishDropped;
         default: return nullptr;
     }
 }
@@ -368,4 +374,5 @@ void SystemStatistics::syncTrafficMetrics()
     sync(BrokerLoadBytesSent, m_sent.bytes);
     sync(BrokerMessagesSent, m_sent.messages);
     sync(BrokerMessagesPublishSent, m_sent.published);
+    sync(BrokerMessagesPublishDropped, m_publishDropped);
 }

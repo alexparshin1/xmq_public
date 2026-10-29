@@ -825,6 +825,32 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     return postMessage(message, qos, subscriptionIds, retain, {});
 }
 
+void ClientSession::countDroppedPublish()
+{
+    // One place counts a publish the queue limits refused, wherever it was refused: the check made
+    // before the delivery record is created, and the queue's own refusal when another thread filled
+    // the queue in between. Counting one and not the other left $SYS and the control API reporting
+    // less than the log did.
+    const auto dropped = m_droppedMessages.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (dropped == 1 || dropped % 1000 == 0)
+    {
+        const auto clientId = getClientIdUnlocked();
+        server().logMessage(LogSubject::ServerConnections, LogPriority::Warning,
+                            [clientId, dropped]
+                            {
+                                return format("{}: queue full, {} message(s) dropped for a client that does not keep up.",
+                                              clientId, dropped);
+                            });
+    }
+
+    // Nothing is sent from here, so the counter is read from the session rather than from the send
+    // path: the operator watching $SYS/broker/messages/publish/dropped is watching this.
+    if (auto* statistics = server().systemStatistics())
+    {
+        statistics->registerPublishDropped();
+    }
+}
+
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
                                      const vector<weak_ptr<Subscription>>& sharedSubscriptions)
 {
@@ -844,17 +870,7 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     {
         if (const auto& queue = inflightQueueUnlocked(); queue && !queue->canAccept(publishedBytes(message)))
         {
-            const auto dropped = m_droppedMessages.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (dropped == 1 || dropped % 1000 == 0)
-            {
-                const auto clientId = getClientIdUnlocked();
-                server().logMessage(LogSubject::ServerConnections, LogPriority::Warning,
-                                    [clientId, dropped]
-                                    {
-                                        return format("{}: queue full, {} message(s) dropped for a client that does not keep up.",
-                                                      clientId, dropped);
-                                    });
-            }
+            countDroppedPublish();
             return 0;
         }
     }
@@ -884,6 +900,7 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     {
         MessageId deliveryId = 0;
         bool      gone = false;
+        bool      droppedDelivery = false;
         {
             const unique_lock lock(m_mutex);
 
@@ -906,9 +923,23 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
                         incrementPublishScheduledCount();
                     }
 
-                    inflightQueue->queueMessage(messageDelivery);
+                    // Queued whether or not this can be a drop: a SUBSCRIBE and a QoS 0 publish do
+                    // not come back as 0 because they were refused, and gating the call on the drop
+                    // test would leave them unqueued altogether.
+                    const auto queuedId = inflightQueue->queueMessage(messageDelivery);
+                    if (queuedId == 0 && qos != Qos::Qos0 && message->is(Message::Type::Publish))
+                    {
+                        droppedDelivery = true;
+                    }
                 }
             }
+        }
+
+        // Counted outside the lock: the counter is an atomic, but the warning line it may write
+        // takes the server's log lock and publishing can take a session lock.
+        if (droppedDelivery)
+        {
+            countDroppedPublish();
         }
 
         if (gone)
@@ -946,7 +977,16 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
             incrementPublishScheduledCount();
         }
 
-        inflightQueue->queueMessage(messageDelivery);
+        // Queued before the drop test, never inside it: a message that is not a QoS 1/2 publish
+        // still has to reach the queue.
+        const auto queuedId = inflightQueue->queueMessage(messageDelivery);
+
+        // The queue refuses a publish of its own accord when another thread filled it between the
+        // check at the top of this function and this call - the limits are checked there and here.
+        if (queuedId == 0 && qos != Qos::Qos0 && message->is(Message::Type::Publish))
+        {
+            countDroppedPublish();
+        }
     }
 
     armExpiryIfUnattached();

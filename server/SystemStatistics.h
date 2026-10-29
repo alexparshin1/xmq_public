@@ -159,6 +159,20 @@ public:
      * @param publishedMessages Sent publish message count
      */
     void registerSentData(size_t dataSize, size_t anyMessages, size_t publishedMessages);
+
+    /**
+     * @brief Count a publish the broker dropped because a session's queue was full.
+     *
+     * Separate from registerReceivedData/registerSentData because it is not traffic: nothing was
+     * sent anywhere. The queue limits that produce it came in 1.0.1, and until this counter was
+     * filled in, $SYS/broker/messages/publish/dropped and the control API field of the same name
+     * both read 0 whatever the broker did - the only trace was a warning line in the log. A limit
+     * an operator cannot see is one they cannot tune.
+     *
+     * @param count Messages dropped, 1 by default.
+     */
+    void registerPublishDropped(size_t count = 1);
+
     void registerConnectedClient(bool existingSessionIsConnected, bool existingSessionIsClean);
     void registerDisconnectedClient(bool isCleanSession);
 
@@ -196,6 +210,10 @@ private:
     mutable std::mutex           m_mutex;
     TrafficCounters              m_received;
     TrafficCounters              m_sent;
+    /// Publish messages dropped by a session's queue limits. Read straight from the atomic by
+    /// getValue(), so an operator asking the control API gets the count as it stands rather than
+    /// the value of the last one-second scan.
+    std::atomic<uint64_t>        m_publishDropped{0};
     std::function<QueueDepths()> m_queueDepthProvider; ///< Supplied by the broker; see setQueueDepthProvider().
     std::vector<Metric>          m_metrics;
     STopicManager                m_topicManager;
