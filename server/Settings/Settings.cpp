@@ -167,8 +167,9 @@ const char* defaultConfigurationText()
     }
   },
   "queue_limits": {
-    "max_size": 50000,
-    "max_inflight_messages": 32768
+    "max_size": 16384,
+    "max_inflight_messages": 1024,
+    "max_bytes": 0
   },
   "server_limits": {
     "send_threads": "auto",
@@ -240,7 +241,8 @@ Settings::Settings()
     constexpr auto defaultMqttPort = 1883;
     constexpr auto defaultListenerThreads = 4;
     constexpr auto defaultQueueSizeLimit = 16384;
-    constexpr auto defaultInflightMessagesLimit = 16;
+    constexpr auto defaultInflightMessagesLimit = 1024;
+    constexpr auto defaultQueueBytesLimit = 0;
 
     CListener defaultListener;
     defaultListener.m_protocol = "MQTT";
@@ -251,6 +253,7 @@ Settings::Settings()
 
     m_queue_limits.m_max_size = defaultQueueSizeLimit;
     m_queue_limits.m_max_inflight_messages = defaultInflightMessagesLimit;
+    m_queue_limits.m_max_bytes = defaultQueueBytesLimit;
 
     initialize();
 }

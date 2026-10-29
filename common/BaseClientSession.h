@@ -132,6 +132,11 @@ public:
     void                          setMaxInflightMessages(uint16_t maxInflightMessages) const;
 
     /**
+     * @brief Bounds on the queue behind the in-flight window; see MessageQueue::setQueueLimits().
+     */
+    void setQueueLimits(uint32_t maxMessages, uint64_t maxBytes) const;
+
+    /**
      * @brief How many QoS 1 and 2 messages may be unacknowledged at once - 0 asked for the default.
      */
     [[nodiscard]] uint16_t inflightLimit() const
@@ -234,6 +239,8 @@ private:
 
     mutable std::shared_ptr<MessageQueue>   m_inflightQueue;                   ///< Made on first use, from a const path as often as not.
     mutable std::atomic<uint16_t>           m_maxInflightMessages {0};         ///< What to build it with.
+    mutable std::atomic<uint32_t>           m_maxQueuedMessages {0};           ///< What the queue may hold for a client that lags.
+    mutable std::atomic<uint64_t>           m_maxQueuedBytes {0};
     /// The next packet id to send. A 56-byte shared_mutex used to guard this one counter, on an
     /// object the broker keeps one of per session, and the whole of what it guarded was an increment
     /// that skips zero - which an atomic does on its own.

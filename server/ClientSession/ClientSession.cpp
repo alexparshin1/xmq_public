@@ -29,6 +29,27 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
+namespace
+{
+/// What one publication counts against a session's queue limit: its payload and its topic, as
+/// MessageQueue counts them, so that the two numbers are the same number.
+uint64_t publishedBytes(const SMessage& message)
+{
+    const auto publish = std::dynamic_pointer_cast<mqtt::PublishMessage>(message);
+    if (!publish)
+    {
+        return 0;
+    }
+    uint64_t bytes = publish->payload().size();
+    if (const auto* destination = publish->destination(); destination != nullptr)
+    {
+        bytes += destination->name().size();
+    }
+    return bytes;
+}
+} // namespace
+
+
 #ifdef min
 #undef min
 #endif
@@ -56,7 +77,23 @@ ClientSession::ClientSession(Server*                          server,
     {
         (void) connectMessageProperties->getProperty(Property::ReceiveMaximum, maxInflightMessages);
     }
+
+    // The server's own cap, which the configuration sets: a client may ask for fewer unacknowledged
+    // messages than the server allows, never for more. Without it the window was whatever the client
+    // sent, 32768 when it sent nothing - so a subscriber that never acknowledged could hold 32768
+    // messages of the node's memory before a single one had to wait.
+    const auto settings = server->getSettings();
+    if (const auto configured = settings->m_queue_limits.m_max_inflight_messages.asInteger();
+        configured > 0 && maxInflightMessages > configured)
+    {
+        maxInflightMessages = configured;
+    }
     setInflightLimit(static_cast<uint16_t>(maxInflightMessages));
+
+    // And the queue behind that window, which had no bound at all.
+    const auto& queueLimits = settings->m_queue_limits;
+    setQueueLimits(static_cast<uint32_t>(queueLimits.m_max_size.asInteger()),
+                   static_cast<uint64_t>(queueLimits.m_max_bytes.isNull() ? 0 : queueLimits.m_max_bytes.asInteger()));
 
     if (connectMessageProperties)
     {
@@ -778,6 +815,30 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     if (isReleased() && divertReleased(message))
     {
         return 0;
+    }
+
+    // A client that does not keep up: the queue behind its in-flight window is bounded by
+    // queue_limits, and when it is full the newest message is dropped. What is already there has
+    // waited longest, and dropping it would take away the oldest messages the client never saw.
+    // Without this the queue had no bound at all: 3000 subscriptions fanned out took both Windows
+    // brokers of a two-node cluster to 16 GB of virtual memory on 8 GB machines, and stopped them.
+    if (qos != Qos::Qos0)
+    {
+        if (const auto& queue = inflightQueueUnlocked(); queue && !queue->canAccept(publishedBytes(message)))
+        {
+            const auto dropped = m_droppedMessages.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (dropped == 1 || dropped % 1000 == 0)
+            {
+                const auto clientId = getClientIdUnlocked();
+                server().logMessage(LogSubject::ServerConnections, LogPriority::Warning,
+                                    [clientId, dropped]
+                                    {
+                                        return format("{}: queue full, {} message(s) dropped for a client that does not keep up.",
+                                                      clientId, dropped);
+                                    });
+            }
+            return 0;
+        }
     }
 
     const auto armExpiryIfUnattached = [this, &message]

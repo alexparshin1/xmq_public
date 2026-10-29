@@ -102,6 +102,8 @@ const SMessageQueue& BaseClientSession::inflightQueueUnlocked() const
                                                     {
                                                         self->forwardMessage(messageDispatch);
                                                     });
+        m_inflightQueue->setQueueLimits(m_maxQueuedMessages.load(std::memory_order_relaxed),
+                                        m_maxQueuedBytes.load(std::memory_order_relaxed));
     }
     return m_inflightQueue;
 }
@@ -118,6 +120,16 @@ void BaseClientSession::setMaxInflightMessages(const uint16_t maxInflightMessage
     if (const auto& queue = getInflightQueueUnlocked())
     {
         queue->setMaxInflightMessages(maxInflightMessages);
+    }
+}
+
+void BaseClientSession::setQueueLimits(const uint32_t maxMessages, const uint64_t maxBytes) const
+{
+    m_maxQueuedMessages.store(maxMessages, std::memory_order_relaxed);
+    m_maxQueuedBytes.store(maxBytes, std::memory_order_relaxed);
+    if (const auto& queue = getInflightQueueUnlocked())
+    {
+        queue->setQueueLimits(maxMessages, maxBytes);
     }
 }
 

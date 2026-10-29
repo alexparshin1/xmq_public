@@ -472,13 +472,17 @@ const ParameterHelp = {
     "queue_limits.max_size": {
         title: "Max queue size",
         text: [
-            "Most messages held for one client session before further messages are dropped.",
+            "Most messages held for one client session, behind the in-flight window, before " +
+            "further messages are dropped. The newest is dropped: what is already queued has " +
+            "waited longest.",
             "This is a per-session bound, so the worst case is this many messages times the number " +
             "of sessions. With persistence enabled the queued messages are in Redis; without it " +
-            "they are in server memory."
+            "they are in server memory.",
+            "Unbounded, this is what killed a two-node Windows cluster: 3000 subscriptions took " +
+            "each broker to 16 GB of virtual memory and stopped them."
         ],
         range: "2 .. 10000000",
-        suggested: "50000",
+        suggested: "16384",
         min: 2,
         max: 10000000
     },
@@ -492,10 +496,26 @@ const ParameterHelp = {
             "the server hold."
         ],
         range: "1 .. 65535",
-        suggested: "32768",
+        suggested: "1024",
         min: 1,
         max: 65535
     },
+
+    "queue_limits.max_bytes": {
+        title: "Max queued bytes",
+        text: [
+            "Bytes of payload and topic held for one client session before further messages are " +
+            "dropped. Zero means no limit.",
+            "The message count says nothing about the memory when payloads are large: a thousand " +
+            "256 KB messages is a quarter of a gigabyte. This is the bound that catches that, and " +
+            "it is the one to set on a node that carries sessions of its own."
+        ],
+        range: "0 .. 1073741824",
+        suggested: "1048576",
+        min: 0,
+        max: 1073741824
+    },
+
 
     "persistence.max_queued_writes": {
         title: "Max queued writes",

@@ -195,3 +195,60 @@ TEST(XMQ_InflightQueue, performance)
     passMessages(Qos::Qos1, totalMessageCount, maxInflightMessages, true, true);
     passMessages(Qos::Qos2, totalMessageCount, maxInflightMessages, true, true);
 }
+
+// The in-flight window is the client's own, but what waits behind it is the node's memory: a
+// subscriber that stops acknowledging used to grow it without bound, one session at a time. On a
+// two-node Windows cluster 3000 subscriptions fanned out to 16 GB of virtual memory on 8 GB
+// machines, and both brokers stopped. The queue now drops the newest message instead, and says so.
+TEST(XMQ_InflightQueue, queueLimitsDropTheNewestMessageAndCountIt)
+{
+    size_t forwarded = 0;
+    // A window of one: the first message is in flight, everything after it has to wait.
+    MessageQueue messageQueue(1,
+                              [&forwarded](const SMessageDispatch&)
+                              {
+                                  ++forwarded;
+                              });
+    messageQueue.setQueueLimits(2, 0);
+
+    const auto topicManager = make_shared<TopicManager>();
+    const auto payload = string("payload");
+
+    const auto queue = [&](const char* topic)
+    {
+        SMessage message(new mqtt::PublishMessage(topicManager->getTopic(topic), string_view(payload)));
+        return messageQueue.queueMessage(make_shared<MessageDispatch>(message, Qos::Qos1));
+    };
+
+    EXPECT_NE(0U, queue("topic1"));  // in flight
+    EXPECT_NE(0U, queue("topic2"));  // waiting, 1 of 2
+    EXPECT_NE(0U, queue("topic3"));  // waiting, 2 of 2
+    EXPECT_EQ(0U, queue("topic4"));  // dropped
+    EXPECT_EQ(0U, queue("topic5"));  // dropped
+
+    EXPECT_EQ(3U, messageQueue.size()) << "the queue grew past its limit";
+    EXPECT_EQ(2U, messageQueue.droppedMessages());
+    EXPECT_EQ(1U, forwarded) << "a dropped message was sent anyway";
+}
+
+// The same bound in bytes, because a message count says nothing about a queue of 256 KB payloads.
+TEST(XMQ_InflightQueue, byteLimitDropsWhatDoesNotFit)
+{
+    MessageQueue messageQueue(1, [](const SMessageDispatch&) {});
+    // Room for one payload and the topic name that goes with it, and not for the second.
+    messageQueue.setQueueLimits(0, 20);
+
+    const auto topicManager = make_shared<TopicManager>();
+    const auto payload = string("payload"); // 7 bytes, topic1 is 6
+
+    const auto queue = [&](const char* topic)
+    {
+        SMessage message(new mqtt::PublishMessage(topicManager->getTopic(topic), string_view(payload)));
+        return messageQueue.queueMessage(make_shared<MessageDispatch>(message, Qos::Qos1));
+    };
+
+    EXPECT_NE(0U, queue("topic1")); // in flight, not counted against the queue
+    EXPECT_NE(0U, queue("topic2")); // waiting: 7 bytes of payload and a 6-byte topic
+    EXPECT_EQ(0U, queue("topic3")) << "the byte limit was not applied";
+    EXPECT_EQ(1U, messageQueue.droppedMessages());
+}

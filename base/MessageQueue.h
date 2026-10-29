@@ -45,6 +45,32 @@ public:
     void      setMaxInflightMessages(uint16_t maxInflightMessages);
 
     /**
+     * @brief Bounds on what a session may hold for a client that does not keep up.
+     *
+     * The in-flight window is the client's own (its CONNECT receive maximum, capped by the
+     * server); this is the queue behind it, which had no bound at all: a slow subscriber took the
+     * node's memory with it, one session at a time, until the process died. Measured on a
+     * two-node Windows cluster: 3000 subscriptions fanned out to 16 GB of virtual memory on an
+     * 8 GB machine, and both brokers stopped.
+     *
+     * @param maxMessages Messages that may wait for a free in-flight slot. Zero means no limit.
+     * @param maxBytes    Bytes of payload and topic that may wait. Zero means no limit.
+     */
+    void setQueueLimits(uint32_t maxMessages, uint64_t maxBytes);
+
+    /**
+     * @brief Whether one more message of this size can be taken.
+     *
+     * Asked before the delivery record is made, so that a message dropped here does not leave a
+     * record behind in storage. A message that fits the in-flight window is always taken: this
+     * bounds the queue, not the window.
+     */
+    [[nodiscard]] bool canAccept(uint64_t messageBytes) const;
+
+    /// Messages dropped by the queue limits since the session started.
+    [[nodiscard]] uint64_t droppedMessages() const;
+
+    /**
      * @brief Allocate the next packet id in this session's id space.
      *
      * The queue owns the id space, but the id has to be known before the delivery record is
@@ -101,6 +127,10 @@ private:
 
     mutable std::mutex               m_mutex;
     std::atomic_uint16_t             m_maxInflightMessages;
+    std::atomic_uint32_t             m_maxQueuedMessages {0};
+    std::atomic_uint64_t             m_maxQueuedBytes {0};
+    uint64_t                         m_waitingBytes {0};        ///< Sum of what waits, under m_mutex.
+    std::atomic_uint64_t             m_droppedMessages {0};
     MessageId                        m_nextMessageId {0};
     MessageDispatchMap               m_inflightMessages;
     std::unique_ptr<WaitingMessages> m_waitingMessages; ///< Created on first use, see waitingMessages().

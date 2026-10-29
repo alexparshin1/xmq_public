@@ -574,6 +574,7 @@ private:
     std::chrono::milliseconds               m_waitForConnectTimeout {0};  ///< The timeout the CONNECT deadline was made from, for the message logged when it passes.
     std::unordered_set<MessageId>           m_unreleasedQos2Ids;          ///< Inbound QoS 2 packet ids delivered but awaiting PUBREL.
     std::atomic_bool                        m_discardReadBuffer {false};  ///< Set by a takeover, honoured by the receive thread.
+    std::atomic_uint64_t                    m_droppedMessages {0};        ///< Dropped because the queue behind the window was full.
     PacketReader*                           m_packetReader {nullptr};     ///< Packet reader.
     MessageReader*                          m_messageReader {nullptr};    ///< Message reader.
     MessageWriter*                          m_messageWriter {nullptr};    ///< Message writer.

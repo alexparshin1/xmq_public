@@ -93,7 +93,17 @@
                         <xsd:simpleType>
                             <xsd:restriction base="xsd:int">
                                 <xsd:minExclusive value="1"/>
-                                <xsd:maxExclusive value="1024"/>
+                                <xsd:maxInclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <xsd:element name="max_bytes" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>Bytes a session may hold waiting for its client. Zero means no limit.</xsd:documentation>
+                        </xsd:annotation>
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minInclusive value="0"/>
                             </xsd:restriction>
                         </xsd:simpleType>
                     </xsd:element>

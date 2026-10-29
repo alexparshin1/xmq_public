@@ -32,6 +32,27 @@ MessageQueue::MessageQueue(const uint16_t maxInflightMessages, ForwardMessage fo
     }
 }
 
+namespace
+{
+/// What one queued publication costs, as the queue limit counts it: its payload and the topic it
+/// names. Not the object's size in memory - that is the allocator's business and differs between
+/// platforms - so that the same configuration means the same number of bytes everywhere.
+uint64_t messageBytes(const SMessageDispatch& messageDispatch)
+{
+    const auto publish = messageDispatch->getPublishMessage();
+    if (!publish)
+    {
+        return 0;
+    }
+    uint64_t bytes = publish->payload().size();
+    if (const auto* destination = publish->destination(); destination != nullptr)
+    {
+        bytes += destination->name().size();
+    }
+    return bytes;
+}
+} // namespace
+
 MessageQueue::~MessageQueue()
 {
     const scoped_lock lock(m_mutex);
@@ -56,6 +77,42 @@ size_t MessageQueue::waitingCount() const
 void MessageQueue::setMaxInflightMessages(const uint16_t maxInflightMessages)
 {
     m_maxInflightMessages = maxInflightMessages > 0 ? maxInflightMessages : 32768;
+}
+
+void MessageQueue::setQueueLimits(const uint32_t maxMessages, const uint64_t maxBytes)
+{
+    m_maxQueuedMessages = maxMessages;
+    m_maxQueuedBytes = maxBytes;
+}
+
+uint64_t MessageQueue::droppedMessages() const
+{
+    return m_droppedMessages.load(std::memory_order_relaxed);
+}
+
+bool MessageQueue::canAccept(const uint64_t bytes) const
+{
+    const scoped_lock lock(m_mutex);
+
+    // Room in the window: taken straight away, and it is not the queue's business to refuse it.
+    if (m_maxInflightMessages == 0 || m_inflightMessages.size() < m_maxInflightMessages)
+    {
+        return true;
+    }
+
+    if (const auto maxMessages = m_maxQueuedMessages.load(std::memory_order_relaxed);
+        maxMessages > 0 && waitingCount() >= maxMessages)
+    {
+        return false;
+    }
+
+    if (const auto maxBytes = m_maxQueuedBytes.load(std::memory_order_relaxed);
+        maxBytes > 0 && m_waitingBytes + bytes > maxBytes)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 MessageId MessageQueue::queueMessage(const SMessageDispatch& messageDispatch)
@@ -106,7 +163,21 @@ MessageId MessageQueue::queueMessageUnlocked(const SMessageDispatch& messageDisp
 
     if (m_maxInflightMessages > 0 && m_inflightMessages.size() >= m_maxInflightMessages)
     {
+        // The window is full, so this goes to the queue behind it - and the queue has a bound. The
+        // newest message is the one dropped: what is already queued has waited longest and is the
+        // closest to being delivered, and dropping it would make a slow client lose the oldest
+        // messages it never saw.
+        const auto bytes = messageBytes(messageDispatch);
+        if ((m_maxQueuedMessages.load(std::memory_order_relaxed) > 0 &&
+             waitingCount() >= m_maxQueuedMessages.load(std::memory_order_relaxed)) ||
+            (m_maxQueuedBytes.load(std::memory_order_relaxed) > 0 &&
+             m_waitingBytes + bytes > m_maxQueuedBytes.load(std::memory_order_relaxed)))
+        {
+            m_droppedMessages.fetch_add(1, std::memory_order_relaxed);
+            return 0;
+        }
         waitingMessages().push_back(messageDispatch);
+        m_waitingBytes += bytes;
         return messageId;
     }
 
@@ -141,6 +212,7 @@ MessageId MessageQueue::restoreMessageUnlocked(SMessageDispatch& messageDispatch
     // Captured before the move: reading through messageDispatch afterwards is undefined.
     const auto messageId = messageDispatch->m_deliveryId;
 
+    m_waitingBytes += messageBytes(messageDispatch);
     waitingMessages().push_back(std::move(messageDispatch));
 
     return messageId;
@@ -194,6 +266,7 @@ void MessageQueue::receiveAck(MessageId messageId, Message::Type ackType)
         auto& messageDispatch = m_waitingMessages->front();
         m_forwardMessage(messageDispatch);
 
+        m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
         const auto deliveryId = messageDispatch->m_deliveryId;
         m_inflightMessages.try_emplace(deliveryId, std::move(messageDispatch));
 
@@ -207,6 +280,7 @@ void MessageQueue::clear()
 
     m_inflightMessages.clear();
     m_waitingMessages.reset();
+    m_waitingBytes = 0;
 }
 
 void MessageQueue::rescheduleMessagesWaitingForAck()
@@ -248,6 +322,7 @@ void MessageQueue::sendWaitingMessages(const ForwardMessage& forwardMessage)
             break;
         }
         auto messageDispatch = std::move(m_waitingMessages->front());
+        m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
         m_waitingMessages->pop_front();
         forwardMessage(messageDispatch);
         m_inflightMessages[messageDispatch->m_deliveryId] = std::move(messageDispatch);
@@ -317,6 +392,13 @@ size_t MessageQueue::removeExpiredMessages(uint32_t& secondsUntilNextExpiration,
 
     if (m_waitingMessages)
     {
+        for (const auto& messageDispatch: *m_waitingMessages)
+        {
+            if (isExpired(messageDispatch))
+            {
+                m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
+            }
+        }
         erase_if(*m_waitingMessages, isExpired);
     }
 

@@ -21,8 +21,9 @@ export default class ServerLimitsScreen extends BasicScreen {
         delivery_threads: "auto",
         max_topic_alias: 128,
         max_packet_size: 256 * 1024 * 1024,
-        max_size: 50000,
-        max_inflight_messages: 32768
+        max_size: 16384,
+        max_inflight_messages: 1024,
+        max_bytes: 0
     };
 
     componentDidMount() {
@@ -38,7 +39,8 @@ export default class ServerLimitsScreen extends BasicScreen {
                     max_topic_alias: result.server_limits.max_topic_alias,
                     max_packet_size: result.server_limits.max_packet_size,
                     max_size: result.queue_limits.max_size,
-                    max_inflight_messages: result.queue_limits.max_inflight_messages
+                    max_inflight_messages: result.queue_limits.max_inflight_messages,
+                    max_bytes: result.queue_limits.max_bytes ?? 0
                 });
             });
     }
@@ -79,6 +81,8 @@ export default class ServerLimitsScreen extends BasicScreen {
                                   "server_limits.max_packet_size", "130px")}
                 {this.renderInput("Max inflight messages", "max_inflight_messages",
                                   "queue_limits.max_inflight_messages", "110px")}
+                {this.renderInput("Max queued bytes", "max_bytes",
+                                  "queue_limits.max_bytes", "130px")}
             </fieldset>
 
             <div className="inputScreenRow">
@@ -103,7 +107,8 @@ export default class ServerLimitsScreen extends BasicScreen {
                 },
                 queue_limits: {
                     max_size: parseInt(this.state.max_size),
-                    max_inflight_messages: parseInt(this.state.max_inflight_messages)
+                    max_inflight_messages: parseInt(this.state.max_inflight_messages),
+                    max_bytes: parseInt(this.state.max_bytes)
                 }
             }
         ).then(result => {
