@@ -234,3 +234,59 @@ TEST_F(XMQ_PersistenceTests, Session_Qos2MessagesRestoredAfterServerRestart)
 
     stopServers();
 }
+
+// A session restored at startup has never seen a CONNECT in this process. When it takes over the
+// connection that carries one, it has to remember that. Without the flag, every packet the client
+// sends next was discarded as arriving before CONNECT: the PUBACK for the message restored from
+// Redis, a SUBSCRIBE, the DISCONNECT. The acknowledged message stayed in Redis and was delivered
+// again after the next restart, and a client's new subscription was silently ignored.
+TEST_F(XMQ_PersistenceTests, Session_TakeoverAfterRestartProcessesWhatFollowsTheConnect)
+{
+    stopServers();
+    auto server = createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, true);
+
+    const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
+    const String queuedPayload("queued before the restart");
+    const String afterPayload("published after the takeover");
+    const string secondTopic = topicName + "_after";
+
+    createOfflineSession(subscriberClientId, {topicName});
+    publishOneMessagePerTopic(publisherClientId, {topicName});
+    server = restartServer();
+
+    Semaphore queuedDelivered;
+    Semaphore afterDelivered;
+
+    const auto subscriber = connectClient(subscriberClientId, false,
+                                          [&queuedDelivered, &afterDelivered, &afterPayload](const SPublishMessage& message)
+                                          {
+                                              if (string(message->payload()) == string(afterPayload))
+                                              {
+                                                  afterDelivered.post();
+                                              }
+                                              else
+                                              {
+                                                  queuedDelivered.post();
+                                              }
+                                          });
+
+    ASSERT_TRUE(queuedDelivered.wait_for(1000ms))
+        << "The message queued before the restart was not delivered";
+
+    // The PUBACK for that delivery has to reach the session. If it does not, the record stays in
+    // Redis and the message is delivered again after the next restart.
+    this_thread::sleep_for(500ms);
+    expectSessionInRedis(server->getRedisStorage()->getRedis(), subscriberClientId, 0);
+
+    // And a SUBSCRIBE sent after the CONNECT has to be processed, not discarded.
+    subscriber->subscribe(secondTopic);
+    const auto publisher = connectClient(publisherClientId, false);
+    publisher->publish(secondTopic, afterPayload.c_str(), Qos::Qos1);
+
+    EXPECT_TRUE(afterDelivered.wait_for(1000ms))
+        << "A SUBSCRIBE sent after the takeover was discarded";
+
+    publisher->disconnect();
+    subscriber->disconnect();
+    stopServers();
+}

@@ -1038,6 +1038,14 @@ SClientSession Server::takeOverExistingClientSession(const SClientSession& newSe
     existingSession->setConnection(connection, *getGenericProtocols());
     newSession->clearConnection();
 
+    // The CONNECT this connection carried has been processed, and the session that takes the
+    // socket over has to know it. A session restored at startup has never seen one in this
+    // process, so without this flag every packet the client sends next - the PUBACK for a
+    // message restored from Redis, a SUBSCRIBE, the DISCONNECT - was discarded as arriving
+    // before CONNECT. The acknowledged message then stayed in Redis and was delivered again
+    // after the next restart.
+    existingSession->setConnectMessageReceived(newSession->connectMessageReceived());
+
     return existingSession;
 }
 
