@@ -2,14 +2,6 @@
 # inspect_package.py prints them (no leading slash). A path missing from a new package is deleted on
 # upgrade, so each line here is a decision, not a convenience. Cleared at every release.
 
-# 1.0.1: SPTK is installed into the prefix's lib instead of a private lib/xmq-sptk.
-usr/local/lib/xmq-sptk/libspdb5.so.5.6.15
-usr/local/lib/xmq-sptk/libspdb5_mysql.so.5.6.15
-usr/local/lib/xmq-sptk/libspdb5_postgresql.so.5.6.15
-usr/local/lib/xmq-sptk/libspdb5_sqlite3.so.5.6.15
-usr/local/lib/xmq-sptk/libsputil5.so.5.6.15
-usr/local/lib/xmq-sptk/libspwsdl5.so.5.6.15
-
 # RPM build-ID links are intentionally omitted since 0.9.20 to avoid conflicts
 # between bundled SPTK libraries and standalone SPTK packages. These are the
 # exact links present in the previous RPM releases on EL9 and EL10.
