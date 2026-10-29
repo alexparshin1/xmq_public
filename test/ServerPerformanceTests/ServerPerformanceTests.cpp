@@ -200,6 +200,15 @@ double XMQ_ServerPerformanceTests::testSharedSubscriptionScaling(const uint16_t 
     constexpr auto qos = Qos::Qos1;
     const auto     totalSendMessageCount = messageCount * TestSenderCount;
 
+    // A throughput measurement: the publishers offer their messages as fast as they can, and with
+    // one subscriber the per-session queue bound from 1.0.1 would drop most of a burst like that.
+    // The bound has tests of its own; this one is about how delivery scales with subscribers.
+    if (const auto s = server(); s)
+    {
+        s->getSettings()->m_queue_limits.m_max_size = 0;
+        s->getSettings()->m_queue_limits.m_max_bytes = 0;
+    }
+
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
     const auto sharedTopicName = "$share/group1/" + topicName;
 
