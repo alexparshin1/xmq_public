@@ -165,15 +165,6 @@ public:
 
     void                   setConnectMessageReceived(bool received);
     [[nodiscard]] bool     connectMessageReceived() const;
-
-    /// When the CONNECT arrived, when its completion was queued, and when a completion thread
-    /// started on it. Microseconds from steady_clock; zero means the stage was not taken.
-    void               setConnectReceivedAt(int64_t us);
-    void               setConnectQueuedAt(int64_t us);
-    void               setConnectStartedAt(int64_t us);
-    [[nodiscard]] int64_t connectReceivedAt() const;
-    [[nodiscard]] int64_t connectQueuedAt() const;
-    [[nodiscard]] int64_t connectStartedAt() const;
     [[nodiscard]] uint32_t getSubscriptionId(const SubscribeMessage* subscriptionMessage) const;
 
     /**
@@ -320,9 +311,6 @@ private:
     AtomicSharedPtr<LastWillInfo>             m_lastWill;
     AtomicSharedPtr<IMessageProperties>        m_connectProperties;
     std::atomic_bool          m_connectMessageReceived {false}; ///< Flag indicating that session received the first Connect message.
-    std::atomic_int64_t       m_connectReceivedAt {0};          ///< See setConnectReceivedAt().
-    std::atomic_int64_t       m_connectQueuedAt {0};
-    std::atomic_int64_t       m_connectStartedAt {0};
     SubscriptionMap           m_subscribedTo;                   ///< The subscriptions of this session.
     const std::string*        m_nodeName {nullptr};             ///< Node name, in the shared table.
 };

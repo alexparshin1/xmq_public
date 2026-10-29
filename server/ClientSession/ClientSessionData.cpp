@@ -160,36 +160,6 @@ bool ClientSessionData::connectMessageReceived() const
     return m_connectMessageReceived;
 }
 
-void ClientSessionData::setConnectReceivedAt(const int64_t us)
-{
-    m_connectReceivedAt.store(us, std::memory_order_relaxed);
-}
-
-void ClientSessionData::setConnectQueuedAt(const int64_t us)
-{
-    m_connectQueuedAt.store(us, std::memory_order_relaxed);
-}
-
-void ClientSessionData::setConnectStartedAt(const int64_t us)
-{
-    m_connectStartedAt.store(us, std::memory_order_relaxed);
-}
-
-int64_t ClientSessionData::connectReceivedAt() const
-{
-    return m_connectReceivedAt.load(std::memory_order_relaxed);
-}
-
-int64_t ClientSessionData::connectQueuedAt() const
-{
-    return m_connectQueuedAt.load(std::memory_order_relaxed);
-}
-
-int64_t ClientSessionData::connectStartedAt() const
-{
-    return m_connectStartedAt.load(std::memory_order_relaxed);
-}
-
 uint32_t ClientSessionData::getSubscriptionId(const SubscribeMessage* subscriptionMessage) const
 {
     uint32_t subscriptionId = 0;
