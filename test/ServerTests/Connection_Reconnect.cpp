@@ -581,13 +581,27 @@ void expectDeliveryAfterUnsubscribeAndOverlappingReconnect(const ProtocolVersion
 // reproducer used; the suite keeps them, because the tests run in under a second each.
 void churnReconnects(const size_t cycles, const bool cleanSession, const bool concurrentDrop,
                      const bool withSubscriptions = false, const bool withPublish = false,
-                     size_t* lostCount = nullptr, size_t* lateCount = nullptr)
+                     size_t* lostCount = nullptr, size_t* lateCount = nullptr, string* lossReport = nullptr)
 {
+    const auto report = [lossReport](const string& text)
+    {
+        if (lossReport)
+        {
+            *lossReport = text;
+        }
+    };
     const string clientId = format("churn-{}-{}-{}{}", cleanSession ? "clean" : "persistent",
                                    concurrentDrop ? "concurrent" : "sequential",
                                    withSubscriptions ? "sub" : "nosub", withPublish ? "-pub" : "");
     const string topicName = "churn/" + clientId;
     const auto   destination = Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(Qos::Qos1));
+
+    // Captured when a publish goes missing and reported with the result: the state of the session at
+    // the moment the message did not arrive is what says whether it was dropped by the broker or the
+    // connection was already gone, and the close site says what removed it. On the run that failed
+    // on FreeBSD the client threw "Not connected" on the next cycle, so the connection had gone; the
+    // report is what turns that into a site.
+    string lossState;
 
     Semaphore                    received;
     const PublishMessageCallback onMessage =
@@ -650,11 +664,15 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
                     if (lateCount)
                     {
                         ++*lateCount;
+                        lossState += " [cycle " + to_string(cycle) + ", late]" + brokerStateFor(clientId, topicName);
+                        report(lossState);
                     }
                 }
                 else if (lostCount)
                 {
                     ++*lostCount;
+                    lossState += " [cycle " + to_string(cycle) + "]" + brokerStateFor(clientId, topicName);
+                    report(lossState);
                 }
             }
             publisher->disconnect();
@@ -725,11 +743,23 @@ TEST_F(XMQ_ReconnectTests, Churn_Persistent_Concurrent_Subs_Publish)
 {
     size_t lost = 0;
     size_t late = 0;
-    churnReconnects(200, false, true, true, true, &lost, &late);
+    string report;
+    try
+    {
+        churnReconnects(200, false, true, true, true, &lost, &late, &report);
+    }
+    catch (const Exception& e)
+    {
+        // The throw that follows a lost publish is the next cycle's UNSUBSCRIBE going out on a
+        // connection that is already gone; the report says what the session looked like when the
+        // publish went missing.
+        FAIL() << "Threw: " << e.what() << report;
+    }
 
-    EXPECT_EQ(0U, lost) << lost << " of 200 publishes were never delivered";
+    EXPECT_EQ(0U, lost) << lost << " of 200 publishes were never delivered" << report;
     EXPECT_EQ(0U, late) << late << " of 200 publishes arrived only after the 2s window, so they were"
-                           " delayed rather than lost";
+                           " delayed rather than lost"
+                        << report;
 }
 
 TEST_F(XMQ_ReconnectTests, Delivery_AfterBridgeRebuild_Mqtt5)
