@@ -1075,6 +1075,73 @@ SMessageProperties connectAckProperties(const Settings& settings)
 
 } // namespace
 
+namespace {
+
+/// The CONNECT path, told apart stage by stage. A returning broker has to onboard a hundred
+/// thousand sessions, and "it takes forty seconds" does not say whether the time is spent waiting
+/// for Redis, waiting in the completion queue, or working.
+atomic_uint64_t g_connectCompleted {0};
+atomic_uint64_t g_connectLookupUs {0};
+atomic_uint64_t g_connectQueueUs {0};
+atomic_uint64_t g_connectWorkUs {0};
+atomic_uint64_t g_connectTotalUs {0};
+atomic_uint64_t g_connectMaxTotalUs {0};
+
+int64_t connectNowUs()
+{
+    return chrono::duration_cast<chrono::microseconds>(
+               chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void recordConnectCompleted(const SClientSession& session, Server& server, const int64_t endUs)
+{
+    const auto received = session->connectReceivedAt();
+    const auto queued = session->connectQueuedAt();
+    const auto started = session->connectStartedAt();
+    if (received == 0 || queued == 0 || started == 0)
+    {
+        return;
+    }
+
+    const auto lookup = max<int64_t>(0, queued - received);
+    const auto queue = max<int64_t>(0, started - queued);
+    const auto work = max<int64_t>(0, endUs - started);
+    const auto total = max<int64_t>(0, endUs - received);
+
+    const auto count = g_connectCompleted.fetch_add(1, memory_order_relaxed) + 1;
+    g_connectLookupUs.fetch_add(static_cast<uint64_t>(lookup), memory_order_relaxed);
+    g_connectQueueUs.fetch_add(static_cast<uint64_t>(queue), memory_order_relaxed);
+    g_connectWorkUs.fetch_add(static_cast<uint64_t>(work), memory_order_relaxed);
+    g_connectTotalUs.fetch_add(static_cast<uint64_t>(total), memory_order_relaxed);
+
+    auto currentMax = g_connectMaxTotalUs.load(memory_order_relaxed);
+    while (static_cast<uint64_t>(total) > currentMax &&
+           !g_connectMaxTotalUs.compare_exchange_weak(currentMax, static_cast<uint64_t>(total),
+                                                      memory_order_relaxed))
+    {
+    }
+
+    if (count % 5000 == 0)
+    {
+        server.logMessage(LogSubject::ServerEvents, LogPriority::Info,
+                          [count]
+                          {
+                              const auto n = count;
+                              return format("CONNECT path: {} done, avg lookup {} us, queue {} us, "
+                                            "work {} us, total {} us; max total {} us",
+                                            n,
+                                            g_connectLookupUs.load(memory_order_relaxed) / n,
+                                            g_connectQueueUs.load(memory_order_relaxed) / n,
+                                            g_connectWorkUs.load(memory_order_relaxed) / n,
+                                            g_connectTotalUs.load(memory_order_relaxed) / n,
+                                            g_connectMaxTotalUs.load(memory_order_relaxed));
+                          });
+    }
+}
+
+} // namespace
+
 Buffer Server::sendConnectAckMessage(const SConnectMessage& connectMessage, ReasonCode reasonCode, const SClientSession& existingClientSession, const SClientSession& clientSession) const
 {
     const auto& protocol = clientSession->protocol();
@@ -1110,6 +1177,8 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
                {
                    return "Received: " + connectMessage->toString() + ".";
                });
+
+    newClientSession->setConnectReceivedAt(connectNowUs());
 
     const auto socket = newClientSession->getSocket();
     socket->setOption(IPPROTO_TCP, TCP_NODELAY, 1);
@@ -1204,8 +1273,10 @@ void Server::lookUpSessionThen(const SClientSession& newClientSession, const SCo
         !refused && cluster && cluster->coordinator() && cluster->coordinator()->isParticipating() &&
         connectMessage->getUsername() != "cluster" && !newClientSession->isClaimedForCluster())
     {
+        newClientSession->setConnectQueuedAt(connectNowUs());
         runConnectCompletion([this, cluster, newClientSession, connectMessage, decision]
                              {
+                                 newClientSession->setConnectStartedAt(connectNowUs());
                                  newClientSession->setClaimedForCluster();
                                  if (!cluster->claimSession(connectMessage->getParameters()->getClientId()))
                                  {
@@ -1237,8 +1308,10 @@ void Server::lookUpSessionThen(const SClientSession& newClientSession, const SCo
                                             {
                                                 // On the Redis connection's reader thread, which
                                                 // every reply waits behind: hand the work over.
+                                                newClientSession->setConnectQueuedAt(connectNowUs());
                                                 runConnectCompletion([this, newClientSession, connectMessage, decision, record]
                                                                      {
+                                                                         newClientSession->setConnectStartedAt(connectNowUs());
                                                                          newClientSession->setPrefetchedSession(record);
                                                                          completePendingConnect(newClientSession, connectMessage, decision);
                                                                      });
@@ -1531,6 +1604,8 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
 
     m_extensions.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, clientId, clientSession->getUsername(), {}, 0, 0,
                               false, {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
+
+    recordConnectCompleted(newClientSession, *this, connectNowUs());
 
     // Which session came out of this, for a caller that has more to do with it. A takeover keeps
     // the existing session and discards newClientSession, and the comment above that swap says
