@@ -18,7 +18,9 @@
 #include "base/AckMessage.h"
 #include "base/ProtocolException.h"
 #include "common/DisconnectMessage.h"
+#include "common/SocketFactory.h"
 #include "common/mqtt/PublishMessage.h"
+#include "client/ReconnectScheduler.h"
 #include <random>
 #include <utility>
 
@@ -63,18 +65,10 @@ MqttClient::MqttClient(const std::shared_ptr<LogEngine>& logEngine,
 
 void MqttClient::stopReconnectWorker()
 {
-    if (!m_reconnectWorker.joinable())
-    {
-        return;
-    }
-    if (m_reconnectWorker.get_id() == this_thread::get_id())
-    {
-        m_reconnectWorker.detach();
-        return;
-    }
+    // The attempts live in the shared scheduler now: there is no thread of this client's to join.
+    // Setting the flag makes every queued callback return without touching the client; anything
+    // already inside one is counted by the message callback state, which the destructor waits for.
     m_stopReconnect = true;
-    m_reconnectWorker.join();
-    m_stopReconnect = false;
 }
 
 namespace {
@@ -127,7 +121,8 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
                                        ProtocolVersion            protocolVersion,
                                        const SMessageProperties&  messageProperties,
                                        const shared_ptr<SSLKeys>& sslKeys,
-                                       const MessageCallback&     onConnectCompleted)
+                                       const MessageCallback&     onConnectCompleted,
+                                       const shared_ptr<TCPSocket>& preconnected)
 {
     if (isConnected())
     {
@@ -192,7 +187,7 @@ ReasonCode MqttClient::connectInternal(const Host&                host,
     {
         result = session->connect(host, credentials, protocolVersion,
                                   connectParameters, messageProperties, sslKeys,
-                                  onConnectCompleted);
+                                  onConnectCompleted, preconnected);
         m_publishReceiveCount = 0;
         m_publishSentCount = 0;
     }
@@ -365,7 +360,7 @@ void MqttClient::onUnexpectedDisconnect(const SMessage& message)
 
 void MqttClient::startReconnect()
 {
-    // One attempt at a time: a worker that is already trying is doing this job, and starting another
+    // One attempt at a time: a chain that is already running is doing this job, and starting another
     // on top of it - from the disconnection the first one causes, most of all - would have the two
     // race for the session.
     if (m_reconnecting.exchange(true))
@@ -373,7 +368,7 @@ void MqttClient::startReconnect()
         return;
     }
 
-    std::shared_ptr<const CConnectArguments> arguments;
+    shared_ptr<const CConnectArguments> arguments;
     {
         const unique_lock lock(m_connectArgumentsMutex);
         arguments = m_connectArguments;
@@ -384,68 +379,96 @@ void MqttClient::startReconnect()
         return;
     }
 
-    stopReconnectWorker();
-    m_reconnectWorker = std::thread(
-        [this, callbackState = m_messageCallbackState, arguments]
+    m_stopReconnect = false;
+
+    auto plan = make_shared<ReconnectPlan>();
+    plan->m_arguments = arguments;
+    plan->m_attempt = 0;
+    plan->m_interval = arguments->m_parameters.m_reconnectInterval;
+    plan->m_seed = static_cast<uint64_t>(m_clientIndex) + 1;
+    scheduleReconnectAttempt(plan);
+}
+
+void MqttClient::scheduleReconnectAttempt(const shared_ptr<ReconnectPlan>& plan)
+{
+    const auto callbackState = m_messageCallbackState;
+    const auto& parameters = plan->m_arguments->m_parameters;
+
+    if (m_stopReconnect.load() || callbackState->closing.load() ||
+        plan->m_attempt >= parameters.m_reconnectAttempts)
+    {
+        m_reconnecting.store(false);
+        return;
+    }
+
+    // The waiting grows and is scattered; see ConnectParameters. The scatter is drawn per client,
+    // from its own index and the attempt number, so that two clients of a run never share a moment
+    // - which is what keeps a returning node from being reached by every one of them at once.
+    mt19937_64                       random(plan->m_seed + static_cast<uint64_t>(plan->m_attempt));
+    uniform_real_distribution<double> scatter(1.0 - parameters.m_reconnectJitter,
+                                              1.0 + parameters.m_reconnectJitter);
+    const auto wait = chrono::milliseconds(static_cast<int64_t>(
+        static_cast<double>(plan->m_interval.count()) * scatter(random)));
+
+    const auto host = parameters.m_reconnectDestination ? parameters.m_reconnectDestination()
+                                                        : plan->m_arguments->m_host;
+
+    auto next = make_shared<ReconnectPlan>(*plan);
+    ++next->m_attempt;
+    next->m_interval = chrono::milliseconds(static_cast<int64_t>(min(
+        static_cast<double>(plan->m_interval.count()) * parameters.m_reconnectBackoff,
+        static_cast<double>(parameters.m_reconnectMaxInterval.count()))));
+
+    ReconnectScheduler::instance().schedule(
+        wait, host, m_bindAddress.data(),
+        // Established on a scheduler worker: with TLS the handshake happens here, in attach(),
+        // and then the ordinary CONNECT/CONNACK path runs on this thread.
+        [this, callbackState, next, host](SocketType fd)
         {
-            // The waiting grows and is scattered; see ConnectParameters. The scatter is drawn per
-            // client, from its own index, so that two clients of a run never share a moment - which
-            // is what keeps a returning node from being reached by every one of them at once.
-            mt19937_64 random(static_cast<uint64_t>(m_clientIndex) + 1);
-            uniform_real_distribution<double> scatter(1.0 - arguments->m_parameters.m_reconnectJitter,
-                                                      1.0 + arguments->m_parameters.m_reconnectJitter);
-            const auto maxInterval = chrono::milliseconds(arguments->m_parameters.m_reconnectMaxInterval);
-            auto       interval = chrono::milliseconds(arguments->m_parameters.m_reconnectInterval);
-
-            for (int attempt = 0; attempt < arguments->m_parameters.m_reconnectAttempts; ++attempt)
+            CallbackGuard guard(*callbackState);
+            if (guard.clientGone() || m_stopReconnect.load())
             {
-                const auto wait = chrono::milliseconds(static_cast<int64_t>(
-                    static_cast<double>(interval.count()) * scatter(random)));
-
-                // Waiting in small steps: an interval is a lifetime of its own, and a client being
-                // destroyed should not be held up by one - the flag that guards the callbacks ends
-                // the waiting too.
-                for (int64_t waited = 0; waited < wait.count(); waited += 200)
-                {
-                    if (m_stopReconnect.load() || callbackState->closing.load())
-                    {
-                        m_reconnecting.store(false);
-                        return;
-                    }
-                    this_thread::sleep_for(200ms);
-                }
-
-                const auto host = arguments->m_parameters.m_reconnectDestination
-                                      ? arguments->m_parameters.m_reconnectDestination()
-                                      : arguments->m_host;
-                try
-                {
-                    if (connectInternal(host, arguments->m_credentials, arguments->m_parameters,
-                                        arguments->m_protocolVersion, arguments->m_messageProperties,
-                                        arguments->m_sslKeys, nullptr) == ReasonCode::Success)
-                    {
-                        m_reconnecting.store(false);
-                        const auto callback = m_onReconnect.load();
-                        if (callback && *callback && !callbackState->closing.load())
-                        {
-                            (*callback)();
-                        }
-                        return;
-                    }
-                }
-                catch (const std::exception&)
-                {
-                    // An attempt that failed is not the end of it: the next one follows after the
-                    // interval. What the caller learns is a reconnect, or the absence of one.
-                }
-
-                // And the next interval is longer than this one, up to the ceiling: a server that is
-                // down for a while should not be asked every two seconds by every client there is.
-                const auto grown = static_cast<double>(interval.count()) * arguments->m_parameters.m_reconnectBackoff;
-                interval = chrono::milliseconds(static_cast<int64_t>(
-                    min(grown, static_cast<double>(maxInterval.count()))));
+                // Nobody wants this connection any more. attach() below would take ownership;
+                // without it, close the descriptor here.
+                return;
             }
-            m_reconnecting.store(false);
+
+            const auto& arguments = *next->m_arguments;
+            try
+            {
+                auto socket = SocketFactory::createSocket(arguments.m_sslKeys);
+                socket->attach(fd, false);
+                socket->blockingMode(false);
+
+                if (connectInternal(host, arguments.m_credentials, arguments.m_parameters,
+                                    arguments.m_protocolVersion, arguments.m_messageProperties,
+                                    arguments.m_sslKeys, nullptr, socket) == ReasonCode::Success)
+                {
+                    m_reconnecting.store(false);
+                    const auto callback = m_onReconnect.load();
+                    if (callback && *callback && !callbackState->closing.load())
+                    {
+                        (*callback)();
+                    }
+                    return;
+                }
+            }
+            catch (const std::exception&)
+            {
+                // An attempt that failed is not the end of it: the next one follows after the
+                // interval. What the caller learns is a reconnect, or the absence of one.
+            }
+
+            scheduleReconnectAttempt(next);
+        },
+        [this, callbackState, next]()
+        {
+            CallbackGuard guard(*callbackState);
+            if (guard.clientGone() || m_stopReconnect.load())
+            {
+                return;
+            }
+            scheduleReconnectAttempt(next);
         });
 }
 

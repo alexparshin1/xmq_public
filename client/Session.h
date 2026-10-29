@@ -146,7 +146,8 @@ public:
      */
     ReasonCode connect(const sptk::Host& host, const ConnectCredentials& credentials, ProtocolVersion protocolVersion,
                        const ConnectParameters& connectParameters, const SMessageProperties& connectMessageProperties,
-                       const std::shared_ptr<sptk::SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted);
+                       const std::shared_ptr<sptk::SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted,
+                       const std::shared_ptr<sptk::TCPSocket>& preconnected = {});
 
     /**
      * @brief Returns true if the clean session flag is set.
@@ -320,7 +321,9 @@ private:
      * @param connectMessageProperties Connect message properties.
      * @param sslKeys           SSL keys.
      */
-    void       sendConnect(const sptk::Host& host, const ConnectCredentials& credentials, ProtocolVersion protocolVersion, const ConnectParameters& connectParameters, const SMessageProperties& connectMessageProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys);
+    void       sendConnect(const sptk::Host& host, const ConnectCredentials& credentials, ProtocolVersion protocolVersion,
+                           const ConnectParameters& connectParameters, const SMessageProperties& connectMessageProperties,
+                           const std::shared_ptr<sptk::SSLKeys>& sslKeys, const std::shared_ptr<sptk::TCPSocket>& preconnected = {});
     ReasonCode receiveConnect();
 
     /**
@@ -405,7 +408,8 @@ private:
     ReasonCode doConnect(const sptk::Host& host, const ConnectCredentials& credentials,
                          ProtocolVersion protocolVersion, const ConnectParameters& connectParameters,
                          const SMessageProperties&             connectMessageProperties,
-                         const std::shared_ptr<sptk::SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted);
+                         const std::shared_ptr<sptk::SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted,
+                         const std::shared_ptr<sptk::TCPSocket>& preconnected = {});
 };
 
 using SSession = std::shared_ptr<Session>;

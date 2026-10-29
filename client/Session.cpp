@@ -111,7 +111,8 @@ Session::~Session()
 
 ReasonCode Session::connect(const Host& host, const ConnectCredentials& credentials, const ProtocolVersion protocolVersion,
                             const ConnectParameters& connectParameters, const SMessageProperties& connectMessageProperties,
-                            const shared_ptr<SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted)
+                            const shared_ptr<SSLKeys>& sslKeys, const MessageCallback& onConnectCompleted,
+                            const shared_ptr<TCPSocket>& preconnected)
 {
     {
         const unique_lock lock(m_mutex);
@@ -135,7 +136,7 @@ ReasonCode Session::connect(const Host& host, const ConnectCredentials& credenti
     try
     {
         reasonCode = doConnect(host, credentials, protocolVersion, connectParameters,
-                               connectMessageProperties, sslKeys, onConnectCompleted);
+                               connectMessageProperties, sslKeys, onConnectCompleted, preconnected);
     }
     catch (...)
     {
@@ -155,19 +156,32 @@ ReasonCode Session::connect(const Host& host, const ConnectCredentials& credenti
 
 void Session::sendConnect(const Host& host, const ConnectCredentials& credentials,
                           const ProtocolVersion protocolVersion, const ConnectParameters& connectParameters,
-                          const SMessageProperties& connectMessageProperties, const shared_ptr<SSLKeys>& sslKeys)
+                          const SMessageProperties& connectMessageProperties, const shared_ptr<SSLKeys>& sslKeys,
+                          const shared_ptr<TCPSocket>& preconnected)
 {
     const unique_lock lock(m_mutex);
 
     m_protocolVersion = protocolVersion;
     m_isHangup = false;
 
-    const auto socket = SocketFactory::createSocket(sslKeys);
+    shared_ptr<TCPSocket> socket;
+    if (preconnected)
+    {
+        // The reconnect scheduler has already established the TCP connection (and, for TLS,
+        // completed the handshake). Opening it again would repeat that work, and the scheduler is
+        // the only reason this path exists.
+        socket = preconnected;
+        socket->blockingMode(false);
+    }
+    else
+    {
+        socket = SocketFactory::createSocket(sslKeys);
 
-    Latency::SNAP_LATENCY(connectMessageProperties, LatencyPhase::ServerWireOut);
+        Latency::SNAP_LATENCY(connectMessageProperties, LatencyPhase::ServerWireOut);
 
-    socket->open(host, Socket::OpenMode::CONNECT, false,
-                 connectParameters.m_connectTimeout, m_bindAddress.data());
+        socket->open(host, Socket::OpenMode::CONNECT, false,
+                     connectParameters.m_connectTimeout, m_bindAddress.data());
+    }
 
     const auto clientConnectedTs = LatencyTrace::now();
 
@@ -325,7 +339,7 @@ void Session::applyServerReceiveMaximum(const SMessage& connectAck)
 ReasonCode Session::doConnect(const Host& host, const ConnectCredentials& credentials,
                               const ProtocolVersion protocolVersion, const ConnectParameters& connectParameters,
                               const SMessageProperties& connectMessageProperties, const shared_ptr<SSLKeys>& sslKeys,
-                              const MessageCallback& onConnectCompleted)
+                              const MessageCallback& onConnectCompleted, const shared_ptr<TCPSocket>& preconnected)
 {
     {
         // Set before CONNECT goes on the wire: once monitoring starts, the receiving thread
@@ -334,7 +348,7 @@ ReasonCode Session::doConnect(const Host& host, const ConnectCredentials& creden
         m_onConnectCompleted = onConnectCompleted;
     }
 
-    sendConnect(host, credentials, protocolVersion, connectParameters, connectMessageProperties, sslKeys);
+    sendConnect(host, credentials, protocolVersion, connectParameters, connectMessageProperties, sslKeys, preconnected);
 
     if (onConnectCompleted != nullptr)
     {

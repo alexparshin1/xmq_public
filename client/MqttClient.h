@@ -357,9 +357,21 @@ private:
     mutable std::mutex                       m_connectArgumentsMutex;
     std::shared_ptr<const CConnectArguments> m_connectArguments;
 
-    // std::thread and a flag rather than std::jthread: FreeBSD's libc++ has no jthread.
-    std::thread      m_reconnectWorker;           ///< Bringing the client back, when it was asked to come back.
-    std::atomic_bool m_stopReconnect {false};     ///< Asks the worker to stop waiting.
+    /// One reconnect chain: which attempt, how long to wait before it, and the arguments of the
+    /// connection. Carried by value through the scheduler's callbacks, so the next attempt cannot
+    /// see a half-updated interval from a previous one.
+    struct ReconnectPlan
+    {
+        std::shared_ptr<const CConnectArguments> m_arguments;
+        int                                      m_attempt {0};
+        std::chrono::milliseconds                m_interval {0};
+        uint64_t                                 m_seed {0};
+    };
+
+    std::atomic_bool m_stopReconnect {false};     ///< Asks the reconnect chain to stop.
+
+    /// Queue the next attempt: wait, connect through the shared scheduler, and try again on failure.
+    void scheduleReconnectAttempt(const std::shared_ptr<ReconnectPlan>& plan);
 
     /// Stop the reconnect worker and wait for it - unless this is the worker, which then just lets go.
     void stopReconnectWorker();
@@ -381,7 +393,8 @@ private:
                                ProtocolVersion                       protocolVersion,
                                const SMessageProperties&             messageProperties,
                                const std::shared_ptr<sptk::SSLKeys>& sslKeys,
-                               const MessageCallback&                onConnectCompleted);
+                               const MessageCallback&                onConnectCompleted,
+                               const std::shared_ptr<sptk::TCPSocket>& preconnected = {});
 
     /**
      * @return copy of the session shared pointer.
