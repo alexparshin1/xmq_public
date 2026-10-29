@@ -1,0 +1,46 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ 1.0.1: a bug-fix release
+  Date:  2026-10-29 (the date of the release - change it if the release moves)
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ 1.0.1 is a bug-fix release: no new features, five fixes that matter to anyone running a
+    broker. You can download it <a href='/downloads'>here</a>.
+</p>
+
+<ul>
+    <li>
+        <b>A subscriber that stops reading can no longer take the broker's memory with it.</b>
+        <code>queue_limits</code> is enforced now - messages, bytes and the in-flight window - where
+        before <code>max_size</code> was read and ignored, which is the fix for the fan-out that
+        took two Windows nodes to 16-17&nbsp;GB and stopped both brokers.
+    </li>
+    <li>
+        <b>A session restored after a restart accepts what follows its CONNECT.</b> PUBACKs,
+        SUBSCRIBEs and DISCONNECTs are processed instead of being discarded as arriving before
+        CONNECT, so an acknowledged message is not delivered again after the next restart and a new
+        subscription is not silently lost.
+    </li>
+    <li>
+        <b>A configuration edit can no longer leave a broker that will not start.</b> The file is
+        validated before it is loaded and before it is saved, written through a temporary file and
+        renamed, and a file that is still broken falls back to the last configuration that worked.
+    </li>
+    <li>
+        <b><code>xmq_server --set-password</code> returns instead of aborting or hanging.</b> It
+        printed its result while holding a console lock it had already taken, which is the deadlock
+        behind the symptom.
+    </li>
+    <li>
+        <b>Restoring persistent sessions at startup is about thirty times faster.</b> Sixty thousand
+        sessions now come back in 1.1&nbsp;s instead of 31.7&nbsp;s, because the per-session Redis
+        reads are batched and pipelined rather than waited for one at a time.
+    </li>
+</ul>
