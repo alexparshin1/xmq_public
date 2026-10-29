@@ -68,6 +68,15 @@ void XMQ_ServerPerformanceTests::testPublishPerformance(const string& serverName
     constexpr auto allowLostMessages = 0;
     const auto     totalSendMessageCount = messageCount * TestSenderCount;
 
+    // The publishers offer messageCount * TestSenderCount messages as fast as they can, to one
+    // subscriber. This is a throughput measurement; the per-session queue bound added in 1.0.1
+    // would drop most of a burst it was not written for, and the bound has tests of its own.
+    if (const auto s = server(); s)
+    {
+        s->getSettings()->m_queue_limits.m_max_size = 0;
+        s->getSettings()->m_queue_limits.m_max_bytes = 0;
+    }
+
     const auto [publisherClientId, subscriberClientId, topicName] = makeTestNames();
     const auto finalTopicName = useSharedQueue ? "$share/group1/" + topicName : topicName;
 
