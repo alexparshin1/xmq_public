@@ -334,7 +334,7 @@ ENDIF ()
 # Exactly this SPTK release, and no other. SPTK's soname carries its whole version, so the binaries
 # built here name these libraries and load nothing else. Changing it is part of moving XMQ to a new
 # SPTK, together with the CHANGELOG's "Requires SPTK" line.
-SET(XMQ_SPTK_VERSION "5.6.16")
+SET(XMQ_SPTK_VERSION "5.6.17")
 FIND_PACKAGE(SPTK ${XMQ_SPTK_VERSION} EXACT QUIET)
 IF (NOT SPTK_FOUND AND SPTK_NOT_FOUND_REASON)
     MESSAGE(FATAL_ERROR "SPTK library:       ${SPTK_NOT_FOUND_REASON}")
