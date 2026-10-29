@@ -17,7 +17,7 @@
 
 <ul>
     <li>
-        <b>A subscriber that stops reading can no longer take the broker's memory with it.</b>
+        <b>Enforced subscriber queues limitations.</b>
         <code>queue_limits</code> is enforced now - messages, bytes and the in-flight window - where
         before <code>max_size</code> was read and ignored, which is the fix for the fan-out that
         took two Windows nodes to 16-17&nbsp;GB and stopped both brokers.
@@ -30,7 +30,7 @@
     </li>
     <li>
         <b>A configuration edit can no longer leave a broker that will not start.</b> The file is
-        validated before it is loaded and before it is saved, written through a temporary file and
+        validated before upon load and before save, written through a temporary file and
         renamed, and a file that is still broken falls back to the last configuration that worked.
     </li>
     <li>
