@@ -49,6 +49,17 @@ Requires SPTK 5.6.16.
 - **Configuration and accounts files are written through a temporary file and renamed.** A crash
   in the middle of a save leaves the previous file intact rather than a truncated one, which is
   what a broker and the interface could no longer read.
+- **A reconnecting load client no longer needs a thread per client.** `xmq_scn` used to start a
+  `std::thread` for every client that lost its connection, sleeping in 200 ms steps between
+  attempts; 120,000 persistent sessions coming back after a broker restart meant 120,000 threads
+  and 600,000 wake-ups a second, and the client died with `Resource temporarily unavailable`
+  before it could measure anything. One shared scheduler now holds the deadlines, a single
+  `SocketEvents` reactor waits for the non-blocking connects, and a small worker pool runs what
+  still blocks - the TLS handshake, the CONNECT and the wait for its answer. Connect completion
+  comes from SPTK `5.6.16`, whose socket pool now reports writability when asked. Backoff,
+  jitter, the attempt limit and one-attempt-at-a-time per client are unchanged. Verified with
+  120,000 sessions: the broker is repopulated without the client falling over, and the full rate
+  returns about 40 seconds after the restart on the two-machine stand.
 
 ### Fixed
 
