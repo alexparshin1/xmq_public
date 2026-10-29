@@ -619,8 +619,17 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
 
     for (size_t cycle = 1; cycle <= cycles; ++cycle)
     {
+        // Where the run was when it threw. The report is a string rather than a stack trace because
+        // what matters is which step of the cycle the connection was found gone at: a throw on the
+        // UNSUBSCRIBE at the top says the *previous* cycle's replacement did not survive.
+        const auto at = [&report, cycle](const char* step)
+        {
+            report("cycle " + to_string(cycle) + ", " + step);
+        };
+
         if (withSubscriptions)
         {
+            at("unsubscribe");
             client->unsubscribe(destination);
         }
 
@@ -634,26 +643,43 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
                                   {
                                       doomed->hangup();
                                   });
+            at("reconnect");
             client = connectClient(clientId, cleanSession, onMessage);
             if (withSubscriptions)
             {
+                at("subscribe");
                 (void) subscribeAndWait(client, destination);
             }
         }
         else
         {
+            at("hangup");
             doomed->hangup();
+            at("reconnect");
             client = connectClient(clientId, cleanSession, onMessage);
             if (withSubscriptions)
             {
+                at("subscribe");
                 (void) subscribeAndWait(client, destination);
             }
         }
 
         if (withPublish)
         {
+            at("publisher connect");
             const auto publisher = connectClient("churn-publisher-" + clientId, true);
-            publisher->publish(client::MqttClient::getTopic(topicName), Buffer("payload"), Qos::Qos1);
+            at("publish");
+            try
+            {
+                publisher->publish(client::MqttClient::getTopic(topicName), Buffer("payload"), Qos::Qos1);
+            }
+            catch (const Exception& e)
+            {
+                // A client whose CONNECT was answered and whose next message throws is either a
+                // connection the broker has already closed or one it never finished setting up.
+                // The broker's own view of that session is what tells the two apart.
+                throw Exception(string(e.what()) + brokerStateFor("churn-publisher-" + clientId, topicName));
+            }
 
             // Lost means the broker dropped a message, late means it was only slower than the
             // window - the two are different bugs, and they are reported separately.
@@ -675,10 +701,12 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
                     report(lossState);
                 }
             }
+            at("publisher disconnect");
             publisher->disconnect();
         }
     }
 
+    report("final disconnect");
     client->disconnect();
 }
 
@@ -692,18 +720,26 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
 // a new connection, a failure belonging to the old one closes the replacement's socket instead.
 // The client keeps a connection the broker never reads again and its SUBSCRIBE is never dispatched.
 //
-// Two such paths were found by tracing connection ownership across threads, and fixed, each
+// Three such paths were found by tracing connection ownership across threads, and fixed, each
 // by comparing against the connection the work was for:
 //   - ClientSessionThread::threadFunction - a failed send closed the session after a takeover had
 //     already moved it to a new connection. isConnected() cannot catch this: it is true of the
 //     replacement.
 //   - ClientSession::disconnect - a failed DISCONNECT write did the same.
-// Together these took the reproducer from failing every run within ~40 cycles to surviving 200
-// cycles on roughly 70-90% of runs.
+//   - ClientSession::handleDisconnect - the reverse direction, and the one that produced the
+//     exception rather than the loss. A client sends DISCONNECT and connects again at once; if the
+//     takeover lands while that DISCONNECT is still in the read buffer, the handler took the
+//     session's connection - by then the replacement - named it as the goodbye's, and the
+//     comparison therefore passed: the close took the new socket. The client's CONNECT had been
+//     answered, so its next message threw "Not connected". The handler now closes the connection
+//     the bytes were read from, which the receive pass records. Found on 2026-10-30 by running the
+//     publish shape pinned to one loaded core: about one failure per 100-200 runs, always a throw
+//     on the cycle after a publisher's DISCONNECT. With the fix, 1000 runs of that shape under the
+//     same load produced none.
 //
-// What is left: at least one more mechanism. A captured trace of a residual failure shows a clean
-// takeover - no stray teardown of the new connection - so the remaining loss happens somewhere
-// else. Rare aborts under this stress are also unexplained and may predate these fixes.
+// What is left: the loss the publish shape reports as lost or late, which is a message that does
+// not arrive on a connection that is still up. Rare aborts under this stress are also unexplained
+// and may predate these fixes.
 // Narrowing candidates for the crash, run under valgrind or a crash-rate loop:
 //     ./xmq_unit_tests --gtest_also_run_disabled_tests --gtest_filter="*Churn*"
 //

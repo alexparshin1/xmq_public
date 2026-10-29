@@ -14,6 +14,16 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **A client that reconnects immediately after DISCONNECT keeps its new connection.** The
+  DISCONNECT is read from the old connection but handled later - logging, an extension's handler
+  and reading its properties all take time - and a takeover landing in between could move the
+  session to the replacement socket first. The handler then asked the session which connection to
+  close, got the replacement, and closed that: the client had its CONNECT answered and believed
+  itself connected, while the broker read nothing more from it and its next message failed with
+  "Not connected". The handler now closes the connection the bytes were read from. Reproduced by
+  running the reconnect-churn test with a publish on one loaded core, about once per 100-200 runs;
+  with the fix, 1000 runs under that load produced none.
+
 - **`$SYS/broker/messages/publish/dropped` counts the drops now.** The metric, and the
   `messages_publish_dropped` field of the control API that reads it, were declared, published and
   never incremented: a broker whose queue limits refused a publish still reported 0, and the only

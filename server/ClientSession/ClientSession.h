@@ -597,6 +597,11 @@ private:
     std::chrono::milliseconds               m_waitForConnectTimeout {0};  ///< The timeout the CONNECT deadline was made from, for the message logged when it passes.
     std::unordered_set<MessageId>           m_unreleasedQos2Ids;          ///< Inbound QoS 2 packet ids delivered but awaiting PUBREL.
     std::atomic_bool                        m_discardReadBuffer {false};  ///< Set by a takeover, honoured by the receive thread.
+    /// The connection whose bytes the receive pass is parsing. Written and read by the receive
+    /// thread alone. A session outlives its connections, so by the time a DISCONNECT at the end of
+    /// that buffer is handled the session may already hold the replacement; this is what says which
+    /// of the two the goodbye belonged to.
+    std::shared_ptr<ServerConnectionExt>    m_readConnection;
     std::atomic_uint64_t                    m_droppedMessages {0};        ///< Dropped because the queue behind the window was full.
     PacketReader*                           m_packetReader {nullptr};     ///< Packet reader.
     MessageReader*                          m_messageReader {nullptr};    ///< Message reader.

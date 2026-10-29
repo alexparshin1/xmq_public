@@ -1065,6 +1065,7 @@ SendReceiveResult ClientSession::receiveMessages()
     // Whose bytes this pass is reading. A CONNECT in them can hand the connection to a different
     // session part-way through the buffer, and what follows it then belongs to that session.
     const auto connection = getConnection();
+    m_readConnection = connection;
 
     const auto socket = getSocket();
     if (!socket)
@@ -1692,12 +1693,14 @@ void ClientSession::handleDisconnect(const Message* message)
         return;
     }
 
-    // Whose goodbye this is. Taken now, because what follows - logging, an extension's handler,
-    // reading properties - is somebody else's code and takes its time, and a client that says
-    // goodbye and immediately connects again can be served by a new connection before the close
-    // below is reached. Closing without naming this one would then drop the replacement's socket,
-    // and the client would hold a connection the broker never reads again.
-    const auto disconnectConnection = getConnection();
+    // Whose goodbye this is. The connection the bytes were read from, not the one the session holds
+    // now: a client that reconnects sends its DISCONNECT and connects again on a new socket, and the
+    // takeover can land while the old connection's DISCONNECT is still in the read buffer. Asking
+    // the session then answers with the replacement, and the close below would drop the socket the
+    // client is now using - it believes it is connected, and nothing it sends is read again. Every
+    // step between here and the close is somebody else's code (logging, an extension's handler,
+    // properties), so the answer is taken from the pass that parsed the message, not from here.
+    const auto disconnectConnection = m_readConnection ? m_readConnection : getConnection();
 
     // Before anything else in this function, and that ordering is the whole point.
     //
@@ -1754,8 +1757,10 @@ void ClientSession::disconnect(ReasonCode reasonCode, const std::string& reasonS
     // The connection this disconnect is being written to. If writing fails, the session must only
     // be closed while it is still holding that same connection: a session that is not clean
     // outlives its connections, and by then the client may have reconnected onto a new one. Closing
-    // then drops the replacement's socket, and nothing the client sends on it is ever read.
-    const auto disconnectConnection = getConnection();
+    // then drops the replacement's socket, and nothing the client sends on it is ever read. This
+    // runs on the receive thread while it parses, so the pass's connection is the one the faulty
+    // bytes came from - the same rule handleDisconnect() follows.
+    const auto disconnectConnection = m_readConnection ? m_readConnection : getConnection();
 
     const auto logPriority = reasonCode == ReasonCode::Success ? LogPriority::Debug : LogPriority::Error;
     server().logMessage(LogSubject::Ack, logPriority,
