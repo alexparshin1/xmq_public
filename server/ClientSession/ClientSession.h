@@ -89,6 +89,20 @@ public:
                                                   const SMessageProperties&        connectMessageProperties = {});
 
     /**
+     * @brief A session restored from records already fetched, for the startup restore.
+     *
+     * The manager fetches the session record, its messages and its QoS 2 ids for a whole batch of
+     * sessions at once, so that this constructor and persist() do not each wait on Redis. The
+     * answers belong to this session and are consumed by its first load().
+     */
+    static std::shared_ptr<ClientSession> factory(Server*                          server,
+                                                  const SConnectMessageParameters& connectMessageParameters,
+                                                  const SMessageProperties&        connectMessageProperties,
+                                                  sptk::Variant                    sessionRecord,
+                                                  sptk::RedisConnect::KeysAndValues messages,
+                                                  std::vector<std::string>         qos2Keys);
+
+    /**
      * @brief Destructor.
      */
     ~ClientSession() noexcept override;

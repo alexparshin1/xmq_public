@@ -268,9 +268,20 @@ PersistentClientSession::initSession(const string&                              
         (void) server().subscribeClient(self, destination);
     }
 
-    // Load session message records - all of this session's messages:
+    // Load session message records - all of this session's messages. The startup restore has
+    // already fetched them, together with the QoS 2 ids below, in a pipeline shared by thousands
+    // of sessions; a connecting client has not, and pays the two round trips.
     const auto sessionMessagesHash = format("session_{}_messages", clientId);
-    const auto sessionMessageMap = m_redisConnection->getHashValues(sessionMessagesHash);
+    sptk::RedisConnect::KeysAndValues sessionMessageMap;
+    if (m_prefetchedMessages)
+    {
+        sessionMessageMap = std::move(*m_prefetchedMessages);
+        m_prefetchedMessages.reset();
+    }
+    else
+    {
+        sessionMessageMap = m_redisConnection->getHashValues(sessionMessagesHash);
+    }
 
     vector<RecordId> recordIds(sessionMessageMap.size());
     ranges::transform(sessionMessageMap | views::keys, recordIds.begin(),
@@ -289,7 +300,16 @@ PersistentClientSession::initSession(const string&                              
 
     // Restore the inbound QoS 2 packet ids still awaiting PUBREL. Without these, a PUBLISH the
     // client repeats after the session moves here would be delivered a second time.
-    const auto        unreleasedKeys = m_redisConnection->getHashKeys(format("session_{}_qos2", clientId));
+    std::vector<std::string> unreleasedKeys;
+    if (m_prefetchedQos2Keys)
+    {
+        unreleasedKeys = std::move(*m_prefetchedQos2Keys);
+        m_prefetchedQos2Keys.reset();
+    }
+    else
+    {
+        unreleasedKeys = m_redisConnection->getHashKeys(format("session_{}_qos2", clientId));
+    }
     vector<MessageId> unreleasedQos2Ids;
     unreleasedQos2Ids.reserve(unreleasedKeys.size());
     for (const auto& unreleasedKey: unreleasedKeys)

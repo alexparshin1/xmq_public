@@ -115,6 +115,24 @@ std::shared_ptr<ClientSession> ClientSession::factory(Server*                   
     return session;
 }
 
+std::shared_ptr<ClientSession> ClientSession::factory(Server*                          server,
+                                                      const SConnectMessageParameters& connectMessageParameters,
+                                                      const SMessageProperties&        connectMessageProperties,
+                                                      Variant                          sessionRecord,
+                                                      RedisConnect::KeysAndValues      messages,
+                                                      std::vector<std::string>         qos2Keys)
+{
+    auto session = make_shared<ClientSession>(server, connectMessageParameters, connectMessageProperties);
+    if (!connectMessageParameters->getClientId().empty() && connectMessageParameters->m_cleanSession == 0)
+    {
+        session->setPrefetchedSession(std::move(sessionRecord));
+        session->setPrefetchedMessages(std::move(messages));
+        session->setPrefetchedQos2Keys(std::move(qos2Keys));
+        session->persist();
+    }
+    return session;
+}
+
 ClientSession::~ClientSession() noexcept
 {
     const unique_lock lock(m_mutex);

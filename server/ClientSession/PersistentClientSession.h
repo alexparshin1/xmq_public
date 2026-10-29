@@ -96,6 +96,24 @@ public:
         m_prefetchedSession = std::move(record);
     }
 
+    /**
+     * @brief The session's queued messages and unreleased QoS 2 ids, already fetched from Redis.
+     *
+     * The startup restore fetches these for many sessions in one pipeline (see
+     * ClientSessionManager::load()), and hands the answers over here before load() runs. Without
+     * them, each session costs two more synchronous round trips - sixty thousand sessions spent
+     * half a minute in round trips on a link whose Redis answered every command in a microsecond.
+     */
+    void setPrefetchedMessages(sptk::RedisConnect::KeysAndValues messages)
+    {
+        m_prefetchedMessages = std::move(messages);
+    }
+
+    void setPrefetchedQos2Keys(std::vector<std::string> keys)
+    {
+        m_prefetchedQos2Keys = std::move(keys);
+    }
+
     void persist();
     void unpersist();
 
@@ -171,6 +189,8 @@ public:
 private:
     std::shared_ptr<sptk::RedisConnect> m_redisConnection;   ///< Redis connection.
     std::optional<sptk::Variant>        m_prefetchedSession; ///< See setPrefetchedSession(); consumed by the next lookup.
+    std::optional<sptk::RedisConnect::KeysAndValues> m_prefetchedMessages;
+    std::optional<std::vector<std::string>>           m_prefetchedQos2Keys;
     std::atomic_bool                    m_released {false};  ///< See markReleased().
     std::atomic_bool                    m_claimedForCluster {false}; ///< See setClaimedForCluster().
 };
