@@ -440,7 +440,7 @@ private:
     ExtensionHost                     m_extensions;                                              ///< Loaded extensions; see ExtensionHost.
     /// Where a CONNECT is finished once Redis has answered its session lookup: see
     /// lookUpSessionThen(). A handful is enough - the waiting is Redis's, not theirs.
-    static constexpr size_t                          ConnectCompletionThreads = 4;
+    static constexpr size_t                          ConnectCompletionThreads = 16;
     sptk::SynchronizedQueue<std::function<void()>>   m_connectCompletions;
     std::vector<std::thread>                         m_connectCompletionThreads;
     std::once_flag                                   m_connectCompletionsStarted;

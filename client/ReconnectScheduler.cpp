@@ -391,7 +391,11 @@ ReconnectScheduler::ReconnectScheduler()
                                           m_private->startTimer();
                                       });
 
-    const auto workerCount = max(4u, thread::hardware_concurrency() * 2);
+    // A worker spends its time waiting for the handshake or the CONNACK, not computing: the
+    // connection is I/O-bound even when TLS makes the handshake cost CPU. The count is what sets
+    // how fast a returning broker is repopulated, and 16 was measured to take about 40 s for
+    // 120,000 sessions.
+    const auto workerCount = min(128u, max(16u, thread::hardware_concurrency() * 8));
     for (unsigned i = 0; i < workerCount; ++i)
     {
         m_private->m_workers.emplace_back([this]
