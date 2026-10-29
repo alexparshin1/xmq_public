@@ -26,6 +26,48 @@ using namespace xmq;
 
 namespace {
 
+/// How much of a reconnect the two synchronous reads take, told apart from the prefetched path.
+/// Kept as counters because a restart of 120,000 sessions has to be explained, not felt.
+atomic_uint64_t g_restoredSync {0};
+atomic_uint64_t g_restoredSyncTotalUs {0};
+atomic_uint64_t g_restoredSyncMessagesUs {0};
+atomic_uint64_t g_restoredSyncQos2Us {0};
+atomic_uint64_t g_restoredPrefetched {0};
+
+void recordRestoreTiming(Server& server, const bool prefetched, const uint64_t totalUs,
+                         const uint64_t messagesUs, const uint64_t qos2Us)
+{
+    if (prefetched)
+    {
+        ++g_restoredPrefetched;
+        return;
+    }
+
+    const auto count = g_restoredSync.fetch_add(1, memory_order_relaxed) + 1;
+    g_restoredSyncTotalUs.fetch_add(totalUs, memory_order_relaxed);
+    g_restoredSyncMessagesUs.fetch_add(messagesUs, memory_order_relaxed);
+    g_restoredSyncQos2Us.fetch_add(qos2Us, memory_order_relaxed);
+
+    if (count % 5000 == 0)
+    {
+        server.logMessage(LogSubject::ServerEvents, LogPriority::Info,
+                          [count]
+                          {
+                              const auto total = g_restoredSyncTotalUs.load(memory_order_relaxed);
+                              const auto messages = g_restoredSyncMessagesUs.load(memory_order_relaxed);
+                              const auto qos2 = g_restoredSyncQos2Us.load(memory_order_relaxed);
+                              return format("Session restore on connect: {} done, avg {} us "
+                                            "(messages {} us, qos2 {} us); prefetched by startup: {}",
+                                            count, total / count, messages / count, qos2 / count,
+                                            g_restoredPrefetched.load(memory_order_relaxed));
+                          });
+    }
+}
+
+} // namespace
+
+namespace {
+
 // The Redis storage doesn't exist when persistence is disabled.
 SRedisConnect redisConnection(const Server* server)
 {
@@ -213,6 +255,9 @@ PersistentClientSession::initSession(const string&                              
     }
 
     // Session exists, continue:
+    const auto restoreStarted = chrono::steady_clock::now();
+    uint64_t   messagesUs = 0;
+    uint64_t   qos2Us = 0;
 
     string          oldNodeName;
     string          clientIdStr;
@@ -273,6 +318,7 @@ PersistentClientSession::initSession(const string&                              
     // of sessions; a connecting client has not, and pays the two round trips.
     const auto sessionMessagesHash = format("session_{}_messages", clientId);
     sptk::RedisConnect::KeysAndValues sessionMessageMap;
+    const auto prefetched = m_prefetchedMessages.has_value() && m_prefetchedQos2Keys.has_value();
     if (m_prefetchedMessages)
     {
         sessionMessageMap = std::move(*m_prefetchedMessages);
@@ -280,7 +326,9 @@ PersistentClientSession::initSession(const string&                              
     }
     else
     {
+        const auto started = chrono::steady_clock::now();
         sessionMessageMap = m_redisConnection->getHashValues(sessionMessagesHash);
+        messagesUs = duration_cast<chrono::microseconds>(chrono::steady_clock::now() - started).count();
     }
 
     vector<RecordId> recordIds(sessionMessageMap.size());
@@ -308,7 +356,9 @@ PersistentClientSession::initSession(const string&                              
     }
     else
     {
+        const auto started = chrono::steady_clock::now();
         unreleasedKeys = m_redisConnection->getHashKeys(format("session_{}_qos2", clientId));
+        qos2Us = duration_cast<chrono::microseconds>(chrono::steady_clock::now() - started).count();
     }
     vector<MessageId> unreleasedQos2Ids;
     unreleasedQos2Ids.reserve(unreleasedKeys.size());
@@ -317,6 +367,9 @@ PersistentClientSession::initSession(const string&                              
         unreleasedQos2Ids.push_back(static_cast<MessageId>(stoul(unreleasedKey)));
     }
     self->restoreQos2ReceiveIds(unreleasedQos2Ids);
+
+    recordRestoreTiming(server(), prefetched, duration_cast<chrono::microseconds>(
+                            chrono::steady_clock::now() - restoreStarted).count(), messagesUs, qos2Us);
 
     return SessionInitType::Restored;
 }
