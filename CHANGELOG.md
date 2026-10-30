@@ -14,6 +14,15 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **`queue_limits` is stored in the database, not only in the configuration file.** On a node
+  whose accounts database is PostgreSQL or MySQL, the three values live in the node's row in
+  `xmq_node` (`queue_max_size`, `queue_max_inflight`, `queue_max_bytes`): written from the
+  configuration at the node's first start, read back in place of the file from then on, and
+  written there when they are changed in the interface. A node whose row was written before these
+  columns existed stores nothing for them and keeps reading the file, so upgrading does not reset
+  the limits of a node already running. SQLite nodes are unchanged: one machine's file is that
+  machine's configuration.
+
 - **`queue_limits` bounds the whole session, not the queue behind the window.** `max_size` and
   `max_bytes` counted only the messages waiting for a free in-flight slot, so a session could hold
   its `Receive Maximum` (up to 128, the shipped cap) more messages, of any size, before either limit

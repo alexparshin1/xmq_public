@@ -30,7 +30,8 @@ const char* const invitationTable = "xmq_cluster_invitation";
 
 constexpr string_view nodeColumns =
     "node_id, name, host_port, state, last_error, redis_uri, database_uri,"
-    " cluster_enabled, cluster_lease_seconds, cluster_links, certificate";
+    " cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
+    " queue_max_size, queue_max_inflight, queue_max_bytes";
 
 String nowUtc()
 {
@@ -51,7 +52,29 @@ ClusterStore::Node readNode(Query& query)
     node.m_leaseSeconds = query["cluster_lease_seconds"].asInteger();
     node.m_links = query["cluster_links"].asInteger();
     node.m_certificate = query["certificate"].asString();
+    if (!query["queue_max_size"].isNull()) node.m_queueMaxSize = static_cast<int>(query["queue_max_size"].asInteger());
+    if (!query["queue_max_inflight"].isNull()) node.m_queueMaxInflight = static_cast<int>(query["queue_max_inflight"].asInteger());
+    if (!query["queue_max_bytes"].isNull()) node.m_queueMaxBytes = query["queue_max_bytes"].asInteger();
     return node;
+}
+
+/// Binds the queue-limit columns for a write, as SQL NULL when the row has no opinion: the
+/// difference between "not stored" and "no limit" is the whole reason the columns are nullable.
+/// The null carries the column's own type, because a parameter of no type at all is refused by
+/// the PostgreSQL driver - "Unsupported parameter type 0" - rather than bound as NULL.
+void bindQueueLimits(Query& query, const ClusterStore::Node& node)
+{
+    auto& size = query.param("queue_max_size");
+    if (node.m_queueMaxSize) size = static_cast<int32_t>(*node.m_queueMaxSize);
+    else size.setNull(VariantDataType::VAR_INT);
+
+    auto& inflight = query.param("queue_max_inflight");
+    if (node.m_queueMaxInflight) inflight = static_cast<int32_t>(*node.m_queueMaxInflight);
+    else inflight.setNull(VariantDataType::VAR_INT);
+
+    auto& bytes = query.param("queue_max_bytes");
+    if (node.m_queueMaxBytes) bytes = static_cast<int64_t>(*node.m_queueMaxBytes);
+    else bytes.setNull(VariantDataType::VAR_INT64);
 }
 
 } // namespace
@@ -151,6 +174,9 @@ void ClusterStore::createSchema()
             "  cluster_lease_seconds int NOT NULL DEFAULT 0,"
             "  cluster_links         int NOT NULL DEFAULT 0,"
             "  certificate           TEXT,"
+            "  queue_max_size        int,"
+            "  queue_max_inflight    int,"
+            "  queue_max_bytes       bigint,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
@@ -166,6 +192,20 @@ void ClusterStore::createSchema()
         alter.exec();
     } catch (const Exception&) {
         // Column already exists.
+    }
+
+    // Added with the queue limits moving out of the configuration file. Nullable and without a
+    // default on purpose: a row written before this holds no opinion, and the file decides for it.
+    // A default would silently overwrite the limits of every node that is already installed.
+    for (const auto* column: {"queue_max_size int", "queue_max_inflight int", "queue_max_bytes bigint"})
+    {
+        try {
+            const AutoDatabaseConnection connection(*m_database);
+            Query alter(connection.connection(), "ALTER TABLE " + String(nodeTable) + " ADD COLUMN " + column);
+            alter.exec();
+        } catch (const Exception&) {
+            // Column already exists.
+        }
     }
 
     if (!tableExists(String(invitationTable)))
@@ -225,9 +265,11 @@ void ClusterStore::insertNode(const Node& node)
     Query insert(connection.connection(),
                  "INSERT INTO " + String(nodeTable) +
                  " (node_id, name, host_port, state, last_error, redis_uri, database_uri,"
-                 "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate, updated_at)"
+                 "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
+                 "  queue_max_size, queue_max_inflight, queue_max_bytes, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
-                 "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate, :updated_at)");
+                 "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
+                 "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -240,6 +282,7 @@ void ClusterStore::insertNode(const Node& node)
     insert.param("cluster_lease_seconds") = node.m_leaseSeconds;
     insert.param("cluster_links") = node.m_links;
     insert.param("certificate") = node.m_certificate;
+    bindQueueLimits(insert, node);
     insert.param("updated_at") = nowUtc();
     insert.exec();
 }
@@ -252,7 +295,9 @@ void ClusterStore::updateNode(const Node& node)
                  " SET name = :name, host_port = :host_port, state = :state, last_error = :last_error,"
                  "  redis_uri = :redis_uri, database_uri = :database_uri,"
                  "  cluster_enabled = :cluster_enabled, cluster_lease_seconds = :cluster_lease_seconds,"
-                 "  cluster_links = :cluster_links, certificate = :certificate, updated_at = :updated_at"
+                 "  cluster_links = :cluster_links, certificate = :certificate,"
+                 "  queue_max_size = :queue_max_size, queue_max_inflight = :queue_max_inflight,"
+                 "  queue_max_bytes = :queue_max_bytes, updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 
     update.param("name") = node.m_name;
@@ -265,6 +310,7 @@ void ClusterStore::updateNode(const Node& node)
     update.param("cluster_lease_seconds") = node.m_leaseSeconds;
     update.param("cluster_links") = node.m_links;
     update.param("certificate") = node.m_certificate;
+    bindQueueLimits(update, node);
     update.param("updated_at") = nowUtc();
     update.param("node_id") = node.m_nodeId;
     update.exec();

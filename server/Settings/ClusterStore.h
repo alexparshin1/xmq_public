@@ -57,6 +57,14 @@ public:
         int          m_leaseSeconds {0};///< 0 means the default, as in cluster.lease_seconds.
         int          m_links {0};       ///< 0 means the default, as in cluster.links.
         sptk::String m_certificate;        ///< The node's PEM certificate, for automatic trust.
+
+        // Queue limits. Optional because a row written before these columns existed has no value
+        // for them, and the configuration file is then still what decides: null means "not stored
+        // here", not "no limit". A stored 0 does mean no limit, which is why the distinction
+        // cannot be made with the number alone.
+        std::optional<int>    m_queueMaxSize;      ///< queue_limits.max_size.
+        std::optional<int>    m_queueMaxInflight;  ///< queue_limits.max_inflight_messages.
+        std::optional<int64_t> m_queueMaxBytes;    ///< queue_limits.max_bytes.
     };
 
     /// One invitation, as the database holds it. At most one per node.

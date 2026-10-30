@@ -944,6 +944,13 @@ void Settings::applyClusterConfigurationUnlocked()
             m_cluster.m_this_node.m_node_name = row->m_name;
             m_cluster.m_this_node.m_host_port = row->m_hostPort;
 
+            // Queue limits, which used to live only in the file. A row that has them decides; one
+            // written before they moved here has none, and the file remains in charge of that node
+            // rather than being quietly reset to a default.
+            if (row->m_queueMaxSize) m_queue_limits.m_max_size = *row->m_queueMaxSize;
+            if (row->m_queueMaxInflight) m_queue_limits.m_max_inflight_messages = *row->m_queueMaxInflight;
+            if (row->m_queueMaxBytes) m_queue_limits.m_max_bytes = *row->m_queueMaxBytes;
+
             // Write this node's certificate to the shared database so other nodes find it
             // there. Kept up to date on every start, so a reissued certificate is picked up.
             const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
@@ -981,6 +988,11 @@ void Settings::applyClusterConfigurationUnlocked()
             updated.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
             updated.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
             updated.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
+            // A declaration another node left for this one says nothing about queue limits; the
+            // configuration it now starts with does.
+            if (!updated.m_queueMaxSize) updated.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
+            if (!updated.m_queueMaxInflight) updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
+            if (!updated.m_queueMaxBytes) updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
             {
                 const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
                 const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1016,6 +1028,11 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
         row.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
         row.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
+        // The row is created from the configuration the node came with, queue limits included:
+        // from here on it is what the node runs with, not the file.
+        row.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
+        row.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
+        row.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
         {
             const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
             const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1582,6 +1599,10 @@ void Settings::limitsControl(const string& action, CServerLimits& serverLimits, 
         }
         if (!m_queue_limits.isNull())
         {
+            // The row first, and the configuration only if it was written: a database that refuses
+            // the change must leave the running node on the limits it had, not on a memory state
+            // the next start will not reproduce.
+            saveQueueLimitsToNodeRow(queueLimits);
             m_queue_limits = queueLimits;
         }
         saveConfigurationUnlocked();
@@ -1591,6 +1612,40 @@ void Settings::limitsControl(const string& action, CServerLimits& serverLimits, 
         serverLimits = m_server_limits;
         queueLimits = m_queue_limits;
     }
+}
+
+void Settings::saveQueueLimitsToNodeRow(const CQueueLimits& limits)
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        // A SQLite node is one machine's configuration, and the file is where it lives.
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_queueMaxSize = static_cast<int>(limits.m_max_size.asInteger());
+    updated.m_queueMaxInflight = static_cast<int>(limits.m_max_inflight_messages.asInteger());
+    updated.m_queueMaxBytes = static_cast<int64_t>(limits.m_max_bytes.isNull() ? 0 : limits.m_max_bytes.asInteger());
+    store.updateNode(updated);
 }
 
 void Settings::loggingControl(const std::string& action, CLogging& logging)
@@ -2602,7 +2657,16 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_databaseUri = values.m_database_uri.asString();
             updated.m_redisUri = values.m_redis_uri.asString();
             updated.m_clusterEnabled = m_cluster.m_enabled.asBool();
-            if (!previous) { updated.m_state = "Standalone"; updated.m_leaseSeconds = m_cluster.m_lease_seconds.asInteger(); updated.m_links = m_cluster.m_links.asInteger(); }
+            if (!previous)
+            {
+                updated.m_state = "Standalone";
+                updated.m_leaseSeconds = m_cluster.m_lease_seconds.asInteger();
+                updated.m_links = m_cluster.m_links.asInteger();
+                // A row created from this screen is still created from the node it runs on.
+                updated.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
+                updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
+                updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+            }
             if (previous) store.updateNode(updated); else store.insertNode(updated);
         }
         Buffer replacement;

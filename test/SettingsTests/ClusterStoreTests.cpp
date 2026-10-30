@@ -133,6 +133,9 @@ ClusterStore::Node sampleNode(const String& nodeId)
     node.m_clusterEnabled = true;
     node.m_leaseSeconds = 2;
     node.m_links = 4;
+    node.m_queueMaxSize = 1024;
+    node.m_queueMaxInflight = 128;
+    node.m_queueMaxBytes = 1'048'576;
     return node;
 }
 
@@ -177,12 +180,19 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_TRUE(stored->m_clusterEnabled) << name;
         EXPECT_EQ(2, stored->m_leaseSeconds) << name;
         EXPECT_EQ(4, stored->m_links) << name;
+        ASSERT_TRUE(stored->m_queueMaxSize.has_value()) << name;
+        EXPECT_EQ(1024, *stored->m_queueMaxSize) << name;
+        ASSERT_TRUE(stored->m_queueMaxInflight.has_value()) << name;
+        EXPECT_EQ(128, *stored->m_queueMaxInflight) << name;
+        ASSERT_TRUE(stored->m_queueMaxBytes.has_value()) << name;
+        EXPECT_EQ(1'048'576, *stored->m_queueMaxBytes) << name;
 
         // What the interface edits is written back through the same row.
         auto changed = *stored;
         changed.m_name = "node-1-renamed";
         changed.m_state = "Invited";
         changed.m_clusterEnabled = false;
+        changed.m_queueMaxSize = 64;
         store.updateNode(changed);
 
         const auto reread = store.node(nodeId);
@@ -190,6 +200,12 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_EQ(String("node-1-renamed"), reread->m_name) << name;
         EXPECT_EQ(String("Invited"), reread->m_state) << name;
         EXPECT_FALSE(reread->m_clusterEnabled) << name;
+        ASSERT_TRUE(reread->m_queueMaxSize.has_value()) << name;
+        EXPECT_EQ(64, *reread->m_queueMaxSize) << name << ": the edited limit was not written back";
+        // A column left alone keeps what it had, which is what makes a partial update by an older
+        // tool harmless.
+        ASSERT_TRUE(reread->m_queueMaxBytes.has_value()) << name;
+        EXPECT_EQ(1'048'576, *reread->m_queueMaxBytes) << name;
 
         // One row per node, one node per name: the second declaration of a name is refused by the
         // database, which is the only place that can decide it for every node at once.

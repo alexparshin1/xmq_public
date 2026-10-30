@@ -184,6 +184,107 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
     filesystem::remove_all(directory);
 }
 
+/**
+ * Queue limits moved out of the file and into the node's row: a node that has them stored there
+ * runs with those, whatever the file says, and the interface writes the row rather than only the
+ * file. A row that predates the columns stores nothing for them and leaves the file in charge -
+ * that is the whole reason they are nullable.
+ */
+TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackToIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_queue_limits_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(configurationText()).saveToFile(configurationPath);
+
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        store.createSchema();
+    }
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value()) << "the first start did not create the node's row";
+        ASSERT_TRUE(row->m_queueMaxSize.has_value()) << "the row was created without the queue limits the file had";
+        EXPECT_EQ(128, *row->m_queueMaxSize);
+        ASSERT_TRUE(row->m_queueMaxInflight.has_value());
+        EXPECT_EQ(16, *row->m_queueMaxInflight);
+        ASSERT_TRUE(row->m_queueMaxBytes.has_value());
+        EXPECT_EQ(0, *row->m_queueMaxBytes);
+    }
+
+    // What an administrator or another node changes in the row wins over the file, the same way
+    // the storage URI does.
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        row->m_queueMaxSize = 64;
+        row->m_queueMaxInflight = 32;
+        row->m_queueMaxBytes = 4096;
+        store.updateNode(*row);
+    }
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(64, settings.m_queue_limits.m_max_size.asInteger()) << "the row did not decide the queue limit";
+        EXPECT_EQ(32, settings.m_queue_limits.m_max_inflight_messages.asInteger());
+        EXPECT_EQ(4096, settings.m_queue_limits.m_max_bytes.asInteger());
+    }
+
+    // And what the interface sets is written to the row, not only to the file.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CQueueLimits limits;
+        limits.m_max_size = 77;
+        limits.m_max_inflight_messages = 33;
+        limits.m_max_bytes = 65536;
+        CServerLimits serverLimits = settings.m_server_limits;
+        settings.limitsControl("set", serverLimits, limits);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_queueMaxSize.has_value()) << "the interface wrote the file and left the row";
+        EXPECT_EQ(77, *row->m_queueMaxSize);
+        EXPECT_EQ(33, *row->m_queueMaxInflight);
+        EXPECT_EQ(65536, *row->m_queueMaxBytes);
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(77, settings.m_queue_limits.m_max_size.asInteger()) << "a restart did not take the limits from the row";
+        EXPECT_EQ(33, settings.m_queue_limits.m_max_inflight_messages.asInteger());
+        EXPECT_EQ(65536, settings.m_queue_limits.m_max_bytes.asInteger());
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
 TEST(XMQ_ClusterBootstrap, publishesTheConfiguredMqttCertificateAndRefreshesNewPeers)
 {
     if (!pgAnswers()) GTEST_SKIP() << "Shared PostgreSQL test database is unavailable";
