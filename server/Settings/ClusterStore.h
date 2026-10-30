@@ -65,6 +65,11 @@ public:
         std::optional<int>    m_queueMaxSize;      ///< queue_limits.max_size.
         std::optional<int>    m_queueMaxInflight;  ///< queue_limits.max_inflight_messages.
         std::optional<int64_t> m_queueMaxBytes;    ///< queue_limits.max_bytes.
+
+        /// The whole logging section, as the JSON the configuration file would hold for it: a
+        /// column per log subject would be a schema change for every subject added. Null when the
+        /// row predates it, and the file decides.
+        std::optional<sptk::String> m_logging;
     };
 
     /// One invitation, as the database holds it. At most one per node.

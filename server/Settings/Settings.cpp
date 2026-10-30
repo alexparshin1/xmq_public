@@ -951,6 +951,16 @@ void Settings::applyClusterConfigurationUnlocked()
             if (row->m_queueMaxInflight) m_queue_limits.m_max_inflight_messages = *row->m_queueMaxInflight;
             if (row->m_queueMaxBytes) m_queue_limits.m_max_bytes = *row->m_queueMaxBytes;
 
+            // The logging section, stored whole: a column per log subject would be a schema change
+            // every time a subject is added. Parsed through the same loader the file goes through,
+            // so a stored section means exactly what the same text in the file would.
+            if (row->m_logging && !row->m_logging->empty())
+            {
+                xdoc::Document document;
+                document.load(String("{\"logging\":") + *row->m_logging + "}");
+                m_logging.load(document.root()->findFirst("logging"));
+            }
+
             // Write this node's certificate to the shared database so other nodes find it
             // there. Kept up to date on every start, so a reissued certificate is picked up.
             const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
@@ -993,6 +1003,7 @@ void Settings::applyClusterConfigurationUnlocked()
             if (!updated.m_queueMaxSize) updated.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
             if (!updated.m_queueMaxInflight) updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
             if (!updated.m_queueMaxBytes) updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+            if (!updated.m_logging) updated.m_logging = m_logging.toString(true, false);
             {
                 const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
                 const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1033,6 +1044,7 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
         row.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
         row.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+        row.m_logging = m_logging.toString(true, false);
         {
             const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
             const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1648,6 +1660,37 @@ void Settings::saveQueueLimitsToNodeRow(const CQueueLimits& limits)
     store.updateNode(updated);
 }
 
+void Settings::saveLoggingToNodeRow(const CLogging& logging)
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_logging = logging.toString(true, false);
+    store.updateNode(updated);
+}
+
 void Settings::loggingControl(const std::string& action, CLogging& logging)
 {
     const WriteLock lock(m_mutex);
@@ -1656,6 +1699,9 @@ void Settings::loggingControl(const std::string& action, CLogging& logging)
     {
         if (!logging.isNull())
         {
+            // The row first, so a database that refuses the change leaves the node on the logging
+            // it had rather than on a memory state the next start will not reproduce.
+            saveLoggingToNodeRow(logging);
             m_logging = logging;
             saveConfigurationUnlocked();
         }
@@ -2666,6 +2712,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
                 updated.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
                 updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
                 updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+                updated.m_logging = m_logging.toString(true, false);
             }
             if (previous) store.updateNode(updated); else store.insertNode(updated);
         }

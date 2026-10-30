@@ -136,6 +136,7 @@ ClusterStore::Node sampleNode(const String& nodeId)
     node.m_queueMaxSize = 1024;
     node.m_queueMaxInflight = 128;
     node.m_queueMaxBytes = 1'048'576;
+    node.m_logging = R"({"log_to":"xmq_server.log","min_log_level":"DEBUG","log_level":{"publish":"DEBUG"}})";
     return node;
 }
 
@@ -186,6 +187,8 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_EQ(128, *stored->m_queueMaxInflight) << name;
         ASSERT_TRUE(stored->m_queueMaxBytes.has_value()) << name;
         EXPECT_EQ(1'048'576, *stored->m_queueMaxBytes) << name;
+        ASSERT_TRUE(stored->m_logging.has_value()) << name;
+        EXPECT_NE(String::npos, stored->m_logging->find("DEBUG")) << name << ": the logging section was not stored";
 
         // What the interface edits is written back through the same row.
         auto changed = *stored;

@@ -538,10 +538,12 @@ In this order - each step leaves the system working:
   start and read in place of it afterwards for the storage, the accounts database, the cluster switches and the
   node's name and address; an unreachable database stops the start with the reason. The table is `xmq_node`;
   the older `xmq_node_state` belonged to the bridge era and is dropped.
-  Left: the rest of the configuration - listeners, logging, the remaining limits, bridges - still
-  comes from the file. Queue limits have moved: `queue_max_size`, `queue_max_inflight` and
-  `queue_max_bytes` are columns of the node's row, written from the configuration on the first start
-  and read in place of it afterwards, including when the interface changes them.
+  Left: the rest of the configuration - listeners, the remaining limits, bridges - still comes from
+  the file. Queue limits and logging have moved: `queue_max_size`, `queue_max_inflight`,
+  `queue_max_bytes` and `logging_json` are columns of the node's row, written from the configuration
+  on the first start and read in place of it afterwards, including when the interface changes them.
+  Logging is one JSON column rather than one column per subject, so a new subject is not a schema
+  change.
 - [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
   removed from the cluster names nothing the cluster uses while it serves on the same Redis.
   Done: `Storage::setSessionNamespace()` prefixes every session key with the node's GUID; it is set when a node

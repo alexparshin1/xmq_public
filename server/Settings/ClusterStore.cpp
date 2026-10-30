@@ -31,7 +31,7 @@ const char* const invitationTable = "xmq_cluster_invitation";
 constexpr string_view nodeColumns =
     "node_id, name, host_port, state, last_error, redis_uri, database_uri,"
     " cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
-    " queue_max_size, queue_max_inflight, queue_max_bytes";
+    " queue_max_size, queue_max_inflight, queue_max_bytes, logging_json";
 
 String nowUtc()
 {
@@ -55,6 +55,7 @@ ClusterStore::Node readNode(Query& query)
     if (!query["queue_max_size"].isNull()) node.m_queueMaxSize = static_cast<int>(query["queue_max_size"].asInteger());
     if (!query["queue_max_inflight"].isNull()) node.m_queueMaxInflight = static_cast<int>(query["queue_max_inflight"].asInteger());
     if (!query["queue_max_bytes"].isNull()) node.m_queueMaxBytes = query["queue_max_bytes"].asInteger();
+    if (!query["logging_json"].isNull()) node.m_logging = query["logging_json"].asString();
     return node;
 }
 
@@ -75,6 +76,10 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
     auto& bytes = query.param("queue_max_bytes");
     if (node.m_queueMaxBytes) bytes = static_cast<int64_t>(*node.m_queueMaxBytes);
     else bytes.setNull(VariantDataType::VAR_INT64);
+
+    auto& logging = query.param("logging_json");
+    if (node.m_logging) logging = *node.m_logging;
+    else logging.setNull(VariantDataType::VAR_TEXT);
 }
 
 } // namespace
@@ -177,6 +182,7 @@ void ClusterStore::createSchema()
             "  queue_max_size        int,"
             "  queue_max_inflight    int,"
             "  queue_max_bytes       bigint,"
+            "  logging_json          TEXT,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
@@ -197,7 +203,7 @@ void ClusterStore::createSchema()
     // Added with the queue limits moving out of the configuration file. Nullable and without a
     // default on purpose: a row written before this holds no opinion, and the file decides for it.
     // A default would silently overwrite the limits of every node that is already installed.
-    for (const auto* column: {"queue_max_size int", "queue_max_inflight int", "queue_max_bytes bigint"})
+    for (const auto* column: {"queue_max_size int", "queue_max_inflight int", "queue_max_bytes bigint", "logging_json text"})
     {
         try {
             const AutoDatabaseConnection connection(*m_database);
@@ -266,10 +272,10 @@ void ClusterStore::insertNode(const Node& node)
                  "INSERT INTO " + String(nodeTable) +
                  " (node_id, name, host_port, state, last_error, redis_uri, database_uri,"
                  "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
-                 "  queue_max_size, queue_max_inflight, queue_max_bytes, updated_at)"
+                 "  queue_max_size, queue_max_inflight, queue_max_bytes, logging_json, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
                  "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
-                 "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :updated_at)");
+                 "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :logging_json, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -297,7 +303,8 @@ void ClusterStore::updateNode(const Node& node)
                  "  cluster_enabled = :cluster_enabled, cluster_lease_seconds = :cluster_lease_seconds,"
                  "  cluster_links = :cluster_links, certificate = :certificate,"
                  "  queue_max_size = :queue_max_size, queue_max_inflight = :queue_max_inflight,"
-                 "  queue_max_bytes = :queue_max_bytes, updated_at = :updated_at"
+                 "  queue_max_bytes = :queue_max_bytes, logging_json = :logging_json,"
+                 "  updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 
     update.param("name") = node.m_name;

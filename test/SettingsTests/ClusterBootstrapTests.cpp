@@ -285,6 +285,100 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
     filesystem::remove_all(directory);
 }
 
+/**
+ * Logging follows the queue limits out of the file: the whole section is one JSON column, so a new
+ * log subject does not mean a schema change. A row that has none leaves the file in charge.
+ */
+TEST(XMQ_ClusterBootstrapTests, loggingIsReadFromTheNodeRowAndWrittenBackToIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_logging_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(configurationText()).saveToFile(configurationPath);
+
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        store.createSchema();
+    }
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value()) << "the first start did not create the node's row";
+        ASSERT_TRUE(row->m_logging.has_value()) << "the row was created without the logging section the file had";
+        EXPECT_NE(String::npos, row->m_logging->find("INFO")) << row->m_logging->c_str();
+    }
+
+    // Changed in the row: what the next start runs with, whatever the file says.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CLogging changed = settings.m_logging;
+        changed.m_min_log_level = "DEBUG";
+        changed.m_log_level.m_publish = "DEBUG";
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        row->m_logging = changed.toString(true, false);
+        store.updateNode(*row);
+    }
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(String("DEBUG"), String(settings.m_logging.m_min_log_level.asString()))
+            << "the row did not decide the log level";
+        EXPECT_EQ(String("DEBUG"), String(settings.m_logging.m_log_level.m_publish.asString()))
+            << "the per-subject level was lost on the way through the row";
+    }
+
+    // And what the interface sets is written to the row, not only to the file.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CLogging logging = settings.m_logging;
+        logging.m_min_log_level = "WARNING";
+        settings.loggingControl("set", logging);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_logging.has_value()) << "the interface wrote the file and left the row";
+        EXPECT_NE(String::npos, row->m_logging->find("WARNING")) << row->m_logging->c_str();
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(String("WARNING"), String(settings.m_logging.m_min_log_level.asString()))
+            << "a restart did not take the log level from the row";
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
 TEST(XMQ_ClusterBootstrap, publishesTheConfiguredMqttCertificateAndRefreshesNewPeers)
 {
     if (!pgAnswers()) GTEST_SKIP() << "Shared PostgreSQL test database is unavailable";

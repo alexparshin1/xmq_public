@@ -379,6 +379,14 @@ private:
      * cannot be written, so the caller can leave the configuration unchanged.
      */
     void saveQueueLimitsToNodeRow(const CQueueLimits& limits);
+
+    /**
+     * @brief Writes the logging section into this node's row, as JSON.
+     *
+     * The same rule as the queue limits: the row is the configuration once it exists, and the file
+     * is the copy. Called under the configuration's write lock.
+     */
+    void saveLoggingToNodeRow(const CLogging& logging);
     void updateUsers();
 
     /**

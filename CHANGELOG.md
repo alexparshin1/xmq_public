@@ -23,6 +23,13 @@ Requires SPTK 5.6.17.
   the limits of a node already running. SQLite nodes are unchanged: one machine's file is that
   machine's configuration.
 
+- **The logging section is stored in the database too.** On a node with a PostgreSQL or MySQL
+  accounts database, `logging` - the destination, how many logs to keep, the minimum level and the
+  per-subject levels - lives in the node's row as one JSON column, written from the configuration
+  at the first start and read in place of the file from then on. It is one column rather than one
+  per subject, so adding a log subject does not mean a schema change. A row written before the
+  column existed stores nothing and keeps reading the file.
+
 - **`queue_limits` bounds the whole session, not the queue behind the window.** `max_size` and
   `max_bytes` counted only the messages waiting for a free in-flight slot, so a session could hold
   its `Receive Maximum` (up to 128, the shipped cap) more messages, of any size, before either limit
