@@ -52,14 +52,14 @@
     "keep_logs": 7,
     "min_log_level": "INFO",
     "log_level": {
-      "connect": "DEBUG",
-      "disconnect": "DEBUG",
-      "subscribe": "DEBUG",
-      "unsubscribe": "DEBUG",
-      "publish": "ERROR",
-      "ack": "ERROR",
-      "server_connections": "DEBUG",
-      "server_events": "DEBUG",
+      "connect": "INFO",
+      "disconnect": "INFO",
+      "subscribe": "INFO",
+      "unsubscribe": "INFO",
+      "publish": "INFO",
+      "ack": "INFO",
+      "server_connections": "INFO",
+      "server_events": "INFO",
       "cluster_connections": "INFO",
       "cluster_events": "INFO"
     }
