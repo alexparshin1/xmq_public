@@ -230,7 +230,10 @@ TEST_F(XMQ_ClusterStoreTests, aRowSurvivesBeingReadAndWrittenBackUnchanged)
         store.createSchema();
 
         const String nodeId = "2c7d1e44-5b6a-4f83-9d02-7a1b3c5e6f90";
-        const auto   inserted = sampleNode(nodeId);
+        auto         inserted = sampleNode(nodeId);
+        // Longer than the driver's first fetch buffer, which is what made a text column come back
+        // truncated at 256 bytes with its full length reported - a certificate is read the same way.
+        inserted.m_certificate = String(1200, '-') + "END CERTIFICATE-";
         store.insertNode(inserted);
 
         const auto read = store.node(nodeId);
@@ -238,12 +241,15 @@ TEST_F(XMQ_ClusterStoreTests, aRowSurvivesBeingReadAndWrittenBackUnchanged)
         ASSERT_TRUE(read->m_logging.has_value()) << name << ": the logging section did not come back";
         EXPECT_EQ(*inserted.m_logging, *read->m_logging) << name << ": the section changed on the way out";
 
+        EXPECT_EQ(inserted.m_certificate, read->m_certificate) << name << ": the certificate was truncated";
+
         store.updateNode(*read);
 
         const auto again = store.node(nodeId);
         ASSERT_TRUE(again.has_value()) << name;
         ASSERT_TRUE(again->m_logging.has_value()) << name;
         EXPECT_EQ(*inserted.m_logging, *again->m_logging) << name << ": writing the row back changed it";
+        EXPECT_EQ(inserted.m_certificate, again->m_certificate) << name << ": the certificate changed";
     }
 }
 
