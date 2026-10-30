@@ -545,7 +545,9 @@ In this order - each step leaves the system working:
   the configuration on the first start and read in place of it afterwards, including when the
   interface changes them. Logging is one JSON column rather than one column per subject, so a new
   subject is not a schema change. The thread counts are read when the broker builds its pools, so
-  they take effect at the next start; the rest apply from the next connection.
+  they take effect at the next start; the rest apply from the next connection. Because of this,
+  `xmq_server --reset-configuration` retires the node's row before it replaces the file: a row left
+  behind would put the storage, the cluster switches and all of these back on the next start.
 - [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
   removed from the cluster names nothing the cluster uses while it serves on the same Redis.
   Done: `Storage::setSessionNamespace()` prefixes every session key with the node's GUID; it is set when a node
