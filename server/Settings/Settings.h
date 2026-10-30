@@ -368,7 +368,7 @@ private:
     void saveConfigurationUnlocked() const;
 
     /**
-     * @brief Writes queue limits into this node's row in the shared database.
+     * @brief Writes the limits sections into this node's row in the shared database.
      *
      * The limits are the node's row now, so what the interface sets has to be written there and
      * not only into the file. Called under the configuration's write lock: it reads the path and
@@ -378,7 +378,7 @@ private:
      * the file, as before - or when the row does not exist yet. Throws if the row exists and
      * cannot be written, so the caller can leave the configuration unchanged.
      */
-    void saveQueueLimitsToNodeRow(const CQueueLimits& limits);
+    void saveLimitsToNodeRow(const CServerLimits* serverLimits, const CQueueLimits* queueLimits);
 
     /**
      * @brief Writes the logging section into this node's row, as JSON.

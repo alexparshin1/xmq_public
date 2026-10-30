@@ -65,6 +65,18 @@ constexpr auto clusterUsername = "cluster";
  * 24 characters out of 62 is about 143 bits, which is far past anything that has to be guessed
  * remotely over MQTT.
  */
+/// A thread count as the node's row stores it: a number, with 0 for "auto". The two spellings
+/// already mean the same thing to isAutomaticThreadCount(), which is what resolves them.
+int threadCountFrom(const String& configured)
+{
+    const auto text = String(configured).trim().toLowerCase();
+    if (text.empty() || text == "auto")
+    {
+        return 0;
+    }
+    return static_cast<int>(text.toInt());
+}
+
 String generatedClusterPassword()
 {
     static constexpr std::string_view alphabet =
@@ -951,6 +963,15 @@ void Settings::applyClusterConfigurationUnlocked()
             if (row->m_queueMaxInflight) m_queue_limits.m_max_inflight_messages = *row->m_queueMaxInflight;
             if (row->m_queueMaxBytes) m_queue_limits.m_max_bytes = *row->m_queueMaxBytes;
 
+            // server_limits. The thread counts are read when the broker builds its pools, so a
+            // change to them takes effect at the next start; the two advertised limits are read
+            // for every CONNACK and apply to the next connection.
+            if (row->m_sendThreads) m_server_limits.m_send_threads = to_string(*row->m_sendThreads);
+            if (row->m_receiveThreads) m_server_limits.m_receive_threads = to_string(*row->m_receiveThreads);
+            if (row->m_deliveryThreads) m_server_limits.m_delivery_threads = to_string(*row->m_deliveryThreads);
+            if (row->m_maxTopicAlias) m_server_limits.m_max_topic_alias = *row->m_maxTopicAlias;
+            if (row->m_maxPacketSize) m_server_limits.m_max_packet_size = *row->m_maxPacketSize;
+
             // The logging section, stored whole: a column per log subject would be a schema change
             // every time a subject is added. Parsed through the same loader the file goes through,
             // so a stored section means exactly what the same text in the file would.
@@ -1004,6 +1025,11 @@ void Settings::applyClusterConfigurationUnlocked()
             if (!updated.m_queueMaxInflight) updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
             if (!updated.m_queueMaxBytes) updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
             if (!updated.m_logging) updated.m_logging = m_logging.toString(true, false);
+            if (!updated.m_sendThreads) updated.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
+            if (!updated.m_receiveThreads) updated.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
+            if (!updated.m_deliveryThreads) updated.m_deliveryThreads = threadCountFrom(m_server_limits.m_delivery_threads.asString());
+            if (!updated.m_maxTopicAlias) updated.m_maxTopicAlias = static_cast<int>(m_server_limits.m_max_topic_alias.asInteger());
+            if (!updated.m_maxPacketSize) updated.m_maxPacketSize = static_cast<int64_t>(m_server_limits.m_max_packet_size.isNull() ? 0 : m_server_limits.m_max_packet_size.asInteger());
             {
                 const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
                 const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1045,6 +1071,11 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
         row.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
         row.m_logging = m_logging.toString(true, false);
+        row.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
+        row.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
+        row.m_deliveryThreads = threadCountFrom(m_server_limits.m_delivery_threads.asString());
+        row.m_maxTopicAlias = static_cast<int>(m_server_limits.m_max_topic_alias.asInteger());
+        row.m_maxPacketSize = static_cast<int64_t>(m_server_limits.m_max_packet_size.isNull() ? 0 : m_server_limits.m_max_packet_size.asInteger());
         {
             const auto configuredCertificate = m_connections.m_ssl_keys.m_certfile.asString();
             const auto certFile = configuredCertificate.empty() ? nodeKeyFiles().first : filesystem::path(configuredCertificate.c_str());
@@ -1605,16 +1636,24 @@ void Settings::limitsControl(const string& action, CServerLimits& serverLimits, 
 
     if (action == "set")
     {
-        if (!m_server_limits.isNull())
+        const bool applyServerLimits = !m_server_limits.isNull();
+        const bool applyQueueLimits = !m_queue_limits.isNull();
+
+        // The row first, and the configuration only if it was written: a database that refuses the
+        // change must leave the running node on the limits it had, not on a memory state the next
+        // start will not reproduce.
+        if (applyServerLimits || applyQueueLimits)
+        {
+            saveLimitsToNodeRow(applyServerLimits ? &serverLimits : nullptr,
+                                applyQueueLimits ? &queueLimits : nullptr);
+        }
+
+        if (applyServerLimits)
         {
             m_server_limits = serverLimits;
         }
-        if (!m_queue_limits.isNull())
+        if (applyQueueLimits)
         {
-            // The row first, and the configuration only if it was written: a database that refuses
-            // the change must leave the running node on the limits it had, not on a memory state
-            // the next start will not reproduce.
-            saveQueueLimitsToNodeRow(queueLimits);
             m_queue_limits = queueLimits;
         }
         saveConfigurationUnlocked();
@@ -1626,7 +1665,7 @@ void Settings::limitsControl(const string& action, CServerLimits& serverLimits, 
     }
 }
 
-void Settings::saveQueueLimitsToNodeRow(const CQueueLimits& limits)
+void Settings::saveLimitsToNodeRow(const CServerLimits* serverLimits, const CQueueLimits* queueLimits)
 {
     if (!m_accountsPool || m_configurationPath.empty())
     {
@@ -1654,9 +1693,24 @@ void Settings::saveQueueLimitsToNodeRow(const CQueueLimits& limits)
     }
 
     auto updated = *row;
-    updated.m_queueMaxSize = static_cast<int>(limits.m_max_size.asInteger());
-    updated.m_queueMaxInflight = static_cast<int>(limits.m_max_inflight_messages.asInteger());
-    updated.m_queueMaxBytes = static_cast<int64_t>(limits.m_max_bytes.isNull() ? 0 : limits.m_max_bytes.asInteger());
+
+    // Only the sections being changed: a section the configuration file does not carry keeps
+    // whatever the row already holds, and writes nothing over it.
+    if (queueLimits)
+    {
+        updated.m_queueMaxSize = static_cast<int>(queueLimits->m_max_size.asInteger());
+        updated.m_queueMaxInflight = static_cast<int>(queueLimits->m_max_inflight_messages.asInteger());
+        updated.m_queueMaxBytes = static_cast<int64_t>(queueLimits->m_max_bytes.isNull() ? 0 : queueLimits->m_max_bytes.asInteger());
+    }
+    if (serverLimits)
+    {
+        updated.m_sendThreads = threadCountFrom(serverLimits->m_send_threads.asString());
+        updated.m_receiveThreads = threadCountFrom(serverLimits->m_receive_threads.asString());
+        updated.m_deliveryThreads = threadCountFrom(serverLimits->m_delivery_threads.asString());
+        updated.m_maxTopicAlias = static_cast<int>(serverLimits->m_max_topic_alias.asInteger());
+        updated.m_maxPacketSize = static_cast<int64_t>(serverLimits->m_max_packet_size.isNull() ? 0 : serverLimits->m_max_packet_size.asInteger());
+    }
+
     store.updateNode(updated);
 }
 
@@ -2713,6 +2767,11 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
                 updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
                 updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
                 updated.m_logging = m_logging.toString(true, false);
+                updated.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
+                updated.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
+                updated.m_deliveryThreads = threadCountFrom(m_server_limits.m_delivery_threads.asString());
+                updated.m_maxTopicAlias = static_cast<int>(m_server_limits.m_max_topic_alias.asInteger());
+                updated.m_maxPacketSize = static_cast<int64_t>(m_server_limits.m_max_packet_size.isNull() ? 0 : m_server_limits.m_max_packet_size.asInteger());
             }
             if (previous) store.updateNode(updated); else store.insertNode(updated);
         }

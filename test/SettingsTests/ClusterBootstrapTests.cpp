@@ -379,6 +379,150 @@ TEST(XMQ_ClusterBootstrapTests, loggingIsReadFromTheNodeRowAndWrittenBackToIt)
     filesystem::remove_all(directory);
 }
 
+/**
+ * The two ways a node meets these settings.
+ *
+ * Starting with a configuration that already exists: the row was written by an older version that
+ * stored nothing for server_limits, so the columns are NULL and the file still decides. That is
+ * what makes the upgrade safe - a node is not silently re-limited by whatever a default would have
+ * been at the time the column was added.
+ *
+ * Creating a configuration: Initial Setup writes the file and restarts the broker, the row is
+ * created from that file, and from then on the row decides. What the interface changes afterwards
+ * is written to the row, not only to the file.
+ */
+TEST(XMQ_ClusterBootstrapTests, serverLimitsFollowTheFileUntilTheRowIsCreatedFromIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_server_limits_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    const auto writeConfiguration = [&](const char* maxSize, const char* maxTopicAlias)
+    {
+        std::string text(configurationText().c_str());
+        const auto replaceText = [&text](const std::string& from, const std::string& to)
+        {
+            const auto at = text.find(from);
+            ASSERT_NE(std::string::npos, at) << from;
+            text.replace(at, from.size(), to);
+        };
+        replaceText("\"max_size\": 128", std::string("\"max_size\": ") + maxSize);
+        replaceText("\"max_topic_alias\": 8", std::string("\"max_topic_alias\": ") + maxTopicAlias);
+        Buffer(text).saveToFile(configurationPath);
+    };
+
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        store.createSchema();
+    }
+
+    const auto removeRow = [](const String& nodeId)
+    {
+        DatabaseConnectionPool       connection(pgUri, 1);
+        const AutoDatabaseConnection open(connection);
+        Query                        remove(open.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    };
+
+    writeConfiguration("128", "8");
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_maxTopicAlias.has_value()) << "the row was created without the server limits the file had";
+        EXPECT_EQ(8, *row->m_maxTopicAlias);
+        ASSERT_TRUE(row->m_sendThreads.has_value());
+        EXPECT_EQ(1, *row->m_sendThreads) << "0 would mean auto; the file said one";
+    }
+
+    // A row written before the columns existed: nothing stored, so the file still decides - and it
+    // says something different from what the row was first created with.
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        row->m_sendThreads.reset();
+        row->m_receiveThreads.reset();
+        row->m_deliveryThreads.reset();
+        row->m_maxTopicAlias.reset();
+        row->m_maxPacketSize.reset();
+        row->m_queueMaxSize.reset();
+        row->m_queueMaxInflight.reset();
+        row->m_queueMaxBytes.reset();
+        store.updateNode(*row);
+    }
+
+    writeConfiguration("999", "77");
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(999, settings.m_queue_limits.m_max_size.asInteger())
+            << "a row from an older version overrode the file instead of leaving it in charge";
+        EXPECT_EQ(77, settings.m_server_limits.m_max_topic_alias.asInteger());
+    }
+
+    // Creating a new configuration - Initial Setup writes the file and the broker restarts onto it:
+    // the row is created from that file and becomes the configuration.
+    removeRow(nodeId);
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value()) << "the start did not create the row for the new configuration";
+        ASSERT_TRUE(row->m_maxTopicAlias.has_value());
+        EXPECT_EQ(77, *row->m_maxTopicAlias);
+        EXPECT_EQ(999, *row->m_queueMaxSize);
+    }
+
+    // And what the interface sets goes to the row, for both sections at once.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CServerLimits serverLimits = settings.m_server_limits;
+        serverLimits.m_send_threads = "2";
+        serverLimits.m_max_topic_alias = 55;
+        CQueueLimits queueLimits = settings.m_queue_limits;
+        queueLimits.m_max_size = 55;
+        settings.limitsControl("set", serverLimits, queueLimits);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_maxTopicAlias.has_value());
+        EXPECT_EQ(55, *row->m_maxTopicAlias);
+        ASSERT_TRUE(row->m_sendThreads.has_value());
+        EXPECT_EQ(2, *row->m_sendThreads);
+        EXPECT_EQ(55, *row->m_queueMaxSize);
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(55, settings.m_server_limits.m_max_topic_alias.asInteger()) << "a restart did not take the limits from the row";
+        EXPECT_EQ(String("2"), String(settings.m_server_limits.m_send_threads.asString()));
+        EXPECT_EQ(55, settings.m_queue_limits.m_max_size.asInteger());
+    }
+
+    removeRow(nodeId);
+    filesystem::remove_all(directory);
+}
+
 TEST(XMQ_ClusterBootstrap, publishesTheConfiguredMqttCertificateAndRefreshesNewPeers)
 {
     if (!pgAnswers()) GTEST_SKIP() << "Shared PostgreSQL test database is unavailable";

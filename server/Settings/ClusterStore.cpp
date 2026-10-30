@@ -31,7 +31,9 @@ const char* const invitationTable = "xmq_cluster_invitation";
 constexpr string_view nodeColumns =
     "node_id, name, host_port, state, last_error, redis_uri, database_uri,"
     " cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
-    " queue_max_size, queue_max_inflight, queue_max_bytes, logging_json";
+    " queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
+    " limits_send_threads, limits_receive_threads, limits_delivery_threads,"
+    " limits_max_topic_alias, limits_max_packet_size";
 
 String nowUtc()
 {
@@ -56,6 +58,11 @@ ClusterStore::Node readNode(Query& query)
     if (!query["queue_max_inflight"].isNull()) node.m_queueMaxInflight = static_cast<int>(query["queue_max_inflight"].asInteger());
     if (!query["queue_max_bytes"].isNull()) node.m_queueMaxBytes = query["queue_max_bytes"].asInteger();
     if (!query["logging_json"].isNull()) node.m_logging = query["logging_json"].asString();
+    if (!query["limits_send_threads"].isNull()) node.m_sendThreads = static_cast<int>(query["limits_send_threads"].asInteger());
+    if (!query["limits_receive_threads"].isNull()) node.m_receiveThreads = static_cast<int>(query["limits_receive_threads"].asInteger());
+    if (!query["limits_delivery_threads"].isNull()) node.m_deliveryThreads = static_cast<int>(query["limits_delivery_threads"].asInteger());
+    if (!query["limits_max_topic_alias"].isNull()) node.m_maxTopicAlias = static_cast<int>(query["limits_max_topic_alias"].asInteger());
+    if (!query["limits_max_packet_size"].isNull()) node.m_maxPacketSize = query["limits_max_packet_size"].asInteger();
     return node;
 }
 
@@ -80,6 +87,23 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
     auto& logging = query.param("logging_json");
     if (node.m_logging) logging = *node.m_logging;
     else logging.setNull(VariantDataType::VAR_TEXT);
+
+    const auto bindInt = [&query](const char* name, const std::optional<int>& value) {
+        auto& parameter = query.param(name);
+        if (value) parameter = static_cast<int32_t>(*value);
+        else parameter.setNull(VariantDataType::VAR_INT);
+    };
+    bindInt("limits_send_threads", node.m_sendThreads);
+    bindInt("limits_receive_threads", node.m_receiveThreads);
+    bindInt("limits_delivery_threads", node.m_deliveryThreads);
+
+    auto& alias = query.param("limits_max_topic_alias");
+    if (node.m_maxTopicAlias) alias = static_cast<int32_t>(*node.m_maxTopicAlias);
+    else alias.setNull(VariantDataType::VAR_INT);
+
+    auto& packet = query.param("limits_max_packet_size");
+    if (node.m_maxPacketSize) packet = static_cast<int64_t>(*node.m_maxPacketSize);
+    else packet.setNull(VariantDataType::VAR_INT64);
 }
 
 } // namespace
@@ -183,6 +207,11 @@ void ClusterStore::createSchema()
             "  queue_max_inflight    int,"
             "  queue_max_bytes       bigint,"
             "  logging_json          TEXT,"
+            "  limits_send_threads   int,"
+            "  limits_receive_threads int,"
+            "  limits_delivery_threads int,"
+            "  limits_max_topic_alias int,"
+            "  limits_max_packet_size bigint,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
@@ -203,7 +232,10 @@ void ClusterStore::createSchema()
     // Added with the queue limits moving out of the configuration file. Nullable and without a
     // default on purpose: a row written before this holds no opinion, and the file decides for it.
     // A default would silently overwrite the limits of every node that is already installed.
-    for (const auto* column: {"queue_max_size int", "queue_max_inflight int", "queue_max_bytes bigint", "logging_json text"})
+    for (const auto* column: {"queue_max_size int", "queue_max_inflight int", "queue_max_bytes bigint", "logging_json text",
+                                    "limits_send_threads int", "limits_receive_threads int",
+                                    "limits_delivery_threads int", "limits_max_topic_alias int",
+                                    "limits_max_packet_size bigint"})
     {
         try {
             const AutoDatabaseConnection connection(*m_database);
@@ -272,10 +304,14 @@ void ClusterStore::insertNode(const Node& node)
                  "INSERT INTO " + String(nodeTable) +
                  " (node_id, name, host_port, state, last_error, redis_uri, database_uri,"
                  "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
-                 "  queue_max_size, queue_max_inflight, queue_max_bytes, logging_json, updated_at)"
+                 "  queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
+                 "  limits_send_threads, limits_receive_threads, limits_delivery_threads,"
+                 "  limits_max_topic_alias, limits_max_packet_size, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
                  "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
-                 "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :logging_json, :updated_at)");
+                 "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :logging_json,"
+                 "  :limits_send_threads, :limits_receive_threads, :limits_delivery_threads,"
+                 "  :limits_max_topic_alias, :limits_max_packet_size, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -304,6 +340,11 @@ void ClusterStore::updateNode(const Node& node)
                  "  cluster_links = :cluster_links, certificate = :certificate,"
                  "  queue_max_size = :queue_max_size, queue_max_inflight = :queue_max_inflight,"
                  "  queue_max_bytes = :queue_max_bytes, logging_json = :logging_json,"
+                 "  limits_send_threads = :limits_send_threads,"
+                 "  limits_receive_threads = :limits_receive_threads,"
+                 "  limits_delivery_threads = :limits_delivery_threads,"
+                 "  limits_max_topic_alias = :limits_max_topic_alias,"
+                 "  limits_max_packet_size = :limits_max_packet_size,"
                  "  updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 

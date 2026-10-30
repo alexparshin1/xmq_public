@@ -23,6 +23,15 @@ Requires SPTK 5.6.17.
   the limits of a node already running. SQLite nodes are unchanged: one machine's file is that
   machine's configuration.
 
+- **`server_limits` is stored in the database too.** The thread counts (`send_threads`,
+  `receive_threads`, `delivery_threads`, "auto" or a number), `max_topic_alias` and
+  `max_packet_size` are columns of the node's row, written from the configuration when the row is
+  created and read in place of the file afterwards. The thread counts are read when the broker
+  builds its pools, so changing them takes effect at the next start; the two advertised limits are
+  read for every CONNACK and apply from the next connection on. As with the other sections, a row
+  that predates the columns stores nothing and keeps the file in charge - an upgrade does not
+  re-limit a node that is already running.
+
 - **The logging section is stored in the database too.** On a node with a PostgreSQL or MySQL
   accounts database, `logging` - the destination, how many logs to keep, the minimum level and the
   per-subject levels - lives in the node's row as one JSON column, written from the configuration

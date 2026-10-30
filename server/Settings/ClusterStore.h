@@ -70,6 +70,16 @@ public:
         /// column per log subject would be a schema change for every subject added. Null when the
         /// row predates it, and the file decides.
         std::optional<sptk::String> m_logging;
+
+        // server_limits. A thread count is a number here, with 0 for "auto" - the two spellings
+        // already mean the same thing to the code that resolves them, and a text column would be a
+        // fourth place where a charset has to agree with the connection's. Optional for the same
+        // reason as the rest: a row that predates them stores no opinion, and the file decides.
+        std::optional<int>          m_sendThreads;      ///< 0 is "auto", the same as the file's "auto".
+        std::optional<int>          m_receiveThreads;
+        std::optional<int>          m_deliveryThreads;
+        std::optional<int>          m_maxTopicAlias;
+        std::optional<int64_t>      m_maxPacketSize;
     };
 
     /// One invitation, as the database holds it. At most one per node.
