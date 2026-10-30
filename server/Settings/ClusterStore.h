@@ -116,11 +116,11 @@ public:
     /**
      * @brief Writes the logging section alone.
      *
-     * Kept out of updateNode() on purpose. A TEXT parameter written alongside nineteen others was
-     * bound with the wrong length by the MySQL driver and came out as garbage - the server refused
-     * it, and PostgreSQL had been storing it. A statement that carries one parameter cannot get
-     * that wrong, and each writer saying what it owns is easier to follow than one statement that
-     * writes everything.
+     * Kept out of updateNode() on purpose: each writer says what it owns, and a statement that
+     * carries one parameter cannot get its length wrong. The defect that led here was in the MySQL
+     * driver - a text longer than its 256-byte fetch buffer was truncated and reported at full
+     * length, so the section was read back with zeros after byte 256 and written to the same column
+     * as invalid text. Fixed in SPTK 5.6.17; the split stays because it reads better.
      */
     void updateLogging(const sptk::String& nodeId, const std::optional<sptk::String>& logging);
 

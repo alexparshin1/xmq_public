@@ -34,9 +34,10 @@ Requires SPTK 5.6.17.
 
 - **A row is written by the part of the code that owns each column.** The logging section has its
   own statement now, instead of travelling in the twenty-parameter update that rewrites the whole
-  row: as one TEXT parameter among many it was bound with the wrong length by the MySQL driver and
-  reached the server as garbage. PostgreSQL stored that garbage quietly, which is worse than the
-  refusal MySQL gave.
+  row. That is where a defect of the MySQL driver showed itself: a text longer than its 256-byte
+  fetch buffer was truncated and reported at its full length, so the section came back with zeros
+  after byte 256 and, written to the same column, was refused as invalid text. The driver is fixed
+  in SPTK 5.6.17; the split remains because each writer saying what it owns is easier to follow.
 
 - **The logging section is stored in the database too.** On a node with a PostgreSQL or MySQL
   accounts database, `logging` - the destination, how many logs to keep, the minimum level and the
