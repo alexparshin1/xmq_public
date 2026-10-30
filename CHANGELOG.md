@@ -32,6 +32,12 @@ Requires SPTK 5.6.17.
   that predates the columns stores nothing and keeps the file in charge - an upgrade does not
   re-limit a node that is already running.
 
+- **A row is written by the part of the code that owns each column.** The logging section has its
+  own statement now, instead of travelling in the twenty-parameter update that rewrites the whole
+  row: as one TEXT parameter among many it was bound with the wrong length by the MySQL driver and
+  reached the server as garbage. PostgreSQL stored that garbage quietly, which is worse than the
+  refusal MySQL gave.
+
 - **The logging section is stored in the database too.** On a node with a PostgreSQL or MySQL
   accounts database, `logging` - the destination, how many logs to keep, the minimum level and the
   per-subject levels - lives in the node's row as one JSON column, written from the configuration

@@ -84,9 +84,7 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
     if (node.m_queueMaxBytes) bytes = static_cast<int64_t>(*node.m_queueMaxBytes);
     else bytes.setNull(VariantDataType::VAR_INT64);
 
-    auto& logging = query.param("logging_json");
-    if (node.m_logging) logging = *node.m_logging;
-    else logging.setNull(VariantDataType::VAR_TEXT);
+
 
     const auto bindInt = [&query](const char* name, const std::optional<int>& value) {
         auto& parameter = query.param(name);
@@ -297,6 +295,18 @@ optional<ClusterStore::Node> ClusterStore::nodeByName(const String& name)
     return result;
 }
 
+void ClusterStore::updateLogging(const String& nodeId, const std::optional<String>& logging)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query update(connection.connection(),
+                 "UPDATE " + String(nodeTable) + " SET logging_json = :logging_json WHERE node_id = :node_id");
+    auto& parameter = update.param("logging_json");
+    if (logging) parameter = *logging;
+    else parameter.setNull(VariantDataType::VAR_TEXT);
+    update.param("node_id") = nodeId;
+    update.exec();
+}
+
 void ClusterStore::insertNode(const Node& node)
 {
     const AutoDatabaseConnection connection(*m_database);
@@ -325,6 +335,9 @@ void ClusterStore::insertNode(const Node& node)
     insert.param("cluster_links") = node.m_links;
     insert.param("certificate") = node.m_certificate;
     bindQueueLimits(insert, node);
+    auto& logging = insert.param("logging_json");
+    if (node.m_logging) logging = *node.m_logging;
+    else logging.setNull(VariantDataType::VAR_TEXT);
     insert.param("updated_at") = nowUtc();
     insert.exec();
 }
@@ -339,7 +352,7 @@ void ClusterStore::updateNode(const Node& node)
                  "  cluster_enabled = :cluster_enabled, cluster_lease_seconds = :cluster_lease_seconds,"
                  "  cluster_links = :cluster_links, certificate = :certificate,"
                  "  queue_max_size = :queue_max_size, queue_max_inflight = :queue_max_inflight,"
-                 "  queue_max_bytes = :queue_max_bytes, logging_json = :logging_json,"
+                 "  queue_max_bytes = :queue_max_bytes,"
                  "  limits_send_threads = :limits_send_threads,"
                  "  limits_receive_threads = :limits_receive_threads,"
                  "  limits_delivery_threads = :limits_delivery_threads,"

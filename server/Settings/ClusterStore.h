@@ -113,6 +113,17 @@ public:
     /// Writes what an administrator changes; the row must exist.
     void updateNode(const Node& node);
 
+    /**
+     * @brief Writes the logging section alone.
+     *
+     * Kept out of updateNode() on purpose. A TEXT parameter written alongside nineteen others was
+     * bound with the wrong length by the MySQL driver and came out as garbage - the server refused
+     * it, and PostgreSQL had been storing it. A statement that carries one parameter cannot get
+     * that wrong, and each writer saying what it owns is easier to follow than one statement that
+     * writes everything.
+     */
+    void updateLogging(const sptk::String& nodeId, const std::optional<sptk::String>& logging);
+
     /// Erases a provisional declaration (e.g. when Invite replaces it with the real UUID).
     void removeNode(const sptk::String& nodeId);
 

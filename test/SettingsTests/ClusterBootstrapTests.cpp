@@ -334,7 +334,7 @@ TEST(XMQ_ClusterBootstrapTests, loggingIsReadFromTheNodeRowAndWrittenBackToIt)
         auto row = store.node(nodeId);
         ASSERT_TRUE(row.has_value());
         row->m_logging = changed.toString(true, false);
-        store.updateNode(*row);
+        store.updateLogging(nodeId, row->m_logging);
     }
     {
         Settings settings;
@@ -377,6 +377,28 @@ TEST(XMQ_ClusterBootstrapTests, loggingIsReadFromTheNodeRowAndWrittenBackToIt)
     }
 
     filesystem::remove_all(directory);
+}
+
+TEST(XMQ_ClusterBootstrapStatic, aCreatedConfigurationSerialisesItsLoggingSectionAsJson)
+{
+    const auto directory = filesystem::temp_directory_path() / ("xmq_logging_text_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+    const auto configurationPath = directory / "xmq_server.conf";
+
+    Settings::createConfiguration(configurationPath, directory / "missing-template");
+    Settings settings;
+    settings.loadConfiguration(configurationPath);
+
+    // The text the node's row carries, for a configuration the interface created rather than one
+    // written by hand. It has to be JSON and it has to be text: MySQL refuses a value that is
+    // neither, and PostgreSQL stores it, which is how a broken section can go unnoticed.
+    EXPECT_FALSE(settings.m_logging.isNull());
+    const auto text = settings.m_logging.toString(true, false);
+    EXPECT_FALSE(text.empty());
+
+    xdoc::Document document;
+    EXPECT_NO_THROW(document.load(String(text))) << "the section is not JSON: " << String(text).substr(0, 120);
 }
 
 /**

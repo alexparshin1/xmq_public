@@ -1740,9 +1740,8 @@ void Settings::saveLoggingToNodeRow(const CLogging& logging)
         return;
     }
 
-    auto updated = *row;
-    updated.m_logging = logging.toString(true, false);
-    store.updateNode(updated);
+    // Only this column: the row is written by several paths, and each says what it owns.
+    store.updateLogging(nodeId, logging.isNull() ? std::nullopt : std::optional<String>(logging.toString(true, false)));
 }
 
 void Settings::loggingControl(const std::string& action, CLogging& logging)

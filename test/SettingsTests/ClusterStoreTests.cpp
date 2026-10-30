@@ -218,6 +218,35 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
     }
 }
 
+// Reading a row and writing it back unchanged has to leave it unchanged - the interface edits a
+// row it has just read, and a field that does not survive that round trip is a field that turns
+// into garbage the first time somebody presses Save. Written because the logging section did
+// exactly that.
+TEST_F(XMQ_ClusterStoreTests, aRowSurvivesBeingReadAndWrittenBackUnchanged)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
+        store.createSchema();
+
+        const String nodeId = "2c7d1e44-5b6a-4f83-9d02-7a1b3c5e6f90";
+        const auto   inserted = sampleNode(nodeId);
+        store.insertNode(inserted);
+
+        const auto read = store.node(nodeId);
+        ASSERT_TRUE(read.has_value()) << name;
+        ASSERT_TRUE(read->m_logging.has_value()) << name << ": the logging section did not come back";
+        EXPECT_EQ(*inserted.m_logging, *read->m_logging) << name << ": the section changed on the way out";
+
+        store.updateNode(*read);
+
+        const auto again = store.node(nodeId);
+        ASSERT_TRUE(again.has_value()) << name;
+        ASSERT_TRUE(again->m_logging.has_value()) << name;
+        EXPECT_EQ(*inserted.m_logging, *again->m_logging) << name << ": writing the row back changed it";
+    }
+}
+
 TEST_F(XMQ_ClusterStoreTests, sqliteIsNotAClusterDatabase)
 {
     const auto path = filesystem::temp_directory_path() / ("xmq_cluster_store_" + to_string(::getpid()) + ".db");
