@@ -84,9 +84,17 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
             server().systemStatistics()->registerSentData(sendBytes, messageCount, publishCount);
         }
 
-        // The session may have disconnected between being queued and this round running; if so
-        // there is nothing left to write to, and the detached bytes go nowhere.
-        const auto socket = clientSession->getSocket();
+        // The connection and the socket it carries, taken as one answer. Reading them separately -
+        // the socket now, the connection a few lines later - let a takeover land in between, and
+        // the batch then held the old socket with the new connection: a write that failed on the
+        // old one closed the connection that replaced it, and the client was left with a socket the
+        // broker read nothing more from. The failing cycle names close site 5, this batch.
+        const auto connection = clientSession->getConnection();
+        if (!connection)
+        {
+            continue;
+        }
+        const auto socket = connection->getSocket();
         if (!socket || exchangeBuffer->empty())
         {
             continue;
@@ -99,7 +107,7 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
                                                 .m_data = exchangeBuffer->data(),
                                                 .m_size = exchangeBuffer->bytes()});
         m_sessionOfItem.push_back(clientSession);
-        m_connectionOfItem.push_back(clientSession->getConnection());
+        m_connectionOfItem.push_back(connection);
     }
 
     m_writer->writeAll(m_writeItems);

@@ -58,6 +58,15 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **A failed batched write no longer closes the connection that replaced it.** The send batch read
+  the session's socket and the session's connection as two separate answers. A takeover landing
+  between the two put the old socket in the batch together with the new connection, so a write that
+  failed on the dead socket closed the live one: the client had its CONNECT answered, believed
+  itself connected, and the broker read nothing more from it. Both are now taken from one answer,
+  the connection, and the socket from that. Found by a soak of the reconnect-churn test once it
+  began asserting that its resubscription had been acknowledged - cycle 126 of one run reported
+  close site 5, the batched write, with no subscriptions left.
+
 - **A client that reconnects immediately after DISCONNECT keeps its new connection.** The
   DISCONNECT is read from the old connection but handled later - logging, an extension's handler
   and reading its properties all take time - and a takeover landing in between could move the

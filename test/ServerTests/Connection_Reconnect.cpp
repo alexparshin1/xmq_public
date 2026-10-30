@@ -614,7 +614,10 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
     auto client = connectClient(clientId, cleanSession, onMessage);
     if (withSubscriptions)
     {
-        (void) subscribeAndWait(client, destination);
+        ASSERT_TRUE(subscribeAndWait(client, destination))
+            << "the first subscription was not acknowledged, so a publish that does not arrive"
+               " afterwards would be measuring this, not the reconnect"
+            << brokerStateFor(clientId, topicName);
     }
 
     for (size_t cycle = 1; cycle <= cycles; ++cycle)
@@ -648,7 +651,12 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
             if (withSubscriptions)
             {
                 at("subscribe");
-                (void) subscribeAndWait(client, destination);
+                // Asserted, not ignored: a SUBSCRIBE that was never acknowledged leaves the next
+                // publish with nowhere to go, and the message that then does not arrive says
+                // nothing about the broker - it says the test published without a subscription.
+                ASSERT_TRUE(subscribeAndWait(client, destination))
+                    << "the subscription after a concurrent reconnect was not acknowledged on cycle "
+                    << cycle << lossState << brokerStateFor(clientId, topicName);
             }
         }
         else
@@ -660,7 +668,9 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
             if (withSubscriptions)
             {
                 at("subscribe");
-                (void) subscribeAndWait(client, destination);
+                ASSERT_TRUE(subscribeAndWait(client, destination))
+                    << "the subscription after a sequential reconnect was not acknowledged on cycle "
+                    << cycle << lossState << brokerStateFor(clientId, topicName);
             }
         }
 
@@ -737,9 +747,17 @@ void churnReconnects(const size_t cycles, const bool cleanSession, const bool co
 //     on the cycle after a publisher's DISCONNECT. With the fix, 1000 runs of that shape under the
 //     same load produced none.
 //
-// What is left: the loss the publish shape reports as lost or late, which is a message that does
-// not arrive on a connection that is still up. Rare aborts under this stress are also unexplained
-// and may predate these fixes.
+//   - ClientSessionSendThread::processBatch - the fourth, and the one that explained the loss.
+//     The batch took the session's socket and its connection as two separate answers; a takeover
+//     landing between them paired the old socket with the new connection, so a write that failed on
+//     the old one closed the one that replaced it. Found by asserting that the resubscription had
+//     been acknowledged before publishing: on cycle 126 the assertion failed with "close site 5,
+//     subscriptions 0", which is this batch and nobody else.
+//
+// What is left: rare aborts under this stress, unexplained and possibly older than these fixes. A
+// publish that does not arrive now says whether the subscription was there at all, because the
+// resubscription is asserted rather than ignored - before that, a cycle whose SUBACK never came
+// looked exactly like a message the broker had lost.
 // Narrowing candidates for the crash, run under valgrind or a crash-rate loop:
 //     ./xmq_unit_tests --gtest_also_run_disabled_tests --gtest_filter="*Churn*"
 //
