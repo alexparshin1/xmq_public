@@ -90,29 +90,26 @@ uint64_t MessageQueue::droppedMessages() const
     return m_droppedMessages.load(std::memory_order_relaxed);
 }
 
-bool MessageQueue::canAccept(const uint64_t bytes) const
+bool MessageQueue::exceedsLimitsUnlocked(const uint64_t messageBytes) const
 {
-    const scoped_lock lock(m_mutex);
+    // In flight and waiting alike: a message the client has not acknowledged is held by this
+    // session just as one behind the window is, and the memory it costs is the same.
+    const auto held = m_inflightMessages.size() + waitingCount();
 
-    // Room in the window: taken straight away, and it is not the queue's business to refuse it.
-    if (m_maxInflightMessages == 0 || m_inflightMessages.size() < m_maxInflightMessages)
+    if (const auto maxMessages = m_maxQueuedMessages.load(std::memory_order_relaxed);
+        maxMessages > 0 && held >= maxMessages)
     {
         return true;
     }
 
-    if (const auto maxMessages = m_maxQueuedMessages.load(std::memory_order_relaxed);
-        maxMessages > 0 && waitingCount() >= maxMessages)
-    {
-        return false;
-    }
+    const auto maxBytes = m_maxQueuedBytes.load(std::memory_order_relaxed);
+    return maxBytes > 0 && messageBytes != 0 && m_queuedBytes + messageBytes > maxBytes;
+}
 
-    if (const auto maxBytes = m_maxQueuedBytes.load(std::memory_order_relaxed);
-        maxBytes > 0 && m_waitingBytes + bytes > maxBytes)
-    {
-        return false;
-    }
-
-    return true;
+bool MessageQueue::canAccept(const uint64_t bytes) const
+{
+    const scoped_lock lock(m_mutex);
+    return !exceedsLimitsUnlocked(bytes);
 }
 
 MessageId MessageQueue::queueMessage(const SMessageDispatch& messageDispatch)
@@ -144,7 +141,7 @@ MessageId MessageQueue::nextDeliveryIdUnlocked()
     return m_nextMessageId;
 }
 
-MessageId MessageQueue::queueMessageUnlocked(const SMessageDispatch& messageDispatch)
+MessageId MessageQueue::queueMessageUnlocked(const SMessageDispatch& messageDispatch, const bool applyLimits)
 {
     if (messageDispatch->m_flags.getQos() == Qos::Qos0)
     {
@@ -160,30 +157,29 @@ MessageId MessageQueue::queueMessageUnlocked(const SMessageDispatch& messageDisp
     }
 
     const auto messageId = messageDispatch->m_deliveryId;
+    const auto bytes = messageBytes(messageDispatch);
+
+    // The newest message is the one dropped: what is already there has waited longest and is the
+    // closest to being delivered, and dropping it would make a slow client lose the oldest
+    // messages it never saw. Checked before the window is considered, because the limits bound the
+    // session and not just the queue behind the window.
+    if (applyLimits && exceedsLimitsUnlocked(bytes))
+    {
+        m_droppedMessages.fetch_add(1, std::memory_order_relaxed);
+        return 0;
+    }
 
     if (m_maxInflightMessages > 0 && m_inflightMessages.size() >= m_maxInflightMessages)
     {
-        // The window is full, so this goes to the queue behind it - and the queue has a bound. The
-        // newest message is the one dropped: what is already queued has waited longest and is the
-        // closest to being delivered, and dropping it would make a slow client lose the oldest
-        // messages it never saw.
-        const auto bytes = messageBytes(messageDispatch);
-        if ((m_maxQueuedMessages.load(std::memory_order_relaxed) > 0 &&
-             waitingCount() >= m_maxQueuedMessages.load(std::memory_order_relaxed)) ||
-            (m_maxQueuedBytes.load(std::memory_order_relaxed) > 0 &&
-             m_waitingBytes + bytes > m_maxQueuedBytes.load(std::memory_order_relaxed)))
-        {
-            m_droppedMessages.fetch_add(1, std::memory_order_relaxed);
-            return 0;
-        }
         waitingMessages().push_back(messageDispatch);
-        m_waitingBytes += bytes;
+        m_queuedBytes += bytes;
         return messageId;
     }
 
     m_forwardMessage(messageDispatch);
 
     m_inflightMessages[messageId] = messageDispatch;
+    m_queuedBytes += bytes;
 
     return messageId;
 }
@@ -212,7 +208,7 @@ MessageId MessageQueue::restoreMessageUnlocked(SMessageDispatch& messageDispatch
     // Captured before the move: reading through messageDispatch afterwards is undefined.
     const auto messageId = messageDispatch->m_deliveryId;
 
-    m_waitingBytes += messageBytes(messageDispatch);
+    m_queuedBytes += messageBytes(messageDispatch);
     waitingMessages().push_back(std::move(messageDispatch));
 
     return messageId;
@@ -254,19 +250,23 @@ void MessageQueue::receiveAck(MessageId messageId, Message::Type ackType)
         return;
     }
 
-    if (const auto erasedCount = m_inflightMessages.erase(messageId);
-        erasedCount == 0)
+    const auto inflightIt = m_inflightMessages.find(messageId);
+    if (inflightIt == m_inflightMessages.end())
     {
         CERR("Unexpected ACK id=" << messageId << " type=" << static_cast<int>(ackType));
         return;
     }
 
+    // Acknowledged: the session no longer holds it, so it leaves the byte count as well as the map.
+    m_queuedBytes -= std::min(m_queuedBytes, messageBytes(inflightIt->second));
+    m_inflightMessages.erase(inflightIt);
+
     if (waitingCount() != 0)
     {
+        // Waiting to in flight is a move within what the session holds, not a change to it.
         auto& messageDispatch = m_waitingMessages->front();
         m_forwardMessage(messageDispatch);
 
-        m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
         const auto deliveryId = messageDispatch->m_deliveryId;
         m_inflightMessages.try_emplace(deliveryId, std::move(messageDispatch));
 
@@ -280,7 +280,7 @@ void MessageQueue::clear()
 
     m_inflightMessages.clear();
     m_waitingMessages.reset();
-    m_waitingBytes = 0;
+    m_queuedBytes = 0;
 }
 
 void MessageQueue::rescheduleMessagesWaitingForAck()
@@ -312,7 +312,11 @@ void MessageQueue::sendWaitingMessages(const ForwardMessage& forwardMessage)
 
     for (const auto& messageDispatch: views::values(inflight))
     {
-        queueMessageUnlocked(messageDispatch);
+        // Re-queued without the limits: these were accepted under the limits as they stood then,
+        // and a reconnect sends what it was promised. The byte count is taken off and put back by
+        // queueMessageUnlocked() - the message never left the session.
+        m_queuedBytes -= std::min(m_queuedBytes, messageBytes(messageDispatch));
+        queueMessageUnlocked(messageDispatch, false);
     }
 
     while (waitingCount() != 0)
@@ -321,8 +325,8 @@ void MessageQueue::sendWaitingMessages(const ForwardMessage& forwardMessage)
         {
             break;
         }
+        // Waiting to in flight: still held, so the byte count stays as it is.
         auto messageDispatch = std::move(m_waitingMessages->front());
-        m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
         m_waitingMessages->pop_front();
         forwardMessage(messageDispatch);
         m_inflightMessages[messageDispatch->m_deliveryId] = std::move(messageDispatch);
@@ -396,7 +400,7 @@ size_t MessageQueue::removeExpiredMessages(uint32_t& secondsUntilNextExpiration,
         {
             if (isExpired(messageDispatch))
             {
-                m_waitingBytes -= std::min(m_waitingBytes, messageBytes(messageDispatch));
+                m_queuedBytes -= std::min(m_queuedBytes, messageBytes(messageDispatch));
             }
         }
         erase_if(*m_waitingMessages, isExpired);
@@ -404,11 +408,18 @@ size_t MessageQueue::removeExpiredMessages(uint32_t& secondsUntilNextExpiration,
 
     if (includeUnacknowledged)
     {
-        erase_if(m_inflightMessages,
-                 [&isExpired](const auto& pair)
-                 {
-                     return isExpired(pair.second);
-                 });
+        for (auto it = m_inflightMessages.begin(); it != m_inflightMessages.end();)
+        {
+            if (isExpired(it->second))
+            {
+                m_queuedBytes -= std::min(m_queuedBytes, messageBytes(it->second));
+                it = m_inflightMessages.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     // Taken from what is left, so the caller can come back exactly when the next one is due

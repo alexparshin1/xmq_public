@@ -48,13 +48,21 @@ public:
      * @brief Bounds on what a session may hold for a client that does not keep up.
      *
      * The in-flight window is the client's own (its CONNECT receive maximum, capped by the
-     * server); this is the queue behind it, which had no bound at all: a slow subscriber took the
-     * node's memory with it, one session at a time, until the process died. Measured on a
-     * two-node Windows cluster: 3000 subscriptions fanned out to 16 GB of virtual memory on an
-     * 8 GB machine, and both brokers stopped.
+     * server); these are the bounds on everything the session holds for that client, in flight and
+     * waiting alike, and they had no bound at all: a slow subscriber took the node's memory with
+     * it, one session at a time, until the process died. Measured on a two-node Windows cluster:
+     * 3000 subscriptions fanned out to 16 GB of virtual memory on an 8 GB machine, and both
+     * brokers stopped.
      *
-     * @param maxMessages Messages that may wait for a free in-flight slot. Zero means no limit.
-     * @param maxBytes    Bytes of payload and topic that may wait. Zero means no limit.
+     * The two are independent: a session may hold at most maxMessages messages and at most
+     * maxBytes bytes, and whichever it reaches first stops it. Neither is turned into the other -
+     * a message count says nothing about the size of the messages, which is why both exist.
+     *
+     * What is already queued when a limit is lowered stays; the limits decide what is accepted,
+     * not what is thrown away.
+     *
+     * @param maxMessages Messages the session may hold. Zero means no limit.
+     * @param maxBytes    Bytes of payload and topic the session may hold. Zero means no limit.
      */
     void setQueueLimits(uint32_t maxMessages, uint64_t maxBytes);
 
@@ -62,8 +70,8 @@ public:
      * @brief Whether one more message of this size can be taken.
      *
      * Asked before the delivery record is made, so that a message dropped here does not leave a
-     * record behind in storage. A message that fits the in-flight window is always taken: this
-     * bounds the queue, not the window.
+     * record behind in storage. Counts what is in flight as well as what waits: the limits bound
+     * the session, and a message in the window is held by this session exactly as one behind it is.
      */
     [[nodiscard]] bool canAccept(uint64_t messageBytes) const;
 
@@ -129,7 +137,7 @@ private:
     std::atomic_uint16_t             m_maxInflightMessages;
     std::atomic_uint32_t             m_maxQueuedMessages {0};
     std::atomic_uint64_t             m_maxQueuedBytes {0};
-    uint64_t                         m_waitingBytes {0};        ///< Sum of what waits, under m_mutex.
+    uint64_t                         m_queuedBytes {0};         ///< Sum of what this queue holds, in flight and waiting, under m_mutex.
     std::atomic_uint64_t             m_droppedMessages {0};
     MessageId                        m_nextMessageId {0};
     MessageDispatchMap               m_inflightMessages;
@@ -151,7 +159,17 @@ private:
     size_t waitingCount() const;
 
     MessageId nextDeliveryIdUnlocked();
-    MessageId queueMessageUnlocked(const SMessageDispatch& messageDispatch);
+
+    /// Whether accepting this message would take the session past either limit. Under m_mutex.
+    [[nodiscard]] bool exceedsLimitsUnlocked(uint64_t messageBytes) const;
+
+    /**
+     * @param applyLimits Refuse the message when it would exceed a limit. False when re-queuing
+     *                    what the queue already held - a reconnect re-sends messages that were
+     *                    accepted under the limits as they stood then, and dropping them here
+     *                    would lose messages the client was already promised.
+     */
+    MessageId queueMessageUnlocked(const SMessageDispatch& messageDispatch, bool applyLimits = true);
     MessageId restoreMessageUnlocked(SMessageDispatch& messageDispatch);
 };
 

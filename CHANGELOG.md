@@ -12,6 +12,18 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.17.
 
+### Changed
+
+- **`queue_limits` bounds the whole session, not the queue behind the window.** `max_size` and
+  `max_bytes` counted only the messages waiting for a free in-flight slot, so a session could hold
+  its `Receive Maximum` (up to 128, the shipped cap) more messages, of any size, before either limit
+  was consulted: the shipped 1024 messages were 1152 in practice, and the byte limit said nothing
+  at all about the window. Both limits now count what is in flight as well, and each is applied on
+  its own - a session holds at most `max_size` messages and at most `max_bytes` bytes, and whichever
+  it reaches first refuses the next message. `max_inflight_messages` stays what it was, the
+  protocol's window, and no longer hides a second queue behind it. Messages already queued when a
+  limit is lowered are not thrown away: the limits decide what is accepted.
+
 ### Fixed
 
 - **A client that reconnects immediately after DISCONNECT keeps its new connection.** The

@@ -196,14 +196,17 @@ TEST(XMQ_InflightQueue, performance)
     passMessages(Qos::Qos2, totalMessageCount, maxInflightMessages, true, true);
 }
 
-// The in-flight window is the client's own, but what waits behind it is the node's memory: a
-// subscriber that stops acknowledging used to grow it without bound, one session at a time. On a
-// two-node Windows cluster 3000 subscriptions fanned out to 16 GB of virtual memory on 8 GB
-// machines, and both brokers stopped. The queue now drops the newest message instead, and says so.
+// The in-flight window is the client's own, but what a session holds beyond it is the node's
+// memory: a subscriber that stops acknowledging used to grow it without bound, one session at a
+// time. On a two-node Windows cluster 3000 subscriptions fanned out to 16 GB of virtual memory on
+// 8 GB machines, and both brokers stopped. The queue now drops the newest message instead, and
+// says so - counting what is in flight too, because a message in the window is held by the same
+// session and costs the same memory.
 TEST(XMQ_InflightQueue, queueLimitsDropTheNewestMessageAndCountIt)
 {
     size_t forwarded = 0;
-    // A window of one: the first message is in flight, everything after it has to wait.
+    // A window of one: the first message is in flight, the second has to wait, and the limit of two
+    // messages is reached by those two together.
     MessageQueue messageQueue(1,
                               [&forwarded](const SMessageDispatch&)
                               {
@@ -220,26 +223,28 @@ TEST(XMQ_InflightQueue, queueLimitsDropTheNewestMessageAndCountIt)
         return messageQueue.queueMessage(make_shared<MessageDispatch>(message, Qos::Qos1));
     };
 
-    EXPECT_NE(0U, queue("topic1"));  // in flight
-    EXPECT_NE(0U, queue("topic2"));  // waiting, 1 of 2
-    EXPECT_NE(0U, queue("topic3"));  // waiting, 2 of 2
+    EXPECT_NE(0U, queue("topic1"));  // in flight, 1 of 2
+    EXPECT_NE(0U, queue("topic2"));  // waiting, 2 of 2
+    EXPECT_EQ(0U, queue("topic3"));  // dropped: the session already holds two
     EXPECT_EQ(0U, queue("topic4"));  // dropped
     EXPECT_EQ(0U, queue("topic5"));  // dropped
 
-    EXPECT_EQ(3U, messageQueue.size()) << "the queue grew past its limit";
-    EXPECT_EQ(2U, messageQueue.droppedMessages());
+    EXPECT_EQ(2U, messageQueue.size()) << "the session grew past its limit";
+    EXPECT_EQ(3U, messageQueue.droppedMessages());
     EXPECT_EQ(1U, forwarded) << "a dropped message was sent anyway";
 }
 
 // The same bound in bytes, because a message count says nothing about a queue of 256 KB payloads.
+// The two limits are independent: whichever the session reaches first is the one that stops it.
 TEST(XMQ_InflightQueue, byteLimitDropsWhatDoesNotFit)
 {
-    MessageQueue messageQueue(1, [](const SMessageDispatch&) {});
-    // Room for one payload and the topic name that goes with it, and not for the second.
+    MessageQueue messageQueue(4, [](const SMessageDispatch&) {});
+    // Room for one message - 7 bytes of payload and the 6-byte topic name - and not for the second.
+    // The window is wide enough for four, so only the byte limit can be what refuses it.
     messageQueue.setQueueLimits(0, 20);
 
     const auto topicManager = make_shared<TopicManager>();
-    const auto payload = string("payload"); // 7 bytes, topic1 is 6
+    const auto payload = string("payload"); // 7 bytes
 
     const auto queue = [&](const char* topic)
     {
@@ -247,8 +252,21 @@ TEST(XMQ_InflightQueue, byteLimitDropsWhatDoesNotFit)
         return messageQueue.queueMessage(make_shared<MessageDispatch>(message, Qos::Qos1));
     };
 
-    EXPECT_NE(0U, queue("topic1")); // in flight, not counted against the queue
-    EXPECT_NE(0U, queue("topic2")); // waiting: 7 bytes of payload and a 6-byte topic
-    EXPECT_EQ(0U, queue("topic3")) << "the byte limit was not applied";
+    EXPECT_NE(0U, queue("topic1")); // 13 bytes, in flight
+    EXPECT_EQ(0U, queue("topic2")) << "the byte limit was not applied to what the session holds";
     EXPECT_EQ(1U, messageQueue.droppedMessages());
+
+    // And a message count alone, with room to spare in bytes: the limits do not stand in for one
+    // another.
+    MessageQueue countLimited(4, [](const SMessageDispatch&) {});
+    countLimited.setQueueLimits(2, 1'000'000);
+
+    EXPECT_NE(0U, countLimited.queueMessage(make_shared<MessageDispatch>(
+                  SMessage(new mqtt::PublishMessage(topicManager->getTopic("topic1"), string_view(payload))), Qos::Qos1)));
+    EXPECT_NE(0U, countLimited.queueMessage(make_shared<MessageDispatch>(
+                  SMessage(new mqtt::PublishMessage(topicManager->getTopic("topic2"), string_view(payload))), Qos::Qos1)));
+    EXPECT_EQ(0U, countLimited.queueMessage(make_shared<MessageDispatch>(
+                  SMessage(new mqtt::PublishMessage(topicManager->getTopic("topic3"), string_view(payload))), Qos::Qos1)))
+        << "the message limit was not applied to what the session holds";
+    EXPECT_EQ(1U, countLimited.droppedMessages());
 }

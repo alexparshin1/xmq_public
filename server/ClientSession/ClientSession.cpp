@@ -861,9 +861,10 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         return 0;
     }
 
-    // A client that does not keep up: the queue behind its in-flight window is bounded by
-    // queue_limits, and when it is full the newest message is dropped. What is already there has
-    // waited longest, and dropping it would take away the oldest messages the client never saw.
+    // A client that does not keep up: everything this session holds for it - the in-flight window
+    // and the queue behind it - is bounded by queue_limits, and when it is full the newest message
+    // is dropped. What is already there has waited longest, and dropping it would take away the
+    // oldest messages the client never saw.
     // Without this the queue had no bound at all: 3000 subscriptions fanned out took both Windows
     // brokers of a two-node cluster to 16 GB of virtual memory on 8 GB machines, and stopped them.
     if (qos != Qos::Qos0)

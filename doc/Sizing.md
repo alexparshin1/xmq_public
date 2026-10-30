@@ -13,21 +13,26 @@ last part is the one that grows without a bound of its own, and it is bounded by
 | Key | Shipped value | Meaning |
 |---|---:|---|
 | `max_inflight_messages` | 128 | Messages sent but not yet acknowledged. Also sent to the client as `Receive Maximum`. |
-| `max_size` | 1024 | Messages queued behind the window, per session. |
-| `max_bytes` | 1 MiB | The same queue measured in payload and topic bytes. `0` means no byte limit. |
+| `max_size` | 1024 | Messages the session may hold, in flight and waiting together. |
+| `max_bytes` | 1 MiB | Payload and topic bytes the session may hold, in flight and waiting together. `0` means no byte limit. |
 
-Both limits apply per session and per QoS 1 and 2 message; QoS 0 is not queued. When the queue is
-full the **newest** message is dropped, because what is already queued has waited longest and is
-the closest to being delivered. The drop is logged once and then every thousandth message, and the
-total is published on `$SYS/broker/messages/publish/dropped` and returned by the control API as
-`messages_publish_dropped`.
+`max_size` and `max_bytes` are two limits on the same thing - what the session holds - and they are
+independent: whichever is reached first is what refuses the message. One is not converted into the
+other, because a message count says nothing about a queue of 256 KB payloads. `max_inflight_messages`
+is a third and different thing: the protocol's window, which decides how many messages may be in
+flight before the rest wait, and which does not override the two limits.
 
-So one session can hold up to `max_inflight_messages + max_size` messages. With the shipped values
-that is 1152; with the built-in defaults (`16384` and `128`) it is 16512. Multiply by the average
-message size to get the worst case for a session that stops reading - and a client that stops
-reading is not hypothetical: the case the limits were written for was 3000 subscriptions fanned
-out to one topic, which took each of two Windows brokers to 16-17 GB of virtual memory on 8 GB
-machines and stopped both services.
+They apply per session and per QoS 1 and 2 message; QoS 0 is not queued. When either limit is
+reached the **newest** message is dropped, because what the session already holds has waited longest
+and is the closest to being delivered. The drop is logged once and then every thousandth message,
+and the total is published on `$SYS/broker/messages/publish/dropped` and returned by the control API
+as `messages_publish_dropped`.
+
+So a session holds at most `max_size` messages and at most `max_bytes` bytes - with the shipped
+values 1024 messages or 1 MiB, whichever its traffic reaches first. A client that stops reading is
+not hypothetical: the case the limits were written for was 3000 subscriptions fanned out to one
+topic, which took each of two Windows brokers to 16-17 GB of virtual memory on 8 GB machines and
+stopped both services.
 
 **Plan for the worst case, not for the average.** A broker on 8 GB of RAM serving a fan-out
 workload should not be planned at all: with the shipped 1024 messages and a 16-byte payload the

@@ -132,7 +132,8 @@ public:
     void                          setMaxInflightMessages(uint16_t maxInflightMessages) const;
 
     /**
-     * @brief Bounds on the queue behind the in-flight window; see MessageQueue::setQueueLimits().
+     * @brief Bounds on everything the session holds, in flight and waiting; see
+     *        MessageQueue::setQueueLimits().
      */
     void setQueueLimits(uint32_t maxMessages, uint64_t maxBytes) const;
 
