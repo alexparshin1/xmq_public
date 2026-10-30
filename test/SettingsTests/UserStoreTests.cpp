@@ -89,7 +89,12 @@ vector<pair<String, String>> reachableDatabases()
 /// Nothing of an earlier run, so that "created" means created.
 void dropEverything(DatabaseConnectionPool& pool)
 {
-    for (const auto* table: {"xmq_cluster_credential", "xmq_user_to_user_group", "xmq_user", "xmq_user_group", "xmq_store_version"})
+    // xmq_node and its invitations are the cluster's configuration, which a test in this suite can
+    // leave behind: nodeSettingsUpdateAndRollbackOnlyTheirOwnSharedRow writes and reads that row.
+    // Left in place, the next run inherits a node with somebody else's name, state and limits - and
+    // a row from an older build carries whatever columns that build had.
+    for (const auto* table: {"xmq_cluster_credential", "xmq_user_to_user_group", "xmq_user", "xmq_user_group",
+                             "xmq_store_version", "xmq_cluster_invitation", "xmq_node"})
     {
         try
         {
