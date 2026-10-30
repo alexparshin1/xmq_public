@@ -319,7 +319,7 @@ ExtensionHost::Report ServerController::setExtensionSettings(const string& name,
     return m_xmqServer->setExtensionSettings(name, settings);
 }
 
-bool ServerController::startServing(string& reason)
+bool ServerController::startServing(string& reason, const std::optional<bool> cleanStart)
 {
     const scoped_lock lock(m_mutex);
 
@@ -330,7 +330,7 @@ bool ServerController::startServing(string& reason)
 
     try
     {
-        m_xmqServer = make_unique<Server>(m_settings, m_logEngine);
+        m_xmqServer = make_unique<Server>(m_settings, m_logEngine, sptk::LogPriority::Info, cleanStart);
 
         // The configuration just ran, so it is the one a later start may fall back to. Written
         // after the server is up rather than before: a configuration that failed to start must
@@ -356,6 +356,8 @@ bool ServerController::startServing(string& reason)
         if (const auto rollback = m_settings->rollbackPendingAccept(reason); rollback.empty())
         {
             m_settings->loadConfiguration(m_settings->configurationPath());
+            // Deliberately without the caller's clean-start answer: the recovery is trying to keep
+            // what is stored, and a second wipe would turn one bad start into data loss.
             m_xmqServer = make_unique<Server>(m_settings, m_logEngine);
             reason += " Previous MQTT configuration restored.";
         }

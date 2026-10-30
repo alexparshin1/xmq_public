@@ -86,6 +86,65 @@ export class MessageWindow extends React.Component {
 }
 
 /**
+ * Confirms a start of the service, and says whether the stored state should be discarded.
+ *
+ * Two answers in one window rather than a warning followed by a question: the warning used to say
+ * that a start would discard this node's state because persistence.clean_start was set, and left
+ * the operator with nowhere to say "not this time" - the setting had to be found and changed on
+ * another page first. The tick is the answer for this start only; the setting is left as it is.
+ */
+class StartServiceWindow extends React.Component {
+    state = {clean: this.props.cleanByDefault === true};
+
+    componentDidMount() {
+        document.addEventListener("keydown", this.onKeyDown);
+    }
+
+    componentWillUnmount() {
+        document.removeEventListener("keydown", this.onKeyDown);
+    }
+
+    onKeyDown = event => {
+        if (event.key === "Escape") {
+            this.props.onClose({confirmed: false, clean: this.state.clean});
+        }
+    };
+
+    render() {
+        return <div className="modalBackground">
+            <div className="modalContainer messageWindow">
+                <div className="title">{this.props.title}</div>
+
+                <div className="messageWindowBody">
+                    <div className="messageWindowSign">{signs.question}</div>
+                    <div className="messageWindowText">
+                        {this.props.message}
+                        <label className="messageWindowChoice">
+                            <input type="checkbox"
+                                   checked={this.state.clean}
+                                   onChange={event => this.setState({clean: event.target.checked})}/>
+                            {" "}Clean broker/cluster state
+                        </label>
+                        <div className="messageWindowChoiceHint">
+                            Discards this node's stored sessions and queued messages. Other nodes'
+                            data and the rest of the Redis database are preserved.
+                        </div>
+                    </div>
+                </div>
+
+                <div className="modalFooter messageWindowFooter">
+                    <button className="modalOkButton"
+                            autoFocus
+                            onClick={() => this.props.onClose({confirmed: true, clean: this.state.clean})}>Ok</button>
+                    <button className="modalCancelButton"
+                            onClick={() => this.props.onClose({confirmed: false, clean: this.state.clean})}>Cancel</button>
+                </div>
+            </div>
+        </div>;
+    }
+}
+
+/**
  * Shows one and waits for the answer.
  *
  * Called the way alert() and confirm() were, which is why it hands back a promise rather than
@@ -111,7 +170,24 @@ function show(properties) {
             resolve(answer);
         };
 
-        root.render(<MessageWindow {...properties} onClose={close}/>);
+        const Window = properties.component || MessageWindow;
+        root.render(<Window {...properties} onClose={close}/>);
+    });
+}
+
+/**
+ * Asks whether to start the service, and whether to discard the stored state first.
+ *
+ * @param {boolean} cleanByDefault  What the tick starts as: the configured clean_start.
+ * @return {Promise<{confirmed: boolean, clean: boolean}>}
+ */
+export function startServiceWindow(cleanByDefault) {
+    return show({
+        component: StartServiceWindow,
+        sign: "question",
+        title: "Start service",
+        message: "Please confirm that you want to (re)start service.",
+        cleanByDefault: cleanByDefault === true
     });
 }
 

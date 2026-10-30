@@ -61,7 +61,17 @@ constexpr auto socketEventsMode = SocketPoolTriggerMode::OneShot;
 constexpr auto socketEventsMode = SocketPoolTriggerMode::EdgeTriggered;
 #endif
 
-std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, const shared_ptr<LogEngine>& logEngine)
+bool Server::cleanStartFor(const Settings& settings, const std::optional<bool>& cleanStart)
+{
+    if (cleanStart)
+    {
+        return *cleanStart;
+    }
+    return !settings.m_persistence.m_clean_start.isNull() && settings.m_persistence.m_clean_start.asBool();
+}
+
+std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, const shared_ptr<LogEngine>& logEngine,
+                                                      const std::optional<bool>& cleanStart)
 {
     try
     {
@@ -83,7 +93,7 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
         {
             maxRedisConnections = 2;
         }
-        return make_shared<RedisStorage>(connectString, this, maxRedisConnections, settings.m_persistence.m_clean_start);
+        return make_shared<RedisStorage>(connectString, this, maxRedisConnections, cleanStartFor(settings, cleanStart));
     }
     catch (const exception& e)
     {
@@ -93,7 +103,7 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
     }
 }
 
-SStorage Server::initializeStorage(const Settings& settings)
+SStorage Server::initializeStorage(const Settings& settings, const std::optional<bool>& cleanStart)
 {
     SStorage   storage;
     const auto redisConnectString = settings.m_persistence.m_redis_uri.asString();
@@ -102,7 +112,7 @@ SStorage Server::initializeStorage(const Settings& settings)
     {
         try
         {
-            storage = Storage::create(this, redisConnectString, settings.m_persistence.m_clean_start);
+            storage = Storage::create(this, redisConnectString, cleanStartFor(settings, cleanStart));
             return storage;
         }
         catch (const Exception& exception)
@@ -117,11 +127,12 @@ SStorage Server::initializeStorage(const Settings& settings)
     return storage;
 }
 
-Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEngine>& logEngine, const LogPriority startupMessagesLogPriority)
+Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEngine>& logEngine, const LogPriority startupMessagesLogPriority,
+               const std::optional<bool> cleanStart)
     : ServerData(settings, logEngine, socketEventsMode)
     , m_sessionTimer(make_shared<Timer>())
-    , m_storage(initializeStorage(*settings))
-    , m_redisStorage(initializeRedis(*settings, logEngine))
+    , m_storage(initializeStorage(*settings, cleanStart))
+    , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
     , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))
     , m_clientSessionThreads(this,
                              resolveThreadCount(settings->m_server_limits.m_send_threads.asString()),

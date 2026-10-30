@@ -40,3 +40,17 @@
     justify-content: center;
     padding-bottom: 12px;
 }
+
+/* The tick that answers the question, under the text it answers. */
+.messageWindowChoice {
+    display: block;
+    margin-top: 14px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.messageWindowChoiceHint {
+    margin-top: 4px;
+    color: #555;
+    font-size: 0.9em;
+}

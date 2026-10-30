@@ -2261,11 +2261,20 @@ void ControlService::ServerControl(const CServerControl& input, CServerControlRe
         if (const auto action = input.m_action.asString();
             action == "start")
         {
+            // The dashboard asks before a start whether to discard this node's stored state, and
+            // sends the answer here. Absent, persistence.clean_start decides, which is what every
+            // other start does - the setting is not changed by this call either way.
+            std::optional<bool> cleanStart;
+            if (!input.m_clean_start.isNull())
+            {
+                cleanStart = input.m_clean_start.asBool();
+            }
+
             // A server that will not start is reported, not thrown: the caller is the interface,
             // and the whole point of hosting it outside the server is that it survives to show
             // the reason and let the configuration be corrected.
             if (string reason;
-                !m_controller->startServing(reason))
+                !m_controller->startServing(reason, cleanStart))
             {
                 output.m_message = reason;
             }

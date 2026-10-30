@@ -98,7 +98,12 @@ public:
     virtual ExtensionHost::Report setExtensionSettings(const std::string&                        name,
                                                const std::map<std::string, std::string>& settings) = 0;
 
-    virtual bool startServing(std::string& reason) = 0;
+    /**
+     * @param cleanStart  Whether this start discards the node's stored state, when the caller has
+     *                    decided for this start alone - the dashboard asks before a restart and
+     *                    sends the answer with it. Empty leaves it to persistence.clean_start.
+     */
+    virtual bool startServing(std::string& reason, std::optional<bool> cleanStart = std::nullopt) = 0;
 
     /**
      * @brief Stop serving MQTT, keeping the process and the configuration interface alive.
@@ -219,7 +224,7 @@ public:
     ExtensionHost::Report            switchExtension(const std::string& name, bool on) override;
     ExtensionHost::Report            setExtensionSettings(
         const std::string& name, const std::map<std::string, std::string>& settings) override;
-    bool                             startServing(std::string& reason) override;
+    bool                             startServing(std::string& reason, std::optional<bool> cleanStart = std::nullopt) override;
     void                             stopServing() override;
     [[nodiscard]] bool               isServing() const override;
     bool                             moveControlService(uint16_t port, std::string& reason) override;

@@ -72,7 +72,9 @@ const ParameterHelp = {
             "whole Redis database.",
             "Useful for test environments that should begin from a known state. On a production " +
             "server it means every durable session is lost on each restart, which is usually the " +
-            "opposite of why persistence was enabled."
+            "opposite of why persistence was enabled.",
+            "It is also the answer the Dashboard's start dialog starts with: the tick there, " +
+            "\"Clean broker/cluster state\", applies to that start alone and leaves this setting as it is."
         ],
         suggested: "off, except in test environments"
     },

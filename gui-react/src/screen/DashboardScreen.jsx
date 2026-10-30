@@ -5,7 +5,7 @@ import BasicScreen from "./BasicScreen";
 import StatPanel, {Gauge, Stat, formatBytes, formatCount, formatDuration} from "../components/StatPanel";
 import PowerSwitch from "../components/PowerSwitch";
 import PageTitle from "../components/PageTitle";
-import {confirmationWindow, errorWindow} from "../components/MessageWindow";
+import {errorWindow, startServiceWindow} from "../components/MessageWindow";
 
 function displayDatabaseUri(uri) {
     return (uri || "").replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/?#@]*):[^/]*@/i, "$1@");
@@ -161,45 +161,43 @@ export default class DashboardScreen extends BasicScreen {
     }
 
     /**
-     * Starts the server, first warning if doing so would discard the stored sessions.
+     * Starts the server, asking first and offering to discard the stored state.
      *
-     * Stop keeps persistent sessions; a start with clean_start set clears this node's state
-     * before restoring anything. Without asking, stop-then-start reads as a pause and quietly
-     * loses everything queued for offline clients.
+     * Stop keeps persistent sessions; a start with the tick set clears this node's state before
+     * restoring anything. Asking every time is the point: a start reads as a pause, and what it
+     * does to queued messages has to be visible at the moment it is pressed rather than decided
+     * by a setting somewhere else. The tick starts as the configured clean_start, and the answer
+     * applies to this start alone - the setting is not changed.
      */
     startServer() {
-        // Read now rather than trusted from arrival: this is the one thing standing between a
-        // press of Start and discarded node state, and the read on arrival may not have got
-        // through - or the setting may have been changed since, here or by somebody else.
+        // Read now rather than trusted from arrival: the setting may have been changed since the
+        // page was opened, here or by somebody else, and it decides what the tick starts as.
         this.readPersistence().then(async cleanStart => {
             if (cleanStart === null) {
-                errorWindow("The Clean start setting could not be read, so it is unclear whether " +
-                             "Start would discard this node's stored sessions and queued messages. Try again.");
+                errorWindow("The Clean start setting could not be read, so it is unclear what " +
+                             "starting the server would do to this node's stored sessions and queued " +
+                             "messages. Try again.");
                 return;
             }
-            if (cleanStart) {
-                const confirmed = await confirmationWindow(
-                    "Clean start is enabled. Starting the server will discard this node's stored " +
-                    "sessions and queued messages.\n\nOther nodes' data and the rest of the Redis database " +
-                    "will be preserved.\n\nStart the server anyway?");
-                if (!confirmed) {
-                    return;
-                }
+            const answer = await startServiceWindow(cleanStart);
+            if (!answer.confirmed) {
+                return;
             }
-            this.sendAction("start");
+            this.sendAction("start", {clean_start: answer.clean});
         });
     }
 
     /**
      * Sends a server control action and folds the reply into the state.
      * @param {string} action  One of "status", "start", "stop".
+     * @param {Object} extra   Further request fields, e.g. the start's clean_start answer.
      */
-    sendAction(action) {
+    sendAction(action, extra) {
         this.setState({busy: true});
         // Quiet when it is the timer asking: a missed poll is not news, and the switch shows the
         // state as unknown until one gets through. Starting and stopping are asked for by hand
         // and say so when they fail.
-        ControlAPI.asyncMakeAPICall("ServerControl", {action: action}, action === "status")
+        ControlAPI.asyncMakeAPICall("ServerControl", Object.assign({action: action}, extra || {}), action === "status")
             .then(result => {
                 if (result === null) {
                     // The call did not get through. What the server is doing is now unknown, and
@@ -265,14 +263,6 @@ export default class DashboardScreen extends BasicScreen {
 
                 {message
                     ? <div style={{color: "#c62828", margin: "8px 0", whiteSpace: "pre-wrap"}}>{message}</div>
-                    : null}
-
-                {!running && this.state.cleanStart === true
-                    ? <div style={{color: "#b26a00", margin: "8px 0", maxWidth: "46em"}}>
-                        <b>Clean start</b> is enabled: starting the server will discard this node's
-                        stored sessions and queued messages. Other nodes' data and the rest of the
-                        Redis database will be preserved.
-                    </div>
                     : null}
 
                 <p style={{color: "#666", fontSize: "0.9em", maxWidth: "46em"}}>

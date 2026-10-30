@@ -57,7 +57,15 @@ public:
      * @param logEngine         Log engine.
      * @param startupMessagesLogPriority   Startup messages log priority.
      */
-    Server(const std::shared_ptr<Settings>& settings, const std::shared_ptr<sptk::LogEngine>& logEngine, sptk::LogPriority startupMessagesLogPriority = sptk::LogPriority::Info);
+    /**
+     * @param cleanStart  Whether this start discards the node's stored state, when the caller has
+     *                    decided for this start alone - the dashboard's restart dialog asks. Empty
+     *                    leaves the decision to persistence.clean_start, which is what a start
+     *                    from anywhere else does.
+     */
+    Server(const std::shared_ptr<Settings>& settings, const std::shared_ptr<sptk::LogEngine>& logEngine,
+           sptk::LogPriority startupMessagesLogPriority = sptk::LogPriority::Info,
+           std::optional<bool> cleanStart = std::nullopt);
 
     Server(const Server&) = delete;
     Server(Server&&) = delete;
@@ -475,8 +483,13 @@ private:
     void runConnectCompletion(std::function<void()> work);
     void connectCompletionThread();
     void stopConnectCompletions();
-    std::shared_ptr<RedisStorage> initializeRedis(const Settings& settings, const std::shared_ptr<sptk::LogEngine>& logEngine);
-    SStorage                      initializeStorage(const Settings& settings);
+    std::shared_ptr<RedisStorage> initializeRedis(const Settings& settings, const std::shared_ptr<sptk::LogEngine>& logEngine,
+                                                   const std::optional<bool>& cleanStart);
+    SStorage                      initializeStorage(const Settings& settings, const std::optional<bool>& cleanStart);
+
+    /// What this start does about the stored state: the caller's answer when it gave one, the
+    /// configured persistence.clean_start otherwise.
+    [[nodiscard]] static bool cleanStartFor(const Settings& settings, const std::optional<bool>& cleanStart);
     static void                   handleMqtt5ConnectProperties(const SClientSession& clientSession, const SConnectMessage& connectMessage, ReasonCode& reasonCode);
     SClientSession                takeOverExistingClientSession(const SClientSession& newSession, const SClientSession& existingSession) const;
     sptk::Buffer                  sendConnectAckMessage(const SConnectMessage& connectMessage, ReasonCode reasonCode, const SClientSession& existingClientSession, const SClientSession& clientSession) const;
