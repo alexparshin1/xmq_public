@@ -545,6 +545,104 @@ TEST(XMQ_ClusterBootstrapTests, serverLimitsFollowTheFileUntilTheRowIsCreatedFro
     filesystem::remove_all(directory);
 }
 
+/**
+ * Resetting the configuration resets what the node runs with, and part of that is in the database.
+ *
+ * The row is retired before the file is replaced. Left behind, the next start with the same
+ * database would find it and put the storage, the cluster switches and now the limits and logging
+ * back - a reset that undoes itself while the file says defaults.
+ */
+TEST(XMQ_ClusterBootstrapTests, resettingTheConfigurationRetiresTheNodesRow)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_reset_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(configurationText()).saveToFile(configurationPath);
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        ASSERT_TRUE(store.node(nodeId).has_value()) << "the first start did not create the node's row";
+    }
+
+    String outcome;
+    ASSERT_NO_THROW(outcome = Settings::resetConfiguration(configurationPath, directory / "missing-template"));
+    EXPECT_NE(String::npos, outcome.find("was retired")) << outcome.c_str();
+
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value()) << "the row was deleted rather than retired";
+        EXPECT_EQ(String("Removed"), row->m_state) << "the row still claims the node's old configuration";
+    }
+
+    // The file is the one that was just created, and the one it replaced is beside it.
+    EXPECT_TRUE(filesystem::exists(configurationPath));
+    EXPECT_TRUE(filesystem::exists(filesystem::path(configurationPath.string() + ".old")));
+
+    // And the node cannot quietly come back onto its old row: pointed at the same database again,
+    // it refuses with the reason rather than resurrecting what was reset.
+    Settings restarted;
+    restarted.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+    restarted.setAccountDatabaseUri(pgUri);
+    restarted.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+    EXPECT_FALSE(restarted.clusterConfigurationError().empty())
+        << "a retired configuration was accepted as the node's own";
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
+/**
+ * The other side of the same coin: a database that cannot be reached stops the reset instead of
+ * replacing the file and leaving the row to win on the next start.
+ */
+TEST(XMQ_ClusterBootstrapTests, aResetThatCannotRetireTheRowChangesNothing)
+{
+    const auto directory = filesystem::temp_directory_path() / ("xmq_reset_unreachable_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    std::string text(configurationText().c_str());
+    const std::string from = "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+    const auto at = text.find(from);
+    ASSERT_NE(std::string::npos, at);
+    text.replace(at, from.size(), "postgresql://gtest:test#123@no-such-host.invalid/xmq_test");
+    Buffer(text).saveToFile(configurationPath);
+
+    Buffer before;
+    before.loadFromFile(configurationPath);
+
+    EXPECT_THROW(Settings::resetConfiguration(configurationPath, directory / "missing-template"), Exception);
+
+    Buffer after;
+    after.loadFromFile(configurationPath);
+    EXPECT_EQ(String(before.c_str(), before.bytes()), String(after.c_str(), after.bytes()))
+        << "the file was replaced even though the row could not be retired";
+    EXPECT_FALSE(filesystem::exists(filesystem::path(configurationPath.string() + ".old")));
+
+    filesystem::remove_all(directory);
+}
+
 TEST(XMQ_ClusterBootstrap, publishesTheConfiguredMqttCertificateAndRefreshesNewPeers)
 {
     if (!pgAnswers()) GTEST_SKIP() << "Shared PostgreSQL test database is unavailable";

@@ -58,6 +58,14 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **`xmq_server --reset-configuration` resets what the node runs with, including what is stored in
+  the database.** On a node whose accounts live in PostgreSQL or MySQL, part of the configuration
+  is in that database: the storage, the cluster switches, the queue and server limits, the logging.
+  Replacing the file alone left those in place, and the next start with the same database found the
+  node's row and put all of them back - a reset that undid itself while the file said defaults. The
+  row is now retired first, the same way the cluster screen retires one, and a database that cannot
+  be reached stops the reset before it changes anything rather than leaving that trap behind.
+
 - **A failed batched write no longer closes the connection that replaced it.** The send batch read
   the session's socket and the session's connection as two separate answers. A takeover landing
   between the two put the old socket in the batch together with the new connection, so a write that

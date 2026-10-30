@@ -2913,11 +2913,72 @@ String Settings::createConfiguration(const filesystem::path& configurationFile, 
     return "built-in defaults";
 }
 
+namespace {
+
+/// The accounts database the file names, expanded as a start would expand it. Empty when the file
+/// is absent, unreadable or names none - a node whose accounts are a local SQLite file.
+String accountDatabaseUriFrom(const filesystem::path& configurationFile)
+{
+    error_code errorCode;
+    if (!filesystem::exists(configurationFile, errorCode))
+    {
+        return {};
+    }
+
+    Buffer text;
+    text.loadFromFile(configurationFile);
+    xdoc::Document document;
+    document.load(expandConfigurationText(text, configurationFile.parent_path() / "xmq_server.log"));
+    const auto authentication = document.root()->findFirst("authentication");
+    if (!authentication)
+    {
+        return {};
+    }
+    const auto uri = authentication->findFirst("database_uri");
+    return uri ? uri->getText() : String();
+}
+
+} // namespace
+
 String Settings::resetConfiguration(const filesystem::path& configurationFile, const filesystem::path& fallbackTemplate)
 {
     String replaced;
 
     error_code errorCode;
+
+    // A node whose accounts live in a shared database keeps part of its configuration there -
+    // the storage, the cluster switches, the queue and server limits, the logging. Replacing the
+    // file and leaving that row behind makes the reset half a reset: the next start with the same
+    // database finds the row and puts all of it back, quietly, while the file says defaults. The row
+    // is retired first, so a reset that cannot reach the database stops before it has changed
+    // anything, rather than leaving that trap in place.
+    String retired;
+    if (const auto databaseUri = accountDatabaseUriFrom(configurationFile); !databaseUri.empty())
+    {
+        try
+        {
+            ClusterStore store(make_shared<DatabaseConnectionPool>(databaseUri, 1));
+            if (store.isClusterDatabase())
+            {
+                const auto nodeId = cluster::NodeIdentity::load(
+                    configurationFile.parent_path() / cluster::NodeIdentity::FileName);
+                if (!nodeId.empty() && store.node(nodeId))
+                {
+                    store.removeConfiguration(nodeId);
+                    retired = "this node's configuration in " + UriSecret::hidden(databaseUri) + " was retired, ";
+                }
+            }
+        }
+        catch (const Exception& e)
+        {
+            throw Exception("The configuration could not be reset: this node's settings are also kept in " +
+                            UriSecret::hidden(databaseUri) + ", and they could not be retired there: " +
+                            String(e.message()) +
+                            ". Nothing was changed. Start the broker and remove the node's configuration from "
+                            "the cluster screen, or make the database reachable.");
+        }
+    }
+
     if (filesystem::exists(configurationFile, errorCode))
     {
         auto previousFile = configurationFile;
@@ -2930,7 +2991,7 @@ String Settings::resetConfiguration(const filesystem::path& configurationFile, c
         replaced = "the previous one is now " + previousFile.string() + ", ";
     }
 
-    return replaced + createConfiguration(configurationFile, fallbackTemplate);
+    return retired + replaced + createConfiguration(configurationFile, fallbackTemplate);
 }
 
 String Settings::setAccountPassword(const filesystem::path& configurationFile, const filesystem::path& usersFile,

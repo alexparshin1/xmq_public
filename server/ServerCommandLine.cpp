@@ -67,7 +67,11 @@ ServerCommandLine::ServerCommandLine()
                  "the configuration interface on 18883, persistence off. The way back when a configuration "
                  "will not start and the interface that would fix it is what is not coming up. The old file "
                  "is kept beside it with an '.old' suffix. Accounts are not touched, and one for 'admin', "
-                 "without a password, is created if there are none at all.");
+                 "without a password, is created if there are none at all. A node whose accounts live in a "
+                 "PostgreSQL or MySQL database also keeps settings there - the storage, the cluster switches, "
+                 "the queue and server limits, the logging - so its row in that database is retired first: "
+                 "otherwise the next start with the same database would put them all back. If the database "
+                 "cannot be reached, nothing is changed.");
     defineParameter("set-password", "", "account", "", alwaysVisible, "",
                     "Set the password of an account and exit. The password is read from standard "
                     "input, not from the command line, so it stays out of the process list and the "
