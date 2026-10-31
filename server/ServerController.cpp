@@ -370,7 +370,7 @@ bool ServerController::startServing(string& reason, const std::optional<bool> cl
     return false;
 }
 
-void ServerController::stopServing()
+void ServerController::stopServing(const std::optional<bool> cleanState)
 {
     unique_ptr<Server> stopping;
 
@@ -382,6 +382,15 @@ void ServerController::stopServing()
     if (stopping)
     {
         stopping->stop();
+
+        if (cleanState && *cleanState)
+        {
+            // After the threads are joined: a session still running would write its state back, and
+            // the clear would be undone by the last thing the broker did. Before the server is
+            // destroyed, because the storage goes with it.
+            stopping->stopServer();
+            stopping->clearStoredState();
+        }
         // Destroyed outside the lock: teardown joins the server's threads, and one of them may be
         // in a control-API call that wants the very lock held here.
         stopping.reset();

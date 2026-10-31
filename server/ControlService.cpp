@@ -2265,9 +2265,9 @@ void ControlService::ServerControl(const CServerControl& input, CServerControlRe
             // sends the answer here. Absent, persistence.clean_start decides, which is what every
             // other start does - the setting is not changed by this call either way.
             std::optional<bool> cleanStart;
-            if (!input.m_clean_start.isNull())
+            if (!input.m_clean_state.isNull())
             {
-                cleanStart = input.m_clean_start.asBool();
+                cleanStart = input.m_clean_state.asBool();
             }
 
             // A server that will not start is reported, not thrown: the caller is the interface,
@@ -2281,7 +2281,14 @@ void ControlService::ServerControl(const CServerControl& input, CServerControlRe
         }
         else if (action == "stop")
         {
-            m_controller->stopServing();
+            // Stopping keeps the stored state unless the caller says otherwise - the dashboard's
+            // stop window asks, and an answer applies to this stop alone.
+            std::optional<bool> cleanState;
+            if (!input.m_clean_state.isNull())
+            {
+                cleanState = input.m_clean_state.asBool();
+            }
+            m_controller->stopServing(cleanState);
         }
         else if (action == "reload-extensions")
         {

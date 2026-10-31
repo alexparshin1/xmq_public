@@ -83,6 +83,14 @@ public:
     void stopServer();
 
     /**
+     * @brief Drops this node's stored state, after the broker has stopped.
+     *
+     * Called by a stop that asks for it, when the threads are already joined - clearing while they
+     * run would race their own writes - and before the server is destroyed along with its storage.
+     */
+    void clearStoredState();
+
+    /**
      * @brief Wait until the server is stopped.
      * @param timeout           Timeout.
      * @return true if the server is stopped.

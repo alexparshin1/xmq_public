@@ -380,6 +380,45 @@ TEST_F(XMQ_ControlServiceTests, adminWithoutAPasswordIsAdmittedByTheInterfaceOnl
     EXPECT_NO_THROW({ (void) Login("admin", "admin"); });
 }
 
+// The dashboard asks before a start or a stop whether this node's stored state should go, and sends
+// the answer with the request. What matters here is that the answer arrives at the controller and
+// that a request without it says nothing - other callers must keep the configured behaviour.
+TEST_F(XMQ_ControlServiceTests, serverControlCarriesTheCleanStateAnswer)
+{
+    string token;
+    ASSERT_NO_THROW(token = Login("admin", "admin"));
+    ASSERT_FALSE(token.empty());
+    HttpAuthentication authentication("bearer " + token);
+
+    const auto call = [this, &authentication](const String& action, const std::optional<bool>& cleanState)
+    {
+        CServerControl         request;
+        CServerControlResponse response;
+        request.m_action = action;
+        if (cleanState)
+        {
+            request.m_clean_state = *cleanState;
+        }
+        m_controlService->ServerControl(request, response, &authentication);
+        verifyResult(response.m_result);
+    };
+
+    call("start", true);
+    ASSERT_TRUE(m_controller->cleanStateOnStart().has_value());
+    EXPECT_TRUE(*m_controller->cleanStateOnStart());
+
+    call("stop", false);
+    ASSERT_TRUE(m_controller->cleanStateOnStop().has_value());
+    EXPECT_FALSE(*m_controller->cleanStateOnStop());
+
+    // Absent: the controller is told nothing, and a start or a stop keeps its configured meaning.
+    m_controller->forgetCleanState();
+    call("start", std::nullopt);
+    call("stop", std::nullopt);
+    EXPECT_FALSE(m_controller->cleanStateOnStart().has_value());
+    EXPECT_FALSE(m_controller->cleanStateOnStop().has_value());
+}
+
 TEST_F(XMQ_ControlServiceTests, loggingControl)
 {
     CLoggingControl         input;

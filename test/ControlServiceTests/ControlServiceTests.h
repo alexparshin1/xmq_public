@@ -45,9 +45,10 @@ public:
     void stopService() override {}
     bool isStopped(std::chrono::milliseconds) override { return m_server == nullptr; }
 
-    bool startServing(std::string&) override
+    bool startServing(std::string&, std::optional<bool> cleanState = std::nullopt) override
     {
         m_serving = true;
+        m_cleanStateOnStart = cleanState;
         return true;
     }
 
@@ -83,12 +84,22 @@ public:
         return ExtensionHost::Report::note(name + ": no broker behind this controller");
     }
 
-    void stopServing() override
+    void stopServing(std::optional<bool> cleanState = std::nullopt) override
     {
         m_serving = false;
+        m_cleanStateOnStop = cleanState;
     }
 
     [[nodiscard]] bool isServing() const override { return m_serving && m_server != nullptr; }
+
+    /// What the last start and stop were asked to do with the stored state, for the tests that ask.
+    [[nodiscard]] std::optional<bool> cleanStateOnStart() const { return m_cleanStateOnStart; }
+    [[nodiscard]] std::optional<bool> cleanStateOnStop() const { return m_cleanStateOnStop; }
+    void                              forgetCleanState()
+    {
+        m_cleanStateOnStart.reset();
+        m_cleanStateOnStop.reset();
+    }
 
     // The fixture serves no interface, so there is nothing to move; the port is recorded instead,
     // so a test can see what was asked for.
@@ -163,6 +174,10 @@ private:
     std::shared_ptr<Settings>        m_settings;
     std::shared_ptr<sptk::LogEngine> m_logEngine;
     bool                             m_serving {true};
+    /// What the last start and stop were asked to do with the stored state. Empty when the caller
+    /// said nothing, which is every caller except the dashboard's start and stop windows.
+    std::optional<bool>              m_cleanStateOnStart;
+    std::optional<bool>              m_cleanStateOnStop;
     uint16_t                         m_controlServicePort {0};
     SControlServiceListener          m_controlServiceListener;
     std::shared_ptr<sptk::SSLKeys>   m_webServiceKeys;

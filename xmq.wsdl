@@ -1148,11 +1148,13 @@
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
-                        <!-- The dashboard asks before a start whether to discard this node's stored
-                             state, and sends the answer with the request. Absent, the persistence
-                             setting decides, which is what every other start does; present, it is
-                             the answer for this one start only and the setting is left as it is. -->
-                        <xsd:element name="clean_start" type="xsd:boolean" maxOccurs="1" minOccurs="0"></xsd:element>
+                        <!-- The dashboard asks before a start or a stop whether to discard this
+                             node's stored state - its sessions and their queued messages - and
+                             sends the answer with the request. Absent, a start does what
+                             persistence.clean_start says and a stop keeps everything, which is what
+                             every other caller gets; present, it is the answer for this one action
+                             only, and the setting is left as it is. -->
+                        <xsd:element name="clean_state" type="xsd:boolean" maxOccurs="1" minOccurs="0"></xsd:element>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

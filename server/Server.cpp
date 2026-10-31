@@ -684,6 +684,14 @@ Server::~Server()
     }
 }
 
+void Server::clearStoredState()
+{
+    if (m_storage)
+    {
+        m_storage->clearNodeState();
+    }
+}
+
 void Server::stopServer()
 {
     if (!m_isStopped)

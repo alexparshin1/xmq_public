@@ -86,14 +86,17 @@ export class MessageWindow extends React.Component {
 }
 
 /**
- * Confirms a start of the service, and says whether the stored state should be discarded.
+ * Confirms a start or a stop of the service, and says whether the stored state should be discarded.
  *
  * Two answers in one window rather than a warning followed by a question: the warning used to say
  * that a start would discard this node's state because persistence.clean_start was set, and left
  * the operator with nowhere to say "not this time" - the setting had to be found and changed on
- * another page first. The tick is the answer for this start only; the setting is left as it is.
+ * another page first. The tick is the answer for this action only; the setting is left as it is.
+ *
+ * A stop asks for the same reason a start does: stopping normally keeps the sessions and their
+ * queued messages, and a broker being taken out for good is the case where they should go.
  */
-class StartServiceWindow extends React.Component {
+class ServiceWindow extends React.Component {
     state = {clean: this.props.cleanByDefault === true};
 
     componentDidMount() {
@@ -125,10 +128,7 @@ class StartServiceWindow extends React.Component {
                                    onChange={event => this.setState({clean: event.target.checked})}/>
                             {" "}Clean broker/cluster state
                         </label>
-                        <div className="messageWindowChoiceHint">
-                            Discards this node's stored sessions and queued messages. Other nodes'
-                            data and the rest of the Redis database are preserved.
-                        </div>
+                        <div className="messageWindowChoiceHint">{this.props.hint}</div>
                     </div>
                 </div>
 
@@ -176,18 +176,30 @@ function show(properties) {
 }
 
 /**
- * Asks whether to start the service, and whether to discard the stored state first.
+ * Asks whether to start or stop the service, and whether to discard the stored state.
  *
- * @param {boolean} cleanByDefault  What the tick starts as: the configured clean_start.
+ * @param {Object} options
+ * @param {boolean} options.stop            Ask about a stop rather than a start.
+ * @param {boolean} options.cleanByDefault  What the tick starts as, for a start.
+ * @param {boolean} options.stored          Whether this node has stored state at all; when it has
+ *                                          none the tick is not offered, because it would do nothing.
  * @return {Promise<{confirmed: boolean, clean: boolean}>}
  */
-export function startServiceWindow(cleanByDefault) {
+export function serviceWindow(options = {}) {
+    const stop = options.stop === true;
     return show({
-        component: StartServiceWindow,
+        component: ServiceWindow,
         sign: "question",
-        title: "Start service",
-        message: "Please confirm that you want to (re)start service.",
-        cleanByDefault: cleanByDefault === true
+        title: stop ? "Stop service" : "Start service",
+        message: stop
+            ? "Please confirm that you want to stop service."
+            : "Please confirm that you want to (re)start service.",
+        hint: stop
+            ? "Discards this node's stored sessions and queued messages instead of keeping them for " +
+              "when it starts again. Other nodes' data and the rest of the Redis database are preserved."
+            : "Discards this node's stored sessions and queued messages. Other nodes' data and the " +
+              "rest of the Redis database are preserved.",
+        cleanByDefault: stop ? false : options.cleanByDefault === true
     });
 }
 

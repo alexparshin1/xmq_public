@@ -111,7 +111,11 @@ public:
      * The server object is destroyed rather than quiesced, so its listeners, sessions, bridges,
      * delivery threads and storage connections all go with it.
      */
-    virtual void stopServing() = 0;
+    /**
+     * @param cleanState  Whether stopping also drops this node's stored state, when the caller has
+     *                    decided that - the dashboard asks before a stop. Empty leaves the state.
+     */
+    virtual void stopServing(std::optional<bool> cleanState = std::nullopt) = 0;
 
     /**
      * @return true if an MQTT server is currently running.
@@ -225,7 +229,7 @@ public:
     ExtensionHost::Report            setExtensionSettings(
         const std::string& name, const std::map<std::string, std::string>& settings) override;
     bool                             startServing(std::string& reason, std::optional<bool> cleanStart = std::nullopt) override;
-    void                             stopServing() override;
+    void                             stopServing(std::optional<bool> cleanState = std::nullopt) override;
     [[nodiscard]] bool               isServing() const override;
     bool                             moveControlService(uint16_t port, std::string& reason) override;
     bool                             updateControlServiceKeys(const std::filesystem::path& certificateFile,

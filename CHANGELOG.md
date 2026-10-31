@@ -14,6 +14,19 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **The Dashboard asks before a start or a stop, and offers to discard the stored state.** A start
+  used to warn that it would discard this node's sessions and queued messages when
+  `persistence.clean_start` was set, and left nowhere to say "not this time" - the setting had to
+  be found and changed on another page first, and it was about to become one more thing kept in the
+  node's database row. Both actions now open one window: "Please confirm that you want to
+  (re)start service", with a tick "Clean broker/cluster state" that starts at the configured
+  `clean_start` for a start and clear for a stop. The answer is sent with the request and applies
+  to that action alone - `ServerControl` carries an optional `clean_state` which the server uses
+  instead of the setting - so the configuration is neither changed nor consulted for it. A stop
+  with the tick set drops this node's stored sessions and queued messages after the broker has
+  stopped, the same way a clean start drops them before it restores anything; a stop without it
+  keeps them, which is what makes stop-then-start a pause.
+
 - **`queue_limits` is stored in the database, not only in the configuration file.** On a node
   whose accounts database is PostgreSQL or MySQL, the three values live in the node's row in
   `xmq_node` (`queue_max_size`, `queue_max_inflight`, `queue_max_bytes`): written from the

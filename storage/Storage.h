@@ -75,6 +75,15 @@ public:
     [[nodiscard]] sptk::String toString() const;
 
     /**
+     * @brief Drops this node's stored state - its sessions, their queued messages and subscriptions.
+     *
+     * The same call a clean start makes before it restores anything, and never FLUSHDB: another
+     * node's state and the rest of the database are left as they are. Used by a stop that is meant
+     * to leave nothing behind.
+     */
+    void clearNodeState();
+
+    /**
      * @brief Check if storage is persistent.
      * @return True if persistent.
      */

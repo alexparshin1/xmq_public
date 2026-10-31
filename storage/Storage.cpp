@@ -128,3 +128,11 @@ String Storage::toString() const
 {
     return format("Redis on {}", m_redis->toString());
 }
+
+void Storage::clearNodeState()
+{
+    if (m_redis)
+    {
+        RedisConnection::clearNodeState(m_redis, m_server->getNodeName());
+    }
+}

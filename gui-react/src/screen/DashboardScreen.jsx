@@ -5,7 +5,7 @@ import BasicScreen from "./BasicScreen";
 import StatPanel, {Gauge, Stat, formatBytes, formatCount, formatDuration} from "../components/StatPanel";
 import PowerSwitch from "../components/PowerSwitch";
 import PageTitle from "../components/PageTitle";
-import {errorWindow, startServiceWindow} from "../components/MessageWindow";
+import {errorWindow, serviceWindow} from "../components/MessageWindow";
 
 function displayDatabaseUri(uri) {
     return (uri || "").replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/?#@]*):[^/]*@/i, "$1@");
@@ -179,11 +179,29 @@ export default class DashboardScreen extends BasicScreen {
                              "messages. Try again.");
                 return;
             }
-            const answer = await startServiceWindow(cleanStart);
+            const answer = await serviceWindow({cleanByDefault: cleanStart});
             if (!answer.confirmed) {
                 return;
             }
-            this.sendAction("start", {clean_start: answer.clean});
+            this.sendAction("start", {clean_state: answer.clean});
+        });
+    }
+
+    /**
+     * Stops the server, asking whether the stored state should go with it.
+     *
+     * A stop keeps the sessions and their queued messages, which is what makes stop-then-start a
+     * pause. A broker being taken out for good is the case where they should not be kept, and it
+     * is a decision made at the moment of stopping rather than by a setting.
+     */
+    stopServer() {
+        // No read of the setting: a stop keeps the state unless the tick says otherwise, and the
+        // tick starts clear. Nothing has to be known to ask.
+        serviceWindow({stop: true}).then(answer => {
+            if (!answer.confirmed) {
+                return;
+            }
+            this.sendAction("stop", {clean_state: answer.clean});
         });
     }
 
@@ -251,7 +269,7 @@ export default class DashboardScreen extends BasicScreen {
                     <PowerSwitch running={running}
                                  busy={busy}
                                  onStart={() => this.startServer()}
-                                 onStop={() => this.sendAction("stop")}/>
+                                 onStop={() => this.stopServer()}/>
                     {(nodeName || version)
                         ? <div style={{color: "#666"}}>
                             {nodeName ? <>node <b>{nodeName}</b></> : null}
