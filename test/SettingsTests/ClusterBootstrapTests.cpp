@@ -66,7 +66,7 @@ String configurationText()
             "ack": "INFO", "connect": "INFO", "disconnect": "INFO", "publish": "INFO",
             "subscribe": "INFO", "unsubscribe": "INFO", "server_connections": "INFO",
             "server_events": "INFO", "cluster_connections": "INFO", "cluster_events": "INFO"}},
-        "web_service": {"listener_port": 0, "certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"},
+        "web_service": {"listener_port": 0},
         "bridges": [],
         "cluster": {"this_node": {"node_name": "bootstrap-node", "host_port": "localhost:8883"}}
     })";
@@ -413,7 +413,7 @@ TEST(XMQ_ClusterBootstrapTests, listenersFromAnOlderStartupFileAreKept)
         },
         "authentication": {"allow_anonymous": false},
         "persistence": {"redis_uri": "redis://localhost:6379", "enabled": false},
-        "web_service": {"listener_port": 0},
+        "web_service": {"listener_port": 18883, "encrypted": true, "certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"},
         "bridges": [],
         "cluster": {}
     })").saveToFile(path);
@@ -425,6 +425,8 @@ TEST(XMQ_ClusterBootstrapTests, listenersFromAnOlderStartupFileAreKept)
         << "the listeners an older StartupSettings file still carries were dropped";
     EXPECT_EQ(18886, settings.m_connections.m_listener[0].m_port.asInteger());
     EXPECT_EQ(18887, settings.m_connections.m_listener[1].m_port.asInteger());
+    EXPECT_EQ(18883, settings.m_web_service.m_listener_port.asInteger())
+        << "the web port an older StartupSettings file still carries was dropped";
 
     filesystem::remove_all(directory);
 }

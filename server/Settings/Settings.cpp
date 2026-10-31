@@ -340,9 +340,10 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
 
     target.m_connections.m_ssl_keys = startup.m_connections.m_ssl_keys;
 
-    // A file written by a release that still kept the listeners in it. The type above no longer
-    // reads them, and this is the last chance to take them: the next start finds a file that has
-    // been rewritten without them, and a row that by then holds whatever this start saw.
+    // A file written by a release that still kept the listeners and the web port in it. The types
+    // above no longer read them, and this is the last chance to take them: the next start finds a
+    // file that has been rewritten without them, and a row that by then holds whatever this start
+    // saw. Missing that here cost a node its MQTT+SSL listener, and then its web interface.
     if (const auto connections = root->findFirst("connections"))
     {
         CConnections legacy;
@@ -350,6 +351,17 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
         if (!legacy.m_listener.empty())
         {
             target.m_connections.m_listener = legacy.m_listener;
+        }
+    }
+    if (const auto web = root->findFirst("web_service"))
+    {
+        if (web->findFirst("listener_port"))
+        {
+            target.m_web_service.m_listener_port = web->getInteger("listener_port");
+        }
+        if (web->findFirst("encrypted"))
+        {
+            target.m_web_service.m_encrypted = web->getBoolean("encrypted");
         }
     }
     target.m_authentication = startup.m_authentication;
