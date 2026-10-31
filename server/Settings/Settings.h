@@ -23,6 +23,7 @@
 #include "LogSubjectPriorities.h"
 #include "UserManager.h"
 #include "service/CInitialSetup.h"
+#include "service/CStartupSettings.h"
 #include "service/CServerConfiguration.h"
 #include <sptk5/cdatabase>
 #include <sptk5/cutils>
@@ -294,6 +295,17 @@ public:
      *                          one by default.
      * @return what was done, for reporting.
      */
+    /**
+     * @brief Loads a configuration of either shape into a full configuration.
+     *
+     * A file holds either the whole configuration, or the StartupSettings form a node writes once
+     * its row in a shared database holds the storage, the cluster switches, the limits and the
+     * logging. The second has no queue_limits, no server_limits and no logging because the row does,
+     * and a full load of it is refused for the elements it is right not to have - so anything that
+     * reads a configuration file without going through Settings goes through this.
+     */
+    static void loadConfigurationShape(CServerConfiguration& target, const sptk::String& text);
+
     static sptk::String resetConfiguration(const std::filesystem::path& configurationFile,
                                            const std::filesystem::path& fallbackTemplate = configurationTemplatePath());
 
@@ -334,6 +346,10 @@ private:
     BridgeManager                 m_bridgeManager;        ///< Bridge manager.
     ListenerManager               m_listenerManager;      ///< Listener manager.
     UserManager                   m_userManager;          ///< Authentication and users.
+    /// Whether the configuration file is the StartupSettings form - true once this node's row in a
+    /// shared database holds the storage, the cluster switches, the limits and the logging.
+    bool                          m_configurationInDatabase {false};
+
     /// Whether the accounts live in a database. Kept here rather than asked of the manager: the
     /// manager asks this while holding its own lock, and asking it back would deadlock on it.
     bool                          m_accountsInDatabase {false};
@@ -366,6 +382,15 @@ private:
     void loadConfigurationUnlocked(const sptk::Buffer& config);
     void saveConfigurationUnlocked(sptk::Buffer& config) const;
     void saveConfigurationUnlocked() const;
+
+    /**
+     * @brief Rewrites the file in its StartupSettings form, when this node's database holds the rest.
+     *
+     * Called once the node's row exists - on the first start that creates it, and on every start
+     * that finds one - so the file stops carrying a copy of settings it no longer decides. The file
+     * is only written when it differs, so a start does not touch its timestamp for nothing.
+     */
+    void rewriteConfigurationFromRowUnlocked() const;
 
     /**
      * @brief Writes the limits sections into this node's row in the shared database.

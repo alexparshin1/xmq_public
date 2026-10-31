@@ -14,6 +14,17 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **The configuration file stops carrying what the database holds.** A node whose accounts live in
+  PostgreSQL or MySQL kept its row's settings twice: once in the row, which the broker ran with, and
+  once in the file, which it did not - a copy that says one thing beside a broker doing another. Once
+  the node has a row, the file is rewritten without `queue_limits`, `server_limits`, `logging` and the
+  cluster fields the row owns, and keeps only what it decides: the listeners, the keys, the bridges,
+  the rest of `persistence`, and `authentication.database_uri`, without which the row cannot be
+  reached. The shape has a name in the WSDL, `StartupSettings`, and the loader accepts either shape -
+  so a file written before this one, a `--reset-configuration` file and a node with local accounts
+  all keep working as they did. `cluster.nodes` and the runtime fields of `this_node` are no longer
+  written at all: they were the cluster's live state leaking into a file.
+
 - **The Dashboard asks before a start or a stop, and offers to discard the stored state.** A start
   used to warn that it would discard this node's sessions and queued messages when
   `persistence.clean_start` was set, and left nowhere to say "not this time" - the setting had to

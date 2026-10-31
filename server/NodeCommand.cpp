@@ -1,6 +1,7 @@
 #include "NodeCommand.h"
 #include "Cluster/NodeIdentity.h"
 #include "common/DirectoryNames.h"
+#include "server/Settings/Settings.h"
 #include "service/CServerConfiguration.h"
 #include "service/CClusterControl.h"
 #include "service/CClusterControlResponse.h"
@@ -22,10 +23,10 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
     const auto file = DirectoryNames::resolveConfigurationFile(configuration);
     Buffer content;
     content.loadFromFile(file);
-    xdoc::Document document;
-    document.load(content);
     CServerConfiguration settings;
-    settings.load(document.root());
+    // Either shape: the file may be the whole configuration, or the bootstrap-only form a node
+    // writes once its database row holds the rest.
+    Settings::loadConfigurationShape(settings, String(content.c_str(), content.bytes()));
     string uuid;
     ifstream identity(file.parent_path() / cluster::NodeIdentity::FileName);
     getline(identity, uuid);

@@ -201,6 +201,39 @@
                 </xsd:sequence>
             </xsd:complexType>
 
+            <!-- What the configuration file holds once the node's shared database has the rest.
+                 A node whose accounts live in PostgreSQL or MySQL keeps the storage, the cluster
+                 switches, the limits and the logging in its row in `xmq_node`; the file is then
+                 the bootstrap - how to reach that database, what this machine listens on, which
+                 keys and bridges it uses - and says nothing about what the row already says. The
+                 sections in this type are the ones the file still decides; the ones it does not are
+                 absent from it. A node with local accounts, and a file written before its row
+                 exists, carry the whole ServerConfiguration instead. -->
+            <xsd:complexType name="StartupSettings">
+                <xsd:sequence>
+                    <xsd:element name="connections" type="tns:Connections"/>
+                    <xsd:element name="authentication" type="tns:Authentication"/>
+                    <xsd:element name="persistence" type="tns:Persistence"/>
+                    <xsd:element name="web_service" type="tns:WebService"/>
+                    <xsd:element name="bridges" type="tns:Bridge"
+                                 maxOccurs="unbounded" minOccurs="0"/>
+                    <xsd:element name="cluster" type="tns:StartupCluster"
+                                 maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- The part of the cluster section the file keeps: where the database is, and the
+                 account secret while one is still written beside it. Everything else about the
+                 cluster is the node's row. -->
+            <xsd:complexType name="StartupCluster">
+                <xsd:sequence>
+                    <xsd:element name="database_uri" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="password" type="xsd:string"
+                                 maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
             <xsd:complexType name="Persistence">
                 <xsd:sequence>
                     <xsd:element name="redis_uri" type="xsd:string"></xsd:element>

@@ -12,6 +12,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
+#include "common/DirectoryNames.h"
 #include "server/Cluster/NodeIdentity.h"
 #include "server/Settings/ClusterStore.h"
 #include "server/Settings/Settings.h"
@@ -118,6 +119,26 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
         EXPECT_EQ(String("localhost:8883"), row->m_hostPort);
         EXPECT_EQ(String("redis://from-the-file:6379"), row->m_redisUri);
         EXPECT_EQ(String("Standalone"), row->m_state);
+    }
+
+    // The file is the bootstrap now. What the row holds is not in it any more - a copy that says
+    // one thing beside a broker running another is worse than no copy at all - and what the file
+    // still decides is still there.
+    {
+        Buffer trimmed;
+        trimmed.loadFromFile(configurationPath);
+        const String text(trimmed.c_str(), trimmed.bytes());
+
+        EXPECT_EQ(String::npos, text.find("\"queue_limits\"")) << text.c_str();
+        EXPECT_EQ(String::npos, text.find("\"server_limits\""));
+        EXPECT_EQ(String::npos, text.find("\"logging\""));
+        EXPECT_EQ(String::npos, text.find("\"this_node\""));
+        EXPECT_EQ(String::npos, text.find("\"lease_seconds\""));
+
+        EXPECT_NE(String::npos, text.find("\"connections\"")) << "the listeners are the file's to decide";
+        EXPECT_NE(String::npos, text.find("\"web_service\""));
+        EXPECT_NE(String::npos, text.find("\"persistence\""));
+        EXPECT_NE(String::npos, text.find("\"database_uri\"")) << "the database has to stay reachable from the file";
     }
 
     // What the interface would do: change the row.
@@ -281,6 +302,42 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
         remove.param("node_id") = nodeId;
         remove.exec();
     }
+
+    filesystem::remove_all(directory);
+}
+
+/**
+ * A node with local accounts has no row anywhere, so the file is the whole configuration and
+ * nothing is rewritten out of it.
+ */
+TEST(XMQ_ClusterBootstrapTests, aNodeWithLocalAccountsKeepsEverySectionInTheFile)
+{
+    const auto directory = filesystem::temp_directory_path() / ("xmq_sqlite_file_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    std::string text(configurationText().c_str());
+    const std::string from = "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+    const auto at = text.find(from);
+    ASSERT_NE(std::string::npos, at);
+    text.replace(at, from.size(),
+                 string(DirectoryNames::sqliteUri(directory / "xmq_users.db").c_str()));
+    Buffer(text).saveToFile(configurationPath);
+
+    Buffer before;
+    before.loadFromFile(configurationPath);
+
+    Settings settings;
+    settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+    Buffer after;
+    after.loadFromFile(configurationPath);
+    const String written(after.c_str(), after.bytes());
+
+    EXPECT_NE(String::npos, written.find("\"queue_limits\"")) << "a local node's file has to keep its own settings";
+    EXPECT_NE(String::npos, written.find("\"logging\""));
+    EXPECT_NE(String::npos, written.find("\"server_limits\""));
 
     filesystem::remove_all(directory);
 }
@@ -497,8 +554,11 @@ TEST(XMQ_ClusterBootstrapTests, serverLimitsFollowTheFileUntilTheRowIsCreatedFro
     }
 
     // Creating a new configuration - Initial Setup writes the file and the broker restarts onto it:
-    // the row is created from that file and becomes the configuration.
+    // the row is created from that file and becomes the configuration. The file is written whole
+    // again here because the one on disk is the trimmed form: the settings it used to carry are the
+    // row's, and the row just went.
     removeRow(nodeId);
+    writeConfiguration("999", "77");
     {
         Settings settings;
         settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");

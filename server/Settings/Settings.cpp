@@ -283,7 +283,65 @@ String expandConfigurationText(const Buffer& config, const filesystem::path& log
 void   collectUnknownKeys(const WSComplexType& type, const xdoc::SNode& node, const String& path,
                           Strings& warnings);
 void   validateConfigurationValues(const CServerConfiguration& configuration, Strings& warnings);
+void   saveAtomically(const filesystem::path& path, const sptk::Buffer& data);
 }
+
+namespace {
+
+/// The configuration a node starts with when nothing says otherwise, parsed once: the sections a
+/// StartupSettings file does not carry are read from the database, and until it answers they hold
+/// the same values a configuration without those sections has always had.
+const CServerConfiguration& builtInDefaults();
+
+/**
+ * Loads a configuration file of either shape.
+ *
+ * The whole configuration, or the StartupSettings form a node writes once its row in a shared
+ * database holds the storage, the cluster switches, the limits and the logging. The second has no
+ * queue_limits, no server_limits and no logging because the row does, and the full type refuses a
+ * file without them; its sections are left at the built-in defaults, which the row then replaces.
+ */
+void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
+{
+    if (root->findFirst("queue_limits") || root->findFirst("server_limits") || root->findFirst("logging"))
+    {
+        target.load(root);
+        return;
+    }
+
+    CStartupSettings startup;
+    startup.load(root);
+
+    target.m_connections = startup.m_connections;
+    target.m_authentication = startup.m_authentication;
+    target.m_persistence = startup.m_persistence;
+    target.m_web_service = startup.m_web_service;
+    target.m_bridges = startup.m_bridges;
+    if (!startup.m_cluster.isNull())
+    {
+        target.m_cluster.m_database_uri = startup.m_cluster.m_database_uri;
+        target.m_cluster.m_password = startup.m_cluster.m_password;
+    }
+
+    target.m_queue_limits = builtInDefaults().m_queue_limits;
+    target.m_server_limits = builtInDefaults().m_server_limits;
+    target.m_logging = builtInDefaults().m_logging;
+}
+
+const CServerConfiguration& builtInDefaults()
+{
+    static const CServerConfiguration defaults = []
+    {
+        CServerConfiguration configuration;
+        xdoc::Document       document;
+        document.load(String(defaultConfigurationText()));
+        configuration.load(document.root());
+        return configuration;
+    }();
+    return defaults;
+}
+
+} // namespace
 
 void Settings::loadConfigurationUnlocked(const Buffer& config)
 {
@@ -301,7 +359,7 @@ void Settings::loadConfigurationUnlocked(const Buffer& config)
     const auto clusterNode = document.root()->findFirst("cluster");
     const bool hasClusterPassword = clusterNode && clusterNode->findFirst("password");
 
-    WSComplexType::load(document.root());
+    loadEitherShape(*this, document.root());
 
     // Values the field types cannot bound, and keys nothing reads. The first stops a start with
     // the key's name; the second is a warning, because a configuration carrying an old or
@@ -461,8 +519,28 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     validateConfigurationValues(*this, warnings);
 
     xdoc::Document document;
-    WSComplexType::unload(document.root());
-    if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
+    if (m_configurationInDatabase)
+    {
+        // The file is the bootstrap now: how to reach the database, what this machine listens on,
+        // which keys and bridges it uses. The sections the node's row holds are left out rather
+        // than written as a copy nobody reads - a copy that says one thing while the broker runs
+        // another is worse than no copy at all.
+        CStartupSettings startup;
+        startup.m_connections = m_connections;
+        startup.m_authentication = m_authentication;
+        startup.m_persistence = m_persistence;
+        startup.m_web_service = m_web_service;
+        startup.m_bridges = m_bridges;
+        startup.m_cluster.m_database_uri = m_cluster.m_database_uri;
+        // The cluster account's secret is kept in the accounts database; a copy beside it would be
+        // the one readable place it had been moved out of.
+        startup.unload(document.root());
+    }
+    else
+    {
+        WSComplexType::unload(document.root());
+        if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
+    }
 
     // Accounts live in the users file, so the configuration should not carry the element at all -
     // not even as an empty list. Leaving it there invites someone to add an account to the wrong
@@ -474,6 +552,40 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     }
 
     document.exportTo(xdoc::DataFormat::JSON, config, true);
+}
+
+void Settings::rewriteConfigurationFromRowUnlocked() const
+{
+    if (m_configurationPath.empty())
+    {
+        return;
+    }
+
+    Buffer wanted;
+    try
+    {
+        saveConfigurationUnlocked(wanted);
+    }
+    catch (const Exception& e)
+    {
+        // The file is the copy now, so a copy that cannot be written is reported and not fatal:
+        // refusing to start over it would take a working node down for a tidiness.
+        CERR("Cannot rewrite the configuration without the settings the database holds: " << e.what());
+        return;
+    }
+
+    error_code errorCode;
+    if (filesystem::exists(m_configurationPath, errorCode))
+    {
+        Buffer current;
+        current.loadFromFile(m_configurationPath);
+        if (String(current.c_str(), current.bytes()) == String(wanted.c_str(), wanted.bytes()))
+        {
+            return;
+        }
+    }
+
+    saveAtomically(m_configurationPath, wanted);
 }
 
 namespace {
@@ -999,6 +1111,11 @@ void Settings::applyClusterConfigurationUnlocked()
                 }
             }
 
+            // The file is the bootstrap from here on: rewrite it without the sections this row
+            // holds, so a file that says one thing cannot sit beside a broker running another.
+            m_configurationInDatabase = true;
+            rewriteConfigurationFromRowUnlocked();
+
             // Synchronise certificates: every other node's PEM becomes a trusted peer file.
             syncPeerCertificates(store, nodeId);
             return;
@@ -1051,6 +1168,9 @@ void Settings::applyClusterConfigurationUnlocked()
             m_cluster.m_this_node.m_node_name = updated.m_name;
             m_cluster.m_this_node.m_host_port = updated.m_hostPort;
 
+            m_configurationInDatabase = true;
+            rewriteConfigurationFromRowUnlocked();
+
             syncPeerCertificates(store, nodeId);
             return;
         }
@@ -1087,6 +1207,9 @@ void Settings::applyClusterConfigurationUnlocked()
             }
         }
         store.insertNode(row);
+
+        m_configurationInDatabase = true;
+        rewriteConfigurationFromRowUnlocked();
 
         // Synchronise certificates: every other node's PEM becomes a trusted peer file.
         syncPeerCertificates(store, nodeId);
@@ -1249,7 +1372,7 @@ String Settings::rollbackPendingAccept(const String& reason)
         xdoc::Document document;
         document.load(String(previous));
         CServerConfiguration previousSettings;
-        previousSettings.load(document.root());
+        loadEitherShape(previousSettings, document.root());
         const auto wasClustered = !previousSettings.m_cluster.m_enabled.isNull() &&
                                   previousSettings.m_cluster.m_enabled.asBool();
 
@@ -2710,9 +2833,14 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     xdoc::Document document;
     document.load(String(current));
     const auto root = document.root();
-    const auto node = section(section(root, "cluster"), "this_node");
-    node->set("node_name", values.m_node_name.asString());
-    node->set("host_port", values.m_node_host.asString() + ":" + to_string(values.m_mqtt_ssl_port.asInteger()));
+    // The node's name and address are in the row when there is one, and the file does not carry
+    // them any more: writing them here would put back what the database decides.
+    if (!m_configurationInDatabase)
+    {
+        const auto node = section(section(root, "cluster"), "this_node");
+        node->set("node_name", values.m_node_name.asString());
+        node->set("host_port", values.m_node_host.asString() + ":" + to_string(values.m_mqtt_ssl_port.asInteger()));
+    }
     const auto listeners = section(root, "connections")->findFirst("listener");
     if (!listeners) throw Exception("The node has no listener configuration.");
     listenerFor(listeners, mqttProtocol)->set("port", values.m_mqtt_port.asInteger());
@@ -2939,6 +3067,13 @@ String accountDatabaseUriFrom(const filesystem::path& configurationFile)
 }
 
 } // namespace
+
+void Settings::loadConfigurationShape(CServerConfiguration& target, const String& text)
+{
+    xdoc::Document document;
+    document.load(text);
+    loadEitherShape(target, document.root());
+}
 
 String Settings::resetConfiguration(const filesystem::path& configurationFile, const filesystem::path& fallbackTemplate)
 {
