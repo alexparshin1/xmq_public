@@ -72,6 +72,7 @@ export default class SettingsScreen extends React.Component {
         return {
             node_name: v.node_name, node_host: v.node_host,
             mqtt_port: Number(v.mqtt_port), mqtt_ssl_port: Number(v.mqtt_ssl_port), web_service_port: Number(v.web_service_port),
+            clean_start: v.clean_start === true,
             redis_uri: v.redis_host.trim() ? `redis://${credentials(v.redis_user || (v.redis_password ? "default" : ""), v.redis_password)}${v.redis_host.trim()}:${v.redis_port}/${Number(v.redis_database)}` : "",
             database_uri: v.database_type === "sqlite" ? (v.database_uri?.startsWith("sqlite") ? v.database_uri : "")
                 : `${v.database_type}://${credentials(v.database_user, v.database_password)}${v.database_host.trim()}:${v.database_port}/${encodeURIComponent(v.database_name.trim())}`
@@ -141,8 +142,15 @@ export default class SettingsScreen extends React.Component {
                             {Array.from({length: 17}, (_, index) => <option key={index} value={index}>{index}</option>)}
                         </select></div>
                     {this.field("Redis user", "redis_user")}{this.field("Redis password", "redis_password", "password")}
+                    <div className="inputScreenRow">
+                        <label className="inputScreenLabel" htmlFor="clean_start">Clean start:</label>
+                        <input id="clean_start" name="clean_start" type="checkbox" checked={v.clean_start === true}
+                               disabled={busy || pending} onChange={e => this.change("clean_start", e.target.checked)}/>
+                    </div>
                     <p className="inputScreenHint">Leave host empty to disable persistence. Changing storage does not migrate sessions or queues.
                         A clustered node must keep its current membership; leave the cluster before moving to different storage.</p>
+                    <p className="inputScreenHint">Clean start discards this node's stored sessions and queued messages when the server starts.
+                        The Dashboard's start window offers the same choice for one start without changing this setting.</p>
                 </fieldset>
                 <fieldset><legend>User Database</legend>
                     <div className="inputScreenRow"><label className="inputScreenLabel" htmlFor="database_type">Database type:</label>

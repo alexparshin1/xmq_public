@@ -155,6 +155,42 @@ TEST(XMQ_ConfigurationFile, saveRefusesAValueTheLoadWouldRefuse)
 }
 
 /**
+ * The Settings screen offers Clean start beside the storage it applies to, and what it saves has to
+ * be what the next start reads - the screen used to show the value without a way to set it.
+ */
+TEST(XMQ_ConfigurationFile, theSettingsScreenSavesCleanStart)
+{
+    const auto directory = testDirectory();
+    const auto path = directory / "xmq_server.conf";
+    const auto usersPath = directory / "xmq_users.conf";
+
+    Buffer(configurationText()).saveToFile(path);
+
+    Settings settings;
+    settings.loadConfiguration(path, usersPath);
+    ASSERT_FALSE(settings.m_persistence.m_clean_start.asBool());
+
+    auto values = settings.nodeSettings();
+    values.m_clean_start = true;
+    const auto rollback = settings.saveNodeSettings(values);
+
+    {
+        Settings reloaded;
+        reloaded.loadConfiguration(path, usersPath);
+        EXPECT_TRUE(reloaded.m_persistence.m_clean_start.asBool())
+            << "the value the screen saved is not what the next start reads";
+    }
+
+    // The rollback the save hands back is the way out of a failed apply, and it takes this with it.
+    rollback();
+    Settings restored;
+    restored.loadConfiguration(path, usersPath);
+    EXPECT_FALSE(restored.m_persistence.m_clean_start.asBool());
+
+    filesystem::remove_all(directory);
+}
+
+/**
  * When the configured file cannot be read, the copy the last successful start kept is what the
  * broker runs on - and a later save must go to the configured file, not to the copy.
  */

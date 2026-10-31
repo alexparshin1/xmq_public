@@ -2848,6 +2848,9 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     section(root, "web_service")->set("listener_port", values.m_web_service_port.asInteger());
     section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
     section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
+    // The Settings screen offers it beside the storage it applies to: a clean start is about what
+    // that storage holds, and a person looking for it there should not have to find another page.
+    section(root, "persistence")->set("clean_start", values.m_clean_start.asBool());
     section(root, "authentication")->set("database_uri", values.m_database_uri.asString());
     const auto id = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
     auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);

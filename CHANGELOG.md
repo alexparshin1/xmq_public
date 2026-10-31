@@ -14,6 +14,11 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **`Clean start` is on the Settings screen.** It was only on Persistence, which is where it
+  belongs by subject and not where it is looked for: the Settings screen edits the storage the
+  choice applies to, showed the value in its confirmation, and had no way to change it. It is a
+  checkbox beside the Redis settings now, saved with the rest of the screen.
+
 - **The configuration file stops carrying what the database holds.** A node whose accounts live in
   PostgreSQL or MySQL kept its row's settings twice: once in the row, which the broker ran with, and
   once in the file, which it did not - a copy that says one thing beside a broker doing another. Once
