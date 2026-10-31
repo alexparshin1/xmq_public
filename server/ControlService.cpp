@@ -102,11 +102,15 @@ void ControlService::requireReachableRedis(const CInitialSetup& setup)
         const String password = setup.m_redis_password.asString();
         String username = setup.m_redis_username.asString();
         if (!username.empty() && password.empty())
+        {
             throw Exception("Enter a Redis password with the username, or leave both credentials empty.");
+        }
         if (username.empty() && !password.empty()) username = "default";
         const auto database = setup.m_redis_database.asInteger();
         if (database < 0 || database > 16)
+        {
             throw Exception("Choose a Redis database number between 0 and 16.");
+        }
         (void) probe.connect(redisHost.c_str(), static_cast<uint16_t>(redisPort), username, password,
                              to_string(database), chrono::milliseconds(1500));
         probe.disconnect();
@@ -164,7 +168,9 @@ void ControlService::requireReachableDatabase(const CInitialSetup& setup)
             // for an administrator; existing accounts are left untouched by createSchema().
             users.createSchema();
             if (!users.users().empty())
+            {
                 (void) users.checkSetupPasswords(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
+            }
         }
     }
     catch (const Exception&)
@@ -908,13 +914,17 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
             const auto store = requireClusterStore(settings);
             const auto row = store->node(input.m_node.m_node_id.asString());
             if (!row || row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled)
+            {
                 throw Exception("Select an active Standalone node to start a cluster.");
+            }
             if (row->m_nodeId == settings->nodeIdentity())
             {
                 RedisConnect redis;
                 redis.connect(redisConnectionUrl(row->m_redisUri));
                 if (!cluster::Coordinator::readSnapshot(redis).m_members.empty())
+                {
                     throw Exception("This storage already has cluster members. Restore an Offline member using its Dashboard, or force remove an unrecoverable member first.");
+                }
                 CClusterControl enable;
                 enable.m_redis_uri = row->m_redisUri;
                 enable.m_database_uri = settings->userDatabaseUri();
@@ -1058,7 +1068,9 @@ void ControlService::applyLocalClusterAction(const String& action)
         if (!error.empty())
         {
             if (getSettings()->rollbackPendingAccept(error).empty())
+            {
                 applyLocalClusterAction("reload");
+            }
             throw Exception(error);
         }
 
@@ -1461,7 +1473,9 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
         redis.setReadTimeout(chrono::milliseconds(1000));
         redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
         if (!cluster::Coordinator::removeOfflineMember(redis, row->m_nodeId))
+        {
             throw Exception("This node still holds a live cluster lease. Use Leave cluster or stop the failed node and wait for its lease to expire before Force remove.");
+        }
     }
 
     const auto declarationOnly = row->m_state == "Not Clustered" && row->m_certificate.empty();
@@ -2439,18 +2453,28 @@ void ControlService::SettingsControl(const CSettingsControl& input, CSettingsCon
             values.m_redis_uri = UriSecret::restored(values.m_redis_uri.asString(), previous.m_redis_uri.asString());
             values.m_database_uri = UriSecret::restored(values.m_database_uri.asString(), previous.m_database_uri.asString());
             if (values.m_database_uri.asString().empty())
+            {
                 values.m_database_uri = DirectoryNames::sqliteUri(filesystem::path(settings->configurationPath()).replace_filename("xmq_users.db"));
+            }
             if (!regex_match(string(values.m_node_name.asString()), regex(R"(^\w[\w.-]+$)")))
+            {
                 throw Exception("Node name must contain at least two letters, digits, underscores, dots or dashes.");
+            }
             const String host = String(values.m_node_host.asString()).trim();
             if (host.empty() || host.find_first_of(":/ \t\r\n") != String::npos)
+            {
                 throw Exception("Enter a node hostname or IPv4 address without a port.");
+            }
             values.m_node_host = host;
             const auto tcp = values.m_mqtt_port.asInteger(), tls = values.m_mqtt_ssl_port.asInteger(), web = values.m_web_service_port.asInteger();
             if (tcp < 1 || tcp > 65535 || tls < 1 || tls > 65535 || web < 1 || web > 65535 || tcp == tls || tcp == web || tls == web)
+            {
                 throw Exception("MQTT, MQTT+SSL and Web ports must be distinct numbers between 1 and 65535.");
+            }
             if (values.m_node_name.asString() != previous.m_node_name.asString() && values.m_redis_uri.asString() != previous.m_redis_uri.asString())
+            {
                 throw Exception("Change the node name and Redis connection separately, so persisted sessions can be retained on rename.");
+            }
             const auto id = settings->nodeIdentity();
             const bool clustered = previous.m_cluster_enabled.asBool();
             if (clustered && values.m_redis_uri.asString().empty()) throw Exception("Leave the cluster before disabling Redis.");
@@ -2462,9 +2486,13 @@ void ControlService::SettingsControl(const CSettingsControl& input, CSettingsCon
                 redis.connect(uri);
                 const auto snapshot = cluster::Coordinator::readSnapshot(redis);
                 if (clustered && ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == id; }))
+                {
                     throw Exception("The new Redis does not contain this node's cluster membership. Leave the cluster before changing to another storage.");
+                }
                 if (ranges::any_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId != id && member.m_name == values.m_node_name.asString(); }))
+                {
                     throw Exception("Another cluster member already uses this node name.");
+                }
             }
             auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);
             { const AutoDatabaseConnection connection(*pool); Query probe(connection.connection(), "SELECT 1"); probe.open(); probe.close(); }
@@ -2472,16 +2500,22 @@ void ControlService::SettingsControl(const CSettingsControl& input, CSettingsCon
             const auto identity = authentication->getData()->findFirst("user");
             const auto administrator = users.findUser(identity->getString("username"));
             if (!administrator || !administrator->m_enabled || !PasswordHash::verify(identity->getString("password"), administrator->m_password))
+            {
                 throw Exception("The target accounts database must already contain your enabled administrator account with the same password. Use Initial Setup to initialize an empty database.");
+            }
             const auto groups = users.groupsOfUser(administrator->m_id);
             if (ranges::none_of(groups, [](const auto& group) { return group.m_name == "Administrators"; }))
+            {
                 throw Exception("Your account is not an administrator in the target accounts database.");
+            }
             if (clustered)
             {
                 ClusterStore target(pool);
                 const auto row = target.node(id);
                 if (!row || !row->m_clusterEnabled || row->m_state == "Removed" || row->m_state == "Retired")
+                {
                     throw Exception("The target accounts database is not this node's cluster configuration. Leave the cluster before changing databases.");
+                }
             }
             if (action == "set")
             {
@@ -2561,9 +2595,13 @@ void ControlService::InitialSetupControl(const CInitialSetupControl& input, CIni
         {
             const auto port = input.m_redis_port.asInteger();
             if (String(input.m_redis_host.asString()).trim().empty())
+            {
                 throw Exception("Enter a Redis hostname to check its availability.");
+            }
             if (port < 1 || port > 65535)
+            {
                 throw Exception("The Redis port must be between 1 and 65535.");
+            }
             CInitialSetup probe;
             probe.m_redis_host = input.m_redis_host;
             probe.m_redis_port = input.m_redis_port;

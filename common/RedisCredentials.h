@@ -37,7 +37,9 @@ inline std::string decodeRedisCredential(const std::string& value)
         if (value[i] == '%')
         {
             if (i + 2 >= value.size() || digit(value[i + 1]) < 0 || digit(value[i + 2]) < 0)
+            {
                 throw sptk::Exception("Invalid percent encoding in a Redis credential.");
+            }
             result += static_cast<char>((digit(value[i + 1]) << 4) | digit(value[i + 2]));
             i += 2;
         }
@@ -53,7 +55,9 @@ inline sptk::URL redisConnectionUrl(const sptk::URL& configured)
     auto username = decodeRedisCredential(configured.username());
     const auto password = decodeRedisCredential(configured.password());
     if (!username.empty() && password.empty())
+    {
         throw sptk::Exception("Enter a Redis password with the username, or leave both credentials empty.");
+    }
     if (username.empty() && !password.empty()) username = "default";
     const auto& [host, port] = configured.hostAndPort();
     sptk::URL result(configured.protocol(), host, port, username, password, configured.path());

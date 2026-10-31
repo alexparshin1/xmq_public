@@ -31,7 +31,9 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
     ifstream identity(file.parent_path() / cluster::NodeIdentity::FileName);
     getline(identity, uuid);
     if (!cluster::NodeIdentity::isGuid(uuid))
+    {
         throw Exception("Start this node first: its UUID file is missing or invalid.");
+    }
     const auto port = settings.m_web_service.m_listener_port.asInteger();
     if (port < 1 || port > 65535) throw Exception("No usable web interface port in configuration.");
     const bool encrypted = settings.m_web_service.m_encrypted.isNull() || settings.m_web_service.m_encrypted.asBool();
@@ -39,7 +41,9 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
     if (certificate.empty()) certificate = file.parent_path() / "certs/node.crt";
     // Resolve the configuration placeholder without loading Settings (which can write SQL).
     if (const auto text = certificate.generic_string(); text.starts_with("${ProgramCerts}/"))
+    {
         certificate = file.parent_path() / "certs" / text.substr(16);
+    }
     const auto deadline = chrono::steady_clock::now() + timeout;
     const auto post = [&](const char* method, const WSComplexType& input,
                           WSComplexType& output, const String& token = String())
@@ -77,7 +81,9 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
     CLoginResponse loggedIn;
     post("Login", login, loggedIn);
     if (!loggedIn.m_result.m_success.asBool())
+    {
         throw Exception("Local control API authentication failed: " + loggedIn.m_result.m_description.asString());
+    }
     const String token = loggedIn.m_token.asString();
     CClusterControl request;
     request.m_action = "get";
@@ -88,12 +94,16 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
         post("ClusterControl", request, current, token);
         if (!current.m_result.m_success.asBool()) throw Exception(current.m_result.m_description.asString());
         if (current.m_this_node.m_node_id.asString() != uuid)
+        {
             throw Exception("The web interface belongs to a different node; check -c and its web port.");
+        }
         return current;
     };
     status = get();
     if (join && !status.m_on_cluster_database.asBool())
+    {
         throw Exception("Joining requires the shared PostgreSQL or MySQL accounts database.");
+    }
     const auto complete = [&](const CClusterControlResponse& current)
     {
         if (!join)

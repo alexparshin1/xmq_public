@@ -2448,7 +2448,9 @@ String nodeHostOf(const CInitialSetup& setup)
 void checkInitialSetup(const CInitialSetup& setup)
 {
     if (!setup.m_redis_host.asString().empty() && !setup.m_redis_username.asString().empty() && setup.m_redis_password.asString().empty())
+    {
         throw Exception("Enter a Redis password with the username, or leave both credentials empty.");
+    }
     if (setup.m_admin_password.asString().empty())
     {
         throw Exception("The administrator password is required.");
@@ -2626,18 +2628,24 @@ String Settings::cloneNodes(const filesystem::path& sourceFile, unsigned count)
     if ((oldDirectory.filename() != "xmq" && oldDirectory.filename() != "xmq1") ||
         requested.filename() != "xmq_server.conf" || filesystem::is_symlink(oldDirectory) ||
         filesystem::is_symlink(first))
+    {
         throw Exception("The source must be xmq or xmq1 in a real configuration directory.");
+    }
     const bool moveOriginal = !filesystem::is_regular_file(first / "xmq_server.conf");
     const auto source = moveOriginal ? requested : first / "xmq_server.conf";
     if (!filesystem::is_regular_file(source) || (moveOriginal && oldDirectory == first))
+    {
         throw Exception("Source configuration is missing: " + source.string());
+    }
     vector<unsigned> missing;
     for (unsigned index = 1; index <= count; ++index)
     {
         const auto destination = parent / ("xmq" + to_string(index));
         if (filesystem::is_regular_file(destination / "xmq_server.conf")) continue;
         if (filesystem::exists(destination))
+        {
             throw Exception("Destination directory exists without a configuration: " + destination.string());
+        }
         if (index > 1) missing.push_back(index);
     }
     if (!moveOriginal && missing.empty()) return "All requested configurations already exist; nothing changed.";
@@ -2654,7 +2662,9 @@ String Settings::cloneNodes(const filesystem::path& sourceFile, unsigned count)
         if (protocol == "MQTT" && !mqtt) mqtt = static_cast<int>(listener.m_port.asInteger());
         else if (protocol == "MQTT+SSL" && !tls) tls = static_cast<int>(listener.m_port.asInteger());
         else if (listener.m_enable.isNull() || listener.m_enable.asBool())
+        {
             throw Exception("Bulk cloning requires one MQTT and one MQTT+SSL listener, without additional enabled listeners.");
+        }
     }
     const auto web = settings.m_web_service.m_listener_port.asInteger();
     set<int64_t> ports;
@@ -2663,13 +2673,17 @@ String Settings::cloneNodes(const filesystem::path& sourceFile, unsigned count)
         {
             const auto port = base + index - 1;
             if (base < 1024 || port > 65535 || !ports.insert(port).second)
+            {
                 throw Exception("The requested node count creates invalid or overlapping port ranges.");
+            }
         }
     int ignoredPort = 0;
     const auto host = splitHostPort(settings.m_cluster.m_this_node.m_host_port.asString(), ignoredPort);
     const auto name = settings.m_cluster.m_this_node.m_node_name.asString();
     if (host.empty() || host.find_first_of(" \t\r\n/\\:") != String::npos || name.empty())
+    {
         throw Exception("The source must have a usable node name and advertised host.");
+    }
 
     // Rebase only path-valued strings, not arbitrary substrings in passwords or URLs.
     // The original UUID, certificates and database move intact with their directory.
@@ -2756,19 +2770,29 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
     const auto name = String(node.m_node_name.asString()).trim();
     const auto host = String(node.m_node_host.asString()).trim();
     if (name.empty() || host.empty() || host.find_first_of(" \t\r\n/\\:") != String::npos)
+    {
         throw Exception("A node name and a host without a port are required.");
+    }
     const auto mqtt = node.m_mqtt_port.asInteger();
     const auto tls = node.m_mqtt_ssl_port.asInteger();
     const auto web = node.m_web_service_port.asInteger();
     for (const auto value: {mqtt, tls, web})
         if (value < 1024 || value > 65535)
+        {
             throw Exception("Clone ports must be between 1024 and 65535.");
+        }
     if (mqtt == tls || mqtt == web || tls == web)
+    {
         throw Exception("Clone ports must be different.");
+    }
     if (!filesystem::is_regular_file(source))
+    {
         throw Exception("Source configuration does not exist: " + source.string());
+    }
     if (filesystem::exists(directory))
+    {
         throw Exception("The clone requires a new configuration directory: " + directory.string());
+    }
 
     // Read the file as a document: loading Settings could register the source in SQL,
     // migrate its users or rewrite it. None of those belongs to cloning.
@@ -2785,7 +2809,9 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
     const auto newDatabase = directory / "xmq_users.db";
     const auto newDatabaseUri = DirectoryNames::sqliteUri(newDatabase);
     if (localAccounts)
+    {
         authentication->set("database_uri", newDatabaseUri);
+    }
     else
         authentication->remove("users");
     const auto cluster = section(root, "cluster");
@@ -2805,7 +2831,9 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
         if (protocol == mqttProtocol) listener->set("port", mqtt);
         else if (protocol == mqttSslProtocol) listener->set("port", tls);
         else if (listener->getBoolean("enable"))
+        {
             throw Exception("Clone requires explicit configuration of additional listener protocols.");
+        }
     }
     listenerFor(listeners, mqttProtocol)->set("port", mqtt);
     listenerFor(listeners, mqttSslProtocol)->set("port", tls);
@@ -2827,7 +2855,9 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
     // directory this invocation created; an existing node is never overwritten.
     filesystem::create_directories(directory.parent_path());
     if (!filesystem::create_directory(directory))
+    {
         throw Exception("The clone directory already exists: " + directory.string());
+    }
     try
     {
         filesystem::permissions(directory, filesystem::perms::owner_all,
@@ -2852,7 +2882,9 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
                 restrictToOwnerAndGroup(newDatabase);
             }
             else if (filesystem::is_regular_file(source.parent_path() / "xmq_users.conf"))
+            {
                 copyFile(source.parent_path() / "xmq_users.conf", directory / "xmq_users.conf");
+            }
         }
         // Extension settings travel with the node, but an explicit local account DB must
         // point to the snapshot. Libraries remain at their installed locations.
@@ -2876,18 +2908,24 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
         };
         const auto extensions = source.parent_path() / "xmq_extensions.conf";
         if (filesystem::is_regular_file(extensions))
+        {
             copyExtension(extensions, directory / extensions.filename());
+        }
         const auto fragments = source.parent_path() / "xmq_extensions.d";
         if (filesystem::is_directory(fragments))
         {
             filesystem::create_directory(directory / fragments.filename());
             for (const auto& entry: filesystem::directory_iterator(fragments))
                 if (entry.is_regular_file() && entry.path().extension() == ".conf")
+                {
                     copyExtension(entry.path(), directory / fragments.filename() / entry.path().filename());
+                }
         }
         const auto templateFile = source.parent_path() / "xmq_server.conf.template";
         if (filesystem::is_regular_file(templateFile))
+        {
             copyFile(templateFile, directory / templateFile.filename());
+        }
         const auto uuid = cluster::NodeIdentity::load(directory / cluster::NodeIdentity::FileName);
         restrictToOwnerAndGroup(directory / cluster::NodeIdentity::FileName);
         String description;
@@ -2958,7 +2996,9 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     setup.m_redis_port = redisPort;
     setup.m_redis_database = redisDatabase;
     if (!redisHost.empty())
+    {
         setup.m_redis_username = decodeRedisCredential(redisConfiguredUrl(persistence->getString("redis_uri")).username());
+    }
     setup.m_redis_password.clear();
     setup.m_database_uri = section(root, "authentication")->getString("database_uri");
 
@@ -3082,7 +3122,9 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // A new or local accounts store is initialised with the supplied passwords. Existing
     // shared accounts belong to all nodes and must survive another node's setup unchanged.
     if (!existingSharedAccounts)
+    {
         resetUsersUnlocked(setup.m_admin_password.asString(), setup.m_cluster_password.asString());
+    }
     if (m_accountsPool)
     {
         UserStore store(m_accountsPool);
@@ -3243,7 +3285,9 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
         store.createSchema();
         previous = store.node(id);
         if (previous && (previous->m_state == "Removed" || previous->m_state == "Retired"))
+        {
             throw Exception("This node's configuration in the target database was removed or retired.");
+        }
     }
     const auto path = m_configurationPath;
     const String oldConfiguration(original);

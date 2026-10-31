@@ -24,12 +24,16 @@ bool validUrl(const std::wstring& url) {
         }
     }
     if (portStart == std::wstring::npos)
+    {
         return false;
+    }
     const size_t portEnd = url.find(L'/', portStart);
     const auto port = url.substr(portStart, portEnd - portStart);
     if (port.empty() || port.size() > 5 ||
         port.find_first_not_of(L"0123456789") != std::wstring::npos)
+    {
         return false;
+    }
     const unsigned long number = std::stoul(port);
     return number > 0 && number <= 65535 &&
            (portEnd == std::wstring::npos || portEnd == url.size() - 1);
@@ -44,7 +48,9 @@ void addTrayIcon(HWND window) {
     icon.uCallbackMessage = kTrayMessage;
     icon.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
     if (!icon.hIcon)
+    {
         icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    }
     lstrcpyW(icon.szTip, L"XMQ Console");
     Shell_NotifyIconW(NIM_ADD, &icon);
     icon.uVersion = NOTIFYICON_VERSION_4;
@@ -56,8 +62,10 @@ void openConsole(HWND window) {
     const auto result = reinterpret_cast<INT_PTR>(
         ShellExecuteW(window, L"open", L"msedge.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
     if (result <= 32)
+    {
         MessageBoxW(window, L"Could not start Microsoft Edge. Install Edge or check its App Paths registration.",
                     L"XMQ Console", MB_OK | MB_ICONERROR);
+    }
 }
 
 void showMenu(HWND window) {
@@ -93,9 +101,13 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         return 0;
     case WM_COMMAND:
         if (LOWORD(wParam) == kOpen)
+        {
             openConsole(window);
+        }
         else if (LOWORD(wParam) == kQuit)
+        {
             DestroyWindow(window);
+        }
         return 0;
     case WM_DESTROY: {
         NOTIFYICONDATAW icon{};
@@ -118,7 +130,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
         if (args.rfind(prefix, 0) == 0) {
             consoleUrl = args.substr(prefix.size());
             if (consoleUrl.size() >= 2 && consoleUrl.front() == L'"' && consoleUrl.back() == L'"')
+            {
                 consoleUrl = consoleUrl.substr(1, consoleUrl.size() - 2);
+            }
         } else {
             MessageBoxW(nullptr, L"Usage: xmq_tray.exe [--url https://localhost:PORT]",
                         L"XMQ Console", MB_OK | MB_ICONERROR);
@@ -137,12 +151,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int) {
     windowClass.hInstance = instance;
     windowClass.lpszClassName = L"XmqTrayWindow";
     if (!RegisterClassW(&windowClass))
+    {
         return 1;
+    }
     // A hidden top-level window receives the TaskbarCreated broadcast after Explorer restarts.
     HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"XMQ Console", 0,
                                   0, 0, 0, 0, nullptr, nullptr, instance, nullptr);
     if (!window)
+    {
         return 1;
+    }
     addTrayIcon(window);
     openConsole(window);
     MSG message{};

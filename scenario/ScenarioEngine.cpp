@@ -178,11 +178,15 @@ void ScenarioEngine::verifyScenario() const
         const auto start = group->m_client_index_start.isNull() ? 0 : group->m_client_index_start.asInteger();
         const auto count = group->m_client_count.asInteger();
         if (start < 0 || count < 0 || static_cast<uint64_t>(start) > std::numeric_limits<size_t>::max() - static_cast<uint64_t>(count))
+        {
             throw std::invalid_argument("Invalid client index range");
+        }
         for (const auto& server : group->m_servers)
         {
             if (server.m_hostname.asString().empty() || server.m_port.asInteger() < 1 || server.m_port.asInteger() > 65535)
+            {
                 throw std::invalid_argument("Invalid server in client group servers");
+            }
         }
     }
     switch (typeFromString(m_scenario.m_type))
@@ -922,7 +926,9 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
                                 ProtocolVersion version, const shared_ptr<SSLKeys>& keys) {
         if (group.m_client_count.asInteger() == 0) return;
         if (group.m_servers.empty())
+        {
             probeConnection(fallback, credentials, connectParameters, version, keys);
+        }
         else
             for (const auto& endpoint : group.m_servers)
             {

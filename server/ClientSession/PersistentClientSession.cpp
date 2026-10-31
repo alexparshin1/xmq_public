@@ -224,6 +224,7 @@ PersistentClientSession::initSession(const string&                              
     if (cleanSession)
     {
         if (!oldNodeName.empty())
+        {
             try
             {
                 redisRemoveSession(clientId, true);
@@ -232,6 +233,7 @@ PersistentClientSession::initSession(const string&                              
             {
                 server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
             }
+        }
         return SessionInitType::New;
     }
 

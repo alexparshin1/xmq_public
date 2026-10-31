@@ -57,7 +57,9 @@ TEST_F(XMQ_ClusterTests, attachAndDetachToCluster)
         for (const auto& destination: nodes)
         {
             if (destination->cluster()->getConnectedNodeCount("^(primary|secondary|third)$") != 2)
+            {
                 return false;
+            }
             for (const auto& origin: nodes)
             {
                 if (origin == destination) continue;

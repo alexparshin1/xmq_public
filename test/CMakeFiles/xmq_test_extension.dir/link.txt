@@ -1,0 +1,1 @@
+/usr/lib/distcc/c++ -fPIC  -std=c++20 -O3 -DNDEBUG -shared  -Wl,--disable-new-dtags -Wl,--dependency-file=CMakeFiles/xmq_test_extension.dir/link.d -Wl,-soname,libxmq_test_extension.so -o /home/alexeyp/workspace/xmq_public/lib/libxmq_test_extension.so "CMakeFiles/xmq_test_extension.dir/__/examples/extensions/event-log/EventLog.cpp.o"

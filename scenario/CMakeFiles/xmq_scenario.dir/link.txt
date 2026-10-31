@@ -1,0 +1,2 @@
+/usr/bin/ar qc /home/alexeyp/workspace/xmq_public/lib/libxmq_scenario.a CMakeFiles/xmq_scenario.dir/ProgressBar.cpp.o CMakeFiles/xmq_scenario.dir/RoundTripInterval.cpp.o CMakeFiles/xmq_scenario.dir/ScenarioEngine.cpp.o
+/usr/bin/ranlib /home/alexeyp/workspace/xmq_public/lib/libxmq_scenario.a

@@ -218,7 +218,9 @@ void methodCall(GDBusConnection*, const char*, const char*, const char* interfac
     auto* app = static_cast<App*>(data);
     if (g_str_equal(interface, itemInterface)) {
         if (g_str_equal(method, "Activate") || g_str_equal(method, "SecondaryActivate"))
+        {
             openConsole(app);
+        }
         g_dbus_method_invocation_return_value(invocation, nullptr);
     } else if (g_str_equal(method, "GetLayout")) {
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(u@(ia{sv}av))", 1, layout()));

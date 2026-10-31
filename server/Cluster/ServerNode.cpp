@@ -141,12 +141,14 @@ shared_ptr<SSLKeys> ServerNode::clusterLinkKeys() const
         // The first attach uses a temporary host_port name, before the peer introduces
         // itself. Resolve its registered name by the advertised TLS address.
         if (const auto store = m_server->getSettings()->clusterStore(); store && store->isClusterDatabase())
+        {
             for (const auto& peer: store->nodes())
                 if (peer.m_hostPort == m_nodeSettings.m_host_port.asString())
                 {
                     peerName = peer.m_name;
                     break;
                 }
+        }
         authorityFile = Settings::peerCertificateAuthority(peerName).string();
     }
 

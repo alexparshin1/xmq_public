@@ -1,0 +1,1 @@
+/usr/lib/distcc/c++ -fPIC  -std=c++20 -O3 -DNDEBUG -shared  -Wl,--disable-new-dtags -Wl,--dependency-file=CMakeFiles/xmq_test_authorizer.dir/link.d -Wl,-soname,libxmq_test_authorizer.so -o /home/alexeyp/workspace/xmq_public/lib/libxmq_test_authorizer.so "CMakeFiles/xmq_test_authorizer.dir/__/examples/extensions/topic-guard/TopicGuard.cpp.o"

@@ -343,7 +343,9 @@ void Coordinator::start()
                 throw Exception(format("Another node of the cluster is called '{}'.", m_nodeName));
             }
             if (answer == -3)
+            {
                 throw Exception("This node was force removed from the cluster. Its old identity cannot rejoin.");
+            }
             if (answer == ClusterFull)
             {
                 throw Exception(format("The cluster has {} nodes already, the most it supports.", MaxMembers));

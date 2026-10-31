@@ -84,7 +84,9 @@ void OSService::processNodeActions(IServerController& controller)
         try
         {
             if (pending.database != settings->userDatabaseUri())
+            {
                 throw Exception("The node's accounts database changed before executing the action.");
+            }
             if (pending.task) pending.task(controller);
             else
             {
@@ -315,7 +317,9 @@ void OSService::runService()
             reinterpret_cast<LPTSTR>(&lpMsgBuf),
             0, nullptr);
         if (lpMsgBuf)
+        {
             m_logger.error(string(serviceName) + " returned error: " + string(lpMsgBuf));
+        }
     }
 #endif
     // Nothing for anything but Windows: elsewhere the broker always runs in the foreground and

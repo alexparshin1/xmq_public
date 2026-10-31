@@ -548,15 +548,23 @@ bool UserStore::checkSetupPasswords(const String& adminPassword, const String& c
 {
     const auto admin = findUser("admin");
     if (!admin || !admin->m_enabled)
+    {
         throw Exception("The shared database needs an enabled admin account before Initial Setup.");
+    }
     const auto cluster = findUser("cluster");
     if (cluster && !cluster->m_enabled)
+    {
         throw Exception("The shared cluster account is disabled. Initial Setup did not change it.");
+    }
     if (admin->m_password.empty()) return true;
     if (!PasswordHash::verify(adminPassword, admin->m_password))
+    {
         throw Exception("The admin password does not match the one in the shared database. Initial Setup must use the existing admin password.");
+    }
     if (!cluster || !PasswordHash::verify(clusterPassword, cluster->m_password))
+    {
         throw Exception("The cluster password does not match the one in the shared database. Initial Setup must use the existing cluster password.");
+    }
     return false;
 }
 
@@ -570,14 +578,18 @@ void UserStore::initializeSetupPasswords(const String& adminPassword, const Stri
                                         (sqlite ? "" : " FOR UPDATE"));
     admin.open();
     if (admin.eof() || !admin["password"].asString().empty() || admin["is_enabled"].asInteger() == 0)
+    {
         throw Exception("The shared administrator was already initialized or disabled. Retry Initial Setup with its existing password.");
+    }
     admin.close();
     Query cluster(connection->connection(), String("SELECT is_enabled FROM xmq_user WHERE username = 'cluster'") +
                                           (sqlite ? "" : " FOR UPDATE"));
     cluster.open();
     const bool hasCluster = !cluster.eof();
     if (hasCluster && cluster["is_enabled"].asInteger() == 0)
+    {
         throw Exception("The shared cluster account is disabled. Initial Setup did not change it.");
+    }
     cluster.close();
     for (const auto& [username, password]: {pair<String, String>("admin", adminPassword), pair<String, String>("cluster", clusterPassword)})
     {
@@ -616,7 +628,9 @@ void UserStore::setClusterSecret(const String& secret)
 {
     const auto account = findUser("cluster");
     if (!account || !account->m_enabled || !PasswordHash::verify(secret, account->m_password))
+    {
         throw Exception("The cluster credential does not match the enabled cluster account in the accounts database.");
+    }
     const AutoDatabaseConnection connection(*m_database);
     const auto driver = m_database->driverName().toLowerCase();
     const auto suffix = driver.starts_with("mysql") || driver.starts_with("mariadb")

@@ -215,10 +215,14 @@ int main(int argc, const char* argv[])
             for (const auto* option: {"clone-node", "join-cluster", "leave-cluster", "reset",
                                       "reset-configuration", "set-password", "users-file"})
                 if (serverCommandLine.hasOption(option))
+                {
                     throw Exception(string("--clone-nodes cannot be combined with --") + option);
+                }
             const string count = serverCommandLine.getOptionValue("clone-nodes").c_str();
             if (count.empty() || count.find_first_not_of("0123456789") != string::npos || count.size() > 5)
+            {
                 throw Exception("Node count must be an integer between 1 and 65535.");
+            }
             const auto result = Settings::cloneNodes(serverCommandLine.getOptionValue("configuration-file").c_str(),
                                                     static_cast<unsigned>(stoul(count)));
             COUT(result);
@@ -254,25 +258,35 @@ int main(int argc, const char* argv[])
                 const string argument = argvCopy[index];
                 if (argument == "-c" || argument == "--configuration-file" ||
                     argument.starts_with("--configuration-file=") || argument.starts_with("-c="))
+                {
                     destinationSpecified = true;
+                }
             }
             if (!destinationSpecified)
+            {
                 throw Exception("--clone-node requires an explicit -c destination configuration.");
+            }
             for (const auto* option: {"node-name", "node-host", "mqtt-port", "mqtt-ssl-port", "web-port"})
             {
                 if (!serverCommandLine.hasOption(option))
+                {
                     throw Exception(string("--clone-node requires --") + option);
+                }
             }
             for (const auto* option: {"reset", "reset-configuration", "set-password", "users-file"})
             {
                 if (serverCommandLine.hasOption(option))
+                {
                     throw Exception(string("--clone-node cannot be combined with --") + option);
+                }
             }
             const auto port = [&](const char* option)
             {
                 const string value = serverCommandLine.getOptionValue(option).c_str();
                 if (value.empty() || value.find_first_not_of("0123456789") != string::npos)
+                {
                     throw Exception(string("Invalid port for --") + option);
+                }
                 return stoi(value);
             };
             CNodeSettings node;

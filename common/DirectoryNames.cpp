@@ -116,7 +116,9 @@ std::filesystem::path DirectoryNames::webfaceDirectory()
 std::filesystem::path DirectoryNames::resolveConfigurationFile(const std::filesystem::path& file)
 {
     if (!file.empty() && !file.has_parent_path() && !file.has_extension() && file != "." && file != "..")
+    {
         return filesystem::path(XMQ_CONF_DIRECTORY).parent_path() / file / "xmq_server.conf";
+    }
     return filesystem::absolute(file).lexically_normal();
 }
 

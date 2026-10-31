@@ -1,0 +1,10 @@
+# CMake in-source build artifacts (an out-of-source build is preferred).
+.qt/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+icons.qrc.depends
+qrc_icons.cpp
+xmq_tray
+xmq_tray.exe

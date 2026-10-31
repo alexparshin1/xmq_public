@@ -1,0 +1,649 @@
+xmq_unit_tests: \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/Scrt1.o \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/crti.o \
+  /usr/lib/gcc/x86_64-linux-gnu/16/crtbeginS.o \
+  CMakeFiles/xmq_unit_tests.dir/BridgeTests/BridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/BridgeTests/EncryptedBridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/BridgeTests/InBridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/BridgeTests/InOutBridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/BridgeTests/OutBridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClientTest/ClientPerformanceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClientTest/MqttClientTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterConnectionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterCoordinatorTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterInvitationsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterJoinTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLinkRecoveryTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLinksTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLoadSessionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterPassMessagesTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterRetainedTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterRoutingTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSessionOwnershipTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSharedRecoveryTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSharedSubscriptionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSubscriptionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterTopicTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/CoordinatorRedisRecoveryTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/RetainedMessagesTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/ServerNodesTest.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ClusterTests/TestCluster.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/ClusterControlTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/ControlServiceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/HttpsInterfaceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ExtensionTests/ExtensionHostTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ExtensionTests/UserDatabaseTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/InflightQueueTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/MapTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/CommandPropertiesTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/DisconnectMessageTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/FrameTypeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessageDispatchTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessagePropertyTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessageType.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessageTypeName.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessageTypeToAckType.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/MessageWriter_MQTT5Tests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/SubscribeMessage.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/ToString.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/Message/reasonCodeToString.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/MessageReaderTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Message_Expiry.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/PersistenceTests/PersistenceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Retained_AfterRestart.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Session_ContinueAfterRestart.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/PersistenceTests/WriteCapacity_Pause.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/QueueTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ReadBufferSizerTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ReceiveSteeringTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ScenarioTests/ScenarioTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerPerformanceTests/Publish_Performance.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerPerformanceTests/ServerPerformanceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/ClientSessionManager_Tests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/GenericProtocolTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/GenericProtocolsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/ProtocolVersionTest.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/SessionCountersTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/SubscriptionOptionsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_AckProperties.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Basic.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_KeepAlive.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_LastWill.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Pipelined.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Properties.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Reconnect.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_SSL.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/ExternalClient/ExternalClient.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/ExternalClient/ExternalClient_Connect.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/JWTManagerTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/MessageDelivery.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/MessagePropertiesTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/MqttClient/ConnectAndDisconnectTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/MqttClient/PublishQosTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_LargeMessages.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_Properties.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_Retain.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_WithoutPersistence.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/RecordIdGeneratorTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/ServerTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Session_Continue.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Settings/LogSubjectPrioritiesTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/BridgeSubscription_Basic.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SharedSubscription_Basic.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SharedSubscription_Clients.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_Basic.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_MultiMatch.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_Options.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SubscriptionManager.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscription_Performance.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/Topic_Alias.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests/UnsubscribeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServerTests_Suite.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CAuthenticationTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeControlResponse.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeControlTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CLimitsControlResponseTest.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/ServiceTests/CLimitsControlTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/ClusterBootstrapTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/ClusterStoreTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/ConfigurationFileTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/PasswordHashTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/Settings.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/UriSecretTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/UserStoreTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SettingsTests/VerificationCacheTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/PersistentClientSessionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/PersistentMessageTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/Qos2ReceiveIdsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/SessionPersistenceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageClockTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageUnitTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/SubscriptionPersistenceTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/StorageTests/TestStorage.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_Connections.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_Drops.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_SendReceive.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/SysTopicsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Topics_Connections.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Topics_Restrictions.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/TestMqttClient.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/TestOptions.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/TestServers.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/TopicTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/UtilityTests/HostMetricsTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/UtilityTests/ReporterTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/UtilityTests/RunDefinitionTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/UtilityTests/ScenarioCommandLineTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/UtilityTests/ScenarioUtilityTests.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/VariableLength.cpp.o \
+  CMakeFiles/xmq_unit_tests.dir/xmq_tests.cpp.o \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libpthread.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/librt.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libdl.a \
+  /home/alexeyp/.local/lib/libspwsdl5.so \
+  /home/alexeyp/.local/lib/libspdb5.so \
+  /home/alexeyp/.local/lib/libsputil5.so \
+  /usr/lib/x86_64-linux-gnu/libssl.so \
+  /usr/lib/x86_64-linux-gnu/libcrypto.so \
+  /usr/lib/x86_64-linux-gnu/libpcre2-8.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlidec.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlienc.so \
+  /usr/lib/x86_64-linux-gnu/libz.so \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_base.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_storage.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_common.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_service.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_server_core.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_client.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_utils.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_scenario.a \
+  /usr/lib/x86_64-linux-gnu/libgtest.a \
+  /usr/lib/x86_64-linux-gnu/libgtest_main.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_storage.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_service.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_common.a \
+  /home/alexeyp/workspace/xmq_public/lib/libxmq_base.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libpthread.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/librt.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libdl.a \
+  /home/alexeyp/.local/lib/libspwsdl5.so \
+  /home/alexeyp/.local/lib/libspdb5.so \
+  /home/alexeyp/.local/lib/libsputil5.so \
+  /usr/lib/x86_64-linux-gnu/libssl.so \
+  /usr/lib/x86_64-linux-gnu/libcrypto.so \
+  /usr/lib/x86_64-linux-gnu/libpcre2-8.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlidec.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlienc.so \
+  /usr/lib/x86_64-linux-gnu/libz.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libstdc++.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so \
+  /usr/lib/x86_64-linux-gnu/libm.so.6 \
+  /usr/lib/x86_64-linux-gnu/libmvec.so.1 \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libgcc_s.so.1 \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libatomic.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so \
+  /usr/lib/x86_64-linux-gnu/libc.so.6 \
+  /usr/lib/x86_64-linux-gnu/libc_nonshared.a \
+  /lib64/ld-linux-x86-64.so.2 \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libgcc_s.so.1 \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a \
+  /usr/lib/gcc/x86_64-linux-gnu/16/crtendS.o \
+  /usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/crtn.o \
+  /usr/lib/x86_64-linux-gnu/libpcre2-8.so \
+  /usr/lib/x86_64-linux-gnu/libz.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlidec.so \
+  /usr/lib/x86_64-linux-gnu/libbrotlienc.so \
+  /usr/lib/x86_64-linux-gnu/libssl.so \
+  /usr/lib/x86_64-linux-gnu/libzstd.so.1 \
+  /usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/Scrt1.o:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/crti.o:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/crtbeginS.o:
+
+CMakeFiles/xmq_unit_tests.dir/BridgeTests/BridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/BridgeTests/EncryptedBridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/BridgeTests/InBridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/BridgeTests/InOutBridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/BridgeTests/OutBridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClientTest/ClientPerformanceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClientTest/MqttClientTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterConnectionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterCoordinatorTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterInvitationsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterJoinTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLinkRecoveryTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLinksTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterLoadSessionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterPassMessagesTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterRetainedTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterRoutingTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSessionOwnershipTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSharedRecoveryTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSharedSubscriptionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterSubscriptionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ClusterTopicTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/CoordinatorRedisRecoveryTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/RetainedMessagesTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/ServerNodesTest.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ClusterTests/TestCluster.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/ClusterControlTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/ControlServiceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ControlServiceTests/HttpsInterfaceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ExtensionTests/ExtensionHostTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ExtensionTests/UserDatabaseTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/InflightQueueTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/MapTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/CommandPropertiesTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/DisconnectMessageTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/FrameTypeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessageDispatchTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessagePropertyTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessageType.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessageTypeName.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessageTypeToAckType.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/MessageWriter_MQTT5Tests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/SubscribeMessage.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/ToString.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/Message/reasonCodeToString.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/MessageReaderTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Message_Expiry.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/PersistenceTests/PersistenceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Retained_AfterRestart.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/PersistenceTests/Session_ContinueAfterRestart.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/PersistenceTests/WriteCapacity_Pause.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/QueueTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ReadBufferSizerTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ReceiveSteeringTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ScenarioTests/ScenarioTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerPerformanceTests/Publish_Performance.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerPerformanceTests/ServerPerformanceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/ClientSessionManager_Tests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/GenericProtocolTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/GenericProtocolsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/ProtocolVersionTest.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/SessionCountersTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Common/SubscriptionOptionsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_AckProperties.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Basic.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_KeepAlive.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_LastWill.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Pipelined.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Properties.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_Reconnect.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Connection_SSL.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/ExternalClient/ExternalClient.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/ExternalClient/ExternalClient_Connect.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/JWTManagerTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/MessageDelivery.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/MessagePropertiesTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/MqttClient/ConnectAndDisconnectTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/MqttClient/PublishQosTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_LargeMessages.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_Properties.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_Retain.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Publish_WithoutPersistence.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/RecordIdGeneratorTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/ServerTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Session_Continue.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Settings/LogSubjectPrioritiesTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/BridgeSubscription_Basic.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SharedSubscription_Basic.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SharedSubscription_Clients.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_Basic.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_MultiMatch.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscribe_Options.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/SubscriptionManager.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Subscriptions/Subscription_Performance.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/Topic_Alias.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests/UnsubscribeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServerTests_Suite.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CAuthenticationTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeControlResponse.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeControlTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CBridgeTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CLimitsControlResponseTest.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/ServiceTests/CLimitsControlTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/ClusterBootstrapTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/ClusterStoreTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/ConfigurationFileTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/PasswordHashTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/Settings.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/UriSecretTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/UserStoreTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SettingsTests/VerificationCacheTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/PersistentClientSessionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/PersistentMessageTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/Qos2ReceiveIdsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/SessionPersistenceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageClockTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/StorageUnitTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/SubscriptionPersistenceTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/StorageTests/TestStorage.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_Connections.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_Drops.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Counters_SendReceive.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/SysTopicsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Topics_Connections.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/SysTopicsTests/Topics_Restrictions.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/TestMqttClient.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/TestOptions.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/TestServers.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/TopicTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/UtilityTests/HostMetricsTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/UtilityTests/ReporterTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/UtilityTests/RunDefinitionTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/UtilityTests/ScenarioCommandLineTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/UtilityTests/ScenarioUtilityTests.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/VariableLength.cpp.o:
+
+CMakeFiles/xmq_unit_tests.dir/xmq_tests.cpp.o:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libpthread.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/librt.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libdl.a:
+
+/home/alexeyp/.local/lib/libspwsdl5.so:
+
+/home/alexeyp/.local/lib/libspdb5.so:
+
+/home/alexeyp/.local/lib/libsputil5.so:
+
+/usr/lib/x86_64-linux-gnu/libssl.so:
+
+/usr/lib/x86_64-linux-gnu/libcrypto.so:
+
+/usr/lib/x86_64-linux-gnu/libpcre2-8.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlidec.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlienc.so:
+
+/usr/lib/x86_64-linux-gnu/libz.so:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_base.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_storage.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_common.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_service.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_server_core.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_client.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_utils.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_scenario.a:
+
+/usr/lib/x86_64-linux-gnu/libgtest.a:
+
+/usr/lib/x86_64-linux-gnu/libgtest_main.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_storage.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_service.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_common.a:
+
+/home/alexeyp/workspace/xmq_public/lib/libxmq_base.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libpthread.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/librt.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libdl.a:
+
+/home/alexeyp/.local/lib/libspwsdl5.so:
+
+/home/alexeyp/.local/lib/libspdb5.so:
+
+/home/alexeyp/.local/lib/libsputil5.so:
+
+/usr/lib/x86_64-linux-gnu/libssl.so:
+
+/usr/lib/x86_64-linux-gnu/libcrypto.so:
+
+/usr/lib/x86_64-linux-gnu/libpcre2-8.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlidec.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlienc.so:
+
+/usr/lib/x86_64-linux-gnu/libz.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libstdc++.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libm.so:
+
+/usr/lib/x86_64-linux-gnu/libm.so.6:
+
+/usr/lib/x86_64-linux-gnu/libmvec.so.1:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libgcc_s.so.1:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libatomic_asneeded.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libatomic.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libc.so:
+
+/usr/lib/x86_64-linux-gnu/libc.so.6:
+
+/usr/lib/x86_64-linux-gnu/libc_nonshared.a:
+
+/lib64/ld-linux-x86-64.so.2:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc_s.so:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/libgcc_s.so.1:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/libgcc.a:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/crtendS.o:
+
+/usr/lib/gcc/x86_64-linux-gnu/16/../../../x86_64-linux-gnu/crtn.o:
+
+/usr/lib/x86_64-linux-gnu/libpcre2-8.so:
+
+/usr/lib/x86_64-linux-gnu/libz.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlidec.so:
+
+/usr/lib/x86_64-linux-gnu/libbrotlienc.so:
+
+/usr/lib/x86_64-linux-gnu/libssl.so:
+
+/usr/lib/x86_64-linux-gnu/libzstd.so.1:
+
+/usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1:
