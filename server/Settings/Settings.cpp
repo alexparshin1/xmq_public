@@ -339,6 +339,19 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     startup.load(root);
 
     target.m_connections.m_ssl_keys = startup.m_connections.m_ssl_keys;
+
+    // A file written by a release that still kept the listeners in it. The type above no longer
+    // reads them, and this is the last chance to take them: the next start finds a file that has
+    // been rewritten without them, and a row that by then holds whatever this start saw.
+    if (const auto connections = root->findFirst("connections"))
+    {
+        CConnections legacy;
+        legacy.load(connections);
+        if (!legacy.m_listener.empty())
+        {
+            target.m_connections.m_listener = legacy.m_listener;
+        }
+    }
     target.m_authentication = startup.m_authentication;
     target.m_persistence = startup.m_persistence;
     target.m_web_service = startup.m_web_service;

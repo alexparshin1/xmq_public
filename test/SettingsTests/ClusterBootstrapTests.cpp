@@ -307,6 +307,46 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
 }
 
 /**
+ * A StartupSettings file written before the listeners moved to the row still has them, and the
+ * start that upgrades the node is the last one that can take them: the same start trims the file.
+ * Losing them here would take a node's TLS listener away without a word.
+ */
+TEST(XMQ_ClusterBootstrapTests, listenersFromAnOlderStartupFileAreKept)
+{
+    const auto directory = filesystem::temp_directory_path() / ("xmq_legacy_listeners_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto path = directory / "xmq_server.conf";
+    // The shape an earlier release wrote: no queue_limits, no logging, but the listeners still in
+    // the connections section beside the keys.
+    Buffer(R"({
+        "connections": {
+            "listener": [
+                {"id": 1, "name": "Not Encrypted", "bind_ip": "0.0.0.0", "port": 18886, "threads": 2, "protocol": "MQTT", "enable": true},
+                {"id": 2, "name": "Encrypted", "bind_ip": "0.0.0.0", "port": 18887, "threads": 2, "protocol": "MQTT+SSL", "enable": true}
+            ],
+            "ssl_keys": {"cafile": "", "keyfile": "/tmp/node.key", "certfile": "/tmp/node.crt", "verify_depth": 0}
+        },
+        "authentication": {"allow_anonymous": false},
+        "persistence": {"redis_uri": "redis://localhost:6379", "enabled": false},
+        "web_service": {"listener_port": 0},
+        "bridges": [],
+        "cluster": {}
+    })").saveToFile(path);
+
+    Settings settings;
+    settings.loadConfiguration(path, directory / "xmq_users.conf");
+
+    ASSERT_EQ(2U, settings.m_connections.m_listener.size())
+        << "the listeners an older StartupSettings file still carries were dropped";
+    EXPECT_EQ(18886, settings.m_connections.m_listener[0].m_port.asInteger());
+    EXPECT_EQ(18887, settings.m_connections.m_listener[1].m_port.asInteger());
+
+    filesystem::remove_all(directory);
+}
+
+/**
  * The listeners are the row's: their ports are what the interface changes and what the next start
  * has to read, and the file keeps only the keys beside them.
  */
