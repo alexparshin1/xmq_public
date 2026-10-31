@@ -353,6 +353,11 @@
                         </xsd:simpleType>
                     </xsd:element>
                     <xsd:element name="enable" type="xsd:boolean"/>
+                    <!-- Who may connect, as comma-separated IPv4 addresses with an optional
+                         prefix length: 10.1.1.1/24,10.1.2.123/32,10.1.1.242. Empty means anyone.
+                         A non-empty list admits only an address one of its entries matches. -->
+                    <xsd:element name="whitelist" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>
 
@@ -447,6 +452,10 @@
                          interface carries the administrator's password and everything the server
                          is configured with, none of which belongs on the wire in clear text. -->
                     <xsd:element name="encrypted" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <!-- Who may reach the interface, as comma-separated IPv4 addresses with an
+                         optional prefix length, like a listener's. Empty means anyone. -->
+                    <xsd:element name="whitelist" type="xsd:string" maxOccurs="1" minOccurs="0">
                     </xsd:element>
                     <!-- Certificate and key the interface is served with. Its own pair, not the
                          broker's: the two are reached under different names as often as not, and

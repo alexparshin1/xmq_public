@@ -124,6 +124,33 @@ TEST(XMQ_ConfigurationFile, checkConfigurationNamesWhatIsWrong)
 }
 
 /**
+ * An allow list is checked where the rest of a listener is checked: before the file is used, so a
+ * typo in it is named rather than leaving a port that quietly admits nobody.
+ */
+TEST(XMQ_ConfigurationFile, checkConfigurationNamesABadAllowList)
+{
+    const auto directory = testDirectory();
+    const auto path = directory / "xmq_server.conf";
+    const String from = R"("threads": 1, "enable": true})";
+
+    auto text = configurationText();
+    text = text.replace(from, R"("threads": 1, "enable": true, "whitelist": "10.1.1.1/24, 127.0.0.1"})");
+    Buffer(text).saveToFile(path);
+
+    Strings warnings;
+    EXPECT_TRUE(Settings::checkConfiguration(path, warnings).empty()) << "a valid allow list was refused";
+
+    text = configurationText();
+    text = text.replace(from, R"("threads": 1, "enable": true, "whitelist": "10.1.1.999"})");
+    Buffer(text).saveToFile(path);
+
+    const auto error = Settings::checkConfiguration(path, warnings);
+    EXPECT_NE(error.find("connections.listener[0].whitelist"), String::npos) << error.c_str();
+
+    filesystem::remove_all(directory);
+}
+
+/**
  * A configuration must not be written that a start would refuse. The check on load is what stops
  * a bad file from running; the same check on save is what keeps it from being written at all.
  */

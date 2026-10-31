@@ -17,6 +17,7 @@
 #include "ClusterStore.h"
 #include "common/DirectoryNames.h"
 #include "common/HostName.h"
+#include "common/IpWhitelist.h"
 #include "Cluster/NodeIdentity.h"
 #include "server/SelfSignedCertificate.h"
 #include "PasswordHash.h"
@@ -900,9 +901,20 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
         {
             throw invalid_argument("The configuration key '" + prefix + ".protocol' cannot be empty.");
         }
+        if (!IpWhitelist::isValid(listener.m_whitelist.asString()))
+        {
+            throw invalid_argument("The configuration key '" + prefix + ".whitelist' should be an empty or "
+                                   "comma-separated list of IPv4 addresses, each with an optional prefix length.");
+        }
     }
 
     checkPort(configuration.m_web_service.m_listener_port, "web_service.listener_port", true);
+
+    if (!IpWhitelist::isValid(configuration.m_web_service.m_whitelist.asString()))
+    {
+        throw invalid_argument("The configuration key 'web_service.whitelist' should be an empty or "
+                               "comma-separated list of IPv4 addresses, each with an optional prefix length.");
+    }
 
     // Zero is not a bad lease: Cluster.cpp reads it, like an absent setting, as the default.
     if (!configuration.m_cluster.m_lease_seconds.isNull() &&
@@ -1213,11 +1225,16 @@ void Settings::applyClusterConfigurationUnlocked()
             {
                 m_web_service.m_encrypted = *row->m_webEncrypted;
             }
-            if (!row->m_webPort || !row->m_webEncrypted)
+            if (row->m_webWhitelist.has_value())
+            {
+                m_web_service.m_whitelist = *row->m_webWhitelist;
+            }
+            if (!row->m_webPort || !row->m_webEncrypted || !row->m_webWhitelist.has_value())
             {
                 auto updated = *row;
                 if (!updated.m_webPort) updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
                 if (!updated.m_webEncrypted) updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+                if (!updated.m_webWhitelist.has_value()) updated.m_webWhitelist = m_web_service.m_whitelist.asString();
                 store.updateNode(updated);
             }
 
@@ -1313,6 +1330,7 @@ void Settings::applyClusterConfigurationUnlocked()
             if (!updated.m_listeners) updated.m_listeners = listenersJson(m_connections);
             if (!updated.m_webPort) updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
             if (!updated.m_webEncrypted) updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+            if (!updated.m_webWhitelist.has_value()) updated.m_webWhitelist = m_web_service.m_whitelist.asString();
             if (!updated.m_logging) updated.m_logging = m_logging.toString(true, false);
             if (!updated.m_sendThreads) updated.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
             if (!updated.m_receiveThreads) updated.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1365,6 +1383,7 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_listeners = listenersJson(m_connections);
         row.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
         row.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+        row.m_webWhitelist = m_web_service.m_whitelist.asString();
         row.m_persistEnabled = m_persistence.m_enabled.asBool();
         row.m_persistCleanStart = m_persistence.m_clean_start.asBool();
         row.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
@@ -1968,6 +1987,7 @@ void Settings::saveWebServiceToNodeRow()
     auto updated = *row;
     updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
     updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+    updated.m_webWhitelist = m_web_service.m_whitelist.asString();
     store.updateNode(updated);
 }
 
@@ -2256,6 +2276,16 @@ CWebService Settings::serviceControl(const std::string& action, const CWebServic
             if (!webService.m_keyfile.asString().empty())
             {
                 m_web_service.m_keyfile = webService.m_keyfile.asString();
+            }
+            if (!webService.m_whitelist.isNull())
+            {
+                const auto whitelist = webService.m_whitelist.asString();
+                if (!IpWhitelist::isValid(whitelist))
+                {
+                    throw invalid_argument("The interface IP white list is not valid. Enter comma-separated "
+                                           "IPv4 addresses, each with an optional /prefix, or leave it empty to allow anyone.");
+                }
+                m_web_service.m_whitelist = whitelist;
             }
             saveWebServiceToNodeRow();
             saveConfigurationUnlocked();
@@ -3164,6 +3194,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_listeners = listenersJson(m_connections);
                 row->m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
                 row->m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+                row->m_webWhitelist = m_web_service.m_whitelist.asString();
                 row->m_persistEnabled = m_persistence.m_enabled.asBool();
                 row->m_persistCleanStart = m_persistence.m_clean_start.asBool();
                 row->m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
@@ -3317,6 +3348,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_listeners = listenersJson(m_connections);
             updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
             updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+            updated.m_webWhitelist = m_web_service.m_whitelist.asString();
             updated.m_persistEnabled = m_persistence.m_enabled.asBool();
             updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
             updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());

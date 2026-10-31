@@ -110,9 +110,12 @@ export default class DialogWindow extends React.Component {
                 break;
         }
 
+        // Empty, not undefined, when the row has no value yet: a new listener's IP white list is
+        // the first such field, and an input that starts its life uncontrolled warns on the first
+        // keystroke. An empty text is also exactly what an absent allow list means - anyone.
         return <input type={inputType}
                       name={field.field}
-                      value={this.state.values[field.field]}
+                      value={this.state.values[field.field] ?? ""}
                       onChange={(e) => this.previewValueChange(field, e.target.value)}
                       style={{width: this.inputWidth(field)}}
                       required/>

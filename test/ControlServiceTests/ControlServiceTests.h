@@ -165,6 +165,29 @@ public:
 
     void setWebServiceKeys(std::shared_ptr<sptk::SSLKeys> sslKeys) { m_webServiceKeys = std::move(sslKeys); }
 
+    bool setControlServiceWhitelist(const std::string& whitelist, std::string& reason) override
+    {
+        if (!m_controlServiceListener)
+        {
+            reason = "The configuration interface is not running.";
+            return false;
+        }
+
+        try
+        {
+            m_controlServiceListener->setWhitelist(whitelist);
+            m_webServiceWhitelist = whitelist;
+            return true;
+        }
+        catch (const std::exception& exception)
+        {
+            reason = exception.what();
+            return false;
+        }
+    }
+
+    [[nodiscard]] const std::string& webServiceWhitelist() const { return m_webServiceWhitelist; }
+
     [[nodiscard]] Server* getServer() const override { return m_serving ? m_server : nullptr; }
 
     [[nodiscard]] const std::shared_ptr<Settings>& getSettings() const override { return m_settings; }
@@ -181,6 +204,7 @@ private:
     uint16_t                         m_controlServicePort {0};
     SControlServiceListener          m_controlServiceListener;
     std::shared_ptr<sptk::SSLKeys>   m_webServiceKeys;
+    std::string                      m_webServiceWhitelist;
 };
 
 class XMQ_EXPORT XMQ_ControlServiceTests : public XMQ_ServerTests

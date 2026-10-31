@@ -807,6 +807,7 @@ void ControlService::ListenerControl(const CListenerControl& input, CListenerCon
                 {
                     runningServer->addListener(connectionType, {bindIp, port}, static_cast<uint16_t>(listener.m_threads.asInteger()));
                 }
+                runningServer->rebuildListenerWhitelists();
             }
         }
         else if (action == "remove")
@@ -815,6 +816,7 @@ void ControlService::ListenerControl(const CListenerControl& input, CListenerCon
             if (runningServer)
             {
                 runningServer->removeListener({bindIp, port});
+                runningServer->rebuildListenerWhitelists();
             }
         }
         else if (action == "list")
@@ -2351,6 +2353,7 @@ void ControlService::ServiceControl(const CServiceControl& input, CServiceContro
 
         const auto previousServicePort = getSettings()->m_web_service.m_listener_port.asInteger();
         const auto wasEncrypted = getSettings()->m_web_service.m_encrypted.asBool();
+        const auto previousWhitelist = getSettings()->m_web_service.m_whitelist.asString();
         output.m_web_service = getSettings()->serviceControl(input.m_action, input.m_web_service);
 
         // Moved rather than left for a restart to pick up, exactly as the initial setup does it:
@@ -2388,6 +2391,18 @@ void ControlService::ServiceControl(const CServiceControl& input, CServiceContro
             {
                 output.m_service_restart_required = true;
                 output.m_message = "The configuration interface could not change scheme: " + reason;
+            }
+        }
+
+        // The IP allow list, applied to connections accepted from now on.
+        if (const auto whitelist = output.m_web_service.m_whitelist.asString();
+            whitelist != previousWhitelist)
+        {
+            if (string reason;
+                !m_controller->setControlServiceWhitelist(whitelist, reason))
+            {
+                output.m_service_restart_required = true;
+                output.m_message = "The interface IP white list could not be applied: " + reason;
             }
         }
 

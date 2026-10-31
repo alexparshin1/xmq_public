@@ -301,12 +301,13 @@ String noHostResponse()
 
 ControlServiceListener::ControlServiceListener(const WSServices& services, const WSConnection::Options& options,
                                                const shared_ptr<SSLKeys>& sslKeys, const shared_ptr<LogEngine>& logEngine,
-                                               const String& bindAddress, const uint16_t servicePort)
+                                               const String& bindAddress, const uint16_t servicePort, const std::string& whitelist)
     : WSServer(services, *logEngine, "localhost", webServiceThreads, options)
     , m_bindAddress(bindAddress)
     , m_servicePort(servicePort)
     , m_sslKeys(sslKeys)
     , m_logEngine(logEngine)
+    , m_whitelist(whitelist)
 {
     // Uncomment and trace in to get into SPTK code
     //const auto& opts = getOptions();
@@ -315,6 +316,24 @@ ControlServiceListener::ControlServiceListener(const WSServices& services, const
     {
         setSSLKeys(m_sslKeys);
     }
+}
+
+void ControlServiceListener::setWhitelist(const std::string& whitelist)
+{
+    const scoped_lock lock(m_whitelistMutex);
+    m_whitelist.assign(whitelist);
+}
+
+bool ControlServiceListener::allowConnection(const sockaddr_in* peer, const sptk::Host& listenerHost)
+{
+    (void) listenerHost;
+    if (!peer)
+    {
+        return false;
+    }
+
+    const scoped_lock lock(m_whitelistMutex);
+    return m_whitelist.allows(peer->sin_addr.s_addr);
 }
 
 bool ControlServiceListener::bindTo(const String& bindAddress, const uint16_t port)
@@ -512,7 +531,8 @@ shared_ptr<ControlServiceListener> ControlServiceListener::factory(IServerContro
                                                                    const std::shared_ptr<SSLKeys>&   sslKeys,
                                                                    const std::shared_ptr<LogEngine>& logEngine,
                                                                    const String&                     bindAddress,
-                                                                   uint16_t                          servicePort)
+                                                                   uint16_t                          servicePort,
+                                                                   const std::string&                whitelist)
 {
     auto service = make_shared<ControlService>(controller);
 
@@ -536,7 +556,7 @@ shared_ptr<ControlServiceListener> ControlServiceListener::factory(IServerContro
     options.allowCors = true;
     const WSServices services(service);
     auto             serviceListener = make_shared<ControlServiceListener>(services, options, sslKeys, logEngine,
-                                                                          bindAddress, servicePort);
+                                                                          bindAddress, servicePort, whitelist);
 
     // Start Web Service listener
     auto connectionType = encrypted ? ServerConnection::Type::SSL : ServerConnection::Type::TCP;

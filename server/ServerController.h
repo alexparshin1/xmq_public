@@ -166,6 +166,15 @@ public:
     virtual bool setControlServiceEncrypted(bool encrypted, std::string& reason) = 0;
 
     /**
+     * @brief Replace the interface's IP allow list, taking effect at the next accept.
+     *
+     * @param whitelist  Comma-separated IPv4 addresses with optional prefixes; empty means anyone.
+     * @param reason     Receives why the list did not change, when it did not.
+     * @return true if the interface now uses the new list.
+     */
+    virtual bool setControlServiceWhitelist(const std::string& whitelist, std::string& reason) = 0;
+
+    /**
      * @return The running server, or nullptr while MQTT is stopped.
      */
     [[nodiscard]] virtual Server* getServer() const = 0;
@@ -236,6 +245,7 @@ public:
                                                               const std::filesystem::path& privateKeyFile,
                                                               std::string&                 reason) override;
     bool                             setControlServiceEncrypted(bool encrypted, std::string& reason) override;
+    bool                             setControlServiceWhitelist(const std::string& whitelist, std::string& reason) override;
     [[nodiscard]] Server*            getServer() const override;
     [[nodiscard]] const std::shared_ptr<Settings>& getSettings() const override;
 

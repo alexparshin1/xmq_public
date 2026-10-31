@@ -249,7 +249,8 @@ void ServerController::startControlService()
         const auto sslKeys = webServiceKeys(logger);
         const auto bindAddress = controlServiceAddress();
         m_controlServiceListener = ControlServiceListener::factory(this, sslKeys, m_logEngine, bindAddress,
-                                                                   static_cast<uint16_t>(servicePort));
+                                                                   static_cast<uint16_t>(servicePort),
+                                                                   m_settings->m_web_service.m_whitelist.asString());
         // The scheme is named, not just the port: it is now the thing most likely to be wrong in
         // a browser's address bar.
         logger.info(format("Listening Web GUI on {}:{} ({}).", bindAddress.c_str(), servicePort,
@@ -269,7 +270,7 @@ void ServerController::startControlService()
                            " - open it and set the password.");
         }
     }
-    catch (const Exception& exception)
+    catch (const std::exception& exception)
     {
         logger.error("Configuration interface did not start: " + string(exception.what()));
     }
@@ -490,6 +491,26 @@ bool ServerController::setControlServiceEncrypted(const bool encrypted, string& 
     {
         reason = exception.what();
         logger.error("Web GUI kept its previous scheme: " + reason);
+        return false;
+    }
+}
+
+bool ServerController::setControlServiceWhitelist(const std::string& whitelist, string& reason)
+{
+    if (!m_controlServiceListener)
+    {
+        reason = "The configuration interface is not running.";
+        return false;
+    }
+
+    try
+    {
+        m_controlServiceListener->setWhitelist(whitelist);
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        reason = exception.what();
         return false;
     }
 }

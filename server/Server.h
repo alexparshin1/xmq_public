@@ -15,12 +15,15 @@
 
 #include <atomic>
 #include <functional>
+#include <shared_mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <sptk5/threads/SynchronizedQueue.h>
 #include "ServerData.h"
 #include "common/AtomicSharedPtr.h"
+#include "common/IpWhitelist.h"
 
 #include "Cluster/Cluster.h"
 #include "Extensions/ExtensionHost.h"
@@ -436,6 +439,9 @@ public:
 protected:
     void socketEventCallback(const std::shared_ptr<sptk::ServerConnection>& session, sptk::SocketEventType eventType) override; ///< Socket events callback
 
+    /// Applies a listener's IP allow list before a connection is built, in the accept path.
+    bool allowConnection(const sockaddr_in* peer, const sptk::Host& listenerHost) override;
+
 private:
     mutable std::mutex                   m_mutex;        ///< Mutex that protects internal data.
     std::shared_ptr<sptk::Timer>         m_sessionTimer; ///< Session events timer
@@ -449,6 +455,11 @@ private:
     ClientSessionThreadManager        m_clientSessionThreads;                                    ///< Message session threads.
     MessageDeliveryThreads            m_messageDeliveryThreads;                                  ///< Message delivery threads.
     std::shared_ptr<sptk::SSLKeys>    m_keys;                                                    ///< Server SSL keys.
+
+    /// A listener's IP allow list, keyed by its port. Read in the accept path, replaced on change.
+    mutable std::shared_mutex                         m_listenerWhitelistsMutex;
+    std::unordered_map<std::uint16_t, IpWhitelist>    m_listenerWhitelists;
+
     static const sptk::String         Version;                                                   ///< Server version.
     std::chrono::milliseconds         m_waitForConnectMessageTimeout {std::chrono::seconds(30)}; ///< Wait for first CONNECT message timeout.
     SSystemStatistics                 m_systemStatistics;                                        ///< System statistics.
@@ -544,6 +555,14 @@ public:
      * actually carrying traffic.
      */
     [[nodiscard]] bool bridgesConnected() const;
+
+    /**
+     * @brief Rebuilds the per-listener IP allow lists from the current configuration.
+     *
+     * Called at start-up and whenever a listener is added, changed or removed, so the accept path
+     * can look an allow list up by the listener's port without parsing it per connection.
+     */
+    void rebuildListenerWhitelists();
 
 private:
     void registerNodeTask(const sptk::SRedisConnect& redis);

@@ -210,6 +210,25 @@ const ParameterHelp = {
         suggested: "on, unless something in front of the server already terminates TLS"
     },
 
+    "web_service.whitelist": {
+        title: "Interface IP white list",
+        text: [
+            "Which remote addresses may reach this configuration interface.",
+            "A comma-separated list of IPv4 addresses, each with an optional prefix length: " +
+            "10.1.1.1/24 matches the whole 10.1.1.0 network, 10.1.2.123/32 matches one address, " +
+            "and 10.1.1.242 without a prefix means the same as /32. Spaces around entries are " +
+            "ignored.",
+            "Empty means any address may reach it. A non-empty list admits only a matching " +
+            "address; everyone else is refused before the request is read, which is the point: " +
+            "this interface carries everything the server is configured with.",
+            "The page itself is not exempt. Add the address you administer from before saving a " +
+            "list that does not contain it, or the interface becomes unreachable from here.",
+            "Behind a load balancer or a proxy, every request appears to come from the " +
+            "balancer's address, so this list is about the balancer rather than the browsers."
+        ],
+        suggested: "empty on a trusted network; the administrator's network where it is not"
+    },
+
     "web_service.certfile": {
         title: "Interface certificate",
         text: [
@@ -286,6 +305,23 @@ const ParameterHelp = {
             "An MQTT+SSL listener is not created if those keys are missing or fail to load: the " +
             "server logs an error and carries on without it."
         ]
+    },
+
+    "listener.whitelist": {
+        title: "IP white list",
+        text: [
+            "Which remote addresses this listener accepts MQTT connections from.",
+            "A comma-separated list of IPv4 addresses, each with an optional prefix length: " +
+            "10.1.1.1/24 matches the whole 10.1.1.0 network, 10.1.2.123/32 matches one address, " +
+            "and 10.1.1.242 without a prefix means the same as /32. Spaces around entries are " +
+            "ignored.",
+            "Empty means any address may connect. A non-empty list admits only an address that " +
+            "one of its entries matches, and refuses the rest before the connection is set up. " +
+            "The check applies to new connections only: one already open is served to the end.",
+            "Behind a load balancer or a proxy, every connection appears to come from the " +
+            "balancer's address, so this list is about the balancer rather than the clients."
+        ],
+        suggested: "empty, unless the port is reachable from networks that should not connect"
     },
 
     "bridge.mode": {

@@ -3,6 +3,7 @@ import {errorWindow} from "../components/MessageWindow";
 import DataTable from "../components/DataTable";
 import ControlAPI from "../ControlAPI";
 import HelpButton from "../components/HelpButton";
+import {isValidWhitelist} from "../ipWhitelist";
 import "./InputScreen.css";
 import PageTitle from "../components/PageTitle";
 
@@ -33,6 +34,11 @@ export default class ListenersScreen extends React.Component {
             {
                 headerName: "Bind IP address", field: "bind_ip", width: 180,
                 cellClass: "ViewCellLeftAligned"
+            },
+            {
+                headerName: "IP white list", field: "whitelist", width: 260,
+                cellClass: "ViewCellLeftAligned",
+                context: {inputType: 'text'}
             },
             {
                 headerName: "Threads", field: "threads", type: 'numericColumn', width: 120,
@@ -80,7 +86,9 @@ export default class ListenersScreen extends React.Component {
                     <HelpButton helpKey="listener.threads"/>
                     and bind addresses
                     <HelpButton helpKey="listener.bind_ip"/>
-                    are explained by the buttons here.
+                    are explained by the buttons here, and the IP white list
+                    <HelpButton helpKey="listener.whitelist"/>
+                    by its own.
                 </p>
             </div>
 
@@ -92,6 +100,13 @@ export default class ListenersScreen extends React.Component {
     }
 
     onRowDataChange = (action, data) => {
+        if ((action === "add" || action === "modify") && !isValidWhitelist(data.whitelist)) {
+            errorWindow("The IP white list is not valid.\n\nEnter comma-separated IPv4 addresses, "
+                + "each with an optional /prefix, for example: 10.1.1.1/24,10.1.2.123/32,10.1.1.242\n"
+                + "Leave it empty to allow any IP address.");
+            return;
+        }
+
         const listener = {
             ...data,
             port: parseInt(data.port),

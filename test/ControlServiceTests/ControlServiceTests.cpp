@@ -643,6 +643,63 @@ TEST_F(XMQ_ControlServiceTests, listenerControl)
         EXPECT_TRUE(found);
     }
 
+    // An allow list wider than one address, written through the interface and listed back: the
+    // listener is the record of it, and the button that edits it reads what the server holds.
+    {
+        CListenerControl         input;
+        CListenerControlResponse output;
+
+        input.m_action = "modify";
+        input.m_listener.m_id = listenerId;
+        input.m_listener.m_port = testPort;
+        input.m_listener.m_name = "Allow listed";
+        input.m_listener.m_protocol = "mqtt";
+        input.m_listener.m_threads = 1;
+        input.m_listener.m_whitelist = "127.0.0.1/32, 10.1.1.0/24,10.1.2.123";
+
+        m_controlService->ListenerControl(input, output, &authentication);
+        verifyResult(output.m_result);
+
+        input.m_action = "list";
+        m_controlService->ListenerControl(input, output, &authentication);
+        verifyResult(output.m_result);
+
+        const bool found = std::ranges::any_of(
+            output.m_list,
+            [&listenerId](const auto& l)
+            {
+                return l.m_id.asInteger() == listenerId;
+            });
+        EXPECT_TRUE(found);
+        const auto listed = std::ranges::find_if(
+            output.m_list,
+            [&listenerId](const auto& l)
+            {
+                return l.m_id.asInteger() == listenerId;
+            });
+        ASSERT_NE(listed, output.m_list.end());
+        EXPECT_EQ("127.0.0.1/32, 10.1.1.0/24,10.1.2.123", listed->m_whitelist.asString())
+            << "the allow list did not come back from the listener it was written to";
+    }
+
+    // Refused before anything is changed: an allow list that does not parse would otherwise admit
+    // nobody, and its author would not learn that until the ports went quiet.
+    {
+        CListenerControl         input;
+        CListenerControlResponse output;
+
+        input.m_action = "modify";
+        input.m_listener.m_id = listenerId;
+        input.m_listener.m_port = testPort;
+        input.m_listener.m_name = "Allow listed";
+        input.m_listener.m_protocol = "mqtt";
+        input.m_listener.m_threads = 1;
+        input.m_listener.m_whitelist = "10.1.1.999";
+
+        m_controlService->ListenerControl(input, output, &authentication);
+        EXPECT_FALSE(output.m_result.m_success) << "an impossible allow list was accepted";
+    }
+
     {
         CListenerControl         input;
         CListenerControlResponse output;

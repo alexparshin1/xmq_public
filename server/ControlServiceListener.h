@@ -12,10 +12,14 @@
 */
 #pragma once
 
+#include <mutex>
+
 #include <sptk5/cutils>
 
 #include <sptk5/wsdl/WSConnection.h>
 #include <sptk5/wsdl/WSServer.h>
+
+#include "common/IpWhitelist.h"
 
 
 namespace xmq {
@@ -37,7 +41,7 @@ public:
     ControlServiceListener(const sptk::WSServices& services, const sptk::WSConnection::Options& options,
                            const std::shared_ptr<sptk::SSLKeys>& sslKeys,
                            const std::shared_ptr<sptk::LogEngine>& logEngine, const sptk::String& bindAddress,
-                           uint16_t servicePort);
+                           uint16_t servicePort, const std::string& whitelist = {});
 
     /**
      * @brief Build the interface listener and start it.
@@ -46,12 +50,21 @@ public:
      * @param logEngine         Where the listener logs.
      * @param bindAddress       Address to accept connections on.
      * @param servicePort       Port to serve on.
+     * @param whitelist         Who may reach the interface, comma-separated; empty means anyone.
      */
     static std::shared_ptr<ControlServiceListener> factory(IServerController* controller,
                                                            const std::shared_ptr<sptk::SSLKeys>& sslKeys,
                                                            const std::shared_ptr<sptk::LogEngine>& logEngine,
                                                            const sptk::String& bindAddress,
-                                                           uint16_t servicePort);
+                                                           uint16_t servicePort,
+                                                           const std::string& whitelist = {});
+
+    /**
+     * @brief Replace the IP allow list, taking effect for connections accepted from now on.
+     * @param whitelist  Comma-separated IPv4 addresses with optional prefixes; empty means anyone.
+     * @throws std::invalid_argument when an entry does not parse.
+     */
+    void setWhitelist(const std::string& whitelist);
 
     /**
      * @brief Serve the interface at another address, port, or both, without restarting anything.
@@ -124,6 +137,9 @@ protected:
                                                              SocketType                   connectionSocket,
                                                              const sockaddr_in*           peer) override;
 
+    /// Applies the interface's IP allow list before a connection is built.
+    bool allowConnection(const sockaddr_in* peer, const sptk::Host& listenerHost) override;
+
 private:
     /**
      * @brief Finish with a connection whose first byte is known.
@@ -143,6 +159,9 @@ private:
      * @param connectionSocket  Accepted socket, with the request still unread.
      */
     void redirectToHttps(SocketType connectionSocket) const;
+
+    mutable std::mutex m_whitelistMutex;   ///< Guards the allow list the accept path reads.
+    IpWhitelist        m_whitelist;        ///< Who may reach the interface, pre-parsed.
 };
 
 using SControlServiceListener = std::shared_ptr<ControlServiceListener>;

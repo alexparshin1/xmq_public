@@ -5,6 +5,7 @@ import BasicScreen from "./BasicScreen";
 import HelpButton from "../components/HelpButton";
 import PageTitle from "../components/PageTitle";
 import {confirmationWindow, errorWindow} from "../components/MessageWindow";
+import {isValidWhitelist} from "../ipWhitelist";
 
 /**
  * How long the result is left on screen before the browser is sent to the interface's new port.
@@ -23,6 +24,7 @@ export default class XmqServiceScreen extends BasicScreen {
         // Absent means encrypted: the server treats a configuration that says nothing about it as
         // asking for HTTPS, and this page has to agree with it or the checkbox lies on first load.
         encrypted: true,
+        whitelist: "",
         // What came back from the last save, shown on the page rather than in a popup: it names
         // the address the interface has moved to, which is worth having on screen.
         message: "",
@@ -38,7 +40,8 @@ export default class XmqServiceScreen extends BasicScreen {
                 }
                 this.setState({
                     listener_port: result.web_service.listener_port,
-                    encrypted: result.web_service.encrypted !== false
+                    encrypted: result.web_service.encrypted !== false,
+                    whitelist: result.web_service.whitelist || ""
                 });
             });
     }
@@ -65,6 +68,14 @@ export default class XmqServiceScreen extends BasicScreen {
             return;
         }
 
+        const whitelist = (this.state.whitelist || "").trim();
+        if (!isValidWhitelist(whitelist)) {
+            errorWindow("The IP white list is not valid.\n\nEnter comma-separated IPv4 addresses, "
+                + "each with an optional /prefix, for example: 10.1.1.1/24,10.1.2.123/32,10.1.1.242\n"
+                + "Leave it empty to allow any IP address.");
+            return;
+        }
+
         // Compared against the address this page was actually opened at, rather than against what
         // was loaded into the form: that is what decides whether the browser has to be sent
         // somewhere else, and it is the only thing that does.
@@ -76,7 +87,7 @@ export default class XmqServiceScreen extends BasicScreen {
 
         ControlAPI.asyncMakeAPICall("ServiceControl", {
             action: "set",
-            web_service: {listener_port: port, encrypted: encrypted}
+            web_service: {listener_port: port, encrypted: encrypted, whitelist: whitelist}
         }).then(result => {
             if (result === null) {
                 // XMQ server is offline
@@ -102,7 +113,7 @@ export default class XmqServiceScreen extends BasicScreen {
             }
 
             if (!addressChanges) {
-                this.setState({message: "The service settings are unchanged."});
+                this.setState({message: "The service settings are saved."});
                 return;
             }
 
@@ -151,6 +162,21 @@ export default class XmqServiceScreen extends BasicScreen {
                        checked={this.state.encrypted}
                        onChange={e => this.setState({encrypted: e.target.checked})}/>
                 <HelpButton helpKey="web_service.encrypted"/>
+            </div>
+
+            <div className="inputScreenRow">
+                <label htmlFor="whitelist" className="inputScreenLabel">IP white list:</label>
+                <input name="whitelist" type="text" style={{width: "320px"}}
+                       value={this.state.whitelist}
+                       onChange={e => this.setState({whitelist: e.target.value})}/>
+                <HelpButton helpKey="web_service.whitelist"/>
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel"/>
+                <div style={{fontSize: "12px", color: "#666", maxWidth: "640px"}}>
+                    Comma-separated IPv4 addresses, each with an optional /prefix, for example
+                    10.1.1.1/24,10.1.2.123/32,10.1.1.242. Empty means anyone may reach the interface.
+                </div>
             </div>
 
             <div className="inputScreenRow">

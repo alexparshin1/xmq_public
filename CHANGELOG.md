@@ -153,6 +153,18 @@ Requires SPTK 5.6.17.
 
 ## 1.0.1 — 2026-10-29
 
+### Added
+
+- **A listener can be restricted to a list of IP addresses.** `whitelist` on a listener is a
+  comma-separated list of IPv4 addresses, each with an optional prefix length
+  (`10.1.1.1/24,10.1.2.123/32,10.1.1.242`), and the connection interface edits it beside the bind
+  address. Empty means anyone may connect, which is what every listener had before; a non-empty list
+  admits a connection when one of its entries matches and refuses the rest on accept, before a
+  session is made. The list is parsed once, when the listener changes, so the accept path compares a
+  masked address rather than parsing text per connection. The web interface has the same list
+  (`web_service.whitelist`), and both are stored in the node's row with the rest of the listener and
+  service settings. A list that does not parse is refused by the interface instead of being saved.
+
 Requires SPTK 5.6.16.
 
 ### Added

@@ -14,6 +14,7 @@
 
 #include "ListenerManager.h"
 #include "Settings.h"
+#include "common/IpWhitelist.h"
 
 using namespace std;
 using namespace sptk;
@@ -32,6 +33,17 @@ void ListenerManager::initialize(bool& changed)
 
 uint64_t ListenerManager::control(const string& action, const CListener& listener)
 {
+    if (action == "add" || action == "modify")
+    {
+        // Refused before anything is changed: an allow list that does not parse would otherwise
+        // admit nobody, and a person editing it should be told while they can still see it.
+        if (!IpWhitelist::isValid(listener.m_whitelist.asString()))
+        {
+            throw invalid_argument("The IP white list is not valid. Enter comma-separated IPv4 addresses, "
+                                   "each with an optional /prefix, or leave it empty to allow anyone.");
+        }
+    }
+
     auto&      listeners = m_settings->m_connections.m_listener;
     auto       id = listener.m_id.asInt64();
     const auto port = listener.m_port.asInteger();

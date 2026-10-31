@@ -670,6 +670,58 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
             addListener(connectionType, host, static_cast<uint16_t>(listener.m_threads.asInteger()));
         }
     }
+
+    rebuildListenerWhitelists();
+}
+
+void Server::rebuildListenerWhitelists()
+{
+    const auto settings = getSettings();
+    std::unordered_map<std::uint16_t, IpWhitelist> rebuilt;
+    if (settings)
+    {
+        for (const auto& listener: settings->m_connections.m_listener)
+        {
+            if (listener.m_port.asInteger() <= 0)
+            {
+                continue;
+            }
+            try
+            {
+                rebuilt.emplace(static_cast<std::uint16_t>(listener.m_port.asInteger()),
+                                IpWhitelist(listener.m_whitelist.asString()));
+            }
+            catch (const std::exception& e)
+            {
+                // A listener whose allow list does not parse is refused at the interface, but a
+                // hand-edited file or a row written by another release may carry one. Rejecting it
+                // here would stop the broker over a setting; leaving it out admits nobody instead,
+                // which is the safe side for an allow list.
+                logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                           std::string("Listener ") + listener.m_name.asString() +
+                               " has an invalid IP white list, so it admits no connection: " + e.what());
+            }
+        }
+    }
+    std::unique_lock lock(m_listenerWhitelistsMutex);
+    m_listenerWhitelists = std::move(rebuilt);
+}
+
+bool Server::allowConnection(const sockaddr_in* peer, const sptk::Host& listenerHost)
+{
+    if (!peer)
+    {
+        return false;
+    }
+
+    std::shared_lock lock(m_listenerWhitelistsMutex);
+    const auto        iterator = m_listenerWhitelists.find(listenerHost.port());
+    if (iterator == m_listenerWhitelists.end())
+    {
+        // No allow list for this port: anyone may connect.
+        return true;
+    }
+    return iterator->second.allows(peer->sin_addr.s_addr);
 }
 
 Server::~Server()

@@ -70,6 +70,9 @@ public:
         /// and certificate paths stay in the file - they name files on this machine.
         std::optional<int>  m_webPort;
         std::optional<bool> m_webEncrypted;
+        /// Who may reach the interface: comma-separated IPv4 addresses with optional prefixes.
+        /// Null when the row has none, and the file decides - the same rule as the port.
+        std::optional<sptk::String> m_webWhitelist;
 
         // The rest of persistence. The storage URI is m_redisUri; these are the switches and the
         // pool sizes beside it.

@@ -443,6 +443,8 @@ TEST(XMQ_ClusterBootstrapTests, theWebInterfaceIsReadFromTheNodeRowAndWrittenBac
         EXPECT_EQ(18888, *row->m_webPort);
         ASSERT_TRUE(row->m_webEncrypted.has_value());
         EXPECT_TRUE(*row->m_webEncrypted);
+        ASSERT_TRUE(row->m_webWhitelist.has_value()) << "the row was created without the interface's allow list";
+        EXPECT_EQ("", *row->m_webWhitelist) << "a section that names no allow list admits everyone";
     }
 
     {
@@ -460,6 +462,7 @@ TEST(XMQ_ClusterBootstrapTests, theWebInterfaceIsReadFromTheNodeRowAndWrittenBac
         CWebService web;
         web.m_listener_port = 18889;
         web.m_encrypted = false;
+        web.m_whitelist = "10.1.1.0/24, 127.0.0.1";
         settings.serviceControl("set", web);
 
         ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
@@ -469,6 +472,9 @@ TEST(XMQ_ClusterBootstrapTests, theWebInterfaceIsReadFromTheNodeRowAndWrittenBac
         EXPECT_EQ(18889, *row->m_webPort) << "the interface did not write the row";
         ASSERT_TRUE(row->m_webEncrypted.has_value());
         EXPECT_FALSE(*row->m_webEncrypted);
+        ASSERT_TRUE(row->m_webWhitelist.has_value());
+        EXPECT_EQ("10.1.1.0/24, 127.0.0.1", *row->m_webWhitelist)
+            << "the interface did not write the allow list to the row";
     }
 
     {
@@ -477,6 +483,8 @@ TEST(XMQ_ClusterBootstrapTests, theWebInterfaceIsReadFromTheNodeRowAndWrittenBac
         EXPECT_EQ(18889, settings.m_web_service.m_listener_port.asInteger())
             << "a restart did not take the web port from the row";
         EXPECT_FALSE(settings.m_web_service.m_encrypted.asBool());
+        EXPECT_EQ("10.1.1.0/24, 127.0.0.1", settings.m_web_service.m_whitelist.asString())
+            << "a restart did not take the interface's allow list from the row";
     }
 
     {
@@ -671,6 +679,7 @@ TEST(XMQ_ClusterBootstrapTests, listenersAreReadFromTheNodeRowAndWrittenBackToIt
 
         CListener listener = settings.m_connections.m_listener[0];
         listener.m_port = 18887;
+        listener.m_whitelist = "10.1.1.0/24,127.0.0.1";
         settings.listenerControl("modify", listener);
 
         ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
@@ -678,6 +687,8 @@ TEST(XMQ_ClusterBootstrapTests, listenersAreReadFromTheNodeRowAndWrittenBackToIt
         ASSERT_TRUE(row.has_value());
         ASSERT_TRUE(row->m_listeners.has_value());
         EXPECT_NE(String::npos, row->m_listeners->find("18887")) << "the interface did not write the row";
+        EXPECT_NE(String::npos, row->m_listeners->find("10.1.1.0/24,127.0.0.1"))
+            << "the interface did not write the allow list to the row";
     }
 
     {
@@ -687,6 +698,8 @@ TEST(XMQ_ClusterBootstrapTests, listenersAreReadFromTheNodeRowAndWrittenBackToIt
         EXPECT_EQ(18887, settings.m_connections.m_listener[0].m_port.asInteger())
             << "a restart did not take the listener from the row";
         EXPECT_EQ(listenerId, settings.m_connections.m_listener[0].m_id.asInt64());
+        EXPECT_EQ("10.1.1.0/24,127.0.0.1", settings.m_connections.m_listener[0].m_whitelist.asString())
+            << "a restart did not take the listener's allow list from the row";
     }
 
     {

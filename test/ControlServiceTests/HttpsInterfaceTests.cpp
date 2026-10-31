@@ -224,6 +224,7 @@ protected:
         m_previousPrivateKey = webService.m_keyfile.asString();
         m_previousEncrypted = webService.m_encrypted.asBool();
         m_previousListenerPort = webService.m_listener_port.asInteger();
+        m_previousWhitelist = webService.m_whitelist.asString();
         webService.m_certfile = certificateFile().string();
         webService.m_keyfile = privateKeyFile().string();
 
@@ -248,6 +249,7 @@ protected:
         webService.m_keyfile = m_previousPrivateKey;
         webService.m_encrypted = m_previousEncrypted;
         webService.m_listener_port = m_previousListenerPort;
+        webService.m_whitelist = m_previousWhitelist;
 
         DirectoryNames::setCertsDirectory(m_previousCertificateDirectory);
 
@@ -280,6 +282,7 @@ protected:
     String                  m_previousPrivateKey;
     bool                    m_previousEncrypted {true};
     int64_t                 m_previousListenerPort {0};
+    String                  m_previousWhitelist;
 };
 
 TEST_F(XMQ_HttpsInterfaceTests, servesTheApiOverTls)
@@ -555,6 +558,46 @@ TEST_F(XMQ_HttpsInterfaceTests, leavesTheBrokerKeysAloneWhenOnlyTheInterfaceIsSa
     EXPECT_EQ(brokerKeys.m_certfile.asString(), after.m_certfile.asString());
     EXPECT_EQ(brokerKeys.m_keyfile.asString(), after.m_keyfile.asString());
     EXPECT_EQ(brokerKeys.m_verify_depth.asString(), after.m_verify_depth.asString());
+}
+
+TEST_F(XMQ_HttpsInterfaceTests, theInterfaceAdmitsOnlyAddressesItsAllowListMatches)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+
+    const auto setWhitelist = [this, &authentication](const char* whitelist, CServiceControlResponse& output)
+    {
+        CServiceControl input;
+        input.m_action = "set";
+        input.m_web_service.m_whitelist = whitelist;
+        m_controlService->ServiceControl(input, output, &authentication);
+    };
+
+    const String body = R"({"action":"status"})";
+    const auto   request = "POST /ServerControl HTTP/1.1\r\nHost: localhost:" +
+                           to_string(httpsTestPort) +
+                           "\r\nContent-Type: application/json\r\nContent-Length: " +
+                           to_string(body.length()) + "\r\n\r\n" + body;
+
+    // The address the test itself comes from, admitted. Nothing restarted: the list is applied to
+    // connections accepted from then on.
+    CServiceControlResponse allowed;
+    setWhitelist("127.0.0.1/32, 10.1.1.0/24", allowed);
+    ASSERT_TRUE(allowed.m_result.m_success.asBool()) << allowed.m_result.m_description.asString().c_str();
+    EXPECT_FALSE(allowed.m_service_restart_required.asBool()) << allowed.m_message.asString().c_str();
+    EXPECT_TRUE(tlsRequest(request).starts_with("HTTP/1.1 200"));
+
+    // An address the list does not match is refused before a request is read: the TLS handshake
+    // never completes, which is what a client sees when the connection is dropped on accept.
+    CServiceControlResponse denied;
+    setWhitelist("10.9.9.9/32", denied);
+    ASSERT_TRUE(denied.m_result.m_success.asBool()) << denied.m_result.m_description.asString().c_str();
+    EXPECT_ANY_THROW(tlsRequest(request)) << "the interface answered an address outside its allow list";
+
+    // And the way back in is the same way in: an empty list admits everyone again.
+    CServiceControlResponse reopened;
+    setWhitelist("", reopened);
+    ASSERT_TRUE(reopened.m_result.m_success.asBool());
+    EXPECT_TRUE(tlsRequest(request).starts_with("HTTP/1.1 200"));
 }
 
 TEST_F(XMQ_HttpsInterfaceTests, servesPlainHttpWhenEncryptionIsTurnedOff)
