@@ -354,6 +354,12 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     if (root->findFirst("queue_limits") || root->findFirst("server_limits") || root->findFirst("logging"))
     {
         target.load(root);
+        // The cluster's database is at the root of the file now. A file written before that has
+        // it inside the cluster section, which the type still reads.
+        if (!target.m_database_uri.isNull())
+        {
+            target.m_cluster.m_database_uri = target.m_database_uri;
+        }
         return;
     }
 
@@ -389,9 +395,20 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     target.m_authentication = startup.m_authentication;
     target.m_web_service.m_certfile = startup.m_web_service.m_certfile;
     target.m_web_service.m_keyfile = startup.m_web_service.m_keyfile;
+    if (!startup.m_database_uri.isNull())
+    {
+        target.m_cluster.m_database_uri = startup.m_database_uri;
+    }
+    else if (const auto cluster = root->findFirst("cluster"); cluster)
+    {
+        // A StartupSettings written before the database moved to the root kept it here.
+        if (const auto databaseUri = cluster->findFirst("database_uri"); databaseUri)
+        {
+            target.m_cluster.m_database_uri = databaseUri->getText();
+        }
+    }
     if (!startup.m_cluster.isNull())
     {
-        target.m_cluster.m_database_uri = startup.m_cluster.m_database_uri;
         target.m_cluster.m_password = startup.m_cluster.m_password;
     }
 
@@ -602,11 +619,11 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     // than written as a copy nobody reads - a copy that says one thing while the broker runs
     // another is worse than no copy at all.
     CStartupSettings startup;
+    startup.m_database_uri = m_cluster.m_database_uri;
     startup.m_connections.m_ssl_keys = m_connections.m_ssl_keys;
     startup.m_authentication = m_authentication;
     startup.m_web_service.m_certfile = m_web_service.m_certfile;
     startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
-    startup.m_cluster.m_database_uri = m_cluster.m_database_uri;
     // The cluster account's secret is kept in the accounts database; a copy beside it would be
     // the one readable place it had been moved out of.
     startup.unload(document.root());
@@ -627,7 +644,19 @@ void Settings::saveFullConfigurationUnlocked(Buffer& config) const
 {
     xdoc::Document document;
     WSComplexType::unload(document.root());
-    if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
+    // The cluster's database belongs at the root: it is what a start needs before it can read
+    // anything else. A file written before that still has it inside the cluster section, which
+    // the type above reads so such a file loads.
+    const auto databaseUri = m_cluster.m_database_uri.asString();
+    if (const auto cluster = document.root()->findFirst("cluster"))
+    {
+        cluster->remove("password");
+        cluster->remove("database_uri");
+    }
+    if (!databaseUri.empty())
+    {
+        document.root()->set("database_uri", databaseUri);
+    }
 
     // Accounts live in the users file, so the configuration should not carry the element at all -
     // not even as an empty list. Leaving it there invites someone to add an account to the wrong
@@ -1359,6 +1388,9 @@ void Settings::applyClusterConfigurationUnlocked()
         }
         store.insertNode(row);
 
+        // What was just written to the row, in memory too: the bootstrap file's root database_uri
+        // is written from here, and it has to say what the row says.
+        m_cluster.m_database_uri = uri;
         m_configurationInDatabase = true;
         rewriteConfigurationFromRowUnlocked();
 
@@ -3012,6 +3044,9 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     if (!setupDatabaseUri.empty())
     {
         section(root, "authentication")->set("database_uri", setupDatabaseUri);
+        // The shared database is also the one the cluster's settings live in, and the file keeps
+        // its address at the root, where a start reads it first.
+        root->set("database_uri", setupDatabaseUri);
     }
 
     // A certificate of this installation's own, made out to the address just given. Issued here

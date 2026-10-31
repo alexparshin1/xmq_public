@@ -140,6 +140,15 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
         EXPECT_NE(String::npos, text.find("\"connections\"")) << "the listeners are the file's to decide";
         EXPECT_NE(String::npos, text.find("\"web_service\""));
         EXPECT_NE(String::npos, text.find("\"database_uri\"")) << "the database has to stay reachable from the file";
+
+        // The cluster's database is the root's, not a copy inside the cluster section.
+        xdoc::Document document;
+        document.load(text);
+        const auto rootDatabaseUri = document.root()->findFirst("database_uri");
+        ASSERT_TRUE(rootDatabaseUri) << text.c_str();
+        EXPECT_EQ(String("postgresql://gtest:test#123@dbhost_pg/xmq_test"), rootDatabaseUri->getText());
+        EXPECT_FALSE(document.root()->findFirst("cluster"))
+            << "the cluster section still carries a setting the root now holds";
     }
 
     // What the interface would do: change the row.
@@ -519,6 +528,96 @@ TEST(XMQ_ClusterBootstrapTests, listenersFromAnOlderStartupFileAreKept)
     EXPECT_EQ(18887, settings.m_connections.m_listener[1].m_port.asInteger());
     EXPECT_EQ(18883, settings.m_web_service.m_listener_port.asInteger())
         << "the web port an older StartupSettings file still carries was dropped";
+
+    filesystem::remove_all(directory);
+}
+
+/**
+ * The cluster's database is at the root of the file now: a start needs to know where the shared
+ * configuration is before it can read anything else. A file written before that still has it in
+ * the cluster section, and still loads.
+ */
+TEST(XMQ_ClusterBootstrapTests, theClusterDatabaseIsAtTheRootAndAnOlderClusterSectionStillLoads)
+{
+    const auto configurationWithoutQueueLimits = [](const String& databaseUri, const String& clusterSection)
+    {
+        return String(R"({
+            "connections": {
+                "ssl_keys": {"cafile": "", "keyfile": "/tmp/node.key", "certfile": "/tmp/node.crt", "verify_depth": 0}
+            },
+            "authentication": {"allow_anonymous": false, "database_uri": ")") + databaseUri + R"("},
+            "web_service": {"certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"}
+            )" + clusterSection + "}";
+    };
+
+    const String uri("postgresql://someone:secret@localhost/xmq");
+
+    CServerConfiguration fromRoot;
+    Settings::loadConfigurationShape(fromRoot, configurationWithoutQueueLimits(uri, R"(,
+        "database_uri": "postgresql://someone:secret@localhost/xmq"
+    )"));
+    EXPECT_EQ(uri, String(fromRoot.m_cluster.m_database_uri.asString()))
+        << "the database at the root of the file was not read";
+
+    CServerConfiguration fromCluster;
+    Settings::loadConfigurationShape(fromCluster, configurationWithoutQueueLimits(uri, R"(,
+        "cluster": {"database_uri": "postgresql://someone:secret@localhost/older"}
+    )"));
+    EXPECT_EQ(String("postgresql://someone:secret@localhost/older"),
+              String(fromCluster.m_cluster.m_database_uri.asString()))
+        << "a StartupSettings written before the move no longer loads";
+}
+
+TEST(XMQ_ClusterBootstrapTests, aFullFileWithTheDatabaseInTheClusterSectionIsRewrittenWithItAtTheRoot)
+{
+    const auto directory = filesystem::temp_directory_path() / ("xmq_cluster_root_db_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto path = directory / "xmq_server.conf";
+    // A full configuration from before the move: the cluster's database is in the cluster
+    // section, where a start used to find it.
+    Buffer(R"({
+        "connections": {
+            "listener": [{"id": 1, "name": "Not Encrypted", "bind_ip": "0.0.0.0", "port": 18886, "threads": 1, "protocol": "MQTT", "enable": true}],
+            "ssl_keys": {"cafile": "", "keyfile": "/tmp/node.key", "certfile": "/tmp/node.crt", "verify_depth": 0}
+        },
+        "queue_limits": {"max_size": 128, "max_inflight_messages": 16},
+        "server_limits": {"send_threads": 1, "receive_threads": 1, "max_topic_alias": 8},
+        "authentication": {"allow_anonymous": false},
+        "persistence": {"redis_uri": "redis://localhost:6379", "enabled": false},
+        "logging": {"log_to": "xmq_server.log", "min_log_level": "INFO", "log_level": {
+            "ack": "INFO", "connect": "INFO", "disconnect": "INFO", "publish": "INFO",
+            "subscribe": "INFO", "unsubscribe": "INFO", "server_connections": "INFO",
+            "server_events": "INFO", "cluster_connections": "INFO", "cluster_events": "INFO"}},
+        "web_service": {"listener_port": 18883},
+        "bridges": [],
+        "cluster": {
+            "database_uri": "postgresql://someone:secret@localhost/xmq",
+            "this_node": {"node_name": "legacy-node", "host_port": "localhost:8883"},
+            "nodes": []
+        }
+    })").saveToFile(path);
+
+    Settings settings;
+    settings.loadConfiguration(path, directory / "xmq_users.conf");
+    EXPECT_EQ(String("postgresql://someone:secret@localhost/xmq"),
+              String(settings.m_cluster.m_database_uri.asString()))
+        << "the database in the cluster section was not read";
+
+    // Any save writes the file back, and the address moves to the root.
+    settings.setAccountDatabaseUri(DirectoryNames::sqliteUri(directory / "accounts.db"));
+
+    Buffer saved;
+    saved.loadFromFile(path);
+    xdoc::Document document;
+    document.load(String(saved.c_str(), saved.bytes()));
+    const auto rootDatabaseUri = document.root()->findFirst("database_uri");
+    ASSERT_TRUE(rootDatabaseUri) << saved.c_str();
+    EXPECT_EQ(String("postgresql://someone:secret@localhost/xmq"), rootDatabaseUri->getText());
+    const auto cluster = document.root()->findFirst("cluster");
+    ASSERT_TRUE(cluster) << "the cluster section still holds this node's identity";
+    EXPECT_FALSE(cluster->findFirst("database_uri")) << "the cluster section still carries the database";
 
     filesystem::remove_all(directory);
 }

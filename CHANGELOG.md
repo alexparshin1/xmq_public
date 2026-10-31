@@ -14,6 +14,12 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **The cluster's database address is at the root of the configuration file.** `cluster.database_uri`
+  is now `database_uri`, beside `connections` and `authentication`, because it is what a start reads
+  first: the shared database the node's row and its accounts live in. The file no longer keeps the
+  cluster section's copy. A file written before this is read from the old place at the next start
+  and rewritten with the root one; `authentication.database_uri` is unchanged.
+
 - **`persistence` and `bridges` are stored in the database.** The storage URI was already the
   node's row; `enabled`, `clean_start`, `max_redis_connections` and `max_queued_writes` join it, and
   the bridges are one JSON column, the way the logging section and the listeners are. The file keeps
