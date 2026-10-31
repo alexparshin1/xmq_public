@@ -116,6 +116,12 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **A node whose configuration file names no listeners keeps serving on its default one.** A node
+  with its row in a shared database keeps a bootstrap-only file, and the default listener that file
+  leaves it with was written to the row without `enable` set; JSON writes an unset boolean as
+  `false`, so the next start read back a listener disabled by nobody and opened no port at all. The
+  row now records that listener as enabled, which is what the file has always meant by the omission.
+
 - **`xmq_server --reset-configuration` resets what the node runs with, including what is stored in
   the database.** On a node whose accounts live in PostgreSQL or MySQL, part of the configuration
   is in that database: the storage, the cluster switches, the queue and server limits, the logging.

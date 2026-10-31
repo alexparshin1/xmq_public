@@ -714,6 +714,72 @@ TEST(XMQ_ClusterBootstrapTests, listenersAreReadFromTheNodeRowAndWrittenBackToIt
 }
 
 /**
+ * A node whose file is bootstrap-only - the shape a node with its row in a shared database keeps -
+ * names no listeners: it serves on the built-in default one. That listener is enabled unless
+ * something says otherwise, and JSON writes an unset boolean as false, so the row built from it has
+ * to say so explicitly. Otherwise the next start reads back a disabled listener and the node
+ * silently opens no port at all.
+ */
+TEST(XMQ_ClusterBootstrapTests, theDefaultListenerOfABootstrapFileStaysEnabledThroughTheRow)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_enable_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(R"({
+        "database_uri": "postgresql://gtest:test#123@dbhost_pg/xmq_test",
+        "connections": {
+            "ssl_keys": {"cafile": "", "keyfile": "/tmp/node.key", "certfile": "/tmp/node.crt", "verify_depth": 0}
+        },
+        "authentication": {"allow_anonymous": false,
+                           "database_uri": "postgresql://gtest:test#123@dbhost_pg/xmq_test"},
+        "web_service": {"certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"}
+    })").saveToFile(configurationPath);
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ASSERT_EQ(1U, settings.m_connections.m_listener.size());
+        EXPECT_EQ(1883, settings.m_connections.m_listener[0].m_port.asInteger());
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_listeners.has_value());
+        EXPECT_NE(String::npos, row->m_listeners->find("\"enable\":true"))
+            << "the row recorded the default listener as disabled: " << row->m_listeners->c_str();
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        ASSERT_FALSE(settings.m_connections.m_listener.empty());
+        EXPECT_TRUE(settings.m_connections.m_listener[0].m_enable.isNull() ||
+                    settings.m_connections.m_listener[0].m_enable.asBool())
+            << "a restart came up with the default listener disabled";
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
+/**
  * A node with local accounts has no row anywhere, so the file is the whole configuration and
  * nothing is rewritten out of it.
  */

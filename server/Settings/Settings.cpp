@@ -260,6 +260,7 @@ Settings::Settings()
     constexpr auto defaultQueueBytesLimit = 0;
 
     CListener defaultListener;
+    defaultListener.m_name = "Default";
     defaultListener.m_protocol = "MQTT";
     defaultListener.m_port = defaultMqttPort;
     defaultListener.m_bind_ip = "0.0.0.0";
@@ -303,8 +304,23 @@ const CServerConfiguration& builtInDefaults();
  */
 String listenersJson(const CConnections& connections)
 {
+    // A listener that does not say whether it is enabled is enabled: that is how the file has
+    // always been read, and it is the listener a node starts with. An unset boolean is written as
+    // false, though, so the omission would become a disabled port the next time the row was read,
+    // and a node whose file carries no listeners of its own would never open a port at all.
+    CConnections stored;
+    stored.m_listener = connections.m_listener;
+    stored.m_ssl_keys = connections.m_ssl_keys;
+    for (auto& listener: stored.m_listener)
+    {
+        if (listener.m_enable.isNull())
+        {
+            listener.m_enable = true;
+        }
+    }
+
     xdoc::Document document;
-    connections.unload(document.root());
+    stored.unload(document.root());
     Buffer output;
     document.exportTo(xdoc::DataFormat::JSON, output, false);
     return String(output.c_str(), output.bytes());
