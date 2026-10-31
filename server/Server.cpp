@@ -680,7 +680,8 @@ Server::~Server()
     }
     catch (const Exception& e)
     {
-        CERR("Server::stopServer() failed: " << e.what());
+        logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                   std::string("Server::stopServer() failed: ") + e.what());
     }
 }
 
@@ -2053,7 +2054,7 @@ void Server::watchSession(const SClientSession& clientSession, const bool rearmO
     }
     catch (const Exception& e)
     {
-        CERR(e.what());
+        logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
     }
 }
 

@@ -337,7 +337,8 @@ bool ServerController::startServing(string& reason, const std::optional<bool> cl
         // never replace the copy that worked.
         if (const auto error = m_settings->keepLastGoodConfiguration(); !error.empty())
         {
-            CERR("Cannot keep the last good configuration: " << error);
+            m_xmqServer->logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                                    std::string("Cannot keep the last good configuration: ") + error.c_str());
         }
         return true;
     }

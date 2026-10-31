@@ -95,7 +95,15 @@ void OSService::processNodeActions(IServerController& controller)
         catch (const std::exception& error)
         {
             if (pending.task) settings->nodeSettingsStatus(false, "Settings were not applied: the queued update could not execute.");
-            CERR("Selected node action failed: " << error.what());
+            if (Server* server = controller.getServer())
+            {
+                server->logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                                   std::string("Selected node action failed: ") + error.what());
+            }
+            else
+            {
+                CERR("Selected node action failed: " << error.what());
+            }
             try
             {
                 if (pending.database != settings->userDatabaseUri()) continue;
