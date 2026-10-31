@@ -419,6 +419,9 @@ private:
     /// Sets the port of the listener with this protocol, in memory - the row's copy is written
     /// from it. Does nothing when the node has no such listener.
     void setListenerPort(const sptk::String& protocol, int port);
+
+    /// Writes the web interface's port and scheme into this node's row, under the write lock.
+    void saveWebServiceToNodeRow();
     void updateUsers();
 
     /**

@@ -550,7 +550,9 @@ In this order - each step leaves the system working:
   what the file still decides - the TLS keys beside the listeners, bridges, the rest of
   `persistence`, and `authentication.database_uri` - and the loader accepts either shape. The
   listeners themselves (`connections.listener`, one JSON column, `listeners_json`) moved with them,
-  because their ports are what the interface changes and what the next start has to read. Because of this,
+  because their ports are what the interface changes and what the next start has to read. So did the
+  web interface's port and scheme (`web_listener_port`, `web_encrypted`); its certificate and key
+  paths stay in the file. Because of this,
   `xmq_server --reset-configuration` retires the node's row before it replaces the file: a row left
   behind would put the storage, the cluster switches and all of these back on the next start.
 - [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node

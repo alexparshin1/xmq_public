@@ -66,7 +66,7 @@ String configurationText()
             "ack": "INFO", "connect": "INFO", "disconnect": "INFO", "publish": "INFO",
             "subscribe": "INFO", "unsubscribe": "INFO", "server_connections": "INFO",
             "server_events": "INFO", "cluster_connections": "INFO", "cluster_events": "INFO"}},
-        "web_service": {"listener_port": 0},
+        "web_service": {"listener_port": 0, "certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"},
         "bridges": [],
         "cluster": {"this_node": {"node_name": "bootstrap-node", "host_port": "localhost:8883"}}
     })";
@@ -293,6 +293,89 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
         EXPECT_EQ(77, settings.m_queue_limits.m_max_size.asInteger()) << "a restart did not take the limits from the row";
         EXPECT_EQ(33, settings.m_queue_limits.m_max_inflight_messages.asInteger());
         EXPECT_EQ(65536, settings.m_queue_limits.m_max_bytes.asInteger());
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
+/**
+ * The web interface is the row's too: the port the Settings screen edits, and whether it is served
+ * over TLS. The key and certificate paths stay in the file - they name files on this machine.
+ */
+TEST(XMQ_ClusterBootstrapTests, theWebInterfaceIsReadFromTheNodeRowAndWrittenBackToIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_web_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    std::string text(configurationText().c_str());
+    const std::string from = "\"listener_port\": 0";
+    const auto at = text.find(from);
+    ASSERT_NE(std::string::npos, at) << "the fixture's web_service section has changed shape";
+    text.replace(at, from.size(), "\"listener_port\": 18888, \"encrypted\": true");
+    Buffer(text).saveToFile(configurationPath);
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_webPort.has_value()) << "the row was created without the web interface's port";
+        EXPECT_EQ(18888, *row->m_webPort);
+        ASSERT_TRUE(row->m_webEncrypted.has_value());
+        EXPECT_TRUE(*row->m_webEncrypted);
+    }
+
+    {
+        Buffer trimmed;
+        trimmed.loadFromFile(configurationPath);
+        const String written(trimmed.c_str(), trimmed.bytes());
+        EXPECT_EQ(String::npos, written.find("\"listener_port\"")) << "the file still carries the web port";
+        EXPECT_NE(String::npos, written.find("\"certfile\"")) << "the key paths are the machine's and stay";
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CWebService web;
+        web.m_listener_port = 18889;
+        web.m_encrypted = false;
+        settings.serviceControl("set", web);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_webPort.has_value());
+        EXPECT_EQ(18889, *row->m_webPort) << "the interface did not write the row";
+        ASSERT_TRUE(row->m_webEncrypted.has_value());
+        EXPECT_FALSE(*row->m_webEncrypted);
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_EQ(18889, settings.m_web_service.m_listener_port.asInteger())
+            << "a restart did not take the web port from the row";
+        EXPECT_FALSE(settings.m_web_service.m_encrypted.asBool());
     }
 
     {

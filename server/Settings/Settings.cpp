@@ -354,7 +354,8 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     }
     target.m_authentication = startup.m_authentication;
     target.m_persistence = startup.m_persistence;
-    target.m_web_service = startup.m_web_service;
+    target.m_web_service.m_certfile = startup.m_web_service.m_certfile;
+    target.m_web_service.m_keyfile = startup.m_web_service.m_keyfile;
     target.m_bridges = startup.m_bridges;
     if (!startup.m_cluster.isNull())
     {
@@ -568,7 +569,8 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
         startup.m_connections.m_ssl_keys = m_connections.m_ssl_keys;
         startup.m_authentication = m_authentication;
         startup.m_persistence = m_persistence;
-        startup.m_web_service = m_web_service;
+        startup.m_web_service.m_certfile = m_web_service.m_certfile;
+        startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
         startup.m_bridges = m_bridges;
         startup.m_cluster.m_database_uri = m_cluster.m_database_uri;
         // The cluster account's secret is kept in the accounts database; a copy beside it would be
@@ -1126,6 +1128,24 @@ void Settings::applyClusterConfigurationUnlocked()
             // The logging section, stored whole: a column per log subject would be a schema change
             // every time a subject is added. Parsed through the same loader the file goes through,
             // so a stored section means exactly what the same text in the file would.
+            // The web interface: the port it listens on and whether it is served over TLS. A row
+            // written before they moved here has neither, and the file's copy is taken once.
+            if (row->m_webPort)
+            {
+                m_web_service.m_listener_port = *row->m_webPort;
+            }
+            if (row->m_webEncrypted)
+            {
+                m_web_service.m_encrypted = *row->m_webEncrypted;
+            }
+            if (!row->m_webPort || !row->m_webEncrypted)
+            {
+                auto updated = *row;
+                if (!updated.m_webPort) updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+                if (!updated.m_webEncrypted) updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+                store.updateNode(updated);
+            }
+
             // The listeners: the ports and threads this node serves on. A row written before they
             // moved here has none, and the file's copy is taken once - after that the row is the
             // only one, and the file stops carrying them.
@@ -1195,6 +1215,8 @@ void Settings::applyClusterConfigurationUnlocked()
             if (!updated.m_queueMaxInflight) updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
             if (!updated.m_queueMaxBytes) updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
             if (!updated.m_listeners) updated.m_listeners = listenersJson(m_connections);
+            if (!updated.m_webPort) updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+            if (!updated.m_webEncrypted) updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
             if (!updated.m_logging) updated.m_logging = m_logging.toString(true, false);
             if (!updated.m_sendThreads) updated.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
             if (!updated.m_receiveThreads) updated.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1245,6 +1267,8 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
         row.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
         row.m_listeners = listenersJson(m_connections);
+        row.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+        row.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
         row.m_logging = m_logging.toString(true, false);
         row.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
         row.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1797,6 +1821,38 @@ void Settings::saveListenersToNodeRow()
     store.updateNode(updated);
 }
 
+void Settings::saveWebServiceToNodeRow()
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+    updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+    store.updateNode(updated);
+}
+
 void Settings::setListenerPort(const String& protocol, const int port)
 {
     for (auto& listener: m_connections.m_listener)
@@ -2015,6 +2071,7 @@ CWebService Settings::serviceControl(const std::string& action, const CWebServic
             {
                 m_web_service.m_keyfile = webService.m_keyfile.asString();
             }
+            saveWebServiceToNodeRow();
             saveConfigurationUnlocked();
         }
     }
@@ -2874,6 +2931,8 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_hostPort = m_cluster.m_this_node.m_host_port.asString();
                 row->m_redisUri = m_persistence.m_redis_uri.asString();
                 row->m_listeners = listenersJson(m_connections);
+                row->m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+                row->m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
                 row->m_clusterEnabled = false;
                 row->m_state = "Standalone";
                 row->m_lastError = "";
@@ -2962,6 +3021,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
         listenerFor(listeners, mqttSslProtocol)->set("port", values.m_mqtt_ssl_port.asInteger());
     }
     section(root, "web_service")->set("listener_port", values.m_web_service_port.asInteger());
+    m_web_service.m_listener_port = values.m_web_service_port.asInteger();
     section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
     section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
     // The Settings screen offers it beside the storage it applies to: a clean start is about what
@@ -3003,9 +3063,11 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_databaseUri = values.m_database_uri.asString();
             updated.m_redisUri = values.m_redis_uri.asString();
             updated.m_clusterEnabled = m_cluster.m_enabled.asBool();
-            // The screen's MQTT ports are the listeners' - written from what is in memory now,
-            // whether or not this save changed them.
+            // The screen's MQTT ports are the listeners' and its web port is the interface's -
+            // written from what is in memory now, whether or not this save changed them.
             updated.m_listeners = listenersJson(m_connections);
+            updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
+            updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
             if (!previous)
             {
                 updated.m_state = "Standalone";

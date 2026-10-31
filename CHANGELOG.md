@@ -14,6 +14,13 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **The web interface's port and scheme are stored in the database.** `web_service.listener_port`
+  and `encrypted` are the node's row, beside the listeners; the key and certificate paths stay in
+  the file, because they name files on this machine. The Settings screen's web port and the Service
+  page's scheme are written there. Moving the interface is still done live - the port is taken and
+  the socket replaced while the reply travels on the old one - so no restart is needed; the page
+  links to the new address when the port changes.
+
 - **The listeners are stored in the database, and a change to them takes effect at once.** The
   listener array - ports, threads, bind addresses, protocols - is the node's row now, as one JSON
   column, and the file keeps only the keys beside it, whose paths belong to the machine. A port

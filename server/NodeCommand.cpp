@@ -21,12 +21,12 @@ String xmq::controlNodeCluster(const filesystem::path& configuration, bool join,
 {
     if (timeout <= chrono::seconds::zero()) throw Exception("Node command timeout must be positive.");
     const auto file = DirectoryNames::resolveConfigurationFile(configuration);
-    Buffer content;
-    content.loadFromFile(file);
-    CServerConfiguration settings;
-    // Either shape: the file may be the whole configuration, or the bootstrap-only form a node
-    // writes once its database row holds the rest.
-    Settings::loadConfigurationShape(settings, String(content.c_str(), content.bytes()));
+
+    // Loaded as the server loads it, because the port this command needs may not be in the file at
+    // all: for a node whose settings live in a database, the web interface's port is the node's
+    // row. Reading the file alone found no port and refused to run.
+    Settings settings;
+    settings.loadConfiguration(file);
     string uuid;
     ifstream identity(file.parent_path() / cluster::NodeIdentity::FileName);
     getline(identity, uuid);

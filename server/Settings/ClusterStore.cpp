@@ -33,7 +33,8 @@ constexpr string_view nodeColumns =
     " cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
     " queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
     " limits_send_threads, limits_receive_threads, limits_delivery_threads,"
-    " limits_max_topic_alias, limits_max_packet_size, listeners_json";
+    " limits_max_topic_alias, limits_max_packet_size, listeners_json,"
+    " web_listener_port, web_encrypted";
 
 String nowUtc()
 {
@@ -64,6 +65,8 @@ ClusterStore::Node readNode(Query& query)
     if (!query["limits_max_topic_alias"].isNull()) node.m_maxTopicAlias = static_cast<int>(query["limits_max_topic_alias"].asInteger());
     if (!query["limits_max_packet_size"].isNull()) node.m_maxPacketSize = query["limits_max_packet_size"].asInteger();
     if (!query["listeners_json"].isNull()) node.m_listeners = query["listeners_json"].asString();
+    if (!query["web_listener_port"].isNull()) node.m_webPort = static_cast<int>(query["web_listener_port"].asInteger());
+    if (!query["web_encrypted"].isNull()) node.m_webEncrypted = query["web_encrypted"].asInteger() != 0;
     return node;
 }
 
@@ -107,6 +110,14 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
     auto& listeners = query.param("listeners_json");
     if (node.m_listeners) listeners = *node.m_listeners;
     else listeners.setNull(VariantDataType::VAR_TEXT);
+
+    auto& webPort = query.param("web_listener_port");
+    if (node.m_webPort) webPort = static_cast<int32_t>(*node.m_webPort);
+    else webPort.setNull(VariantDataType::VAR_INT);
+
+    auto& webEncrypted = query.param("web_encrypted");
+    if (node.m_webEncrypted) webEncrypted = static_cast<int32_t>(*node.m_webEncrypted ? 1 : 0);
+    else webEncrypted.setNull(VariantDataType::VAR_INT);
 }
 
 } // namespace
@@ -216,6 +227,8 @@ void ClusterStore::createSchema()
             "  limits_max_topic_alias int,"
             "  limits_max_packet_size bigint,"
             "  listeners_json        TEXT,"
+            "  web_listener_port     int,"
+            "  web_encrypted         int,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
@@ -240,7 +253,8 @@ void ClusterStore::createSchema()
                                     "limits_send_threads int", "limits_receive_threads int",
                                     "limits_delivery_threads int", "limits_max_topic_alias int",
                                     "limits_max_packet_size bigint",
-                                    "listeners_json text"})
+                                    "listeners_json text",
+                                    "web_listener_port int", "web_encrypted int"})
     {
         try {
             const AutoDatabaseConnection connection(*m_database);
@@ -323,12 +337,14 @@ void ClusterStore::insertNode(const Node& node)
                  "  cluster_enabled, cluster_lease_seconds, cluster_links, certificate,"
                  "  queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
                  "  limits_send_threads, limits_receive_threads, limits_delivery_threads,"
-                 "  limits_max_topic_alias, limits_max_packet_size, listeners_json, updated_at)"
+                 "  limits_max_topic_alias, limits_max_packet_size, listeners_json,"
+                 "  web_listener_port, web_encrypted, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
                  "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
                  "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :logging_json,"
                  "  :limits_send_threads, :limits_receive_threads, :limits_delivery_threads,"
-                 "  :limits_max_topic_alias, :limits_max_packet_size, :listeners_json, :updated_at)");
+                 "  :limits_max_topic_alias, :limits_max_packet_size, :listeners_json,"
+                 "  :web_listener_port, :web_encrypted, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -366,6 +382,8 @@ void ClusterStore::updateNode(const Node& node)
                  "  limits_max_topic_alias = :limits_max_topic_alias,"
                  "  limits_max_packet_size = :limits_max_packet_size,"
                  "  listeners_json = :listeners_json,"
+                 "  web_listener_port = :web_listener_port,"
+                 "  web_encrypted = :web_encrypted,"
                  "  updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 

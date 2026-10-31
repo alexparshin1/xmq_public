@@ -66,6 +66,11 @@ public:
         std::optional<int>    m_queueMaxInflight;  ///< queue_limits.max_inflight_messages.
         std::optional<int64_t> m_queueMaxBytes;    ///< queue_limits.max_bytes.
 
+        /// The web interface: the port it listens on and whether it is served over TLS. The key
+        /// and certificate paths stay in the file - they name files on this machine.
+        std::optional<int>  m_webPort;
+        std::optional<bool> m_webEncrypted;
+
         /// The listener array, as the JSON the configuration file would hold for it - the same
         /// treatment the logging section gets, and for the same reason: a listener carries several
         /// fields and the set of them changes with the release. Null when the row has none, and the

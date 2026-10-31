@@ -214,7 +214,8 @@
                     <xsd:element name="connections" type="tns:StartupConnections"/>
                     <xsd:element name="authentication" type="tns:Authentication"/>
                     <xsd:element name="persistence" type="tns:Persistence"/>
-                    <xsd:element name="web_service" type="tns:WebService"/>
+                    <xsd:element name="web_service" type="tns:StartupWebService"
+                                 maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="bridges" type="tns:Bridge"
                                  maxOccurs="unbounded" minOccurs="0"/>
                     <xsd:element name="cluster" type="tns:StartupCluster"
@@ -225,6 +226,16 @@
             <!-- What the file keeps of the connections: the keys this machine's listeners use. The
                  listeners themselves are the node's row, because their ports are what the interface
                  changes and what the database can hold for the next start. -->
+            <!-- What the file keeps of the web interface: the certificate and key this machine
+                 serves it with. The port and whether it is encrypted are the node's row, because
+                 they are what the Settings screen edits and what the next start has to read. -->
+            <xsd:complexType name="StartupWebService">
+                <xsd:sequence>
+                    <xsd:element name="certfile" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="keyfile" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
             <xsd:complexType name="StartupConnections">
                 <xsd:sequence>
                     <xsd:element name="ssl_keys" type="tns:SSLKeys" maxOccurs="1" minOccurs="0"/>

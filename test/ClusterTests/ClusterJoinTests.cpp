@@ -191,8 +191,15 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     // Transfer the standalone node to a real controller that owns MQTT and a separate web listener.
     stopNode(targetName);
     target.reset();
-    targetSettings->m_web_service.m_listener_port = 18886;
-    targetSettings->m_web_service.m_encrypted = false;
+    // Through the same path the Service page takes: the port and the scheme are the node's row
+    // now, and assigning them in memory would leave the row saying what it said before - which is
+    // what the node command reads.
+    {
+        CWebService web;
+        web.m_listener_port = 18886;
+        web.m_encrypted = false;
+        targetSettings->serviceControl("set", web);
+    }
     CLogging targetLogging = targetSettings->m_logging;
     targetLogging.m_log_to = (targetSettings->configurationPath().parent_path() / "controller.log").string();
     targetSettings->loggingControl("set", targetLogging);
