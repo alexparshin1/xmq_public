@@ -213,11 +213,8 @@
                 <xsd:sequence>
                     <xsd:element name="connections" type="tns:StartupConnections"/>
                     <xsd:element name="authentication" type="tns:Authentication"/>
-                    <xsd:element name="persistence" type="tns:Persistence"/>
                     <xsd:element name="web_service" type="tns:StartupWebService"
                                  maxOccurs="1" minOccurs="0"/>
-                    <xsd:element name="bridges" type="tns:Bridge"
-                                 maxOccurs="unbounded" minOccurs="0"/>
                     <xsd:element name="cluster" type="tns:StartupCluster"
                                  maxOccurs="1" minOccurs="0"/>
                 </xsd:sequence>

@@ -14,6 +14,13 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **`persistence` and `bridges` are stored in the database.** The storage URI was already the
+  node's row; `enabled`, `clean_start`, `max_redis_connections` and `max_queued_writes` join it, and
+  the bridges are one JSON column, the way the logging section and the listeners are. The file keeps
+  none of either: what it has left is the bootstrap - how to reach the database, the keys, and the
+  authentication flag. Both are written where the interface changes them, and a row written before
+  this migrates at the next start.
+
 - **The web interface's port and scheme are stored in the database.** `web_service.listener_port`
   and `encrypted` are the node's row, beside the listeners; the key and certificate paths stay in
   the file, because they name files on this machine. The Settings screen's web port and the Service

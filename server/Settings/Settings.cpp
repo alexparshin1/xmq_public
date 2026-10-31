@@ -309,6 +309,28 @@ String listenersJson(const CConnections& connections)
     return String(output.c_str(), output.bytes());
 }
 
+/// The bridges as JSON: `{"bridges":[ ... ]}`, the shape the configuration file holds them in.
+String bridgesJson(const CServerConfiguration& configuration)
+{
+    xdoc::Document document;
+    document.load(String("{}"));
+    configuration.m_bridges.exportTo(document.root(), "bridge");
+    Buffer buffer;
+    document.exportTo(xdoc::DataFormat::JSON, buffer, false);
+    return String(buffer.c_str(), buffer.bytes());
+}
+
+/// Reads that JSON back into the bridge array.
+void applyBridgesJson(const String& text, WSArray<CBridge>& bridges)
+{
+    xdoc::Document document;
+    document.load(text);
+    if (const auto node = document.root()->findFirst("bridges"))
+    {
+        bridges.load(node, false);
+    }
+}
+
 /// Reads that JSON back: the listeners, and nothing else - see listenersJson().
 void applyListenersJson(const String& text, CConnections& connections)
 {
@@ -365,10 +387,8 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
         }
     }
     target.m_authentication = startup.m_authentication;
-    target.m_persistence = startup.m_persistence;
     target.m_web_service.m_certfile = startup.m_web_service.m_certfile;
     target.m_web_service.m_keyfile = startup.m_web_service.m_keyfile;
-    target.m_bridges = startup.m_bridges;
     if (!startup.m_cluster.isNull())
     {
         target.m_cluster.m_database_uri = startup.m_cluster.m_database_uri;
@@ -570,30 +590,44 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     Strings warnings;
     validateConfigurationValues(*this, warnings);
 
+    if (!m_configurationInDatabase)
+    {
+        saveFullConfigurationUnlocked(config);
+        return;
+    }
+
     xdoc::Document document;
-    if (m_configurationInDatabase)
+    // The file is the bootstrap now: how to reach the database, what this machine listens on,
+    // which keys and bridges it uses. The sections the node's row holds are left out rather
+    // than written as a copy nobody reads - a copy that says one thing while the broker runs
+    // another is worse than no copy at all.
+    CStartupSettings startup;
+    startup.m_connections.m_ssl_keys = m_connections.m_ssl_keys;
+    startup.m_authentication = m_authentication;
+    startup.m_web_service.m_certfile = m_web_service.m_certfile;
+    startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
+    startup.m_cluster.m_database_uri = m_cluster.m_database_uri;
+    // The cluster account's secret is kept in the accounts database; a copy beside it would be
+    // the one readable place it had been moved out of.
+    startup.unload(document.root());
+
+    // Accounts live in the users file, so the configuration should not carry the element at all -
+    // not even as an empty list. Leaving it there invites someone to add an account to the wrong
+    // file. The type still has it so a configuration written before the split still loads.
+    if (const auto authentication = document.root()->findFirst("authentication");
+        authentication)
     {
-        // The file is the bootstrap now: how to reach the database, what this machine listens on,
-        // which keys and bridges it uses. The sections the node's row holds are left out rather
-        // than written as a copy nobody reads - a copy that says one thing while the broker runs
-        // another is worse than no copy at all.
-        CStartupSettings startup;
-        startup.m_connections.m_ssl_keys = m_connections.m_ssl_keys;
-        startup.m_authentication = m_authentication;
-        startup.m_persistence = m_persistence;
-        startup.m_web_service.m_certfile = m_web_service.m_certfile;
-        startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
-        startup.m_bridges = m_bridges;
-        startup.m_cluster.m_database_uri = m_cluster.m_database_uri;
-        // The cluster account's secret is kept in the accounts database; a copy beside it would be
-        // the one readable place it had been moved out of.
-        startup.unload(document.root());
+        authentication->remove("users");
     }
-    else
-    {
-        WSComplexType::unload(document.root());
-        if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
-    }
+
+    document.exportTo(xdoc::DataFormat::JSON, config, true);
+}
+
+void Settings::saveFullConfigurationUnlocked(Buffer& config) const
+{
+    xdoc::Document document;
+    WSComplexType::unload(document.root());
+    if (const auto cluster = document.root()->findFirst("cluster")) cluster->remove("password");
 
     // Accounts live in the users file, so the configuration should not carry the element at all -
     // not even as an empty list. Leaving it there invites someone to add an account to the wrong
@@ -1172,6 +1206,27 @@ void Settings::applyClusterConfigurationUnlocked()
                 store.updateNode(updated);
             }
 
+            // The rest of persistence, and the bridges. The row decides once it has a value, and a
+            // row written before this migrates from the file once. has_value() rather than truth,
+            // because 0 is a value - a pool size of zero means the default, not "not stored".
+            if (row->m_persistEnabled.has_value()) m_persistence.m_enabled = *row->m_persistEnabled;
+            if (row->m_persistCleanStart.has_value()) m_persistence.m_clean_start = *row->m_persistCleanStart;
+            if (row->m_persistMaxRedisConnections.has_value()) m_persistence.m_max_redis_connections = *row->m_persistMaxRedisConnections;
+            if (row->m_persistMaxQueuedWrites.has_value()) m_persistence.m_max_queued_writes = *row->m_persistMaxQueuedWrites;
+            if (row->m_bridges) applyBridgesJson(*row->m_bridges, m_bridges);
+            if (!row->m_persistEnabled.has_value() || !row->m_persistCleanStart.has_value() ||
+                !row->m_persistMaxRedisConnections.has_value() || !row->m_persistMaxQueuedWrites.has_value() ||
+                !row->m_bridges)
+            {
+                auto updated = *row;
+                if (!updated.m_persistEnabled.has_value()) updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+                if (!updated.m_persistCleanStart.has_value()) updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
+                if (!updated.m_persistMaxRedisConnections.has_value()) updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
+                if (!updated.m_persistMaxQueuedWrites.has_value()) updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
+                if (!updated.m_bridges) updated.m_bridges = bridgesJson(*this);
+                store.updateNode(updated);
+            }
+
             if (row->m_logging && !row->m_logging->empty())
             {
                 xdoc::Document document;
@@ -1281,6 +1336,11 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_listeners = listenersJson(m_connections);
         row.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
         row.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+        row.m_persistEnabled = m_persistence.m_enabled.asBool();
+        row.m_persistCleanStart = m_persistence.m_clean_start.asBool();
+        row.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
+        row.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
+        row.m_bridges = bridgesJson(*this);
         row.m_logging = m_logging.toString(true, false);
         row.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
         row.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1396,14 +1456,9 @@ String Settings::applyInvitationAccept(const String& redisUri, const String& dat
 
         // The previous configuration is the last-good one: kept beside the new one, so a start
         // that cannot join the cluster has what it was serving to go back to.
-        if (!m_configurationPath.empty() && filesystem::exists(m_configurationPath))
+        if (const auto kept = keepLastGoodUnlocked(); !kept.empty())
         {
-            error_code errorCode;
-            filesystem::copy_file(m_configurationPath, lastGoodPath(), filesystem::copy_options::overwrite_existing, errorCode);
-            if (errorCode)
-            {
-                return String("Cannot keep the previous configuration: ") + errorCode.message();
-            }
+            return String("Cannot keep the previous configuration: ") + kept;
         }
 
         m_persistence.m_redis_uri = redisUri;
@@ -1434,12 +1489,36 @@ filesystem::path Settings::lastGoodPath() const
 String Settings::keepLastGoodConfiguration()
 {
     const WriteLock lock(m_mutex);
-    if (m_configurationPath.empty()) return {};
+    return keepLastGoodUnlocked();
+}
+
+String Settings::keepLastGoodUnlocked()
+{
+    if (m_configurationPath.empty() || !filesystem::exists(m_configurationPath))
+    {
+        return {};
+    }
     try
     {
-        Buffer current;
-        saveConfigurationUnlocked(current);
-        saveAtomically(lastGoodPath(), current);
+        if (m_configurationInDatabase)
+        {
+            // The file is the trimmed bootstrap; the last-good copy has to carry everything a
+            // rollback puts back, the storage URI included, so it is written in full.
+            Buffer current;
+            saveFullConfigurationUnlocked(current);
+            saveAtomically(lastGoodPath(), current);
+        }
+        else
+        {
+            // The file is already the full configuration; a byte-for-byte copy is what a rollback
+            // puts back, and it keeps the exact text a hand-edited file carried.
+            error_code errorCode;
+            filesystem::copy_file(m_configurationPath, lastGoodPath(), filesystem::copy_options::overwrite_existing, errorCode);
+            if (errorCode)
+            {
+                return errorCode.message();
+            }
+        }
         return {};
     }
     catch (const exception& error)
@@ -1541,14 +1620,9 @@ String Settings::applyClusterEnable(const String& redisUri, const String& databa
 
         // The way back, as after an accept: a start that cannot join - the storage holds another
         // cluster, the Redis is gone - puts the previous configuration back and says why.
-        if (!m_configurationPath.empty() && filesystem::exists(m_configurationPath))
+        if (const auto kept = keepLastGoodUnlocked(); !kept.empty())
         {
-            error_code errorCode;
-            filesystem::copy_file(m_configurationPath, lastGoodPath(), filesystem::copy_options::overwrite_existing, errorCode);
-            if (errorCode)
-            {
-                return String("Cannot keep the previous configuration: ") + errorCode.message();
-            }
+            return String("Cannot keep the previous configuration: ") + kept;
         }
 
         m_persistence.m_redis_uri = redisUri;
@@ -1865,6 +1939,71 @@ void Settings::saveWebServiceToNodeRow()
     store.updateNode(updated);
 }
 
+void Settings::savePersistenceToNodeRow()
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+    updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
+    updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
+    updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
+    store.updateNode(updated);
+}
+
+void Settings::saveBridgesToNodeRow()
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_bridges = bridgesJson(*this);
+    store.updateNode(updated);
+}
+
 void Settings::setListenerPort(const String& protocol, const int port)
 {
     for (auto& listener: m_connections.m_listener)
@@ -1881,7 +2020,9 @@ uint64_t Settings::bridgeControl(const string& action, const CBridge& bridge)
 {
     const WriteLock lock(m_mutex);
 
-    return m_bridgeManager.control(action, bridge);
+    const auto id = m_bridgeManager.control(action, bridge);
+    saveBridgesToNodeRow();
+    return id;
 }
 
 CPersistence Settings::persistenceControl(const string& action, const CPersistence& persistence)
@@ -1898,6 +2039,7 @@ CPersistence Settings::persistenceControl(const string& action, const CPersisten
         m_persistence = persistence;
         m_persistence.m_redis_uri = UriSecret::restored(String(persistence.m_redis_uri.asString()),
                                                         storedUri);
+        savePersistenceToNodeRow();
         saveConfigurationUnlocked();
     }
 
@@ -2945,6 +3087,11 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_listeners = listenersJson(m_connections);
                 row->m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
                 row->m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+                row->m_persistEnabled = m_persistence.m_enabled.asBool();
+                row->m_persistCleanStart = m_persistence.m_clean_start.asBool();
+                row->m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
+                row->m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
+                row->m_bridges = bridgesJson(*this);
                 row->m_clusterEnabled = false;
                 row->m_state = "Standalone";
                 row->m_lastError = "";
@@ -3034,11 +3181,22 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     }
     section(root, "web_service")->set("listener_port", values.m_web_service_port.asInteger());
     m_web_service.m_listener_port = values.m_web_service_port.asInteger();
-    section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
-    section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
-    // The Settings screen offers it beside the storage it applies to: a clean start is about what
-    // that storage holds, and a person looking for it there should not have to find another page.
-    section(root, "persistence")->set("clean_start", values.m_clean_start.asBool());
+    if (m_configurationInDatabase)
+    {
+        // Persistence is the row's now, and the file does not carry it: the screen's storage and
+        // clean-start are set where they live, and written to the row below.
+        m_persistence.m_enabled = !values.m_redis_uri.asString().empty();
+        m_persistence.m_redis_uri = values.m_redis_uri.asString();
+        m_persistence.m_clean_start = values.m_clean_start.asBool();
+    }
+    else
+    {
+        section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
+        section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
+        // The Settings screen offers it beside the storage it applies to: a clean start is about what
+        // that storage holds, and a person looking for it there should not have to find another page.
+        section(root, "persistence")->set("clean_start", values.m_clean_start.asBool());
+    }
     section(root, "authentication")->set("database_uri", values.m_database_uri.asString());
     const auto id = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
     auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);
@@ -3080,6 +3238,11 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_listeners = listenersJson(m_connections);
             updated.m_webPort = static_cast<int>(m_web_service.m_listener_port.asInteger());
             updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
+            updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+            updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
+            updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
+            updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
+            updated.m_bridges = bridgesJson(*this);
             if (!previous)
             {
                 updated.m_state = "Standalone";

@@ -34,7 +34,9 @@ constexpr string_view nodeColumns =
     " queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
     " limits_send_threads, limits_receive_threads, limits_delivery_threads,"
     " limits_max_topic_alias, limits_max_packet_size, listeners_json,"
-    " web_listener_port, web_encrypted";
+    " web_listener_port, web_encrypted,"
+    " persist_enabled, persist_clean_start, persist_max_redis_connections, persist_max_queued_writes,"
+    " bridges_json";
 
 String nowUtc()
 {
@@ -67,6 +69,11 @@ ClusterStore::Node readNode(Query& query)
     if (!query["listeners_json"].isNull()) node.m_listeners = query["listeners_json"].asString();
     if (!query["web_listener_port"].isNull()) node.m_webPort = static_cast<int>(query["web_listener_port"].asInteger());
     if (!query["web_encrypted"].isNull()) node.m_webEncrypted = query["web_encrypted"].asInteger() != 0;
+    if (!query["persist_enabled"].isNull()) node.m_persistEnabled = query["persist_enabled"].asInteger() != 0;
+    if (!query["persist_clean_start"].isNull()) node.m_persistCleanStart = query["persist_clean_start"].asInteger() != 0;
+    if (!query["persist_max_redis_connections"].isNull()) node.m_persistMaxRedisConnections = static_cast<int>(query["persist_max_redis_connections"].asInteger());
+    if (!query["persist_max_queued_writes"].isNull()) node.m_persistMaxQueuedWrites = static_cast<int>(query["persist_max_queued_writes"].asInteger());
+    if (!query["bridges_json"].isNull()) node.m_bridges = query["bridges_json"].asString();
     return node;
 }
 
@@ -118,6 +125,21 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
     auto& webEncrypted = query.param("web_encrypted");
     if (node.m_webEncrypted) webEncrypted = static_cast<int32_t>(*node.m_webEncrypted ? 1 : 0);
     else webEncrypted.setNull(VariantDataType::VAR_INT);
+
+    const auto bindBool = [&query](const char* name, const std::optional<bool>& value) {
+        auto& parameter = query.param(name);
+        if (value) parameter = static_cast<int32_t>(*value ? 1 : 0);
+        else parameter.setNull(VariantDataType::VAR_INT);
+    };
+    bindBool("persist_enabled", node.m_persistEnabled);
+    bindBool("persist_clean_start", node.m_persistCleanStart);
+
+    bindInt("persist_max_redis_connections", node.m_persistMaxRedisConnections);
+    bindInt("persist_max_queued_writes", node.m_persistMaxQueuedWrites);
+
+    auto& bridges = query.param("bridges_json");
+    if (node.m_bridges) bridges = *node.m_bridges;
+    else bridges.setNull(VariantDataType::VAR_TEXT);
 }
 
 } // namespace
@@ -229,6 +251,11 @@ void ClusterStore::createSchema()
             "  listeners_json        TEXT,"
             "  web_listener_port     int,"
             "  web_encrypted         int,"
+            "  persist_enabled       int,"
+            "  persist_clean_start   int,"
+            "  persist_max_redis_connections int,"
+            "  persist_max_queued_writes int,"
+            "  bridges_json          TEXT,"
             "  updated_at            varchar(40),"
             "  CONSTRAINT pk_xmq_node PRIMARY KEY (node_id),"
             "  CONSTRAINT uq_xmq_node_name UNIQUE (name))" + tableSuffix());
@@ -254,7 +281,10 @@ void ClusterStore::createSchema()
                                     "limits_delivery_threads int", "limits_max_topic_alias int",
                                     "limits_max_packet_size bigint",
                                     "listeners_json text",
-                                    "web_listener_port int", "web_encrypted int"})
+                                    "web_listener_port int", "web_encrypted int",
+                                    "persist_enabled int", "persist_clean_start int",
+                                    "persist_max_redis_connections int", "persist_max_queued_writes int",
+                                    "bridges_json text"})
     {
         try {
             const AutoDatabaseConnection connection(*m_database);
@@ -338,13 +368,17 @@ void ClusterStore::insertNode(const Node& node)
                  "  queue_max_size, queue_max_inflight, queue_max_bytes, logging_json,"
                  "  limits_send_threads, limits_receive_threads, limits_delivery_threads,"
                  "  limits_max_topic_alias, limits_max_packet_size, listeners_json,"
-                 "  web_listener_port, web_encrypted, updated_at)"
+                 "  web_listener_port, web_encrypted,"
+                 "  persist_enabled, persist_clean_start, persist_max_redis_connections,"
+                 "  persist_max_queued_writes, bridges_json, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
                  "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
                  "  :queue_max_size, :queue_max_inflight, :queue_max_bytes, :logging_json,"
                  "  :limits_send_threads, :limits_receive_threads, :limits_delivery_threads,"
                  "  :limits_max_topic_alias, :limits_max_packet_size, :listeners_json,"
-                 "  :web_listener_port, :web_encrypted, :updated_at)");
+                 "  :web_listener_port, :web_encrypted,"
+                 "  :persist_enabled, :persist_clean_start, :persist_max_redis_connections,"
+                 "  :persist_max_queued_writes, :bridges_json, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
     insert.param("name") = node.m_name;
@@ -384,6 +418,11 @@ void ClusterStore::updateNode(const Node& node)
                  "  listeners_json = :listeners_json,"
                  "  web_listener_port = :web_listener_port,"
                  "  web_encrypted = :web_encrypted,"
+                 "  persist_enabled = :persist_enabled,"
+                 "  persist_clean_start = :persist_clean_start,"
+                 "  persist_max_redis_connections = :persist_max_redis_connections,"
+                 "  persist_max_queued_writes = :persist_max_queued_writes,"
+                 "  bridges_json = :bridges_json,"
                  "  updated_at = :updated_at"
                  " WHERE node_id = :node_id");
 

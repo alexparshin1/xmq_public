@@ -135,9 +135,10 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
         EXPECT_EQ(String::npos, text.find("\"this_node\""));
         EXPECT_EQ(String::npos, text.find("\"lease_seconds\""));
 
+        EXPECT_EQ(String::npos, text.find("\"persistence\"")) << "persistence is the row's now";
+        EXPECT_EQ(String::npos, text.find("\"bridges\"")) << "the bridges are the row's now";
         EXPECT_NE(String::npos, text.find("\"connections\"")) << "the listeners are the file's to decide";
         EXPECT_NE(String::npos, text.find("\"web_service\""));
-        EXPECT_NE(String::npos, text.find("\"persistence\""));
         EXPECT_NE(String::npos, text.find("\"database_uri\"")) << "the database has to stay reachable from the file";
     }
 
@@ -293,6 +294,97 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
         EXPECT_EQ(77, settings.m_queue_limits.m_max_size.asInteger()) << "a restart did not take the limits from the row";
         EXPECT_EQ(33, settings.m_queue_limits.m_max_inflight_messages.asInteger());
         EXPECT_EQ(65536, settings.m_queue_limits.m_max_bytes.asInteger());
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
+/**
+ * Persistence and the bridges are the row's: the file no longer carries either. The storage URI was
+ * already there; the switches and pool sizes join it, and the bridges are one JSON column.
+ */
+TEST(XMQ_ClusterBootstrapTests, persistenceAndBridgesAreReadFromTheNodeRowAndWrittenBackToIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_persist_bridges_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(configurationText()).saveToFile(configurationPath);
+
+    String nodeId;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_persistEnabled.has_value()) << "the row was created without the persistence switches";
+        EXPECT_FALSE(*row->m_persistEnabled);
+        ASSERT_TRUE(row->m_bridges.has_value()) << "the row was created without the bridges";
+    }
+
+    {
+        Buffer trimmed;
+        trimmed.loadFromFile(configurationPath);
+        const String text(trimmed.c_str(), trimmed.bytes());
+        EXPECT_EQ(String::npos, text.find("\"persistence\"")) << "the file still carries persistence";
+        EXPECT_EQ(String::npos, text.find("\"bridges\"")) << "the file still carries the bridges";
+        EXPECT_NE(String::npos, text.find("\"database_uri\"")) << "the database has to stay reachable";
+    }
+
+    // A change through the interface goes to the row.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CPersistence persistence = settings.m_persistence;
+        persistence.m_enabled = true;
+        persistence.m_clean_start = true;
+        persistence.m_max_redis_connections = 7;
+        settings.persistenceControl("set", persistence);
+
+        CBridge bridge;
+        bridge.m_node_name = "upstream";
+        bridge.m_enabled = true;
+        bridge.m_host_port = "localhost:1884";
+        bridge.m_clean_session = true;
+        bridge.m_mode = "out";
+        settings.bridgeControl("add", bridge);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_persistEnabled.has_value());
+        EXPECT_TRUE(*row->m_persistEnabled);
+        ASSERT_TRUE(row->m_persistMaxRedisConnections.has_value());
+        EXPECT_EQ(7, *row->m_persistMaxRedisConnections);
+        ASSERT_TRUE(row->m_bridges.has_value());
+        EXPECT_NE(String::npos, row->m_bridges->find("localhost")) << row->m_bridges->c_str();
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        EXPECT_TRUE(settings.m_persistence.m_enabled.asBool()) << "a restart did not take persistence from the row";
+        EXPECT_TRUE(settings.m_persistence.m_clean_start.asBool());
+        EXPECT_EQ(7, settings.m_persistence.m_max_redis_connections.asInteger());
+        EXPECT_EQ(1U, settings.m_bridges.size()) << "a restart did not take the bridge from the row";
     }
 
     {

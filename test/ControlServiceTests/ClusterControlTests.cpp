@@ -628,10 +628,13 @@ TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
     EXPECT_TRUE(m_settings->m_cluster.m_enabled.asBool());
     EXPECT_TRUE(enabled.m_enabled == true);
 
-    // The configuration on disk is what the next start reads.
-    Buffer configuration;
-    configuration.loadFromFile(m_configurationPath);
-    EXPECT_NE(String::npos, String(configuration).find(TestServers::redisUri()));
+    // The storage is the row's now, not the file's: the next start reads it from there.
+    {
+        ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+        const auto    row = store.node(m_settings->nodeIdentity());
+        ASSERT_TRUE(row.has_value());
+        EXPECT_EQ(String(TestServers::redisUri()), row->m_redisUri);
+    }
 
     // The previous configuration is kept: a start that cannot join goes back to it.
     EXPECT_TRUE(filesystem::exists(filesystem::path(m_configurationPath.string() + ".lastgood")));

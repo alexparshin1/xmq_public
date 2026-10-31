@@ -68,6 +68,10 @@ SET (xmq_files
   service/CSettingsControlResponse.cpp service/CSettingsControlResponse.h
   service/CSetupState.cpp service/CSetupState.h
   service/CSetupStateResponse.cpp service/CSetupStateResponse.h
+  service/CStartupCluster.cpp service/CStartupCluster.h
+  service/CStartupConnections.cpp service/CStartupConnections.h
+  service/CStartupSettings.cpp service/CStartupSettings.h
+  service/CStartupWebService.cpp service/CStartupWebService.h
   service/CSubjectEvents.cpp service/CSubjectEvents.h
   service/CSubjectLogLevels.cpp service/CSubjectLogLevels.h
   service/CSubscription.cpp service/CSubscription.h

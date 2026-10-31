@@ -71,6 +71,18 @@ public:
         std::optional<int>  m_webPort;
         std::optional<bool> m_webEncrypted;
 
+        // The rest of persistence. The storage URI is m_redisUri; these are the switches and the
+        // pool sizes beside it.
+        std::optional<bool> m_persistEnabled;
+        std::optional<bool> m_persistCleanStart;
+        std::optional<int>  m_persistMaxRedisConnections;
+        std::optional<int>  m_persistMaxQueuedWrites;
+
+        /// The bridges, as the JSON the configuration file would hold for them. One column, the way
+        /// the logging section and the listeners are: a bridge carries several fields, some of them
+        /// credentials, and the set changes with the release.
+        std::optional<sptk::String> m_bridges;
+
         /// The listener array, as the JSON the configuration file would hold for it - the same
         /// treatment the logging section gets, and for the same reason: a listener carries several
         /// fields and the set of them changes with the release. Null when the row has none, and the

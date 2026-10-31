@@ -384,6 +384,16 @@ private:
     void saveConfigurationUnlocked() const;
 
     /**
+     * @brief Writes the configuration in its full form, whatever shape the file has.
+     *
+     * The on-disk file is trimmed to StartupSettings once this node's row holds the rest, but a
+     * last-good copy has to carry everything it must be able to put back - persistence's storage
+     * URI included. This writes the full Settings object, so a rollback can restore a node whose
+     * file no longer names them.
+     */
+    void saveFullConfigurationUnlocked(sptk::Buffer& config) const;
+
+    /**
      * @brief Rewrites the file in its StartupSettings form, when this node's database holds the rest.
      *
      * Called once the node's row exists - on the first start that creates it, and on every start
@@ -422,6 +432,12 @@ private:
 
     /// Writes the web interface's port and scheme into this node's row, under the write lock.
     void saveWebServiceToNodeRow();
+
+    /// Writes the persistence switches and pool sizes into this node's row, under the write lock.
+    void savePersistenceToNodeRow();
+
+    /// Writes the bridge array into this node's row, under the write lock.
+    void saveBridgesToNodeRow();
     void updateUsers();
 
     /**
@@ -576,6 +592,16 @@ public:
 
     /// Capture the running configuration before changing role (SQL overrides included).
     sptk::String keepLastGoodConfiguration();
+
+    /**
+     * @brief Writes the last-good copy beside the configuration, unlocked.
+     *
+     * Full form when this node's row holds the rest - a rollback has to put back what the trimmed
+     * file no longer names, the storage URI first - and the file itself (byte for byte) otherwise,
+     * so a hand-edited configuration is restored exactly as it was. Returns an error text, or
+     * empty when the copy is in place.
+     */
+    sptk::String keepLastGoodUnlocked();
 
     /**
      * @brief A start after Accept failed: the previous configuration is put back, the pending
