@@ -14,6 +14,15 @@ Requires SPTK 5.6.17.
 
 ### Changed
 
+- **The listeners are stored in the database, and a change to them takes effect at once.** The
+  listener array - ports, threads, bind addresses, protocols - is the node's row now, as one JSON
+  column, and the file keeps only the keys beside it, whose paths belong to the machine. A port
+  added, changed or removed through the interface is opened or closed on the running broker, which
+  is what the interface has always done and what the test now checks by connecting to the port
+  rather than by reading the configuration back. The Settings screen's MQTT ports are the same
+  listeners, so they are written where the listeners live. A row written before this carries none,
+  and the file's copy is taken once, at the next start.
+
 - **`Clean start` is on the Settings screen.** It was only on Persistence, which is where it
   belongs by subject and not where it is looked for: the Settings screen edits the storage the
   choice applies to, showed the value in its confirmation, and had no way to change it. It is a

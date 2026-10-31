@@ -294,6 +294,32 @@ namespace {
 const CServerConfiguration& builtInDefaults();
 
 /**
+ * The listeners as JSON, in the shape the configuration file holds them.
+ *
+ * The section is written whole because the type requires the keys beside the listeners, but only
+ * the listeners are read back: the key paths belong to the machine and stay in its file. Written
+ * this way the text is a configuration section a person can read, not a private format.
+ */
+String listenersJson(const CConnections& connections)
+{
+    xdoc::Document document;
+    connections.unload(document.root());
+    Buffer output;
+    document.exportTo(xdoc::DataFormat::JSON, output, false);
+    return String(output.c_str(), output.bytes());
+}
+
+/// Reads that JSON back: the listeners, and nothing else - see listenersJson().
+void applyListenersJson(const String& text, CConnections& connections)
+{
+    xdoc::Document document;
+    document.load(text);
+    CConnections loaded;
+    loaded.load(document.root());
+    connections.m_listener = loaded.m_listener;
+}
+
+/**
  * Loads a configuration file of either shape.
  *
  * The whole configuration, or the StartupSettings form a node writes once its row in a shared
@@ -312,7 +338,7 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     CStartupSettings startup;
     startup.load(root);
 
-    target.m_connections = startup.m_connections;
+    target.m_connections.m_ssl_keys = startup.m_connections.m_ssl_keys;
     target.m_authentication = startup.m_authentication;
     target.m_persistence = startup.m_persistence;
     target.m_web_service = startup.m_web_service;
@@ -526,7 +552,7 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
         // than written as a copy nobody reads - a copy that says one thing while the broker runs
         // another is worse than no copy at all.
         CStartupSettings startup;
-        startup.m_connections = m_connections;
+        startup.m_connections.m_ssl_keys = m_connections.m_ssl_keys;
         startup.m_authentication = m_authentication;
         startup.m_persistence = m_persistence;
         startup.m_web_service = m_web_service;
@@ -1087,6 +1113,20 @@ void Settings::applyClusterConfigurationUnlocked()
             // The logging section, stored whole: a column per log subject would be a schema change
             // every time a subject is added. Parsed through the same loader the file goes through,
             // so a stored section means exactly what the same text in the file would.
+            // The listeners: the ports and threads this node serves on. A row written before they
+            // moved here has none, and the file's copy is taken once - after that the row is the
+            // only one, and the file stops carrying them.
+            if (row->m_listeners)
+            {
+                applyListenersJson(*row->m_listeners, m_connections);
+            }
+            else
+            {
+                auto updated = *row;
+                updated.m_listeners = listenersJson(m_connections);
+                store.updateNode(updated);
+            }
+
             if (row->m_logging && !row->m_logging->empty())
             {
                 xdoc::Document document;
@@ -1141,6 +1181,7 @@ void Settings::applyClusterConfigurationUnlocked()
             if (!updated.m_queueMaxSize) updated.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
             if (!updated.m_queueMaxInflight) updated.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
             if (!updated.m_queueMaxBytes) updated.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+            if (!updated.m_listeners) updated.m_listeners = listenersJson(m_connections);
             if (!updated.m_logging) updated.m_logging = m_logging.toString(true, false);
             if (!updated.m_sendThreads) updated.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
             if (!updated.m_receiveThreads) updated.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1190,6 +1231,7 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_queueMaxSize = static_cast<int>(m_queue_limits.m_max_size.asInteger());
         row.m_queueMaxInflight = static_cast<int>(m_queue_limits.m_max_inflight_messages.asInteger());
         row.m_queueMaxBytes = static_cast<int64_t>(m_queue_limits.m_max_bytes.isNull() ? 0 : m_queue_limits.m_max_bytes.asInteger());
+        row.m_listeners = listenersJson(m_connections);
         row.m_logging = m_logging.toString(true, false);
         row.m_sendThreads = threadCountFrom(m_server_limits.m_send_threads.asString());
         row.m_receiveThreads = threadCountFrom(m_server_limits.m_receive_threads.asString());
@@ -1706,7 +1748,52 @@ uint64_t Settings::listenerControl(const string& action, const CListener& listen
 {
     const WriteLock lock(m_mutex);
 
-    return m_listenerManager.control(action, listener);
+    const auto id = m_listenerManager.control(action, listener);
+    saveListenersToNodeRow();
+    return id;
+}
+
+void Settings::saveListenersToNodeRow()
+{
+    if (!m_accountsPool || m_configurationPath.empty())
+    {
+        return;
+    }
+
+    const auto nodeId = cluster::NodeIdentity::load(
+        filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+    if (nodeId.empty())
+    {
+        return;
+    }
+
+    ClusterStore store(m_accountsPool);
+    if (!store.isClusterDatabase())
+    {
+        return;
+    }
+
+    const auto row = store.node(nodeId);
+    if (!row)
+    {
+        return;
+    }
+
+    auto updated = *row;
+    updated.m_listeners = listenersJson(m_connections);
+    store.updateNode(updated);
+}
+
+void Settings::setListenerPort(const String& protocol, const int port)
+{
+    for (auto& listener: m_connections.m_listener)
+    {
+        if (String(listener.m_protocol.asString()).toUpperCase() == protocol)
+        {
+            listener.m_port = port;
+            return;
+        }
+    }
 }
 
 uint64_t Settings::bridgeControl(const string& action, const CBridge& bridge)
@@ -2728,6 +2815,11 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     // disk, rather than at the next start.
     loadConfigurationUnlocked(newConfiguration);
 
+    // The ports the setup asked for, in memory: the listeners may have been read back from this
+    // node's row, and the setup is the newer of the two - the row is written from this below.
+    setListenerPort(mqttProtocol, static_cast<int>(setup.m_mqtt_port.asInteger()));
+    setListenerPort(mqttSslProtocol, static_cast<int>(setup.m_mqtt_ssl_port.asInteger()));
+
     // A new or local accounts store is initialised with the supplied passwords. Existing
     // shared accounts belong to all nodes and must survive another node's setup unchanged.
     if (!existingSharedAccounts)
@@ -2768,6 +2860,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_name = m_cluster.m_this_node.m_node_name.asString();
                 row->m_hostPort = m_cluster.m_this_node.m_host_port.asString();
                 row->m_redisUri = m_persistence.m_redis_uri.asString();
+                row->m_listeners = listenersJson(m_connections);
                 row->m_clusterEnabled = false;
                 row->m_state = "Standalone";
                 row->m_lastError = "";
@@ -2841,10 +2934,20 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
         node->set("node_name", values.m_node_name.asString());
         node->set("host_port", values.m_node_host.asString() + ":" + to_string(values.m_mqtt_ssl_port.asInteger()));
     }
-    const auto listeners = section(root, "connections")->findFirst("listener");
-    if (!listeners) throw Exception("The node has no listener configuration.");
-    listenerFor(listeners, mqttProtocol)->set("port", values.m_mqtt_port.asInteger());
-    listenerFor(listeners, mqttSslProtocol)->set("port", values.m_mqtt_ssl_port.asInteger());
+    if (m_configurationInDatabase)
+    {
+        // The listeners are the row's now, and the file does not carry them. The ports on this
+        // screen belong to those listeners, so they are set where the listeners live.
+        setListenerPort(mqttProtocol, static_cast<int>(values.m_mqtt_port.asInteger()));
+        setListenerPort(mqttSslProtocol, static_cast<int>(values.m_mqtt_ssl_port.asInteger()));
+    }
+    else
+    {
+        const auto listeners = section(root, "connections")->findFirst("listener");
+        if (!listeners) throw Exception("The node has no listener configuration.");
+        listenerFor(listeners, mqttProtocol)->set("port", values.m_mqtt_port.asInteger());
+        listenerFor(listeners, mqttSslProtocol)->set("port", values.m_mqtt_ssl_port.asInteger());
+    }
     section(root, "web_service")->set("listener_port", values.m_web_service_port.asInteger());
     section(root, "persistence")->set("enabled", !values.m_redis_uri.asString().empty());
     section(root, "persistence")->set("redis_uri", values.m_redis_uri.asString());
@@ -2887,6 +2990,9 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_databaseUri = values.m_database_uri.asString();
             updated.m_redisUri = values.m_redis_uri.asString();
             updated.m_clusterEnabled = m_cluster.m_enabled.asBool();
+            // The screen's MQTT ports are the listeners' - written from what is in memory now,
+            // whether or not this save changed them.
+            updated.m_listeners = listenersJson(m_connections);
             if (!previous)
             {
                 updated.m_state = "Standalone";

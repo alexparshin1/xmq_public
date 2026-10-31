@@ -412,6 +412,13 @@ private:
      * is the copy. Called under the configuration's write lock.
      */
     void saveLoggingToNodeRow(const CLogging& logging);
+
+    /// Writes the listener array into this node's row, under the configuration's write lock.
+    void saveListenersToNodeRow();
+
+    /// Sets the port of the listener with this protocol, in memory - the row's copy is written
+    /// from it. Does nothing when the node has no such listener.
+    void setListenerPort(const sptk::String& protocol, int port);
     void updateUsers();
 
     /**

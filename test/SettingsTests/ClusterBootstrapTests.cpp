@@ -307,6 +307,84 @@ TEST(XMQ_ClusterBootstrapTests, queueLimitsAreReadFromTheNodeRowAndWrittenBackTo
 }
 
 /**
+ * The listeners are the row's: their ports are what the interface changes and what the next start
+ * has to read, and the file keeps only the keys beside them.
+ */
+TEST(XMQ_ClusterBootstrapTests, listenersAreReadFromTheNodeRowAndWrittenBackToIt)
+{
+    if (!pgAnswers())
+    {
+        GTEST_SKIP() << "PostgreSQL does not answer here";
+    }
+
+    const auto directory = filesystem::temp_directory_path() / ("xmq_listeners_" + to_string(::getpid()));
+    filesystem::remove_all(directory);
+    filesystem::create_directories(directory);
+
+    const auto configurationPath = directory / "xmq_server.conf";
+    Buffer(configurationText()).saveToFile(configurationPath);
+
+    String nodeId;
+    int64_t listenerId = 0;
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        nodeId = cluster::NodeIdentity::load(filesystem::path(configurationPath).replace_filename(cluster::NodeIdentity::FileName));
+        ASSERT_FALSE(settings.m_connections.m_listener.empty());
+        listenerId = settings.m_connections.m_listener[0].m_id.asInt64();
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_listeners.has_value()) << "the row was created without the listeners the file had";
+        EXPECT_NE(String::npos, row->m_listeners->find("18886")) << row->m_listeners->c_str();
+    }
+
+    {
+        Buffer trimmed;
+        trimmed.loadFromFile(configurationPath);
+        const String text(trimmed.c_str(), trimmed.bytes());
+        EXPECT_EQ(String::npos, text.find("\"listener\"")) << "the file still carries the listeners";
+        EXPECT_NE(String::npos, text.find("\"ssl_keys\"")) << "the keys are the machine's and stay in the file";
+    }
+
+    // A change made through the interface goes to the row, and the next start reads it there.
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+
+        CListener listener = settings.m_connections.m_listener[0];
+        listener.m_port = 18887;
+        settings.listenerControl("modify", listener);
+
+        ClusterStore store(make_shared<DatabaseConnectionPool>(pgUri, 1));
+        const auto row = store.node(nodeId);
+        ASSERT_TRUE(row.has_value());
+        ASSERT_TRUE(row->m_listeners.has_value());
+        EXPECT_NE(String::npos, row->m_listeners->find("18887")) << "the interface did not write the row";
+    }
+
+    {
+        Settings settings;
+        settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
+        ASSERT_FALSE(settings.m_connections.m_listener.empty());
+        EXPECT_EQ(18887, settings.m_connections.m_listener[0].m_port.asInteger())
+            << "a restart did not take the listener from the row";
+        EXPECT_EQ(listenerId, settings.m_connections.m_listener[0].m_id.asInt64());
+    }
+
+    {
+        DatabaseConnectionPool       cleanup(pgUri, 1);
+        const AutoDatabaseConnection connection(cleanup);
+        Query                        remove(connection.connection(), "DELETE FROM xmq_node WHERE node_id = :node_id");
+        remove.param("node_id") = nodeId;
+        remove.exec();
+    }
+
+    filesystem::remove_all(directory);
+}
+
+/**
  * A node with local accounts has no row anywhere, so the file is the whole configuration and
  * nothing is rewritten out of it.
  */

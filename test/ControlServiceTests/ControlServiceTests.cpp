@@ -599,6 +599,25 @@ TEST_F(XMQ_ControlServiceTests, listenerControl)
         verifyResult(output.m_result);
     }
 
+    // The port is served by the running broker, without a restart: the control adds and removes
+    // listeners on the server it is talking to, and a listener that is only written to the
+    // configuration would leave the interface reporting something the broker is not doing.
+    const auto acceptsConnections = [](const uint16_t port)
+    {
+        try
+        {
+            TCPSocket socket;
+            socket.open(Host("127.0.0.1", port), Socket::OpenMode::CONNECT, true, chrono::milliseconds(2000));
+            return true;
+        }
+        catch (const Exception&)
+        {
+            return false;
+        }
+    };
+    EXPECT_TRUE(acceptsConnections(testPort))
+        << "the listener was added to the configuration but nothing serves the port";
+
     int listenerId = 0;
 
     {
@@ -637,6 +656,12 @@ TEST_F(XMQ_ControlServiceTests, listenerControl)
         m_controlService->ListenerControl(input, output, &authentication);
         verifyResult(output.m_result);
     }
+
+    for (int attempt = 0; attempt < 20 && acceptsConnections(testPort); ++attempt)
+    {
+        this_thread::sleep_for(chrono::milliseconds(50));
+    }
+    EXPECT_FALSE(acceptsConnections(testPort)) << "the removed listener still serves its port";
 }
 
 TEST_F(XMQ_ControlServiceTests, persistenceControl)

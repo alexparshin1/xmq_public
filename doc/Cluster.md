@@ -547,8 +547,10 @@ In this order - each step leaves the system working:
   subject is not a schema change. The thread counts are read when the broker builds its pools, so
   they take effect at the next start; the rest apply from the next connection. Once the row exists
   the file stops carrying them: it is rewritten in the `StartupSettings` shape, which holds only
-  what the file still decides - listeners, keys, bridges, the rest of `persistence`, and
-  `authentication.database_uri` - and the loader accepts either shape. Because of this,
+  what the file still decides - the TLS keys beside the listeners, bridges, the rest of
+  `persistence`, and `authentication.database_uri` - and the loader accepts either shape. The
+  listeners themselves (`connections.listener`, one JSON column, `listeners_json`) moved with them,
+  because their ports are what the interface changes and what the next start has to read. Because of this,
   `xmq_server --reset-configuration` retires the node's row before it replaces the file: a row left
   behind would put the storage, the cluster switches and all of these back on the next start.
 - [x] Sessions a node writes when it is not a cluster member go under a namespace of its GUID, so that a node
