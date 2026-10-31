@@ -35,6 +35,20 @@ cmake-build-*/
 CPackConfig.cmake
 CPackSourceConfig.cmake
 
+# CMake in-source build output (an out-of-source build is preferred; tray/.gitignore says the same
+# for its own directory). A "git add -A" on 2026-09-12 put a whole build tree into the repository,
+# and the tracked objects are the worse half: `git reset --hard` restores them with a timestamp of
+# now, so make treats them as newer than the sources and skips the rebuild. The 1.0.2 builds nearly
+# shipped binaries from an older commit that way - a crash at startup, not a failed build, which is
+# how it was found. Untracked, an object's timestamp says what it really is.
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+*.o
+*.o.d
+
 # Editors and the load tests' own scratch output.
 .idea/
 .externalToolBuilders/
