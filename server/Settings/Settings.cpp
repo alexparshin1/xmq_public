@@ -1205,8 +1205,7 @@ void Settings::applyClusterConfigurationUnlocked()
             // says nothing about where this node is.
             m_persistence.m_redis_uri = row->m_redisUri;
             m_cluster.m_database_uri = row->m_databaseUri;
-            // Invited is an unaccepted offer, including rows written by older versions.
-            m_cluster.m_enabled = row->m_clusterEnabled && row->m_state != "Invited";
+            m_cluster.m_enabled = row->m_clusterEnabled;
             m_cluster.m_lease_seconds = row->m_leaseSeconds;
             m_cluster.m_links = row->m_links;
             m_cluster.m_this_node.m_node_name = row->m_name;
@@ -1368,7 +1367,7 @@ void Settings::applyClusterConfigurationUnlocked()
             // Populate in-memory state from the re-keyed row.
             m_persistence.m_redis_uri = updated.m_redisUri;
             m_cluster.m_database_uri = updated.m_databaseUri;
-            m_cluster.m_enabled = updated.m_clusterEnabled && updated.m_state != "Invited";
+            m_cluster.m_enabled = updated.m_clusterEnabled;
             m_cluster.m_lease_seconds = updated.m_leaseSeconds;
             m_cluster.m_links = updated.m_links;
             m_cluster.m_this_node.m_node_name = updated.m_name;
@@ -1493,10 +1492,9 @@ void Settings::refreshPeerCertificates()
     syncPeerCertificates(store, uuid);
 }
 
-String Settings::applyInvitationAccept(const String& redisUri, const String& databaseUri)
+String Settings::applyClusterJoin(const String& redisUri, const String& databaseUri)
 {
-    // Admission is written only by Accept, never by the inviter. The next load reads this row
-    // instead of the bootstrap file, so both must carry the accepted settings.
+    // The target applies admission to its own configuration in the shared database.
     try
     {
         auto pool = make_shared<DatabaseConnectionPool>(databaseUri, 1);
@@ -1505,14 +1503,13 @@ String Settings::applyInvitationAccept(const String& redisUri, const String& dat
         auto row = store.node(nodeIdentity());
         if (!row || row->m_state == "Removed" || row->m_state == "Retired")
         {
-            return "The invitation has no usable node configuration in the target database.";
+            return "The node has no usable configuration in the target database.";
         }
         row->m_redisUri = redisUri;
         row->m_databaseUri = databaseUri;
         row->m_clusterEnabled = true;
         row->m_state = "Joining";
         store.updateNode(*row);
-        store.clearInvitation(row->m_nodeId);
     }
     catch (const Exception& e)
     {
@@ -3123,7 +3120,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     }
 
     // A shared accounts database registers a node for discovery, not cluster admission.
-    // Enable on the first node or accepting an invitation is what enables membership.
+    // Start cluster on the first node or Join cluster enables membership.
     section(root, "cluster")->set("enabled", false);
     section(root, "cluster")->remove("password");
     const auto setupDatabaseUri = setup.m_database_uri.asString();
@@ -3220,7 +3217,6 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_state = "Standalone";
                 row->m_lastError = "";
                 store.updateNode(*row);
-                store.clearInvitation(id);
                 m_clusterConfigurationError = "";
             }
         }

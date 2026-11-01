@@ -569,8 +569,8 @@ In this order - each step leaves the system working:
   computed `Clustered`/`Offline` from Redis. One row per node, written by the node itself on its first start.
   Done: `Standalone`, `Joining` and `Failed` are stored and shown; `Clustered`/`Offline` are computed from Redis
   (`reportClusterState`), and a failed join restores the last-good configuration. Left: a unit test for the stored
-  transitions, and dropping `Not Clustered`, `Invited`, `Refused` and `Expired`, which belonged to the declaration
-  and invitation flow and are no longer reached.
+  transitions. The old declaration/invitation workflow is removed; schema upgrade drops
+  `xmq_cluster_invitation` and converts its old node states to Standalone without granting membership.
 - [ ] The server side of the interface: `ClusterControl` with get, enable, disable, join, start, remove and retire.
   `get` answers the whole picture - the mode, the nodes with states computed from the storage over the
   stored ones, the coordinator and the open links. `join` makes this node a member of the cluster its database
@@ -579,15 +579,14 @@ In this order - each step leaves the system working:
   configuration that is not running. The `disable` direction, which needed the per-GUID session namespace, is in
   place (`ControlService` `disable`), and a member's Remove is available from its own dashboard first, or forced
   once its lease has expired (`removeClusterNode`).
-  Left: `enable` still refuses a storage that holds a cluster and points at an invitation, and it must join the
-  cluster there instead, so that **Start cluster** on the Cluster Configuration screen is enough on an active node.
-  Settings already points a running node at another Redis and accounts database. `add`, `invite`, `accept` and
-  `decline` go with the declaration and invitation flow.
+  Settings points a running node at another Redis and accounts database. The obsolete `add`, `invite`,
+  `accept` and `decline` actions are removed. Remote Start/Join/Leave/Retire still authenticate over TLS
+  and verify the target GUID, version and shared database before applying a change.
 - [ ] The React side: the Dashboard mode shown as text, and the Cluster Configuration screen over `ClusterControl`
   with the node list, **Start cluster**, **Join cluster**, **Leave cluster** and **Remove**.
   Done: the Dashboard shows the mode and no longer changes it, the Cluster Configuration screen over
   `ClusterControl` with the node list, Start cluster, Join cluster, Leave cluster and Remove (`ClusterScreen`); the
-  Add node dialog is gone. Left: removing the Invite dialog and the Review/Accept/Decline path.
+  Add node, Invite and Review/Accept/Decline dialogs are gone.
 - [ ] Tests: the stored transitions as unit tests, the self-join as cluster tests, and a `test_cluster.sh` scenario
   that joins a node and watches it join.
   Done: the server-side interface checks are unit tests (`ClusterControlTests`), and the start that joins is covered

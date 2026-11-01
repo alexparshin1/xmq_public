@@ -556,8 +556,8 @@ public:
     /**
      * @brief Make this node the first member of a cluster whose state lives in the named storage.
      *
-     * The mode change of the dashboard, Standalone to Cluster: it writes what the accept of an
-     * invitation writes - the storage turned on, the accounts database pointed at the cluster's,
+     * The Standalone to Cluster transition writes the same settings as joining:
+     * the storage turned on, the accounts database pointed at the cluster's,
      * the cluster enabled - and keeps the previous configuration as the last-good copy. MQTT is
      * recreated within the running process to take its place in the cluster.
      *
@@ -581,14 +581,14 @@ public:
     sptk::String applyClusterDisable();
 
     /**
-     * @brief Take the cluster an invitation offered: switch the storage and the accounts database
+     * @brief Join the selected cluster: switch the storage and the accounts database
      * to the cluster's, turn the cluster on, and write the configuration back.
      *
-     * The bootstrap file is where the SQL URI lives, so accepting writes it there; MQTT is
+     * The bootstrap file is where the SQL URI lives, so joining writes it there; MQTT is
      * recreated within the process and reads the rest from the shared database. Returns an
      * error text, or empty when the configuration is on disk.
      */
-    sptk::String applyInvitationAccept(const sptk::String& redisUri, const sptk::String& databaseUri);
+    sptk::String applyClusterJoin(const sptk::String& redisUri, const sptk::String& databaseUri);
 
     /// Capture the running configuration before changing role (SQL overrides included).
     sptk::String keepLastGoodConfiguration();

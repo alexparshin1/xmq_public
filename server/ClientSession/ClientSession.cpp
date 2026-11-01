@@ -1500,30 +1500,13 @@ void ClientSession::handlePublishMessage(const SMessage& message)
 
     if (publishMessage->destination()->fullName() == "cluster/hello" && getUsername() == "cluster")
     {
-        // Asked who it is, by an inviter that needs the GUID: the answer goes to the response
-        // topic the request names, as a server publication.
+        // Verify the target's identity before an authenticated remote node action.
         server().getCluster()->answerHello(publishMessage);
     }
     else if ((publishMessage->destination()->fullName() == "cluster/join" ||
               publishMessage->destination()->fullName() == "cluster/node-action") && getUsername() == "cluster")
     {
         server().getCluster()->acceptSharedJoin(publishMessage);
-    }
-    else if (publishMessage->destination()->fullName() == "cluster/refusal" && getUsername() == "cluster")
-    {
-        // A node this one invited said no: mark its row and take the invitation away.
-        server().getCluster()->onRefusal(std::string(publishMessage->payload()));
-    }
-    else if (publishMessage->destination()->fullName() == "cluster/invitation" && getUsername() == "cluster")
-    {
-        // An invitation is addressed to the server, which is its subscriber: only the cluster
-        // user may send one, and it is not routed to any client.
-        String inviterName;
-        if (const auto properties = publishMessage->getProperties())
-        {
-            inviterName = std::string(properties->getUserProperty("origin-node"));
-        }
-        server().getCluster()->invitations().offer(std::string(publishMessage->payload()), inviterName);
     }
     else if (publishMessage->destination()->isCluster())
     {

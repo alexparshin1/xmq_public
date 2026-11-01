@@ -18,7 +18,6 @@
 #include "RetainedSync.h"
 #include "../Subscription/Subscription.h"
 
-#include "ClusterInvitations.h"
 #include "ClusterTopics.h"
 #include "Coordinator.h"
 #include "ServerNodes.h"
@@ -189,15 +188,8 @@ public:
      */
     CCluster getClusterSettings() const;
 
-    /// The invitation this node holds, received on `cluster/invitation`, shown on the Cluster
-    /// screen and answered there. One at a time; a later invitation replaces the earlier.
-    [[nodiscard]] ClusterInvitations& invitations();
-    [[nodiscard]] const ClusterInvitations& invitations() const;
-
-    /// What inviting a node came to: it answered, and the invitation was sent, or the error that
-    /// stopped it - an address that does not speak, a password that does not match, a certificate
-    /// that is not trusted.
-    struct InviteResult
+    /// Result of an authenticated remote node action.
+    struct NodeActionResult
     {
         bool          m_success {false};
         sptk::String  m_error;
@@ -207,8 +199,7 @@ public:
      * @brief Answer a `cluster/hello` from the cluster user with this node's identity.
      *
      * The reply goes to the topic the request's Response Topic names, as a server publication:
-     * the inviter subscribed to it before it asked. The GUID is what the inviter came for - it
-     * keys the declared node's row.
+     * the caller subscribes before asking, then verifies the GUID and shared database.
      */
     void answerHello(const std::shared_ptr<PublishMessage>& message) const;
 
@@ -216,31 +207,15 @@ public:
     void acceptSharedJoin(const std::shared_ptr<PublishMessage>& message);
 
     /**
-     * @brief Invite a node: ask its GUID over `cluster/hello`, key its declared row by it, send
-     * the invitation to `cluster/invitation`, and mark the row Invited.
-     * With joinImmediately, verify expectedNodeId and the shared accounts database instead,
-     * send nodeAction over `cluster/join`, and wait for the target to acknowledge the request.
+     * @brief Verify the target UUID and shared database, send a node action, and await its reply.
      *
      * The connection is made as the `cluster` user over TLS with the local node's keys, against
      * the peer certificate bundle - an address whose certificate is not trusted is refused here,
-     * not at the invited end.
+     * not at the target end.
      */
-    InviteResult sendInvitation(const sptk::String& hostPort, const sptk::String& invitedNodeName,
-                                const sptk::String& clusterPassword = {}, bool joinImmediately = false,
-                                const sptk::String& expectedNodeId = {}, const sptk::String& nodeAction = "join",
-                                const sptk::String& leaderNodeId = {});
-
-    /**
-     * @brief Answer the invitation this node holds with a refusal, to the inviter, on
-     * cluster/refusal: the refused node's GUID and the reason. The held invitation is cleared.
-     */
-    void declineInvitation();
-
-    /**
-     * @brief Take a refusal from a node this one invited: mark its row Refused with the reason,
-     * and take the invitation away - the invitation is answered.
-     */
-    void onRefusal(const sptk::String& payload);
+    NodeActionResult sendNodeAction(const sptk::String& hostPort, const sptk::String& targetNodeName,
+                                    const sptk::String& expectedNodeId, const sptk::String& nodeAction = "join",
+                                    const sptk::String& leaderNodeId = {});
 
     /**
      * @brief Request a connection to a named cluster node.
@@ -462,7 +437,6 @@ private:
     std::shared_ptr<sptk::LogEngine>     m_logEngine;              ///< Log engine.
     SServerNode                          m_thisNode;               ///< This node settings.
     ServerNodes                          m_connectedNodes;         ///< Connected nodes
-    ClusterInvitations                   m_invitations;            ///< The invitation this node holds, if one came.
     Topics                               m_clusterTopics;          ///< Cluster topics.
     SSubscriptionClient                  m_subscriptionClient;     ///< Cluster subscription client.
     sptk::Flag                           m_attachResponseReceived; ///< Flag: Attach request response received.

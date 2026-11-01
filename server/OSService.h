@@ -80,7 +80,7 @@ public:
     static void requestReload();
 
     /**
-     * @brief The exit code a node exits with after accepting a cluster invitation: the
+     * @brief The exit code a node exits with after joining a cluster: the
      * configuration is applied and the process must restart to read it. The service manager
      * (systemd Restart=always, FreeBSD daemon -r) brings it back; the code says why it went.
      */
@@ -88,7 +88,7 @@ public:
 
     /**
      * @brief Ask the service loop to end the process so that the service manager starts it again,
-     * as accepting a cluster invitation needs: the new configuration is on disk, and only a fresh
+     * as joining a cluster needs: the new configuration is on disk, and only a fresh
      * process reads it whole.
      */
     static void requestRestart();

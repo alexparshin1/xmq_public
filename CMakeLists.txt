@@ -543,6 +543,10 @@ add_subdirectory(daemon)
 # CONFIGURE_DEPENDS so that a type added to the WSDL is noticed by a plain build. Without it the
 # glob is evaluated once, at configure time, and a newly generated class is missing from the
 # library until CMake is run again - which shows up as undefined references, not as a missing file.
+# wsdl2cxx overwrites current types but does not remove types deleted from the WSDL.
+# Do not keep compiling the obsolete invitation type from an earlier build.
+FILE(REMOVE ${CMAKE_CURRENT_SOURCE_DIR}/service/CClusterInvitation.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/service/CClusterInvitation.h)
 FILE(GLOB GENERATED_SERVICE_FILES CONFIGURE_DEPENDS service/*.*)
 ADD_LIBRARY(xmq_service ${GENERATED_SERVICE_FILES})
 ADD_DEPENDENCIES(xmq_service xmq_service_sources)

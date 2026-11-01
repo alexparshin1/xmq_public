@@ -175,7 +175,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     source->getCluster()->startup();
     trustNodeCertificate(target);
     // A known UUID and password do not authorise moving a server out of a different database.
-    const auto differentDatabase = source->getCluster()->sendInvitation("localhost:8886", targetName, "", true, targetId);
+    const auto differentDatabase = source->getCluster()->sendNodeAction("localhost:8886", targetName, targetId);
     EXPECT_FALSE(differentDatabase.m_success);
     EXPECT_FALSE(targetSettings->m_cluster.m_enabled.asBool());
 
@@ -183,7 +183,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     targetSettings->loadConfiguration(targetSettings->configurationPath());
     ClusterStore store(pool);
     ASSERT_TRUE(store.node(targetId).has_value());
-    const auto wrongIdentity = source->getCluster()->sendInvitation("localhost:8886", targetName, "", true,
+    const auto wrongIdentity = source->getCluster()->sendNodeAction("localhost:8886", targetName,
                                                                    cluster::NodeIdentity::generate());
     EXPECT_FALSE(wrongIdentity.m_success);
     EXPECT_FALSE(store.node(targetId)->m_clusterEnabled);
@@ -223,7 +223,6 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     ASSERT_TRUE(response.m_result.m_success.asBool()) << response.m_result.m_description.asString();
     EXPECT_TRUE(store.node(targetId)->m_clusterEnabled);
     EXPECT_EQ("Joining", store.node(targetId)->m_state);
-    EXPECT_FALSE(targetController.getServer()->getCluster()->invitations().current().has_value());
 
     ASSERT_TRUE(TestCluster::waitFor([&]
     {
@@ -322,7 +321,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
 
     // Simulate Redis becoming unavailable between admission checks and the MQTT start.
-    ASSERT_TRUE(targetSettings->applyInvitationAccept("redis://127.0.0.1:1/2", uri).empty());
+    ASSERT_TRUE(targetSettings->applyClusterJoin("redis://127.0.0.1:1/2", uri).empty());
     OSService::queueNodeAction(targetId, uri, "reload");
     OSService::processNodeActions(targetController);
     ASSERT_NE(nullptr, targetController.getServer()) << "Previous standalone MQTT was not recovered";

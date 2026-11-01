@@ -13,6 +13,7 @@
 */
 
 #include "common/DirectoryNames.h"
+#include "server/Cluster/NodeIdentity.h"
 #include "server/Settings/ClusterStore.h"
 
 #include <gtest/gtest.h>
@@ -73,7 +74,7 @@ vector<pair<String, String>> reachableClusterDatabases()
 /// Nothing of an earlier run, so that "created" means created.
 void dropClusterTables(DatabaseConnectionPool& pool)
 {
-    for (const auto* table: {"xmq_cluster_invitation", "xmq_node"})
+    for (const auto* table: {"xmq_node"})
     {
         try
         {
@@ -127,7 +128,7 @@ ClusterStore::Node sampleNode(const String& nodeId)
     node.m_nodeId = nodeId;
     node.m_name = "node-1";
     node.m_hostPort = "localhost:8883";
-    node.m_state = "Not Clustered";
+    node.m_state = "Standalone";
     node.m_redisUri = "redis://localhost:6379";
     node.m_databaseUri = "postgresql://db/xmq";
     node.m_clusterEnabled = true;
@@ -175,7 +176,7 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_EQ(nodeId, stored->m_nodeId) << name;
         EXPECT_EQ(String("node-1"), stored->m_name) << name;
         EXPECT_EQ(String("localhost:8883"), stored->m_hostPort) << name;
-        EXPECT_EQ(String("Not Clustered"), stored->m_state) << name;
+        EXPECT_EQ(String("Standalone"), stored->m_state) << name;
         EXPECT_EQ(String("redis://localhost:6379"), stored->m_redisUri) << name;
         EXPECT_EQ(String("postgresql://db/xmq"), stored->m_databaseUri) << name;
         EXPECT_TRUE(stored->m_clusterEnabled) << name;
@@ -193,7 +194,7 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         // What the interface edits is written back through the same row.
         auto changed = *stored;
         changed.m_name = "node-1-renamed";
-        changed.m_state = "Invited";
+        changed.m_state = "Joining";
         changed.m_clusterEnabled = false;
         changed.m_queueMaxSize = 64;
         store.updateNode(changed);
@@ -201,7 +202,7 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         const auto reread = store.node(nodeId);
         ASSERT_TRUE(reread.has_value()) << name;
         EXPECT_EQ(String("node-1-renamed"), reread->m_name) << name;
-        EXPECT_EQ(String("Invited"), reread->m_state) << name;
+        EXPECT_EQ(String("Joining"), reread->m_state) << name;
         EXPECT_FALSE(reread->m_clusterEnabled) << name;
         ASSERT_TRUE(reread->m_queueMaxSize.has_value()) << name;
         EXPECT_EQ(64, *reread->m_queueMaxSize) << name << ": the edited limit was not written back";
@@ -264,44 +265,55 @@ TEST_F(XMQ_ClusterStoreTests, sqliteIsNotAClusterDatabase)
     filesystem::remove(path);
 }
 
-TEST_F(XMQ_ClusterStoreTests, anInvitationReplacesTheOneBeforeIt)
+TEST_F(XMQ_ClusterStoreTests, removesTheObsoleteInvitationTableWithoutChangingNodeConfigurations)
 {
     for (const auto& [name, uri]: m_databases)
     {
         ClusterStore store(make_shared<DatabaseConnectionPool>(uri, 2));
         store.createSchema();
-
         const String nodeId = "5e2f1a9d-7c4b-4e68-9d30-2a8c7f6b1d04";
         store.insertNode(sampleNode(nodeId));
-
-        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": a new node has an invitation";
-
-        ClusterStore::Invitation first;
-        first.m_nodeId = nodeId;
-        first.m_inviterHostPort = "localhost:8883";
-        first.m_expiresAt = "2026-10-19T20:00:00Z";
-        store.setInvitation(first);
-
-        const auto read = store.invitation(nodeId);
-        ASSERT_TRUE(read.has_value()) << name;
-        EXPECT_EQ(String("localhost:8883"), read->m_inviterHostPort) << name;
-
-        // The second invite is the administrator saying the first did not arrive: one per node,
-        // the latest wins.
-        ClusterStore::Invitation second = first;
-        second.m_inviterHostPort = "localhost:8884";
-        store.setInvitation(second);
-
-        const auto reread = store.invitation(nodeId);
-        ASSERT_TRUE(reread.has_value()) << name;
-        EXPECT_EQ(String("localhost:8884"), reread->m_inviterHostPort) << name;
-
-        store.clearInvitation(nodeId);
-        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": the invitation did not go away";
+        {
+            DatabaseConnectionPool pool(uri, 1);
+            const AutoDatabaseConnection connection(pool);
+            Query create(connection.connection(),
+                         "CREATE TABLE xmq_cluster_invitation (node_id varchar(36) PRIMARY KEY, "
+                         "inviter_host_port varchar(255), expires_at varchar(40))");
+            ASSERT_NO_THROW(create.exec()) << name;
+            Query insert(connection.connection(), "INSERT INTO xmq_cluster_invitation (node_id) VALUES (:node_id)");
+            insert.param("node_id") = nodeId;
+            insert.exec();
+        }
+        for (const auto* state: {"Not Clustered", "Invited", "Refused", "Expired"})
+        {
+            auto legacy = sampleNode(cluster::NodeIdentity::generate());
+            legacy.m_name = state;
+            legacy.m_state = state;
+            store.insertNode(legacy);
+        }
+        ASSERT_NO_THROW(store.createSchema()) << name;
+        EXPECT_NO_THROW(store.createSchema()) << name << ": migration must be idempotent";
+        const auto node = store.node(nodeId);
+        ASSERT_TRUE(node.has_value()) << name;
+        EXPECT_EQ("node-1", node->m_name) << name;
+        EXPECT_EQ("Standalone", node->m_state) << name;
+        EXPECT_TRUE(node->m_clusterEnabled) << name << ": a current configuration must not be changed";
+        for (const auto* state: {"Not Clustered", "Invited", "Refused", "Expired"})
+        {
+            const auto legacy = store.nodeByName(state);
+            ASSERT_TRUE(legacy.has_value()) << name;
+            EXPECT_EQ("Standalone", legacy->m_state) << name;
+            EXPECT_FALSE(legacy->m_clusterEnabled) << name;
+            EXPECT_EQ("redis://localhost:6379", legacy->m_redisUri) << name;
+        }
+        DatabaseConnectionPool pool(uri, 1);
+        const AutoDatabaseConnection connection(pool);
+        Query probe(connection.connection(), "SELECT node_id FROM xmq_cluster_invitation");
+        EXPECT_THROW(probe.open(), Exception) << name << ": the obsolete table remains";
     }
 }
 
-TEST_F(XMQ_ClusterStoreTests, removeNodeTakesItsInvitationWithIt)
+TEST_F(XMQ_ClusterStoreTests, removeNodeRemovesItsRow)
 {
     for (const auto& [name, uri]: m_databases)
     {
@@ -311,16 +323,9 @@ TEST_F(XMQ_ClusterStoreTests, removeNodeTakesItsInvitationWithIt)
         const String nodeId = "3c8b6a2e-9d17-4f53-8e24-1b7c5d9f0a36";
         store.insertNode(sampleNode(nodeId));
 
-        ClusterStore::Invitation invitation;
-        invitation.m_nodeId = nodeId;
-        invitation.m_inviterHostPort = "localhost:8883";
-        invitation.m_expiresAt = "2026-10-19T20:00:00Z";
-        store.setInvitation(invitation);
-
         store.removeNode(nodeId);
 
         EXPECT_FALSE(store.node(nodeId).has_value()) << name << ": the node is still declared";
-        EXPECT_FALSE(store.invitation(nodeId).has_value()) << name << ": the invitation outlived the node";
         EXPECT_EQ(0U, store.nodes().size()) << name << ": the node is still listed";
     }
 }
@@ -336,18 +341,18 @@ TEST_F(XMQ_ClusterStoreTests, theStoredStateIsKeptApartFromTheComputedOne)
         store.insertNode(sampleNode(nodeId));
 
         auto [state, error] = store.stateOf(nodeId);
-        EXPECT_EQ(String("Not Clustered"), state) << name;
+        EXPECT_EQ(String("Standalone"), state) << name;
         EXPECT_TRUE(error.empty()) << name;
 
-        // The state the interface writes: Invited while the invitation is out, Failed with the
+        // The state the interface writes: Joining while admission is in progress, Failed with the
         // reason once a join does not happen. Clustered and Offline never reach the table - the
         // screen computes those from Redis.
         auto row = store.node(nodeId);
-        row->m_state = "Invited";
+        row->m_state = "Joining";
         store.updateNode(*row);
 
         tie(state, error) = store.stateOf(nodeId);
-        EXPECT_EQ(String("Invited"), state) << name;
+        EXPECT_EQ(String("Joining"), state) << name;
 
         row->m_state = "Failed";
         row->m_lastError = "the storage did not answer";

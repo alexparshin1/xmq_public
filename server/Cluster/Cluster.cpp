@@ -38,7 +38,6 @@ Cluster::Cluster(Server* server)
     , m_clusterTopics(server->getTopicManager())
     , m_subscriptionClient(make_shared<SubscriptionClient>(server))
 {
-    m_invitations.setSettings(m_settings);
     auto& thisNodeSettings = m_settings->m_cluster.m_this_node;
     thisNodeSettings.m_xmq_version = Server::getVersion();
     thisNodeSettings.m_encrypted = true;
@@ -316,7 +315,7 @@ void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
 {
     if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
     {
-        throw Exception("Accept an invitation before joining this node to the cluster.");
+        throw Exception("Use Join cluster before attaching this node to the cluster.");
     }
     if (!encrypted)
     {
@@ -977,7 +976,7 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
 {
     if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
     {
-        throw Exception("This node is Standalone. Enable the first node or accept an invitation before attaching.");
+        throw Exception("This node is Standalone. Start or join the cluster before attaching.");
     }
     auto attachNodeRequest = deserializeMessage<CCluster>(message);
 
@@ -1039,7 +1038,7 @@ void Cluster::onAttachNodeResponse(const SPublishMessage& message)
 {
     if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
     {
-        throw Exception("This node has not accepted an invitation to join the cluster.");
+        throw Exception("This node has not been admitted to the cluster.");
     }
     auto clusterSettings = deserializeMessage<CCluster>(message);
 
@@ -1655,16 +1654,6 @@ size_t Cluster::getNodeCountUnlocked(const ServerNodes& nodes, const string& nod
     return count;
 }
 
-ClusterInvitations& Cluster::invitations()
-{
-    return m_invitations;
-}
-
-const ClusterInvitations& Cluster::invitations() const
-{
-    return m_invitations;
-}
-
 void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
 {
     std::string_view responseTopic;
@@ -1674,8 +1663,7 @@ void Cluster::answerHello(const shared_ptr<PublishMessage>& message) const
         return;
     }
 
-    // The GUID is the answer, with the name and the version so the inviter can refuse before
-    // inviting: a node joins a cluster of its own version.
+    // Remote node actions verify the target's GUID, version and shared accounts database.
     xdoc::Document document;
     document.root()->set("node_id", m_nodeId);
     document.root()->set("name", m_server->getNodeName());
@@ -1785,7 +1773,7 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
             {
                 throw Exception("The cluster already has the maximum number of members.");
             }
-            error = m_settings->applyInvitationAccept(redisUri, database);
+            error = m_settings->applyClusterJoin(redisUri, database);
         }
     }
     catch (const exception& exception)
@@ -1808,91 +1796,11 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
     }
 }
 
-void Cluster::declineInvitation()
-{
-    const auto invitation = m_invitations.current();
-    if (!invitation)
-    {
-        return;
-    }
-    m_invitations.decline();
-
-    try
-    {
-        const Host host(invitation->m_inviterHostPort);
-        const auto& settings = m_server->getSettings();
-        const auto& keysData = settings->m_connections.m_ssl_keys;
-        const auto [nodeCertificate, nodeKey] = Settings::nodeKeyFiles();
-        const auto certificateFile = keysData.m_certfile.asString().empty() ? nodeCertificate.string() : keysData.m_certfile.asString();
-        const auto privateKeyFile = keysData.m_keyfile.asString().empty() ? nodeKey.string() : keysData.m_keyfile.asString();
-        auto authorityFile = keysData.m_cafile.asString();
-        if (authorityFile.empty())
-        {
-            authorityFile = Settings::buildPeerCertificateBundle().string();
-        }
-        const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
-
-        client::MqttClient client;
-        client.useBrokerThreads();
-        const auto rc = client.connect(host, ConnectCredentials(format("xmq-decline-{}", m_nodeId), "cluster", settings->clusterPassword()),
-                                       {.m_cleanSession = true}, ProtocolVersion::MqttV5, {},
-                                       make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
-                                                            authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth)));
-        if (rc == ReasonCode::Success)
-        {
-            const auto reason = invitation->m_rejectReason.empty() ? String("The administrator declined.") : invitation->m_rejectReason;
-            auto message = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/refusal"),
-                                                             ClusterInvitations::refusalPayload(m_nodeId, reason));
-            message->setQos(Qos::Qos1);
-            client.publish(*message);
-        }
-    }
-    catch (const Exception&)
-    {
-        // The refusal did not arrive; the inviter's invitation expires on its own.
-    }
-}
-
-void Cluster::onRefusal(const String& payload)
-{
-    try
-    {
-        xdoc::Document document;
-        document.load(payload);
-        const auto nodeIdNode = document.root()->findFirst("node_id");
-        const auto reasonNode = document.root()->findFirst("reason");
-        if (!nodeIdNode || nodeIdNode->getValue().isNull())
-        {
-            return;
-        }
-        const String nodeId = nodeIdNode->getValue().asString();
-
-        if (const auto pool = m_settings->accountsPool())
-        {
-            ClusterStore store(pool);
-            store.createSchema();
-            if (const auto row = store.node(nodeId))
-            {
-                auto refused = *row;
-                refused.m_state = "Refused";
-                refused.m_lastError = reasonNode && !reasonNode->getValue().isNull() ? reasonNode->getValue().asString() : String();
-                store.updateNode(refused);
-            }
-            store.clearInvitation(nodeId);
-        }
-    }
-    catch (const Exception&)
-    {
-        // A damaged refusal names no node; nothing to mark.
-    }
-}
-
-Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const String& invitedNodeName,
-                                               const String& clusterPassword, const bool joinImmediately,
+Cluster::NodeActionResult Cluster::sendNodeAction(const String& hostPort, const String& targetNodeName,
                                                const String& expectedNodeId, const String& nodeAction,
                                                const String& leaderNodeId)
 {
-    InviteResult result;
+    NodeActionResult result;
 
     try
     {
@@ -1903,7 +1811,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
             return result;
         }
 
-        // The local node's certificate, verified against the peer bundle: an invitation goes only
+        // The local node's certificate, verified against the peer bundle: a request goes only
         // to a node whose certificate is trusted, exactly as a cluster link would.
         const auto& settings = m_server->getSettings();
         settings->refreshPeerCertificates();
@@ -1914,7 +1822,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         auto authorityFile = keysData.m_cafile.asString();
         if (authorityFile.empty())
         {
-            authorityFile = Settings::peerCertificateAuthority(invitedNodeName).string();
+            authorityFile = Settings::peerCertificateAuthority(targetNodeName).string();
         }
         const auto verifyDepth = max<int64_t>(keysData.m_verify_depth.asInteger(), 1);
 
@@ -1954,23 +1862,21 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         auto properties = make_shared<MessageProperties>();
         properties->setProperty(Property::ResponseTopic, replyTopic);
 
-        // The password the administrator typed into the Invite dialog, or the configured one when
-        // there is none to type: the invited node authenticates the cluster user against its own
-        // verifier, so presenting the wrong secret is refused here, before anything is sent.
-        const auto password = clusterPassword.empty() ? settings->clusterPassword() : clusterPassword;
+        // Authenticate with the shared cluster credential before requesting any change.
+        const auto password = settings->clusterPassword();
         if (password.empty())
         {
             result.m_error = "The accounts database has no cluster credential matching the cluster account. "
                              "Run Initial Setup with the existing shared cluster password.";
             return result;
         }
-        const auto rc = client.connect(host, ConnectCredentials(format("xmq-invite-{}", m_nodeId), "cluster", password),
+        const auto rc = client.connect(host, ConnectCredentials(format("xmq-node-action-{}", m_nodeId), "cluster", password),
                                        {.m_cleanSession = true}, ProtocolVersion::MqttV5, properties,
                                        make_shared<SSLKeys>(privateKeyFile.c_str(), certificateFile.c_str(), "",
                                                             authorityFile.c_str(), SSL_VERIFY_PEER, static_cast<int>(verifyDepth)));
         if (rc != ReasonCode::Success)
         {
-            result.m_error = format("Node '{}' refused the cluster user: {}.", invitedNodeName.c_str(), toString(rc).c_str());
+            result.m_error = format("Node '{}' refused the cluster user: {}.", targetNodeName.c_str(), toString(rc).c_str());
             return result;
         }
 
@@ -1984,7 +1890,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
 
         if (!reply->ready.wait_for(5s))
         {
-            result.m_error = format("Node '{}' did not answer what it is.", invitedNodeName.c_str());
+            result.m_error = format("Node '{}' did not answer what it is.", targetNodeName.c_str());
             return result;
         }
         String answerPayload;
@@ -2006,7 +1912,7 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         const auto versionNode = document.root()->findFirst("xmq_version");
         if (!nodeIdNode || nodeIdNode->getValue().isNull() || !versionNode || versionNode->getValue().isNull())
         {
-            result.m_error = format("Node '{}' answered, but not with an identity.", invitedNodeName.c_str());
+            result.m_error = format("Node '{}' answered, but not with an identity.", targetNodeName.c_str());
             return result;
         }
         const String nodeId = nodeIdNode->getValue().asString();
@@ -2014,146 +1920,68 @@ Cluster::InviteResult Cluster::sendInvitation(const String& hostPort, const Stri
         if (version != Server::getVersion())
         {
             result.m_error = format("Node '{}' runs XMQ {}, this node {} - a node joins a cluster of its own version.",
-                                    invitedNodeName.c_str(), version.c_str(), Server::getVersion().c_str());
+                                    targetNodeName.c_str(), version.c_str(), Server::getVersion().c_str());
             return result;
         }
 
-        if (joinImmediately)
+        if (expectedNodeId.empty() || nodeId != expectedNodeId ||
+            document.root()->getString("database_uri") != m_settings->userDatabaseUri())
         {
-            if (expectedNodeId.empty() || nodeId != expectedNodeId ||
-                document.root()->getString("database_uri") != m_settings->userDatabaseUri())
-            {
-                result.m_error = "The target UUID or shared accounts database does not match the selected configuration.";
-                return result;
-            }
-            const auto capability = document.root()->findFirst("node_actions");
-            if (nodeAction != "join" && (!capability || !capability->getValue().asBool()))
-            {
-                result.m_error = "The selected server must be updated before remote Leave or Retire is available.";
-                return result;
-            }
-            xdoc::Document request;
-            request.root()->set("action", nodeAction);
-            request.root()->set("node_id", nodeId);
-            request.root()->set("leader_id", leaderNodeId.empty() ? String(m_nodeId) : leaderNodeId);
-            request.root()->set("xmq_version", Server::getVersion());
-            request.root()->set("redis_uri", m_settings->m_persistence.m_redis_uri.asString());
-            request.root()->set("database_uri", m_settings->userDatabaseUri());
-            Buffer payload;
-            request.exportTo(xdoc::DataFormat::JSON, payload, false);
-            {
-                const scoped_lock lock(reply->lock);
-                reply->payload.clear();
-                reply->error.clear();
-                reply->joining = true;
-                while (reply->ready.wait_for(0ms)) {}
-            }
-            auto join = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic(
-                nodeAction == "join" ? "cluster/join" : "cluster/node-action"), String(payload));
-            join->setQos(Qos::Qos1);
-            join->setProperties(properties);
-            client.publish(*join);
-            if (!reply->ready.wait_for(5s))
-            {
-                result.m_error = "The node did not acknowledge the action. Check its state before retrying.";
-                return result;
-            }
-            {
-                const scoped_lock lock(reply->lock);
-                answerPayload = reply->payload;
-                answerError = reply->error;
-            }
-            if (!answerError.empty())
-            {
-                result.m_error = answerError;
-                return result;
-            }
-            xdoc::Document response;
-            response.load(answerPayload);
-            result.m_success = response.root()->getString("node_id") == nodeId && (response.root()->findFirst("accepted") ? response.root()->getBoolean("accepted")
-                                                                           : response.root()->getBoolean("joined"));
-            if (!result.m_success)
-            {
-                result.m_error = response.root()->getString("error");
-            }
-            client.disconnect();
+            result.m_error = "The target UUID or shared accounts database does not match the selected configuration.";
             return result;
         }
-
-        // The node answered who it is: its row, whether the node made it itself or an
-        // administrator declared it, is keyed by its GUID from here on. The invitation is the
-        // offer, not admission: existing configuration stays unchanged until the target accepts.
-        const auto database = m_server->getSettings()->userDatabaseUri();
-        const auto redisUri = m_server->getSettings()->m_persistence.m_redis_uri.asString();
-        if (const auto pool = m_server->getSettings()->accountsPool(); pool)
+        const auto capability = document.root()->findFirst("node_actions");
+        if (nodeAction != "join" && (!capability || !capability->getValue().asBool()))
         {
-            ClusterStore store(pool);
-            store.createSchema();
-
-            // A declaration left behind by an earlier Add: the node's real row takes its name, and
-            // the database keeps names unique - so the declaration goes, whichever branch is taken.
-            if (const auto declared = store.nodeByName(invitedNodeName);
-                declared && declared->m_nodeId != nodeId)
-            {
-                if (!declared->m_certificate.empty() || declared->m_state != "Not Clustered")
-                {
-                    throw Exception("This name belongs to another server configuration. Remove or rename it explicitly before inviting this node.");
-                }
-                store.removeNode(declared->m_nodeId);
-            }
-
-            if (const auto row = store.node(nodeId))
-            {
-                if (row->m_state == "Removed" || row->m_state == "Retired")
-                {
-                    throw Exception("This node's configuration was retired or removed; restore it explicitly before inviting it.");
-                }
-                auto invited = *row;
-                invited.m_state = "Invited";
-                // Invite is an offer only. Accept on the target changes its configuration.
-
-                // The name the node answers to now is the real one: an administrator may have
-                // declared another, and the row is the node's own.
-                invited.m_name = invitedNodeName;
-                invited.m_hostPort = hostPort;
-                store.updateNode(invited);
-            }
-            else
-            {
-                ClusterStore::Node invited;
-                invited.m_nodeId = nodeId;
-                invited.m_name = invitedNodeName;
-                invited.m_hostPort = hostPort;
-                invited.m_state = "Invited";
-                invited.m_redisUri = redisUri;
-                invited.m_databaseUri = database;
-                invited.m_clusterEnabled = false;
-                store.insertNode(invited);
-            }
-
-            ClusterStore::Invitation invitation;
-            invitation.m_nodeId = nodeId;
-            invitation.m_inviterHostPort = m_settings->m_cluster.m_this_node.m_host_port.asString();
-            invitation.m_expiresAt = DateTime::Now().isoDateTimeString(DateTime::PrintAccuracy::MILLISECONDS, true);
-            store.setInvitation(invitation);
+            result.m_error = "The selected server must be updated before remote Leave or Retire is available.";
+            return result;
         }
-
-        // The invitation itself: what a standalone node has no other way to learn.
-        auto inviteProperties = make_shared<MessageProperties>();
-        inviteProperties->setUserProperty("origin-node", m_server->getNodeName());
-        const auto invitePayload = String(R"({
-            "inviter_host_port": ")") + m_settings->m_cluster.m_this_node.m_host_port.asString() + R"(",
-            "redis_uri": ")" + redisUri + R"(",
-            "database_uri": ")" + database + R"(",
-            "xmq_version": ")" + Server::getVersion() + R"("
-        })";
-        auto invite = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic("cluster/invitation"), invitePayload);
-        invite->setQos(Qos::Qos1);
-        invite->setProperties(inviteProperties);
-        client.publish(*invite);
+        xdoc::Document request;
+        request.root()->set("action", nodeAction);
+        request.root()->set("node_id", nodeId);
+        request.root()->set("leader_id", leaderNodeId.empty() ? String(m_nodeId) : leaderNodeId);
+        request.root()->set("xmq_version", Server::getVersion());
+        request.root()->set("redis_uri", m_settings->m_persistence.m_redis_uri.asString());
+        request.root()->set("database_uri", m_settings->userDatabaseUri());
+        Buffer payload;
+        request.exportTo(xdoc::DataFormat::JSON, payload, false);
+        {
+            const scoped_lock lock(reply->lock);
+            reply->payload.clear();
+            reply->error.clear();
+            reply->joining = true;
+            while (reply->ready.wait_for(0ms)) {}
+        }
+        auto action = make_shared<mqtt::PublishMessage>(client::MqttClient::getTopic(
+            nodeAction == "join" ? "cluster/join" : "cluster/node-action"), String(payload));
+        action->setQos(Qos::Qos1);
+        action->setProperties(properties);
+        client.publish(*action);
+        if (!reply->ready.wait_for(5s))
+        {
+            result.m_error = "The node did not acknowledge the action. Check its state before retrying.";
+            return result;
+        }
+        {
+            const scoped_lock lock(reply->lock);
+            answerPayload = reply->payload;
+            answerError = reply->error;
+        }
+        if (!answerError.empty())
+        {
+            result.m_error = answerError;
+            return result;
+        }
+        xdoc::Document response;
+        response.load(answerPayload);
+        result.m_success = response.root()->getString("node_id") == nodeId &&
+                           (response.root()->findFirst("accepted") ? response.root()->getBoolean("accepted")
+                                                                  : response.root()->getBoolean("joined"));
+        if (!result.m_success)
+        {
+            result.m_error = response.root()->getString("error");
+        }
         client.disconnect();
-
-        result.m_success = true;
         return result;
     }
     catch (const Exception& e)

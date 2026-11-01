@@ -171,7 +171,7 @@ private:
 
     /**
      * @brief Answer the Cluster Configuration screen: the mode, the declared nodes with their
-     *        states, the coordinator, the links, and the invitation this node holds.
+     *        states, the coordinator and the links.
      * @param output            Receives the picture.
      */
     void reportClusterState(CClusterControlResponse& output) const;
@@ -181,7 +181,7 @@ private:
      *        the named storage.
      *
      * The storage is required to be reachable and to hold no cluster yet, and both are checked
-     * before anything is written: a storage that already holds a cluster is joined by invitation,
+     * before anything is written: use Join cluster for a storage that already holds a cluster,
      * never by pointing a node at it. The configuration is written and the process ends with the
      * restart code; the next start takes the node's place in the cluster.
      *
@@ -189,14 +189,6 @@ private:
      * @param output            Receives the picture after the change.
      */
     void enableClusterMode(const CClusterControl& input, CClusterControlResponse& output) const;
-
-    /**
-     * @brief Declare a node: a name and a TLS address in the shared database, nothing contacted.
-     *
-     * @param input             Carries the node.
-     * @param output            Receives the picture after the change.
-     */
-    void addClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
 
     /**
      * @brief Take a declared node away. A member is refused: it is detached from its own screen
@@ -208,17 +200,14 @@ private:
     void removeClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
 
     /**
-     * @brief Invite the selected node: the invitation is published to its cluster/invitation
-     *        topic as the cluster user over TLS, and its row goes Invited.
+     * @brief Join the selected node using its existing configuration in the shared database.
      *
-     * The cluster account's password, from the Invite dialog, is what the connection to the
-     * invited node is made with: the node checks it against its own verifier, so a wrong password
-     * is refused before anything is sent.
+     * Remote requests authenticate with the shared cluster account over TLS.
      *
-     * @param input             Carries the node and the password.
+     * @param input             Carries the node.
      * @param output            Receives the picture after the change.
      */
-    void inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output, bool joinImmediately = false) const;
+    void joinClusterNode(const CClusterControl& input, CClusterControlResponse& output) const;
 
     /**
      * @brief Refuse a setup naming a Redis that cannot be reached, before anything is written.

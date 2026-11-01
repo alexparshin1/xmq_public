@@ -26,7 +26,6 @@ namespace xmq {
 namespace {
 
 const char* const nodeTable = "xmq_node";
-const char* const invitationTable = "xmq_cluster_invitation";
 
 constexpr string_view nodeColumns =
     "node_id, name, host_port, state, last_error, redis_uri, database_uri,"
@@ -301,17 +300,14 @@ void ClusterStore::createSchema()
         }
     }
 
-    if (!tableExists(String(invitationTable)))
+    // Invitations were replaced by direct admission through the shared accounts database.
+    if (tableExists("xmq_cluster_invitation"))
     {
-        // At most one invitation per node: a second one replaces the first, which is what the
-        // primary key on node_id buys without a cleanup step.
-        executeStatement(
-            "CREATE TABLE " + String(invitationTable) + " ("
-            "  node_id           varchar(36) NOT NULL,"
-            "  inviter_host_port varchar(255) NOT NULL,"
-            "  expires_at        varchar(40) NOT NULL,"
-            "  CONSTRAINT pk_xmq_cluster_invitation PRIMARY KEY (node_id))" + tableSuffix());
+        executeStatement("DROP TABLE IF EXISTS xmq_cluster_invitation");
     }
+    // Preserve old node configurations, but an outstanding offer never grants membership.
+    executeStatement("UPDATE xmq_node SET state = 'Standalone', cluster_enabled = 0 "
+                     "WHERE state IN ('Not Clustered', 'Invited', 'Refused', 'Expired')");
 }
 
 optional<ClusterStore::Node> ClusterStore::node(const String& nodeId)
@@ -451,10 +447,6 @@ void ClusterStore::updateNode(const Node& node)
 
 void ClusterStore::removeNode(const String& nodeId)
 {
-    // The invitation goes with the node: a declared node with an invitation outstanding is not a
-    // member, so Remove is what the interface offers it, and the invitation must not outlive it.
-    clearInvitation(nodeId);
-
     const AutoDatabaseConnection connection(*m_database);
     Query                        remove(connection.connection(), "DELETE FROM " + String(nodeTable) + " WHERE node_id = :node_id");
     remove.param("node_id") = nodeId;
@@ -480,7 +472,6 @@ void ClusterStore::removeConfiguration(const String& nodeId)
     removed.m_databaseUri = "";
     removed.m_certificate = "";
     updateNode(removed); // Tombstone first: a failure must not allow silent recreation.
-    clearInvitation(nodeId);
 }
 
 vector<ClusterStore::Node> ClusterStore::nodes()
@@ -517,56 +508,6 @@ pair<String, String> ClusterStore::stateOf(const String& nodeId)
     auto result = make_pair(query["state"].asString(), query["last_error"].asString());
     query.close();
     return result;
-}
-
-optional<ClusterStore::Invitation> ClusterStore::invitation(const String& nodeId)
-{
-    const AutoDatabaseConnection connection(*m_database);
-    Query query(connection.connection(),
-                "SELECT node_id, inviter_host_port, expires_at FROM " + String(invitationTable)
-                    + " WHERE node_id = :node_id");
-    query.param("node_id") = nodeId;
-    query.open();
-
-    if (query.eof())
-    {
-        query.close();
-        return nullopt;
-    }
-
-    Invitation result;
-    result.m_nodeId = query["node_id"].asString();
-    result.m_inviterHostPort = query["inviter_host_port"].asString();
-    result.m_expiresAt = query["expires_at"].asString();
-    query.close();
-    return result;
-}
-
-void ClusterStore::setInvitation(const Invitation& invitation)
-{
-    // Replaced rather than refused as a duplicate: a second invite is the administrator saying
-    // the first one did not arrive, and the one that did arrive first must not answer to a token
-    // that no longer exists. Delete-then-insert reads the same on every driver, where an upsert
-    // is a different sentence on each.
-    clearInvitation(invitation.m_nodeId);
-
-    const AutoDatabaseConnection connection(*m_database);
-    Query insert(connection.connection(),
-                 "INSERT INTO " + String(invitationTable) +
-                 " (node_id, inviter_host_port, expires_at)"
-                 " VALUES (:node_id, :inviter_host_port, :expires_at)");
-    insert.param("node_id") = invitation.m_nodeId;
-    insert.param("inviter_host_port") = invitation.m_inviterHostPort;
-    insert.param("expires_at") = invitation.m_expiresAt;
-    insert.exec();
-}
-
-void ClusterStore::clearInvitation(const String& nodeId)
-{
-    const AutoDatabaseConnection connection(*m_database);
-    Query                        remove(connection.connection(), "DELETE FROM " + String(invitationTable) + " WHERE node_id = :node_id");
-    remove.param("node_id") = nodeId;
-    remove.exec();
 }
 
 } // namespace xmq

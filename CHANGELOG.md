@@ -12,6 +12,14 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.17.
 
+### Removed
+
+- **The obsolete cluster invitation workflow.** Nodes join directly using their configurations in
+  the shared accounts database. The old Add/Invite/Accept/Decline API, invitation messages and
+  invitation storage are removed; schema upgrade drops `xmq_cluster_invitation` and returns old
+  invitation states to Standalone without deleting node configurations. Authenticated remote
+  Start/Join/Leave/Retire commands remain supported.
+
 ### Changed
 
 - **The cluster's database address is at the root of the configuration file.** `cluster.database_uri`

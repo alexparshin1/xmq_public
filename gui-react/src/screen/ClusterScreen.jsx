@@ -9,7 +9,7 @@ import {confirmationWindow, errorWindow} from "../components/MessageWindow";
 
 /**
  * The state of a node, coloured the way it should be read: green while the cluster carries its
- * traffic, amber for a member that is down or cut off, red for one that was refused or failed.
+ * traffic, amber for a member that is down or cut off, red for one that failed.
  * @param {string} state  State as the server reports it.
  * @return {string} colour for the cell.
  */
@@ -18,10 +18,8 @@ function stateColour(state) {
         case "Clustered":
             return "#1b7f3b";
         case "Offline":
-        case "Expired":
             return "#b26a00";
         case "Failed":
-        case "Refused":
             return "#c62828";
         default:
             return "#666";
@@ -230,7 +228,7 @@ export default class ClusterScreen extends BasicScreen {
         const {cluster, selected, busy} = this.state;
         const state = selected && selected.state;
         const member = ["Clustered", "Offline", "Unknown", "Joining"].includes(state);
-        const active = selected && !["Retired", "Removed", "Not Clustered"].includes(state);
+        const active = selected && !["Retired", "Removed"].includes(state);
         const buttonClass = "inputScreenSaveButton inputScreenActionButton";
         const starting = cluster.cluster_state === "empty";
         return <div className="clusterNodeActions">

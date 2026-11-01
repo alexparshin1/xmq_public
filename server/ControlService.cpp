@@ -934,8 +934,8 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
             }
             else
             {
-                const auto result = requireServer().getCluster()->sendInvitation(
-                    row->m_hostPort, row->m_name, {}, true, row->m_nodeId, "start");
+                const auto result = requireServer().getCluster()->sendNodeAction(
+                    row->m_hostPort, row->m_name, row->m_nodeId, "start");
                 if (!result.m_success) throw Exception(result.m_error);
                 reportClusterState(output);
             }
@@ -951,8 +951,8 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
                 {
                     throw Exception("Select an active node configuration in this database.");
                 }
-                const auto result = requireServer().getCluster()->sendInvitation(
-                    row->m_hostPort, row->m_name, {}, true, row->m_nodeId, action);
+                const auto result = requireServer().getCluster()->sendNodeAction(
+                    row->m_hostPort, row->m_name, row->m_nodeId, action);
                 if (!result.m_success) throw Exception(result.m_error);
             }
             else
@@ -977,35 +977,13 @@ void ControlService::ClusterControl(const CClusterControl& input, CClusterContro
             }
             reportClusterState(output);
         }
-        else if (action == "add")
-        {
-            addClusterNode(input, output);
-        }
         else if (action == "remove")
         {
             removeClusterNode(input, output);
         }
-        else if (action == "invite")
-        {
-            inviteClusterNode(input, output);
-        }
         else if (action == "join")
         {
-            inviteClusterNode(input, output, true);
-        }
-        else if (action == "accept")
-        {
-            const auto error = requireServer().getCluster()->invitations().accept();
-            if (!error.empty())
-            {
-                throw Exception(error);
-            }
-            reportClusterState(output);
-        }
-        else if (action == "decline")
-        {
-            requireServer().getCluster()->declineInvitation();
-            reportClusterState(output);
+            joinClusterNode(input, output);
         }
         else
         {
@@ -1095,7 +1073,6 @@ void ControlService::applyLocalClusterAction(const String& action)
         row->m_state = "Retired";
         row->m_clusterEnabled = false;
         store->updateNode(*row);
-        store->clearInvitation(row->m_nodeId);
         // Refresh the cached error: Start must not reuse a retired in-memory configuration.
         settings->loadConfiguration(settings->configurationPath());
     }
@@ -1190,25 +1167,6 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         return runningServer ? runningServer->getCluster() : nullptr;
     }();
 
-    if (runningCluster)
-    {
-        if (const auto invitation = runningCluster->invitations().current())
-        {
-            // What the Review confirmation names beside what the invitation offers: where the
-            // node's accounts and its persistence are now.
-            output.m_invitation.m_inviter_name = invitation->m_inviterName;
-            output.m_invitation.m_inviter_host_port = invitation->m_inviterHostPort;
-            output.m_invitation.m_redis_uri = invitation->m_redisUri;
-            output.m_invitation.m_database_uri = invitation->m_databaseUri;
-            output.m_invitation.m_xmq_version = invitation->m_xmqVersion;
-            output.m_invitation.m_received_at = invitation->m_receivedAt;
-            output.m_invitation.m_reject_reason = invitation->m_rejectReason;
-            output.m_invitation.m_current_persistence =
-                !settings->m_persistence.m_enabled.isNull() && settings->m_persistence.m_enabled.asBool();
-            output.m_invitation.m_current_redis_uri = settings->m_persistence.m_redis_uri.asString();
-            output.m_invitation.m_current_database_uri = settings->userDatabaseUri();
-        }
-    }
     output.m_coordinator = "";
     output.m_cluster_state = "unknown";
     output.m_cluster_members.clear();
@@ -1244,7 +1202,7 @@ void ControlService::reportClusterState(CClusterControlResponse& output) const
         node.m_is_alive = false;
         node.m_is_coordinator = false;
         // A node that is not cluster-enabled may still appear in Redis from a prior
-        // cluster incarnation; Stored state (Standalone, Not Clustered) is authoritative.
+        // cluster incarnation; stored state is authoritative.
         const auto isClusterNode = stored != storedNodes.end() && stored->m_clusterEnabled;
         if (view && isClusterNode)
         {
@@ -1324,7 +1282,7 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
     }
 
     // Required before anything is written: the node becomes the first member of the cluster on
-    // this storage, and a storage that already holds a cluster is joined by invitation instead.
+    // this storage; use Join cluster for a storage that already holds a cluster.
     // A node pointed at another cluster's storage would go on serving on that cluster's sessions.
     // Checked by connecting, so that something else listening on the port is caught too.
     {
@@ -1350,7 +1308,7 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
             }
             throw Exception("The storage " + UriSecret::hidden(redisUri) +
                             " belongs to a cluster, and this node is not one of its members. A cluster is joined "
-                            "by invitation: ask its administrator to invite this node.");
+                            "using Join cluster on the Cluster Configuration page.");
         }
     }
 
@@ -1362,52 +1320,6 @@ void ControlService::enableClusterMode(const CClusterControl& input, CClusterCon
 
     // Recreate MQTT on the controller thread; its independent web listener remains available.
     OSService::queueNodeAction(settings->nodeIdentity(), settings->userDatabaseUri(), "reload");
-    reportClusterState(output);
-}
-
-void ControlService::addClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
-{
-    const auto& settings = getSettings();
-    const auto  store = requireClusterStore(settings);
-
-    const String name = input.m_node.m_name.asString().trim();
-    const String hostPort = input.m_node.m_host_port.asString().trim();
-    if (name.empty() || hostPort.empty())
-    {
-        throw Exception("A node is declared by a name and the TLS address the others link to.");
-    }
-
-    // Read as host:port before Host is built: a Host resolves what it is given, and an address
-    // that cannot be one must be refused, not looked up.
-    const auto colon = hostPort.rfind(':');
-    const auto port = colon == String::npos ? 0 : String(hostPort.substr(colon + 1)).toInt();
-    if (colon == String::npos || colon == 0 || port <= 0 || port > 65535)
-    {
-        throw Exception("'" + hostPort + "' is not an address a node listens on. Give host:port.");
-    }
-
-    const Host host(hostPort);
-    if (host.hostname().empty() || host.port() == 0)
-    {
-        throw Exception("'" + hostPort + "' is not an address a node listens on. Give host:port.");
-    }
-
-    if (const auto existing = store->nodeByName(name))
-    {
-        throw Exception("A node named '" + name + "' is declared already.");
-    }
-
-    // The GUID is the inviter's until the Invite asks the node its own and re-keys the row: the
-    // declaration is a place in the list, and the node's identity is not known yet.
-    ClusterStore::Node declared;
-    declared.m_nodeId = cluster::NodeIdentity::generate();
-    declared.m_name = name;
-    declared.m_hostPort = hostPort;
-    declared.m_state = "Not Clustered";
-    declared.m_redisUri = settings->m_persistence.m_redis_uri.asString();
-    declared.m_databaseUri = settings->m_cluster.m_database_uri.asString();
-    store->insertNode(declared);
-
     reportClusterState(output);
 }
 
@@ -1480,8 +1392,7 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
         }
     }
 
-    const auto declarationOnly = row->m_state == "Not Clustered" && row->m_certificate.empty();
-    if (!declarationOnly && row->m_state != "Retired" && !input.m_force.asBool())
+    if (row->m_state != "Retired" && !input.m_force.asBool())
     {
         throw Exception("This record holds a server configuration, even if the server is offline or "
                         "uses another database now. Retire it on that server first, or explicitly "
@@ -1491,7 +1402,7 @@ void ControlService::removeClusterNode(const CClusterControl& input, CClusterCon
     reportClusterState(output);
 }
 
-void ControlService::inviteClusterNode(const CClusterControl& input, CClusterControlResponse& output, const bool joinImmediately) const
+void ControlService::joinClusterNode(const CClusterControl& input, CClusterControlResponse& output) const
 {
     const auto& settings = getSettings();
     const auto  store = requireClusterStore(settings);
@@ -1501,19 +1412,15 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
     const auto   row = !nodeId.empty() ? store->node(nodeId) : store->nodeByName(name);
     if (!row)
     {
-        throw Exception("Select the node to invite: no such node in the cluster's configuration.");
+        throw Exception("Select the node to join: no such node in the cluster's configuration.");
     }
 
-    if (row->m_nodeId == settings->nodeIdentity() && !joinImmediately)
-    {
-        throw Exception("This node is already serving this cluster; select another node to invite.");
-    }
-    if (joinImmediately && (row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled))
+    if (row->m_state == "Removed" || row->m_state == "Retired" || row->m_clusterEnabled)
     {
         throw Exception("Select a Standalone node with an active configuration in this database.");
     }
 
-    // When the local node is not itself in cluster mode, the invitation cannot name it as the
+    // When the local node is not itself in cluster mode, the request cannot name it as the
     // joining target — find an enabled cluster member that its storage reports as alive, and
     // present it: the receiving side validates the leader against the live membership.
     String leaderNodeId;
@@ -1563,7 +1470,7 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
         }
     }
 
-    // Self-join: a Standalone node joins the cluster from its own page. The invitation message
+    // Self-join: a Standalone node joins the cluster from its own page. The join request
     // a remote node would answer is applied here, with the same validation the receiving side
     // runs in Cluster::acceptSharedJoin.
     if (row->m_nodeId == settings->nodeIdentity())
@@ -1587,7 +1494,7 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
             throw Exception(snapshot ? "The cluster already has the maximum number of members."
                                      : "The selected cluster's storage is unreachable.");
         }
-        const auto error = settings->applyInvitationAccept(leaderRedisUri, settings->userDatabaseUri());
+        const auto error = settings->applyClusterJoin(leaderRedisUri, settings->userDatabaseUri());
         if (!error.empty())
         {
             throw Exception(error);
@@ -1597,12 +1504,9 @@ void ControlService::inviteClusterNode(const CClusterControl& input, CClusterCon
         return;
     }
 
-    // Shared-database joins use the configured cluster secret. Legacy invitations may supply
-    // a password explicitly; either path authenticates before requesting a configuration change.
-    const auto result = requireServer().getCluster()->sendInvitation(row->m_hostPort, row->m_name,
-                                                                     joinImmediately ? String() : input.m_password.asString(),
-                                                                     joinImmediately, row->m_nodeId,
-                                                                     "join", leaderNodeId);
+    // Shared-database joins authenticate with the configured cluster secret.
+    const auto result = requireServer().getCluster()->sendNodeAction(row->m_hostPort, row->m_name,
+                                                                    row->m_nodeId, "join", leaderNodeId);
     if (!result.m_success)
     {
         throw Exception(result.m_error);

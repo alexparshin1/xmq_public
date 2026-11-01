@@ -149,7 +149,7 @@ tuple<SServer, SServer> XMQ_ClusterTests::makeClusterOfTwoNodes()
     const auto primaryNode = createNode("primary", 1880, true, logSubjects);
     const auto secondaryNode = createNode("secondary", 1886, false, logSubjects);
 
-    // These protocol tests exercise an already authorised handshake; the invitation suite
+    // These protocol tests exercise an already authorised handshake; the join suite
     // verifies the administration step that grants this permission.
     primaryNode->getSettings()->m_cluster.m_enabled = true;
     secondaryNode->getSettings()->m_cluster.m_enabled = true;

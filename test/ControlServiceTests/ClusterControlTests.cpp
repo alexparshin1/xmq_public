@@ -80,7 +80,7 @@ vector<pair<String, String>> reachableClusterDatabases()
 void dropClusterTables(DatabaseConnectionPool& pool)
 {
     for (const auto* table: {"xmq_user_to_user_group", "xmq_user_group", "xmq_user",
-                             "xmq_cluster_invitation", "xmq_node"})
+                             "xmq_node"})
     {
         try
         {
@@ -130,7 +130,7 @@ constexpr const char* testUsers = R"({"users": [
  *
  * The node is not started: every action here is about the shared database and the configuration
  * on disk, which the interface edits while the server may be stopped. What needs a running broker -
- * the invitation's travels, the link counts - is tested by the cluster suite.
+ * the remote node actions, the link counts - is tested by the cluster suite.
  */
 class XMQ_ClusterControlTests : public ::testing::Test
 {
@@ -292,8 +292,7 @@ TEST_F(XMQ_ClusterControlTests, aNodeOnAClusterDatabaseListsItself)
 }
 
 /**
- * Add declares a node: a name and an address in the shared database, with a GUID the inviter
- * generates, and nothing is contacted.
+ * A standalone interface reads cluster membership without changing it.
  */
 TEST_F(XMQ_ClusterControlTests, standaloneInterfaceShowsOtherMembersWithoutJoining)
 {
@@ -455,65 +454,37 @@ TEST_F(XMQ_ClusterControlTests, unavailableStorageDoesNotTurnMembersIntoStandalo
     }
 }
 
-TEST_F(XMQ_ClusterControlTests, addDeclaresANodeInTheSharedDatabase)
+TEST_F(XMQ_ClusterControlTests, obsoleteInvitationActionsAreRejectedWithoutChangingConfigurations)
 {
-    const auto added = clusterControl("add", [](CClusterControl& input)
+    for (const auto* action: {"add", "invite", "accept", "decline"})
     {
-        input.m_node.m_name = "node-2";
-        input.m_node.m_host_port = "localhost:13801";
-    });
-    ASSERT_TRUE(added.m_result.m_success == true) << added.m_result.m_description.asString().c_str();
-
-    const auto declared = storedNode("node-2");
-    ASSERT_TRUE(declared.has_value());
-    EXPECT_STREQ("Not Clustered", declared->m_state.c_str());
-    EXPECT_STREQ("localhost:13801", declared->m_hostPort.c_str());
-    EXPECT_FALSE(declared->m_nodeId.empty());
-    EXPECT_TRUE(cluster::NodeIdentity::isGuid(std::string(declared->m_nodeId.c_str())))
-        << "the declaring GUID must be one an invitation can be keyed against";
-
-    ASSERT_EQ(2U, added.m_nodes.size());
-    EXPECT_TRUE(added.m_nodes[1].m_is_this_node == false);
-    EXPECT_FALSE(added.m_nodes[1].m_is_coordinator == true);
-
-    // A name belongs to one node: the second declaration of it is refused, and nothing is written.
-    const auto again = clusterControl("add", [](CClusterControl& input)
-    {
-        input.m_node.m_name = "node-2";
-        input.m_node.m_host_port = "localhost:13802";
-    });
-    EXPECT_FALSE(again.m_result.m_success == true);
-    EXPECT_NE(String::npos, again.m_result.m_description.asString().find("declared already"));
-
-    // An address nobody could link to is refused as well.
-    const auto badAddress = clusterControl("add", [](CClusterControl& input)
-    {
-        input.m_node.m_name = "node-3";
-        input.m_node.m_host_port = "not-an-address";
-    });
-    EXPECT_FALSE(badAddress.m_result.m_success == true);
-    EXPECT_FALSE(storedNode("node-3").has_value());
+        const auto response = clusterControl(action);
+        EXPECT_FALSE(response.m_result.m_success.asBool()) << action;
+        EXPECT_NE(String::npos, response.m_result.m_description.asString().find("Unknown ClusterControl action")) << action;
+    }
+    EXPECT_EQ(1U, clusterControl("get").m_nodes.size());
 }
 
 /**
- * Remove takes a declared node away, and refuses the node serving the interface - its own mode is
+ * Remove takes a retired configuration away, and refuses the node serving the interface - its own mode is
  * what takes it out of anything.
  */
-TEST_F(XMQ_ClusterControlTests, removeTakesADeclaredNodeAway)
+TEST_F(XMQ_ClusterControlTests, removeTakesARetiredConfigurationAway)
 {
-    ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
-            {
-            input.m_node.m_name = "node-2";
-            input.m_node.m_host_port = "localhost:13801";
-            })
-        .m_result.m_success == true);
+    ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
+    ClusterStore::Node row;
+    row.m_nodeId = cluster::NodeIdentity::generate();
+    row.m_name = "node-2";
+    row.m_hostPort = "localhost:13801";
+    row.m_state = "Retired";
+    store.insertNode(row);
 
     const auto removed = clusterControl("remove", [](CClusterControl& input)
     {
         input.m_node.m_name = "node-2";
     });
     ASSERT_TRUE(removed.m_result.m_success == true) << removed.m_result.m_description.asString().c_str();
-    EXPECT_FALSE(storedNode("node-2").has_value());
+    EXPECT_EQ("Removed", store.node(row.m_nodeId)->m_state);
     EXPECT_EQ(1U, removed.m_nodes.size());
 
     const auto own = clusterControl("remove", [](CClusterControl& input)
@@ -531,16 +502,14 @@ TEST_F(XMQ_ClusterControlTests, removeTakesADeclaredNodeAway)
  */
 TEST_F(XMQ_ClusterControlTests, removeRequiresRetirementOrExplicitForceForAServerConfiguration)
 {
-    ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
-    {
-        input.m_node.m_name = "standalone-node";
-        input.m_node.m_host_port = "localhost:13801";
-    }).m_result.m_success.asBool());
-    auto row = *storedNode("standalone-node");
+    ClusterStore::Node row;
+    row.m_nodeId = cluster::NodeIdentity::generate();
+    row.m_name = "standalone-node";
+    row.m_hostPort = "localhost:13801";
     row.m_state = "Standalone";
     row.m_certificate = "registered-server-certificate";
     ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
-    store.updateNode(row);
+    store.insertNode(row);
     const auto refused = clusterControl("remove", [](CClusterControl& input)
     {
         input.m_node.m_name = "standalone-node";
@@ -575,21 +544,17 @@ TEST_F(XMQ_ClusterControlTests, retirePreservesTheRowAndPreventsStartupOnThisDat
 
 TEST_F(XMQ_ClusterControlTests, removeRefusesAMember)
 {
-    ASSERT_TRUE(clusterControl("add", [](CClusterControl& input)
-            {
-            input.m_node.m_name = "node-2";
-            input.m_node.m_host_port = "localhost:13801";
-            })
-        .m_result.m_success == true);
-
     // A member, as the storage knows one: the stored state is what the check falls back on when
     // there is no coordinator to ask.
-    auto member = *storedNode("node-2");
+    ClusterStore::Node member;
+    member.m_nodeId = cluster::NodeIdentity::generate();
+    member.m_name = "node-2";
+    member.m_hostPort = "localhost:13801";
     member.m_state = "Clustered";
     {
         ClusterStore store(make_shared<DatabaseConnectionPool>(m_databaseUri, 1));
         store.createSchema();
-        store.updateNode(member);
+        store.insertNode(member);
     }
 
     const auto refused = clusterControl("remove", [](CClusterControl& input)
@@ -644,7 +609,7 @@ TEST_F(XMQ_ClusterControlTests, enableMakesTheNodeTheFirstMemberOfACluster)
 }
 
 /**
- * A storage that already holds a cluster is not pointed at: a cluster is joined by invitation, and
+ * A storage that already holds a cluster is not pointed at: use Join cluster, and
  * the answer says so. Nothing is written.
  */
 TEST_F(XMQ_ClusterControlTests, enableRefusesAStorageThatHoldsAnotherCluster)

@@ -808,42 +808,25 @@
                                     <xsd:enumeration value="get"></xsd:enumeration>
                                     <!-- Standalone to Cluster: the node becomes the first member of the cluster
                                          whose storage redis_uri names, and restarts into it. A storage that
-                                         already holds another cluster is refused, and the answer says to ask
-                                         for an invitation. -->
+                                         already holds another cluster requires Join cluster. -->
                                     <xsd:enumeration value="enable"></xsd:enumeration>
                                     <xsd:enumeration value="start"></xsd:enumeration>
                                     <xsd:enumeration value="retire"></xsd:enumeration>
                                     <!-- Cluster to Standalone: the node leaves the cluster and restarts. -->
                                     <xsd:enumeration value="disable"></xsd:enumeration>
-                                    <!-- Declare a node: a name and a TLS address, nothing contacted. -->
-                                    <xsd:enumeration value="add"></xsd:enumeration>
                                     <!-- Take a declared node away. A member is refused for now: it is detached
                                          from its own screen first. -->
                                     <xsd:enumeration value="remove"></xsd:enumeration>
-                                    <!-- Invite the selected node: the invitation is published to its
-                                         cluster/invitation topic as the cluster user. -->
-                                    <xsd:enumeration value="invite"></xsd:enumeration>
                                     <!-- One-step admission for nodes already using this shared accounts database. -->
                                     <xsd:enumeration value="join"></xsd:enumeration>
-                                    <!-- Answer the invitation this node holds. -->
-                                    <xsd:enumeration value="accept"></xsd:enumeration>
-                                    <xsd:enumeration value="decline"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
                         <xsd:element name="force" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                         <xsd:element name="node" type="tns:ClusterMember" maxOccurs="1" minOccurs="0">
                             <xsd:annotation>
-                                <xsd:documentation>The node add, remove and invite act on. Add takes the name
-                                    and the address; the other two take the node_id; remove also accepts the
-                                    name.</xsd:documentation>
-                            </xsd:annotation>
-                        </xsd:element>
-                        <xsd:element name="password" type="xsd:string" maxOccurs="1" minOccurs="0">
-                            <xsd:annotation>
-                                <xsd:documentation>The cluster account's password, as the Invite dialog asked
-                                    for it. The inviting node checks it by connecting as the cluster user, so
-                                    an authentication refusal is reported before the invitation is sent.</xsd:documentation>
+                                <xsd:documentation>The existing node configuration to act on, identified by
+                                    node_id; remove also accepts the name.</xsd:documentation>
                             </xsd:annotation>
                         </xsd:element>
                         <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
@@ -907,12 +890,6 @@
                         <xsd:element name="coordinator" type="xsd:string" maxOccurs="1" minOccurs="0">
                             <xsd:annotation>
                                 <xsd:documentation>The coordinator's name as this node last saw it, or empty.</xsd:documentation>
-                            </xsd:annotation>
-                        </xsd:element>
-                        <xsd:element name="invitation" type="tns:ClusterInvitation" maxOccurs="1" minOccurs="0">
-                            <xsd:annotation>
-                                <xsd:documentation>The invitation this node holds, if one came. The screen shows it
-                                    as a button; Review opens the confirmation built from it.</xsd:documentation>
                             </xsd:annotation>
                         </xsd:element>
                     </xsd:sequence>
@@ -1596,8 +1573,7 @@
                 <xsd:sequence>
                     <xsd:element name="node_id" type="xsd:string" maxOccurs="1" minOccurs="0">
                         <xsd:annotation>
-                            <xsd:documentation>The node's GUID: the identity every other value follows. Absent
-                                only before the Invite has asked a declared node who it is.</xsd:documentation>
+                            <xsd:documentation>The node's GUID: the identity every other value follows.</xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
                     <xsd:element name="name" type="xsd:string">
@@ -1607,14 +1583,14 @@
                     </xsd:element>
                     <xsd:element name="host_port" type="xsd:string" maxOccurs="1" minOccurs="0">
                         <xsd:annotation>
-                            <xsd:documentation>The TLS address the other nodes link to. Required when declaring a node;
+                            <xsd:documentation>The TLS address the other nodes link to;
                                 omitted for actions that identify an existing node by its GUID.</xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
                     <xsd:element name="state" type="xsd:string" maxOccurs="1" minOccurs="0">
                         <xsd:annotation>
-                            <xsd:documentation>The state the Cluster Configuration screen shows: Not Clustered,
-                                Standalone, Invited, Joining, Refused, Expired, Failed - or Clustered and
+                            <xsd:documentation>The state the Cluster Configuration screen shows:
+                                Standalone, Joining, Failed, Retired, Removed - or Clustered and
                                 Offline, which are computed from the shared storage and never stored.</xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
@@ -1651,57 +1627,6 @@
                                 Absent when the node has not written one yet or does not use a
                                 shared database.</xsd:documentation>
                         </xsd:annotation>
-                    </xsd:element>
-                </xsd:sequence>
-            </xsd:complexType>
-
-            <xsd:complexType name="ClusterInvitation">
-                <xsd:sequence>
-                    <xsd:element name="inviter_name" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>Who invited, for people.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="inviter_host_port" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>The address the invitation came from and the reply goes to.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>The storage the cluster works against.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>The accounts database every node shares.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="xmq_version" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>The inviter's version; a mismatch is a refusal.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="received_at" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>When it arrived, for the ten-minute lifetime.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="reject_reason" type="xsd:string" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>Why the node may not accept it; empty when it may. Accept is
-                                disabled while this stands.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="current_persistence" type="xsd:boolean" maxOccurs="1" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>What the Review confirmation names beside the offered value: whether
-                                this node persists now, and where its accounts are now.</xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="current_redis_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
-                    </xsd:element>
-                    <xsd:element name="current_database_uri" type="xsd:string" maxOccurs="1" minOccurs="0">
                     </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>

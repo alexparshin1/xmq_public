@@ -49,7 +49,7 @@ public:
         sptk::String m_nodeId;          ///< The node's GUID, as kept in `xmq_node.id`.
         sptk::String m_name;            ///< For people, unique in the cluster.
         sptk::String m_hostPort;        ///< The TLS address other nodes link to.
-        sptk::String m_state;           ///< Not Clustered, Invited, Joining, Refused, Expired, Failed.
+        sptk::String m_state;           ///< Standalone, Joining, Failed, Retired or Removed.
         sptk::String m_lastError;       ///< Why the last attempt ended as it did.
         sptk::String m_redisUri;        ///< The storage the cluster works against.
         sptk::String m_databaseUri;     ///< The accounts database every node shares.
@@ -108,18 +108,10 @@ public:
         std::optional<int64_t>      m_maxPacketSize;
     };
 
-    /// One invitation, as the database holds it. At most one per node.
-    struct Invitation
-    {
-        sptk::String m_nodeId;          ///< The invited node's GUID - its identity, no token needed.
-        sptk::String m_inviterHostPort; ///< The address the invitation came from.
-        sptk::String m_expiresAt;       ///< ISO time, ten minutes from the invite.
-    };
-
     explicit ClusterStore(std::shared_ptr<sptk::DatabaseConnectionPool> database);
 
     /**
-     * @brief Creates the tables if they are not there, and does nothing if they are.
+     * @brief Creates or upgrades the schema, removing obsolete invitation storage.
      *
      * Safe at every start, as UserStore::createSchema() is: a migration step somebody has to
      * remember to run is a broker that will not start because of it.
@@ -129,8 +121,7 @@ public:
     /// The node's row, if it has one.
     [[nodiscard]] std::optional<Node> node(const sptk::String& nodeId);
 
-    /// The row known by a name, if there is one. Names are unique in the cluster, so this is the
-    /// declaration an administrator made with Add, before the node itself was asked its GUID.
+    /// The row known by a name, if there is one. Names are unique in the database.
     [[nodiscard]] std::optional<Node> nodeByName(const sptk::String& name);
 
     /// Adds a row for a node that has none yet.
@@ -150,7 +141,7 @@ public:
      */
     void updateLogging(const sptk::String& nodeId, const std::optional<sptk::String>& logging);
 
-    /// Erases a provisional declaration (e.g. when Invite replaces it with the real UUID).
+    /// Erases a node row. Running configurations use removeConfiguration() for a tombstone.
     void removeNode(const sptk::String& nodeId);
 
     /// Explicit configuration removal. Keep a tombstone so startup cannot recreate the row.
@@ -162,15 +153,6 @@ public:
     /// The node's stored state only, with the error text of its last attempt; both empty when
     /// there is no row. The states that come from Redis - Clustered, Offline - are not here.
     [[nodiscard]] std::pair<sptk::String, sptk::String> stateOf(const sptk::String& nodeId);
-
-    /// The invitation a node has, if one is active.
-    [[nodiscard]] std::optional<Invitation> invitation(const sptk::String& nodeId);
-
-    /// Puts an invitation in place of the one a node had, if any - one per node, the latest wins.
-    void setInvitation(const Invitation& invitation);
-
-    /// Takes a node's invitation away: accepted, declined, or expired.
-    void clearInvitation(const sptk::String& nodeId);
 
     /// True when the driver is PostgreSQL or MySQL - what a cluster configuration needs.
     [[nodiscard]] bool isClusterDatabase() const;

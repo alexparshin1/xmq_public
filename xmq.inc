@@ -15,7 +15,6 @@ SET (xmq_files
   service/CCluster.cpp service/CCluster.h
   service/CClusterControl.cpp service/CClusterControl.h
   service/CClusterControlResponse.cpp service/CClusterControlResponse.h
-  service/CClusterInvitation.cpp service/CClusterInvitation.h
   service/CClusterMember.cpp service/CClusterMember.h
   service/CConnectionInfo.cpp service/CConnectionInfo.h
   service/CConnections.cpp service/CConnections.h
