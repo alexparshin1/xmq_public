@@ -64,6 +64,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <thread>
 #include <charconv>
 #include <cstdint>
@@ -836,11 +837,15 @@ public:
 
         while (!m_stopPolling.load(std::memory_order_acquire))
         {
-            std::this_thread::sleep_for(interval);
-            if (m_stopPolling.load(std::memory_order_acquire))
+            std::unique_lock lock(m_pollingMutex);
+            // stop() wakes this wait instead of joining a thread that may be asleep for the
+            // entire polling interval.
+            if (m_pollingCondition.wait_for(lock, interval,
+                                            [this] { return m_stopPolling.load(std::memory_order_acquire); }))
             {
                 break;
             }
+            lock.unlock();
 
             // One read, on a connection that lives just long enough for it.
             try
@@ -932,6 +937,7 @@ public:
             return;
         }
         m_stopPolling.store(true, std::memory_order_release);
+        m_pollingCondition.notify_all();
         m_pollThread.join();
     }
 
@@ -946,6 +952,8 @@ private:
     uint64_t                                      m_admitted {0};
     uint64_t                                      m_refused {0};
     std::atomic<bool>                             m_stopPolling {false};
+    std::mutex                                    m_pollingMutex;
+    std::condition_variable                       m_pollingCondition;
     std::thread                                   m_pollThread;
     std::atomic<int64_t>                          m_lastDatabaseVersion {0};
 };
