@@ -15,7 +15,7 @@ function displayDatabaseUri(uri) {
  * Dashboard.
  *
  * The node's vital signs and the controls that are about this node alone: starting and stopping the
- * MQTT server, and reading the mode, the storage and the accounts database. Changing the mode is not
+ * MQTT server, and reading the mode, the storage and the Configuration DB. Changing the mode is not
  * one of them - Start cluster, Join cluster and Leave cluster on the Cluster Configuration page are
  * the one way it changes, so the two screens cannot disagree about how a node becomes a cluster member.
  *
@@ -312,7 +312,7 @@ export default class DashboardScreen extends BasicScreen {
                 <span className="inputScreenHint">
                     {cluster.enabled === true
                         ? "This node works with " + (cluster.redis_uri || "no storage") +
-                          " and the accounts database " + (displayDatabaseUri(cluster.database_uri) || "—") + "."
+                          " and the Configuration DB " + (displayDatabaseUri(cluster.database_uri) || "—") + "."
                         : "A standalone node keeps its state to itself."}
                 </span>
             </div>

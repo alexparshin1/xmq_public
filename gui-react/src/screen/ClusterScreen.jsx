@@ -41,8 +41,8 @@ function displayUri(uri) {
  *
  * The cluster is configured here, not by editing a file on each node: the nodes with their states,
  * Start cluster, Join cluster, Leave cluster and Remove. Start cluster forms a cluster on a
- * Standalone node's configured Redis storage and accounts database; Join cluster explicitly confirms
- * a restart onto the shared Redis storage for a node already using the same accounts database.
+ * Standalone node's configured Redis storage and Configuration DB; Join cluster explicitly confirms
+ * a restart onto the shared Redis storage for a node already using the same Configuration DB.
  *
  * The mode itself - Standalone or Cluster - is changed by those actions; the Dashboard only shows
  * what it is.
@@ -163,12 +163,12 @@ export default class ClusterScreen extends BasicScreen {
         }
         const starting = this.state.cluster && this.state.cluster.cluster_state === "empty";
         confirmationWindow(starting
-            ? 'Start a cluster on node "' + selected.name + '" using its configured Redis storage and shared accounts database? ' +
+            ? 'Start a cluster on node "' + selected.name + '" using its configured Redis storage and shared Configuration DB? ' +
               "MQTT will restart; its clients will reconnect."
             : "Join node \"" + selected.name + "\" to this cluster?\n\n" +
             "The selected node will use this cluster's Redis storage and restart MQTT. Its clients " +
             "will disconnect briefly; the web interface stays available. Local standalone sessions and queued messages are " +
-            "not moved into the cluster. The shared accounts database stays the same.")
+            "not moved into the cluster. The shared Configuration DB stays the same.")
             .then(confirmed => {
                 if (confirmed) {
                     this.send(starting ? "start" : "join", {node: {node_id: selected.node_id, name: selected.name}},
@@ -214,7 +214,7 @@ export default class ClusterScreen extends BasicScreen {
                 <span>{displayUri(cluster.redis_uri) || "—"}</span>
             </div>
             <div className="inputScreenRow">
-                <label className="inputScreenLabel">Accounts database:</label>
+                <label className="inputScreenLabel">Configuration DB:</label>
                 <span>{displayUri(cluster.database_uri) || "—"}</span>
             </div>
             <div className="inputScreenRow">
@@ -321,7 +321,7 @@ export default class ClusterScreen extends BasicScreen {
                 ? <p style={{color: "#666", maxWidth: "46em"}}>
                     This node keeps its accounts in a file of its own (SQLite), and a cluster's
                     configuration is kept in a PostgreSQL or MySQL database shared by the nodes.
-                    Configure the shared accounts database in Initial Setup before using Join cluster.
+                    Configure the shared Configuration DB in Initial Setup before using Join cluster.
                 </p>
                 : null}
 

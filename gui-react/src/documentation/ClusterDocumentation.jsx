@@ -146,7 +146,7 @@ sudo systemctl enable --now xmq_server
                 uses that same account. Enter the same cluster password during Initial Setup on
                 every node; an existing account is checked before setup changes are applied.
                 Existing shared accounts are preserved. The credential used for outgoing cluster
-                connections is kept in the accounts database, separately from the account's password
+                connections is kept in the Configuration DB, separately from the account's password
                 hash; it is never written to the node's configuration file.
             </p>
 
@@ -243,7 +243,7 @@ sudo systemctl enable --now xmq_server
             <h5>4. Join node B to the cluster</h5>
             <p>
                 On node A select <b>Cluster</b> mode on the <b>Dashboard</b> and confirm the
-                shared accounts database and Redis storage. This creates the first member.
+                shared Configuration DB and Redis storage. This creates the first member.
                 Keep node B in <b>Standalone</b> until you explicitly join it.
             </p>
             <p>

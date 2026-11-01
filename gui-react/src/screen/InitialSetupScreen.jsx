@@ -229,7 +229,7 @@ export default class InitialSetupScreen extends BasicScreen {
         }
 
         if (this.state.database_type && !this.state.redis_host) {
-            return "A shared accounts database needs shared storage. "
+            return "A shared Configuration DB needs shared storage. "
                  + "Provide the Redis host or select SQLite for the user database.";
         }
 

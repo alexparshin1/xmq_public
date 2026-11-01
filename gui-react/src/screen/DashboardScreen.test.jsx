@@ -7,7 +7,7 @@ test.each([
     ["mysql://xmq:sec%40ret@theater:3306/xmq", "mysql://xmq@theater:3306/xmq"],
     ["postgresql://xmq:test#123@theater/xmq", "postgresql://xmq@theater/xmq"],
     ["postgresql://xmq@theater/xmq", "postgresql://xmq@theater/xmq"]
-])("Dashboard hides the accounts database password: %s", (uri, displayed) => {
+])("Dashboard hides the Configuration DB password: %s", (uri, displayed) => {
     const dashboard = new DashboardScreen({});
     dashboard.state.cluster = {enabled: true, database_uri: uri};
     const {container} = render(dashboard.renderCluster());
