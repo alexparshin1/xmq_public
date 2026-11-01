@@ -378,10 +378,38 @@ void Cluster::connectToCluster()
 
 void Cluster::detachCluster()
 {
+    // A detach closes the links from both ends, but keepLinks() runs once a second and can be
+    // inside its pass at that moment: it would open a link again just after the other end closed
+    // it, and the node - no longer a member - would be left linked to a cluster it left. The flag
+    // keeps it from opening any new link while the detach is in progress.
+    {
+        const scoped_lock lock(m_linkMutex);
+        m_detaching = true;
+    }
+
     notifyAllNodes(Command::DetachNodeRequest);
     if (auto* coordinator = m_coordinatorView.load())
     {
         coordinator->leave();
+    }
+
+    // Whatever keepLinks() opened before the flag was set, or while the request was in flight, is
+    // closed here: once the node has left, nothing else will close it.
+    {
+        const scoped_lock lock(m_linkMutex);
+        vector<SNode> nodes;
+        {
+            const scoped_lock nodesLock(m_mutex);
+            nodes = m_connectedNodes.nodes();
+        }
+        for (const auto& node: nodes)
+        {
+            if (node->getName() != m_server->getNodeName() && node->isConnected())
+            {
+                disconnectNode(node);
+            }
+        }
+        m_detaching = false;
     }
 }
 
@@ -503,6 +531,15 @@ void Cluster::keepLinks()
                 return;
             }
             if (member.m_name == m_server->getNodeName() || !member.m_alive || member.m_hostPort.empty())
+            {
+                continue;
+            }
+
+            // A detach may run while this pass is in progress. The lock makes the flag and the
+            // opening of a link one step: the detach either sees this pass finish, or this pass
+            // sees the flag. Either way no link opened here outlives the detach.
+            const scoped_lock lock(m_linkMutex);
+            if (m_detaching)
             {
                 continue;
             }

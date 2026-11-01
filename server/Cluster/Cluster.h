@@ -448,6 +448,8 @@ private:
     std::string                          m_nodeId;                 ///< This node's GUID.
     std::thread                          m_rejoinThread;           ///< Links to the other members after startup(), then keeps the links.
     std::atomic<bool>                    m_stopping {false};       ///< Set by stop(): rejoining gives up.
+    std::atomic<bool>                    m_detaching {false};      ///< Set by detachCluster(): keepLinks() must not open links.
+    std::mutex                           m_linkMutex;              ///< Guards opening links against a detach in progress.
     std::atomic_size_t                   m_activeLinkCallbacks {0}; ///< Link messages being dispatched into this cluster.
 
     /// A session another node asked for, to be let go of: client id and the asking node's GUID.
