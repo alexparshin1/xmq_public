@@ -124,6 +124,14 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **The Windows unit-test target no longer links duplicate `std::string` definitions.** The
+  whitelist header now sees SPTK's import declaration before including the standard string header.
+
+- **Stopping a controller no longer reopens its log from reset settings.** Retiring a node
+  configuration can reset its in-memory log path to the installation default. Shutdown keeps
+  the existing log engine instead of opening a new file, which could fail with a permission
+  error and terminate an otherwise successful shutdown on an unprivileged installation.
+
 - **A node whose configuration file names no listeners keeps serving on its default one.** A node
   with its row in a shared database keeps a bootstrap-only file, and the default listener that file
   leaves it with was written to the row without `enable` set; JSON writes an unset boolean as

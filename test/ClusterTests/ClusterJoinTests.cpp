@@ -204,6 +204,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     targetLogging.m_log_to = (targetSettings->configurationPath().parent_path() / "controller.log").string();
     targetSettings->loggingControl("set", targetLogging);
     ServerController targetController(targetSettings);
+    const auto controllerLog = targetController.getLogEngine();
     ControllerCleanup controllerCleanup {targetController};
     targetController.startService();
     ASSERT_TRUE(targetController.isServing());
@@ -370,4 +371,7 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     EXPECT_NE(String::npos, webClusterState(targetToken).find(targetId));
     EXPECT_TRUE(sourceSettings->m_cluster.m_enabled.asBool());
     EXPECT_TRUE(sourceController.isServing());
+    EXPECT_NO_THROW(targetController.stopService());
+    EXPECT_EQ(controllerLog, targetController.getLogEngine())
+        << "Shutdown must not reopen the log using the retired configuration's defaults";
 }

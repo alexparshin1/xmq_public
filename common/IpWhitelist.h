@@ -13,6 +13,12 @@
 
 #pragma once
 
+#ifdef _WIN32
+// SPTK's String import declares the std::string members exported by spwsdl5. Keep that
+// declaration visible before <string>, so MSVC doesn't emit conflicting local definitions.
+#include <sptk5/String.h>
+#endif
+
 #include <cstdint>
 #include <string>
 #include <vector>

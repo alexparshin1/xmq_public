@@ -569,7 +569,7 @@ bool ServerController::isStopped(const std::chrono::milliseconds sleepInterval)
 
 void ServerController::stopService()
 {
-    // Before the log engine is replaced below, since the rotation uses it.
+    // Stop rotation before the log engine is released with the controller.
     if (m_logRotationEvent)
     {
         m_logRotationEvent->cancel();
@@ -580,5 +580,8 @@ void ServerController::stopService()
     stopServing();
     m_controlServiceListener.reset();
 
-    m_logEngine = makeLogEngine(m_settings);
+    // Keep the existing engine while shutting down. Retiring a configuration can reset the
+    // settings to defaults; reopening here then targets the installation's log directory,
+    // not the file this process opened. Besides being unnecessary, that can throw during
+    // cleanup and terminate a process that otherwise stopped successfully.
 }

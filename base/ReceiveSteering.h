@@ -13,12 +13,11 @@
 
 #pragma once
 
-// Not for a type used below, but for the linker. sptk5::String derives from std::string and is
-// __declspec(dllimport) here, which makes MSVC take std::basic_string<char>'s members from
-// spwsdl5.dll in every translation unit that sees it. A unit that does not emits its own
-// copies instead, and the two collide: LNK2005, ~40 times, on std::string's members. Every
-// other header in base/ pulls SPTK in for a type it needs; this one has to ask on purpose.
+#ifdef _WIN32
+// SPTK's String import declares the std::string members exported by spwsdl5. This header can be
+// reached by translation units without another SPTK include, so make the import visible first.
 #include <sptk5/String.h>
+#endif
 
 #include <string>
 #include <vector>
