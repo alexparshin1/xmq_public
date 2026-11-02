@@ -61,14 +61,21 @@ ServerNode::ServerNode(Server* server, CServerNode nodeSettings, const Topics& c
 
 ReasonCode ServerNode::connect()
 {
-    const unique_lock lock(m_mutex);
+    // Opening and closing the links are one operation each: a detach must not close a link that
+    // a pass of the cluster's link keeper is opening. This lock is not the node's own: a link's
+    // receive thread is inside the cluster's message handler, which asks this node for its name,
+    // so a lock the handler needs must not be held across a close that waits for that thread.
+    const scoped_lock linkLock(m_linkMutex);
 
     if (!m_nodeSettings.m_encrypted.asBool())
     {
         throw Exception("Cluster connections require MQTT+SSL.");
     }
 
-    m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Offline);
+    {
+        const unique_lock lock(m_mutex);
+        m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Offline);
+    }
 
     auto destinationHost = make_unique<Host>(m_nodeSettings.m_host_port);
 
@@ -113,7 +120,10 @@ ReasonCode ServerNode::connect()
         }
     }
 
-    m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Standalone);
+    {
+        const unique_lock lock(m_mutex);
+        m_nodeSettings.m_node_state = static_cast<int>(ServerNodeState::Standalone);
+    }
     return ReasonCode::Success;
 }
 
@@ -189,7 +199,11 @@ void ServerNode::sendDetachNodeRequest()
 
 void ServerNode::disconnect() const
 {
-    const unique_lock lock(m_mutex);
+    // The links are closed without this node's own lock held. A link's receive thread is inside
+    // the cluster's message handler, which asks this node for its name; closing a link waits for
+    // that thread to finish. Held here, the lock would be waited for by the thread the close waits
+    // for. m_linkMutex serialises this with connect() instead.
+    const scoped_lock linkLock(m_linkMutex);
     for (const auto& link: m_links)
     {
         link->disconnect();

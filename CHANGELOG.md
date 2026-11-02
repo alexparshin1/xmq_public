@@ -124,6 +124,16 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **A node that has left the cluster no longer remains in its peers' lists.** A detach closes the
+  links its `DetachNodeRequest` travels on, and the request could be lost in that close: the node
+  that stayed kept a record of a peer that had gone, its links still reporting themselves
+  connected, so the count of cluster nodes never returned to zero. The link keeper now drops the
+  record of a node that is not a live cluster member, whatever its links say. Closing those links
+  also no longer holds the node's own lock, which a link's receive thread needs to name the node it
+  is delivering for: the close waited for that thread and the thread waited for the lock, so the
+  record was never removed. Found by the intermittent FreeBSD failure of
+  `XMQ_ClusterTests.attachAndDetachToCluster` (one failure in the 2026-11-01 farm run).
+
 - **The Windows unit-test target no longer links duplicate `std::string` definitions.** The
   whitelist header now sees SPTK's import declaration before including the standard string header.
 

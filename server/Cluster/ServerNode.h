@@ -198,6 +198,7 @@ private:
     std::vector<size_t> linksFor(const std::string& topicFilter) const;
 
     mutable std::shared_mutex           m_mutex;                           ///< Shared mutex.
+    mutable std::mutex                  m_linkMutex;                       ///< Serialises opening and closing this node's links.
     std::vector<std::unique_ptr<client::MqttClient>> m_links;              ///< MQTT clients, one for each link to the node.
     Server*                             m_server;                          ///< Owning server instance.
     std::vector<std::shared_ptr<ConnectCredentials>> m_credentials;        ///< MQTT client credentials of each link (ID, username, password).

@@ -404,7 +404,7 @@ void Cluster::detachCluster()
         }
         for (const auto& node: nodes)
         {
-            if (node->getName() != m_server->getNodeName() && node->isConnected())
+            if (node->getName() != m_server->getNodeName())
             {
                 disconnectNode(node);
             }
@@ -524,6 +524,31 @@ void Cluster::keepLinks()
             continue; // The storage is away: there is no telling who is running.
         }
 
+        // A node that is not a live member is gone, whatever its links still say: a detach request
+        // can be lost while the links it travelled on are closed, and an open link to a node that
+        // has left is not a cluster link. A live member with a broken link is left alone - the loop
+        // below opens the missing links without throwing away what the record holds.
+        {
+            vector<SNode> nodes;
+            {
+                const scoped_lock lock(m_mutex);
+                nodes = m_connectedNodes.nodes();
+            }
+            for (const auto& node: nodes)
+            {
+                if (node->getName() == m_server->getNodeName())
+                {
+                    continue;
+                }
+                const auto member = ranges::find_if(members, [&node](const auto& candidate)
+                                                    { return candidate.m_alive && candidate.m_name == node->getName(); });
+                if (member == members.end())
+                {
+                    disconnectNode(node);
+                }
+            }
+        }
+
         for (const auto& member: members)
         {
             if (m_stopping)
@@ -539,7 +564,7 @@ void Cluster::keepLinks()
             // opening of a link one step: the detach either sees this pass finish, or this pass
             // sees the flag. Either way no link opened here outlives the detach.
             const scoped_lock lock(m_linkMutex);
-            if (m_detaching)
+            if (m_detaching || m_stopping || !coordinator->isParticipating())
             {
                 continue;
             }
