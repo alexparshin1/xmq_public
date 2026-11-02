@@ -1179,4 +1179,79 @@ TEST_F(XMQ_ControlServiceTests, anAdministratorCanBeRemovedWhileAnotherRemains)
     users.removeUser(users.findUser("second-administrator"));
 }
 
+TEST_F(XMQ_ControlServiceTests, permissionsControlListsAddsTestsAndRemoves)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+
+    // A group of its own per run: the accounts database outlives a failed run, and a test that
+    // counts its own rules must not inherit somebody else's.
+    const String suffix = to_string(::getpid());
+    const String group = "user:test-permissions-" + suffix;
+    const String username = "test-permissions-" + suffix;
+
+    const auto add = [&](const String& action, const bool deny, const String& filter)
+    {
+        input.m_action = "add";
+        input.m_rule.m_group = group;
+        input.m_rule.m_action = action;
+        input.m_rule.m_deny = deny;
+        input.m_rule.m_filter = filter;
+        m_controlService->PermissionsControl(input, output, &authentication);
+        verifyResult(output.m_result);
+    };
+
+    add("publish", false, "sensors/#");
+    add("publish", true, "sensors/secret/#");
+
+    // The list is canonical and reading it back does not duplicate anything.
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    size_t ownRules = 0;
+    for (const auto& rule: output.m_rules)
+    {
+        ownRules += rule.m_group.asString() == group ? 1 : 0;
+    }
+    EXPECT_EQ(2U, ownRules);
+
+    const auto test = [&](const String& topic)
+    {
+        input.m_action = "test";
+        input.m_username = username;
+        input.m_topic = topic;
+        input.m_acl_action = "publish";
+        m_controlService->PermissionsControl(input, output, &authentication);
+        verifyResult(output.m_result);
+        return String(output.m_decision.asString());
+    };
+
+    EXPECT_EQ("allow", test("sensors/temp"));
+    EXPECT_EQ("deny", test("sensors/secret/key"));
+    EXPECT_EQ("not_handled", test("somewhere/else"));
+
+    // Remove both, so the shared accounts database is left as it was found.
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    for (const auto& rule: output.m_rules)
+    {
+        if (rule.m_group.asString() != group)
+        {
+            continue;
+        }
+        CPermissionsControl         remove;
+        CPermissionsControlResponse removed;
+        remove.m_action = "remove";
+        remove.m_rule_id = rule.m_id.asInteger();
+        m_controlService->PermissionsControl(remove, removed, &authentication);
+        verifyResult(removed.m_result);
+    }
+}
+
 } // namespace xmq

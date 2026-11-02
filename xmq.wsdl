@@ -771,6 +771,57 @@
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
+            <xsd:element name="AclRule">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="id" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="group" type="xsd:string"/>
+                        <xsd:element name="action" type="xsd:string"/>
+                        <xsd:element name="deny" type="xsd:boolean"/>
+                        <xsd:element name="filter" type="xsd:string"/>
+                        <xsd:element name="source" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="source_ref" type="xsd:string" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="PermissionsControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="list"/>
+                                    <xsd:enumeration value="add"/>
+                                    <xsd:enumeration value="remove"/>
+                                    <xsd:enumeration value="test"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="rule" type="tns:AclRule" minOccurs="0"/>
+                        <xsd:element name="rule_id" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="username" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="topic" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="acl_action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="publish"/>
+                                    <xsd:enumeration value="subscribe"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="PermissionsControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="rules" type="tns:AclRule" maxOccurs="unbounded" minOccurs="0"/>
+                        <xsd:element name="decision" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="explanation" type="xsd:string" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
             <xsd:element name="PersistenceControl">
                 <xsd:complexType>
                     <xsd:sequence>
@@ -1914,6 +1965,12 @@
     <wsdl:message name="ListenerControlResponse">
         <wsdl:part name="parameters" element="tns:ListenerControlResponse"></wsdl:part>
     </wsdl:message>
+    <wsdl:message name="PermissionsControlRequest">
+        <wsdl:part name="parameters" element="tns:PermissionsControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="PermissionsControlResponse">
+        <wsdl:part name="parameters" element="tns:PermissionsControlResponse"></wsdl:part>
+    </wsdl:message>
     <wsdl:message name="PersistenceControlRequest">
         <wsdl:part name="parameters" element="tns:PersistenceControl"></wsdl:part>
     </wsdl:message>
@@ -2008,6 +2065,10 @@
         <wsdl:operation name="ListenerControl">
             <wsdl:input message="tns:ListenerControlRequest"></wsdl:input>
             <wsdl:output message="tns:ListenerControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PermissionsControl">
+            <wsdl:input message="tns:PermissionsControlRequest"></wsdl:input>
+            <wsdl:output message="tns:PermissionsControlResponse"></wsdl:output>
         </wsdl:operation>
         <wsdl:operation name="PersistenceControl">
             <wsdl:input message="tns:PersistenceControlRequest"></wsdl:input>
@@ -2128,6 +2189,16 @@
         <wsdl:operation name="ListenerControl">
             <soap:operation
                     soapAction="http://www.sptk.net/xmq/ListenerControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PermissionsControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/PermissionsControl"/>
             <wsdl:input>
                 <soap:body use="literal"/>
             </wsdl:input>

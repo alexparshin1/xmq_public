@@ -840,6 +840,228 @@ void ControlService::ListenerControl(const CListenerControl& input, CListenerCon
     }
 }
 
+namespace {
+
+bool validTopicFilter(const String& filter)
+{
+    if (filter.empty())
+    {
+        return false;
+    }
+    const auto text = filter.c_str();
+    size_t start = 0;
+    while (true)
+    {
+        const auto slash = string(text).find('/', start);
+        const auto level = string(text).substr(start, slash == string::npos ? string::npos : slash - start);
+        if (level == "#")
+        {
+            return slash == string::npos;
+        }
+        if (level.find_first_of("#+") != string::npos)
+        {
+            return false;
+        }
+        if (slash == string::npos)
+        {
+            return true;
+        }
+        start = slash + 1;
+    }
+}
+
+CAclRule describeRule(const UserStore::AclRule& rule)
+{
+    CAclRule described;
+    described.m_id = static_cast<int>(rule.m_id);
+    described.m_group = rule.m_groupName;
+    described.m_action = rule.m_action;
+    described.m_deny = rule.m_deny;
+    described.m_filter = rule.m_filter;
+    described.m_source = rule.m_source;
+    described.m_source_ref = rule.m_sourceRef;
+    return described;
+}
+
+} // namespace
+
+void ControlService::PermissionsControl(const CPermissionsControl& input, CPermissionsControlResponse& output,
+                                        HttpAuthentication* authentication)
+{
+    try
+    {
+        CUser caller;
+        authenticate(authentication, caller);
+
+        const auto pool = getSettings()->accountsPool();
+        if (!pool)
+        {
+            throw Exception("Topic permissions need the accounts database, and it is not configured.");
+        }
+        UserStore store(pool);
+        store.createSchema();
+
+        // A response object can be reused by a caller; the list is this call's answer, not an
+        // append to whatever was in the object before.
+        output.m_rules.clear();
+
+        const auto action = input.m_action.asString();
+        if (action == "list")
+        {
+            for (const auto& rule: store.aclRules())
+            {
+                output.m_rules.push_back(describeRule(rule));
+            }
+        }
+        else if (action == "add")
+        {
+            const auto& incoming = input.m_rule;
+            const auto  group = incoming.m_group.asString();
+            const auto  ruleAction = incoming.m_action.asString();
+            const auto  filter = incoming.m_filter.asString();
+            if (group.empty())
+            {
+                throw Exception("A rule needs a group.");
+            }
+            if (ruleAction != "publish" && ruleAction != "subscribe")
+            {
+                throw Exception("A rule action is 'publish' or 'subscribe'.");
+            }
+            if (!validTopicFilter(filter))
+            {
+                throw Exception("'" + String(filter) + "' is not a valid MQTT topic filter.");
+            }
+            store.addAclRule({.m_groupName = group,
+                              .m_action = ruleAction,
+                              .m_deny = incoming.m_deny.asBool(),
+                              .m_filter = filter,
+                              .m_source = incoming.m_source.isNull() ? String("manual") : incoming.m_source.asString(),
+                              .m_sourceRef = incoming.m_source_ref.asString(),
+                              .m_updatedBy = caller.m_username.asString()});
+            for (const auto& rule: store.aclRules())
+            {
+                output.m_rules.push_back(describeRule(rule));
+            }
+        }
+        else if (action == "remove")
+        {
+            const auto id = input.m_rule_id.asInteger();
+            if (id <= 0)
+            {
+                throw Exception("A rule id is required.");
+            }
+            store.removeAclRule(id);
+            for (const auto& rule: store.aclRules())
+            {
+                output.m_rules.push_back(describeRule(rule));
+            }
+        }
+        else if (action == "test")
+        {
+            const auto username = input.m_username.asString();
+            const auto topic = input.m_topic.asString();
+            const auto aclAction = input.m_acl_action.asString();
+            if (topic.empty() || (aclAction != "publish" && aclAction != "subscribe"))
+            {
+                throw Exception("A test needs a topic and an action ('publish' or 'subscribe').");
+            }
+
+            vector<String> groups;
+            if (username.empty())
+            {
+                groups.push_back("anonymous");
+            }
+            else
+            {
+                groups.push_back("user:" + String(username));
+                if (const auto user = store.findUser(username))
+                {
+                    for (const auto& group: store.groupsOfUser(user->m_id))
+                    {
+                        groups.push_back(group.m_name);
+                    }
+                }
+                groups.push_back("anonymous");
+            }
+
+            const auto rules = store.aclRules();
+            String     decision("not_handled");
+            String     explanation("no rule covers this topic");
+            for (const auto& group: groups)
+            {
+                const auto hasGroupRules = ranges::any_of(rules, [&group](const auto& rule)
+                                                          { return rule.m_groupName == group; });
+                if (!hasGroupRules)
+                {
+                    continue;
+                }
+
+                const UserStore::AclRule* firstAllow = nullptr;
+                for (const auto& rule: rules)
+                {
+                    if (rule.m_groupName != group || rule.m_action != aclAction ||
+                        !RetainedMessages::matches(rule.m_filter, topic))
+                    {
+                        continue;
+                    }
+                    if (rule.m_deny)
+                    {
+                        decision = "deny";
+                        explanation = "denied by " + rule.m_filter + " in group " + group;
+                        output.m_decision = decision;
+                        output.m_explanation = explanation;
+                        output.m_result.m_success = true;
+                        return;
+                    }
+                    if (firstAllow == nullptr)
+                    {
+                        firstAllow = &rule;
+                    }
+                }
+                if (firstAllow)
+                {
+                    decision = "allow";
+                    explanation = "allowed by " + firstAllow->m_filter + " in group " + group;
+                    break;
+                }
+                // The first group with rules decides; no matching rule in it is not a fall-through
+                // to another group, because resolveGroup() would have stopped at this group too.
+                break;
+            }
+
+            output.m_decision = decision;
+            output.m_explanation = explanation;
+        }
+        else
+        {
+            throw Exception("Unknown permissions action '" + String(action) + "'.");
+        }
+
+        if (action != "list" && action != "test")
+        {
+            if (const auto runningServer = server())
+            {
+                runningServer->extensions().accountsChanged();
+                if (const auto cluster = runningServer->cluster())
+                {
+                    cluster->notifyAccountsChanged();
+                }
+            }
+        }
+        output.m_result.m_success = true;
+    }
+    catch (const Exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.message();
+    }
+    catch (const std::exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.what();
+    }
+}
+
 void ControlService::PersistenceControl(const CPersistenceControl& input, CPersistenceControlResponse& output, HttpAuthentication* authentication)
 {
     try
