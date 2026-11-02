@@ -16,6 +16,8 @@ config="/etc/xmq/xmq_server.conf"
 service="xmq_server"
 port="1883"
 mode=""
+admin_user="${XMQ_ADMIN_USER:-admin}"
+admin_password="${XMQ_ADMIN_PASSWORD:-}"
 
 usage() {
   cat <<EOF
@@ -31,6 +33,10 @@ Options:
   --config PATH         Broker configuration file (default: $config).
   --service NAME        systemd unit (default: $service).
   --port N              Port to wait for after starting (default: $port).
+  --admin-user NAME     Web interface account used when the node keeps its persistence in the
+                        shared database (default: admin).
+  --admin-password P    Its password. Needed only for such a node; also read from
+                        XMQ_ADMIN_PASSWORD.
 EOF
 }
 
@@ -42,6 +48,8 @@ while [[ $# -gt 0 ]]; do
     --config)   config="$2"; shift 2 ;;
     --service)  service="$2"; shift 2 ;;
     --port)     port="$2"; shift 2 ;;
+    --admin-user) admin_user="$2"; shift 2 ;;
+    --admin-password) admin_password="$2"; shift 2 ;;
     -h|--help)  usage; exit 0 ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -49,6 +57,7 @@ done
 [[ -z "$mode" ]] && { echo "Say on, off, or --for SCENARIO." >&2; usage; exit 1; }
 
 run() { if [[ -n "$host" ]]; then ssh -o BatchMode=yes "$host" "$@"; else bash -c "$*"; fi; }
+run_script() { if [[ -n "$host" ]]; then ssh -o BatchMode=yes "$host" bash -s; else bash -s; fi; }
 
 enabled=$([[ "$mode" == "on" ]] && echo true || echo false)
 
@@ -61,6 +70,8 @@ run "sudo -n jq '.persistence.enabled = $enabled | .persistence.clean_start = tr
 run "sudo -n systemctl start $service" || exit 1
 
 target="${host:-localhost}"
+# --host is also an ssh destination and may carry the user; a TCP check takes the address only.
+target="${target#*@}"
 up=0
 # A refused connection returns at once, so without the pause the 60 tries took well under a second
 # and a broker restoring persistent state was declared down while it was still starting.
@@ -72,6 +83,35 @@ done
 
 # Read back, because the whole point of stopping first was to be sure.
 actual=$(run "sudo -n jq -r '.persistence.enabled' $config")
+if [[ "$actual" == "null" ]]; then
+  # The node keeps its settings in the shared database, and the file is a bootstrap that the
+  # broker rewrites without this section. The interface is the way in: read the section, change
+  # the two fields, write it back, and restart so clean_start applies.
+  if [[ -z "$admin_password" ]]; then
+    echo "persistence is stored in the node's database; pass --admin-password to change it" >&2
+    exit 1
+  fi
+  login=$(jq -cn --arg u "$admin_user" --arg p "$admin_password" '{username:$u,password:$p}')
+  response=$(run_script <<EOF
+set -e
+token=\$(curl -ksS -X POST https://127.0.0.1:18883/Login -H 'Content-Type: application/json' -d '$login' | jq -r .token)
+test -n "\$token" -a "\$token" != null
+curl -ksS -X POST https://127.0.0.1:18883/PersistenceControl -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer \$token" -d '{"action":"get"}' |
+  jq -c --argjson enabled $enabled '.persistence.enabled = \$enabled | .persistence.clean_start = true | {action:"set", persistence:.persistence}' > /tmp/xmq_persistence.json
+curl -ksS -X POST https://127.0.0.1:18883/PersistenceControl -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer \$token" --data-binary @/tmp/xmq_persistence.json
+EOF
+) || { echo "could not set persistence through the web interface" >&2; exit 1; }
+  actual=$(printf '%s' "$response" | jq -r '.persistence.enabled')
+  run "sudo -n systemctl restart $service" || exit 1
+  up=0
+  for _ in $(seq 1 60); do
+    if timeout 2 bash -c ": >/dev/tcp/$target/$port" 2>/dev/null; then up=1; break; fi
+    sleep 1
+  done
+  [[ "$up" -eq 0 ]] && { echo "$target:$port never accepted after the restart" >&2; exit 1; }
+fi
 if [[ "$actual" != "$enabled" ]]; then
   echo "persistence is '$actual' in $config, asked for '$enabled' - the broker overwrote it" >&2
   exit 1
