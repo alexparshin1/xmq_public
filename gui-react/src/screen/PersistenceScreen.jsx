@@ -16,8 +16,8 @@ export default class PersistenceScreen extends BasicScreen
     state = {
         enabled: false,
         clean_start: false,
-        max_redis_connections: 32,
-        max_queued_writes: 0,
+        max_redis_connections: 2,
+        max_queued_writes: 1000,
         // redis_uri, presented as separate fields
         redis_host: "localhost",
         redis_port: 6379,

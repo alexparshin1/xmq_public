@@ -124,6 +124,13 @@ Requires SPTK 5.6.17.
 
 ### Fixed
 
+- **A new installation gets the persistence profile the measurements use.** The template a fresh
+  installation is created from still said `max_redis_connections` 32 and `max_queued_writes` 100;
+  the built-in default was corrected to 2 and 1000 in 0.9.19, but the shipped template was not. At
+  60,000 persistent messages a second the 100-message window fills at once and the broker stops
+  reading publishers: a run measured a median of 268 seconds instead of 234 microseconds. New
+  installations now start at 2 and 1000; an existing configuration keeps the values it has.
+
 - **A node that has left the cluster no longer remains in its peers' lists.** A detach closes the
   links its `DetachNodeRequest` travels on, and the request could be lost in that close: the node
   that stayed kept a record of a peer that had gone, its links still reporting themselves

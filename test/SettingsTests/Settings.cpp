@@ -383,6 +383,12 @@ TEST(XMQ_Settings, initialSetupKeepsAutomaticThreadsFromTheShippedTemplate)
 
     EXPECT_EQ("auto", settings.m_server_limits.m_send_threads.asString());
     EXPECT_EQ("auto", settings.m_server_limits.m_receive_threads.asString());
+
+    // The persistence profile the published measurements were taken with. The shipped template
+    // kept the pre-0.9.19 values long after the built-in default was corrected, so a fresh
+    // installation measured minutes of latency at 60,000 persistent messages a second.
+    EXPECT_EQ(2, settings.m_persistence.m_max_redis_connections.asInteger());
+    EXPECT_EQ(1000, settings.m_persistence.m_max_queued_writes.asInteger());
 }
 
 TEST(XMQ_Settings, applyInitialSetupUsesTheAddressItWasGiven)
