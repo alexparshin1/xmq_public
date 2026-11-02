@@ -93,8 +93,8 @@ void dropEverything(DatabaseConnectionPool& pool)
     // leave behind: nodeSettingsUpdateAndRollbackOnlyTheirOwnSharedRow writes and reads that row.
     // Left in place, the next run inherits a node with somebody else's name, state and limits - and
     // a row from an older build carries whatever columns that build had.
-    for (const auto* table: {"xmq_cluster_credential", "xmq_user_to_user_group", "xmq_user", "xmq_user_group",
-                             "xmq_store_version", "xmq_node"})
+    for (const auto* table: {"xmq_acl_rule", "xmq_cluster_credential", "xmq_user_to_user_group",
+                             "xmq_user", "xmq_user_group", "xmq_store_version", "xmq_node"})
     {
         try
         {
@@ -366,6 +366,55 @@ TEST_F(XMQ_UserStoreTests, createsItsSchemaOnEveryDatabaseWeSupport)
 
         // Called at every start, so it has to be safe to call when everything is already there.
         EXPECT_NO_THROW(store.createSchema()) << name << ": creating twice must be harmless";
+    }
+}
+
+TEST_F(XMQ_UserStoreTests, aclRulesHaveOneIdentityAndAreReplacedAtomically)
+{
+    for (const auto& [name, uri]: m_databases)
+    {
+        SCOPED_TRACE(name);
+        auto store = storeOn(uri);
+
+        const auto first = store.addAclRule({.m_groupName = "user:sensor-1",
+                                             .m_action = "publish",
+                                             .m_deny = false,
+                                             .m_filter = "site/sensor-1/telemetry/#",
+                                             .m_source = "mosquitto",
+                                             .m_sourceRef = "acl:5"});
+        ASSERT_GT(first, 0);
+
+        // The same canonical rule from another source is the same rule, not a second one.
+        const auto again = store.addAclRule({.m_groupName = "user:sensor-1",
+                                             .m_action = "publish",
+                                             .m_deny = false,
+                                             .m_filter = "site/sensor-1/telemetry/#",
+                                             .m_source = "dynamic-security",
+                                             .m_sourceRef = "dynsec:1"});
+        EXPECT_EQ(first, again);
+        auto rules = store.aclRules();
+        ASSERT_EQ(1U, rules.size());
+        EXPECT_EQ("dynamic-security", rules.front().m_source);
+
+        store.addAclRule({.m_groupName = "user:sensor-1",
+                          .m_action = "subscribe",
+                          .m_deny = true,
+                          .m_filter = "site/sensor-1/telemetry/secret/#",
+                          .m_source = "manual"});
+        EXPECT_EQ(2U, store.aclRules().size());
+
+        store.replaceAclRules({UserStore::AclRule {.m_groupName = "user:admin",
+                                                   .m_action = "publish",
+                                                   .m_deny = false,
+                                                   .m_filter = "#",
+                                                   .m_source = "manual"}});
+        rules = store.aclRules();
+        ASSERT_EQ(1U, rules.size());
+        EXPECT_EQ("user:admin", rules.front().m_groupName);
+        EXPECT_EQ("#", rules.front().m_filter);
+
+        store.removeAclRule(rules.front().m_id);
+        EXPECT_TRUE(store.aclRules().empty());
     }
 }
 

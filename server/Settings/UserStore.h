@@ -137,6 +137,44 @@ public:
     /// Removes a group, and with it every membership of it. The accounts themselves stay.
     void removeGroup(int64_t groupId);
 
+    /// One topic permission, as the database holds it.
+    struct AclRule
+    {
+        int64_t      m_id {0};
+        sptk::String m_groupName;
+        sptk::String m_action;       ///< "publish" or "subscribe".
+        bool         m_deny {false};
+        sptk::String m_filter;
+        sptk::String m_source;       ///< "manual", "mosquitto", "dynamic-security".
+        sptk::String m_sourceRef;    ///< File and line, or import id.
+        int          m_revision {1};
+        sptk::String m_updatedAt;
+        sptk::String m_updatedBy;
+    };
+
+    /// Every topic permission, ordered by group, action, filter and deny.
+    [[nodiscard]] std::vector<AclRule> aclRules();
+
+    /**
+     * @brief Adds one topic permission, or returns the id of the identical one already there.
+     *
+     * "Identical" is the canonical key - group, action, deny and filter - so an import that runs
+     * twice cannot double a rule. Provenance (source and source_ref) is updated on the existing
+     * row instead.
+     */
+    int64_t addAclRule(const AclRule& rule);
+
+    /// Removes one permission by id. Removing a missing id is not an error.
+    void removeAclRule(int64_t ruleId);
+
+    /**
+     * @brief Replaces every permission in one transaction.
+     *
+     * The import planner decides the whole set; applying half of it would leave the broker on rules
+     * nobody chose. The caller is responsible for canonical, duplicate-free rules.
+     */
+    void replaceAclRules(const std::vector<AclRule>& rules);
+
     /**
      * @brief Puts an account in a group, or leaves it there if it already is.
      * @remarks Idempotent on purpose: an interface that sends the whole membership of an account

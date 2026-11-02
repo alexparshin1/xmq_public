@@ -209,6 +209,26 @@ void UserStore::createSchema()
             "CREATE INDEX ix_user_to_group_by_group ON " + String(string(membershipTable)) + " (user_group_id)");
     }
 
+    if (!tableExists("xmq_acl_rule"))
+    {
+        // The canonical key is (group_name, action, deny, topic_filter). No UNIQUE constraint:
+        // MySQL indexes a 1024-character column only with a prefix, which would make two different
+        // filters collide. addAclRule() checks the exact key in code instead.
+        executeStatement(
+            "CREATE TABLE xmq_acl_rule ("
+            "  id           " + serialColumn() + ","
+            "  group_name   varchar(80) NOT NULL,"
+            "  action       varchar(16) NOT NULL,"
+            "  deny         int NOT NULL DEFAULT 0,"
+            "  topic_filter varchar(1024) NOT NULL,"
+            "  source       varchar(40),"
+            "  source_ref   varchar(255),"
+            "  revision     int NOT NULL DEFAULT 1,"
+            "  updated_at   varchar(40),"
+            "  updated_by   varchar(80))" + tableSuffix());
+        executeStatement("CREATE INDEX ix_xmq_acl_rule_group ON xmq_acl_rule (group_name)");
+    }
+
     if (!tableExists(String(string(versionTable))))
     {
         executeStatement(
@@ -319,6 +339,20 @@ UserStore::Group readGroup(Query& query)
                              .m_revision = query["revision"].asInteger(),
                              .m_updatedAt = query["updated_at"].asString(),
                              .m_updatedBy = query["updated_by"].asString()};
+}
+
+UserStore::AclRule readAclRule(Query& query)
+{
+    return UserStore::AclRule {.m_id = query["id"].asInt64(),
+                               .m_groupName = query["group_name"].asString(),
+                               .m_action = query["action"].asString(),
+                               .m_deny = query["deny"].asInteger() != 0,
+                               .m_filter = query["topic_filter"].asString(),
+                               .m_source = query["source"].asString(),
+                               .m_sourceRef = query["source_ref"].asString(),
+                               .m_revision = query["revision"].asInteger(),
+                               .m_updatedAt = query["updated_at"].asString(),
+                               .m_updatedBy = query["updated_by"].asString()};
 }
 
 } // namespace
@@ -462,6 +496,122 @@ std::pair<int64_t, int64_t> UserStore::createStandardGroups()
     };
 
     return {ensure(String(string(defaultGroupName))), ensure(String(string(administratorsGroupName)))};
+}
+
+std::vector<UserStore::AclRule> UserStore::aclRules()
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(),
+                "SELECT id, group_name, action, deny, topic_filter, source, source_ref, revision, "
+                "updated_at, updated_by FROM xmq_acl_rule "
+                "ORDER BY group_name, action, deny, topic_filter");
+    query.open();
+
+    std::vector<AclRule> rules;
+    while (!query.eof())
+    {
+        rules.push_back(readAclRule(query));
+        query.next();
+    }
+    query.close();
+    return rules;
+}
+
+int64_t UserStore::addAclRule(const AclRule& rule)
+{
+    const AutoDatabaseConnection connection(*m_database);
+
+    Query existing(connection.connection(),
+                   "SELECT id FROM xmq_acl_rule WHERE group_name = :group_name AND action = :action "
+                   "AND deny = :deny AND topic_filter = :topic_filter");
+    existing.param("group_name") = rule.m_groupName;
+    existing.param("action") = rule.m_action;
+    existing.param("deny") = rule.m_deny ? 1 : 0;
+    existing.param("topic_filter") = rule.m_filter;
+    existing.open();
+    if (!existing.eof())
+    {
+        const auto id = existing["id"].asInt64();
+        existing.close();
+
+        // The same rule from another source updates where it came from; it is not a second rule.
+        Query update(connection.connection(),
+                     "UPDATE xmq_acl_rule SET source = :source, source_ref = :source_ref "
+                     "WHERE id = :id");
+        update.param("source") = rule.m_source;
+        update.param("source_ref") = rule.m_sourceRef;
+        update.param("id") = id;
+        update.exec();
+        raiseVersion(connection);
+        return id;
+    }
+    existing.close();
+
+    Query insert(connection.connection(),
+                 "INSERT INTO xmq_acl_rule (group_name, action, deny, topic_filter, source, source_ref, "
+                 "revision, updated_at, updated_by) "
+                 "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, 1, :updated_at, :updated_by)");
+    insert.param("group_name") = rule.m_groupName;
+    insert.param("action") = rule.m_action;
+    insert.param("deny") = rule.m_deny ? 1 : 0;
+    insert.param("topic_filter") = rule.m_filter;
+    insert.param("source") = rule.m_source;
+    insert.param("source_ref") = rule.m_sourceRef;
+    insert.param("updated_at") = rule.m_updatedAt.empty() ? nowUtc() : rule.m_updatedAt;
+    insert.param("updated_by") = rule.m_updatedBy;
+    insert.exec();
+
+    // The pool does not expose lastInsertId() for every driver; the canonical key is the identity,
+    // so it is asked for the id of the row just written.
+    Query added(connection.connection(),
+                "SELECT id FROM xmq_acl_rule WHERE group_name = :group_name AND action = :action "
+                "AND deny = :deny AND topic_filter = :topic_filter");
+    added.param("group_name") = rule.m_groupName;
+    added.param("action") = rule.m_action;
+    added.param("deny") = rule.m_deny ? 1 : 0;
+    added.param("topic_filter") = rule.m_filter;
+    added.open();
+    const auto id = added.eof() ? int64_t {0} : added["id"].asInt64();
+    added.close();
+    raiseVersion(connection);
+    return id;
+}
+
+void UserStore::removeAclRule(const int64_t ruleId)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query remove(connection.connection(), "DELETE FROM xmq_acl_rule WHERE id = :id");
+    remove.param("id") = ruleId;
+    remove.exec();
+    raiseVersion(connection);
+}
+
+void UserStore::replaceAclRules(const std::vector<AclRule>& rules)
+{
+    const auto connection = make_shared<AutoDatabaseConnection>(*m_database);
+    Transaction transaction(connection);
+    transaction.begin();
+
+    Query clear(connection->connection(), "DELETE FROM xmq_acl_rule");
+    clear.exec();
+    for (const auto& rule: rules)
+    {
+        Query insert(connection->connection(),
+                     "INSERT INTO xmq_acl_rule (group_name, action, deny, topic_filter, source, source_ref, "
+                     "revision, updated_at, updated_by) "
+                     "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, 1, :updated_at, :updated_by)");
+        insert.param("group_name") = rule.m_groupName;
+        insert.param("action") = rule.m_action;
+        insert.param("deny") = rule.m_deny ? 1 : 0;
+        insert.param("topic_filter") = rule.m_filter;
+        insert.param("source") = rule.m_source;
+        insert.param("source_ref") = rule.m_sourceRef;
+        insert.param("updated_at") = rule.m_updatedAt.empty() ? nowUtc() : rule.m_updatedAt;
+        insert.param("updated_by") = rule.m_updatedBy;
+        insert.exec();
+    }
+    raiseVersion(*connection);
+    transaction.commit();
 }
 
 size_t UserStore::importUsersFrom(const std::filesystem::path& usersFile, const int iterations)
