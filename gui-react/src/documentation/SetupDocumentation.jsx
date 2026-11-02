@@ -100,14 +100,14 @@ export default function SetupDocumentation() {
                 connections briefly drop and reconnect. Existing accounts and other configuration
                 are preserved. Changing the Redis address does not move sessions or queued
                 messages. Leave the cluster before changing a clustered node to different Redis
-                storage or a different Configuration DB. If the Web port changes, Settings shows
+                storage or a different accounts database. If the Web port changes, Settings shows
                 the new interface address after applying the change.
             </p>
 
             <p>
                 A missing configuration is not an error: the server writes a starting one from
                 <code>xmq_server.conf.template</code>, or from its own defaults if the template is
-                gone too, and comes up on the ports above. A fresh local Configuration DB has an
+                gone too, and comes up on the ports above. A fresh local accounts database has an
                 <code>admin</code> account with no password until Initial Setup is completed. No
                 usable password is installed by the package.
             </p>
