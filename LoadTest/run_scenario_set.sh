@@ -243,9 +243,11 @@ extract_block() {
   # Held and printed at the end, for the same reason the median is taken from the last table only:
   # the phases before publishing have tables of their own, and the measurement is the last one.
   tr '\r' '\n' < "$log" | awk -v name="$name" '
-    /^Scenario:/ { count = 0; block[count++] = "Scenario: " name; started = 1; next }
+    /^Scenario:/ { count = 0; block[count++] = "Scenario: " name; started = 1; percentiles = 0; next }
     !started { next }
-    /^Interval[ \t]+Count/ { block[count++] = $0; next }
+    /^Interval[ \t]+Count/ { block[count++] = $0; percentiles = 0; next }
+    /^Percentiles[ \t]*$/ { block[count++] = $0; percentiles = 1; next }
+    percentiles && /^(p[0-9]+(\.[0-9]+)?|max)[ \t]+[0-9]+(us|ms)$/ { block[count++] = $0; next }
     /^[0-9]+ms[ \t]+[0-9]+[ \t]+[0-9]+us[ \t]+[0-9]+[ \t]*$/ { block[count++] = $0; next }
     /^Average[ \t]/ { block[count++] = $0; next }
     /^Median[ \t]/ { block[count++] = $0; next }
