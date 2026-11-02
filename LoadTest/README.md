@@ -145,6 +145,17 @@ Compare runs on the same host with matching settings. Use the home bench to dete
 before spending time on AWS; publish only AWS measurements. A failure or an incomplete scenario
 is a result to investigate, not a latency value to include in a comparison.
 
+### AWS test hosts
+
+Both AWS hosts are **c5n.4xlarge** (16 vCPU): the broker and the load client. Every published
+measurement in `results/AWS/` was taken on that size, and a run on another size is not comparable
+with them. Check the types with `aws ec2 describe-instances` before a campaign - the campaign
+driver refuses to start if either host is anything else.
+
+The broker was changed to c5n.2xlarge on 2026-10-25 and measured that way on 2026-11-02; those
+numbers are labelled as such where they appear and are not part of the comparable series. Changing
+an instance's type is an explicit decision, not housekeeping.
+
 ### Scenario isolation and cluster connections
 
 `xmq_scn` automatically prefixes every published topic and subscription filter with
