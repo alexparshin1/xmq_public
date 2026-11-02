@@ -180,3 +180,37 @@ TEST_P(XMQ_ServerTests, Connection_LastWillFlags)
     client.hangup();
     this_thread::sleep_for(100ms);
 }
+
+
+#ifdef XMQ_ACL_LIBRARY
+TEST_P(XMQ_ServerTests, Connection_LastWillTopicIsCheckedAtConnect)
+{
+    const auto protocolVersion = GetParam();
+    const Host serverHost("localhost", TestTcpPortNumber);
+
+    // A Will on a topic the account may not publish to is refused at CONNECT. Accepting it and
+    // dropping it at delivery would leave an unauthorized Will in memory for the life of the
+    // connection and tell the client nothing (mosquitto#3552).
+    {
+        client::MqttClient       denied(logEngine());
+        const ConnectCredentials credentials {"will-denied", "user", "secret"};
+        const auto               lastWill = make_shared<LastWillInfo>("denied/will", "lost", false);
+        const auto rc = denied.connect(serverHost, credentials,
+                                       {.m_lastWillInfo = lastWill, .m_cleanSession = true},
+                                       protocolVersion);
+        EXPECT_NE(ReasonCode::Success, rc);
+    }
+
+    // The same account may set a Will on a topic it is allowed to publish to.
+    {
+        client::MqttClient       allowed(logEngine());
+        const ConnectCredentials credentials {"will-allowed", "user", "secret"};
+        const auto               lastWill = make_shared<LastWillInfo>("allowed/will", "lost", false);
+        const auto rc = allowed.connect(serverHost, credentials,
+                                        {.m_lastWillInfo = lastWill, .m_cleanSession = true},
+                                        protocolVersion);
+        EXPECT_EQ(ReasonCode::Success, rc);
+        allowed.disconnect();
+    }
+}
+#endif

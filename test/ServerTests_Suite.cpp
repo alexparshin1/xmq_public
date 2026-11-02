@@ -124,6 +124,29 @@ void writeAuthenticatorConfiguration(const filesystem::path& configurationPath)
          << jsonString(filesystem::path(XMQ_TEST_USER_DATABASE_LIBRARY).generic_string())
          << R"(","enabled":true,"required":false,"settings":{"database":")"
          << jsonString(DirectoryNames::sqliteUri(database)) << R"("}}]})";
+
+#ifdef XMQ_ACL_LIBRARY
+    // The closed ACL extension, when it is built with the suite. Its rules allow everything for
+    // the test accounts except `denied/#`, which is the topic the last-will test uses to prove
+    // that a Will is checked at CONNECT rather than accepted and dropped at delivery.
+    const auto aclFile = filesystem::path(configurationPath).replace_filename("mosquitto.acl");
+    {
+        ofstream acl(aclFile);
+        acl << "topic readwrite #\n"
+               "user user\n"
+               "topic readwrite #\n"
+               "topic deny denied/#\n"
+               "user admin\n"
+               "topic readwrite #\n"
+               "user cluster\n"
+               "topic readwrite #\n";
+    }
+    ofstream aclFragment(fragments / "60-acl.conf");
+    aclFragment << R"({"extensions":[{"name":"acl","library":")"
+                << jsonString(filesystem::path(XMQ_ACL_LIBRARY).generic_string())
+                << R"(","enabled":true,"required":false,"settings":{"mosquitto_acl_file":")"
+                << jsonString(aclFile.generic_string()) << R"("}}]})";
+#endif
 #else
     (void) configurationPath;
 #endif

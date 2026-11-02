@@ -1236,7 +1236,30 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
                 // Set before the session is let go, so the first PUBLISH it sends is already
                 // checked against the right group; after this the pointer is only ever read.
                 newClientSession->setAclGroup(std::move(aclGroup));
-                lookUpSessionThen(newClientSession, connectMessage, decision);
+
+                // The will is a publish the client asked the broker to make later, and it is
+                // checked now, at CONNECT: accepted here and refused at delivery would leave an
+                // unauthorized will in memory for the life of the connection (mosquitto#3552),
+                // and the client would learn nothing.
+                auto effectiveDecision = decision;
+                if (effectiveDecision != ExtensionHost::AuthDecision::Deny && newClientSession->aclGroup())
+                {
+                    if (const auto lastWill = connectMessage->getParameters()->m_lastWill)
+                    {
+                        const auto willTopic = getTopicManager()->getTopic(lastWill->m_topic);
+                        if (grantPublish(newClientSession, willTopic) != ReasonCode::Success)
+                        {
+                            logMessage(LogSubject::Connect, LogPriority::Warning,
+                                       [&lastWill, &connectMessage]
+                                       {
+                                           return "Refusing connection '" + connectMessage->getParameters()->getClientId() +
+                                                  "': the last will topic '" + lastWill->m_topic + "' is not permitted.";
+                                       });
+                            effectiveDecision = ExtensionHost::AuthDecision::Deny;
+                        }
+                    }
+                }
+                lookUpSessionThen(newClientSession, connectMessage, effectiveDecision);
             });
 
         return ReasonCode::Success;
@@ -2028,13 +2051,14 @@ ReasonCode refusalFor(const SClientSession& client)
  * A cluster session is not asked about. Traffic between nodes is the broker's own, and running it
  * past a customer's topic rules would let a rule mistake partition the cluster.
  */
-ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, const xmq_acl_action action)
+ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, const xmq_acl_action action,
+                           const std::string_view topicName)
 {
     if (client->isClusterSession())
     {
         return ReasonCode::Success;
     }
-    switch (client->aclGroup()->authorize(topic->fullName(), action))
+    switch (client->aclGroup()->authorize(topicName, action))
     {
         case AclDecision::Deny:
         case AclDecision::SubsystemError:
@@ -2055,7 +2079,7 @@ ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic
 {
     using enum ReasonCode;
 
-    if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_PUBLISH) != Success)
+    if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_PUBLISH, topic->fullName()) != Success)
     {
         return refusalFor(client);
     }
@@ -2078,7 +2102,7 @@ ReasonCode Server::grantSubscription(const SClientSession& client, const Topic* 
 {
     using enum ReasonCode;
 
-    if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_SUBSCRIBE) != Success)
+    if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_SUBSCRIBE, topic->filterName()) != Success)
     {
         return refusalFor(client);
     }

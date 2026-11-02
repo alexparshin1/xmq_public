@@ -73,6 +73,22 @@ public:
     }
 
     /**
+     * @brief The topic as a subscriber names it, without the "$share/<group>/" prefix.
+     *
+     * Authorization is about the filter a client may read, not about the group it shares the
+     * filter with: a shared subscription to "$share/g/sensors/#" must be checked as "sensors/#".
+     */
+    [[nodiscard]] std::string_view filterName() const
+    {
+        if (!m_isShared)
+        {
+            return m_fullName;
+        }
+        const auto prefix = 7 + m_shareGroupName.size() + 1;
+        return prefix <= m_fullName.size() ? m_fullName.substr(prefix) : m_fullName;
+    }
+
+    /**
      * @brief Get the topic's share group name. If topic doesn't start from "$share/" - it's empty.
      * @return
      */

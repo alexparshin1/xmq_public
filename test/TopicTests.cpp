@@ -215,3 +215,19 @@ TEST(XMQ_Topic, moveCtor_Shared)
     EXPECT_STREQ(string(topic2->fullName()).c_str(), "$share/queue/devices/usb/1");
     EXPECT_STREQ(string(topic2->shareGroupName()).c_str(), "queue");
 }
+
+
+TEST(XMQ_Topic, sharedFilterNameDropsTheSharePrefix)
+{
+    TopicManager topicManager;
+
+    const auto* shared = topicManager.getTopic("$share/group/sensors/#");
+    EXPECT_TRUE(shared->isShared());
+    EXPECT_EQ("group", shared->shareGroupName());
+    EXPECT_EQ("sensors/#", shared->filterName());
+    EXPECT_EQ("$share/group/sensors/#", shared->fullName());
+
+    const auto* plain = topicManager.getTopic("sensors/#");
+    EXPECT_FALSE(plain->isShared());
+    EXPECT_EQ("sensors/#", plain->filterName());
+}
