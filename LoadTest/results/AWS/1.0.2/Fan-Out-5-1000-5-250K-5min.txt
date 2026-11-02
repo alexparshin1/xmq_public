@@ -1,0 +1,37 @@
+Server:   XMQ
+Version:  1.0.2
+Host:     AWS c5n.2xlarge broker, xmq on 1883
+Client:   AWS c5n.4xlarge, client flags: none
+Date:     2026-11-02
+Started:  2026-11-02 17:38:40 AEDT
+Total execution time: 00:41:22
+
+Broker restarted before each scenario.
+
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           7499000     1677us       249966      50 Mb
+30000ms       7500000     1684us       250000      50 Mb
+60000ms       7500000     1674us       250000      50 Mb
+90000ms       7500000     1691us       250000      50 Mb
+120000ms      7500000     1721us       250000      50 Mb
+150000ms      7500000     1707us       250000      50 Mb
+180000ms      7500000     1733us       250000      50 Mb
+210000ms      7500000     1708us       250000      50 Mb
+240000ms      7500000     1709us       250000      50 Mb
+270000ms      7500000     1713us       250000      50 Mb
+300000ms            6      548us            0      50 Mb
+────────────────────────────────────────────────────────
+Average      74999006     1702us       227269      50 Mb
+Median                    1707us                   50 Mb
+Percentiles
+p50    1664us
+p90    2720us
+p95    3008us
+p99    3488us
+p99.9  3936us
+max    8704us
+  interval median 1707us over 11 samples (as xmq_scn reports it), range 548-1733us
+  server CPU   mean 489%, peak 524%
+  server RSS   50 Mb peak
