@@ -15,7 +15,9 @@ Point-To-Point-60K-persistent.json
 # Last because the connection run leaves the broker at peak RSS.
 500K-Connections-5000-rate.json
 
-# TLS
-Point-To-Point-TLS-50K.json
-Point-To-Point-TLS-75K.json
-Point-To-Point-TLS-100K.json
+# TLS is measured separately, as the experiment that sets receive_threads, and is not part of
+# the release gate: 1.0.2 changes nothing on the TLS path, and receive_threads stays auto. The
+# JSON files remain for that experiment.
+# Point-To-Point-TLS-50K.json
+# Point-To-Point-TLS-75K.json
+# Point-To-Point-TLS-100K.json
