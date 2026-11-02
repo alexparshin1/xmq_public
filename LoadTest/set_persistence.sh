@@ -18,6 +18,10 @@ port="1883"
 mode=""
 admin_user="${XMQ_ADMIN_USER:-admin}"
 admin_password="${XMQ_ADMIN_PASSWORD:-}"
+# The bench profile from the farm: two connections carry the writes in large batches, and the
+# queue is a little over 16 ms of traffic at 60,000 messages a second.
+max_redis_connections=2
+max_queued_writes=1000
 
 usage() {
   cat <<EOF
@@ -37,6 +41,11 @@ Options:
                         shared database (default: admin).
   --admin-password P    Its password. Needed only for such a node; also read from
                         XMQ_ADMIN_PASSWORD.
+  --max-redis-connections N
+                        Redis connections to keep (default: 2). More splits the same writes
+                        into smaller batches, which Redis handles slower.
+  --max-queued-writes N How many messages may be delivered while their records are still being
+                        written (default: 1000). The bench profile; 0 is the durable extreme.
 EOF
 }
 
@@ -50,6 +59,8 @@ while [[ $# -gt 0 ]]; do
     --port)     port="$2"; shift 2 ;;
     --admin-user) admin_user="$2"; shift 2 ;;
     --admin-password) admin_password="$2"; shift 2 ;;
+    --max-redis-connections) max_redis_connections="$2"; shift 2 ;;
+    --max-queued-writes) max_queued_writes="$2"; shift 2 ;;
     -h|--help)  usage; exit 0 ;;
     *)          echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -64,7 +75,7 @@ enabled=$([[ "$mode" == "on" ]] && echo true || echo false)
 # clean_start goes with it: a persistence run measures storage from empty, and a database left
 # holding the previous run's sessions is not that.
 run "sudo -n systemctl stop $service" || exit 1
-run "sudo -n jq '.persistence.enabled = $enabled | .persistence.clean_start = true' $config \
+run "sudo -n jq '.persistence.enabled = $enabled | .persistence.clean_start = true | .persistence.max_redis_connections = $max_redis_connections | .persistence.max_queued_writes = $max_queued_writes' $config \
      > /tmp/xmq_conf.\$\$ && sudo -n cp /tmp/xmq_conf.\$\$ $config && rm -f /tmp/xmq_conf.\$\$" || {
   echo "could not edit $config" >&2; run "sudo -n systemctl start $service"; exit 1; }
 run "sudo -n systemctl start $service" || exit 1
@@ -98,7 +109,8 @@ token=\$(curl -ksS -X POST https://127.0.0.1:18883/Login -H 'Content-Type: appli
 test -n "\$token" -a "\$token" != null
 curl -ksS -X POST https://127.0.0.1:18883/PersistenceControl -H 'Content-Type: application/json' \
   -H "Authorization: Bearer \$token" -d '{"action":"get"}' |
-  jq -c --argjson enabled $enabled '.persistence.enabled = \$enabled | .persistence.clean_start = true | {action:"set", persistence:.persistence}' > /tmp/xmq_persistence.json
+  jq -c --argjson enabled $enabled --argjson connections $max_redis_connections --argjson queued $max_queued_writes \
+  '.persistence.enabled = \$enabled | .persistence.clean_start = true | .persistence.max_redis_connections = \$connections | .persistence.max_queued_writes = \$queued | {action:"set", persistence:.persistence}' > /tmp/xmq_persistence.json
 curl -ksS -X POST https://127.0.0.1:18883/PersistenceControl -H 'Content-Type: application/json' \
   -H "Authorization: Bearer \$token" --data-binary @/tmp/xmq_persistence.json
 EOF
