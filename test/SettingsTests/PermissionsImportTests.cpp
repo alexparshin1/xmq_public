@@ -146,3 +146,20 @@ TEST(PermissionsImport, refusesAFilterWithAnEmptyLevel)
     EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note)
                               { return note.find("//s/#") != string::npos; }));
 }
+
+TEST(PermissionsImport, anUnchangedRuleTakesItsNewPositionOnReimport)
+{
+    const vector<UserStore::AclRule> existing {
+        {.m_groupName = "user:u", .m_action = "publish", .m_deny = false, .m_filter = "sensors/#",
+         .m_order = 2000005},
+    };
+    const vector<PermissionsImport::Rule> imported {
+        {"user:u", "publish", false, "sensors/#", "mosquitto", "acl:1", 2000001, false},
+    };
+    const auto plan = PermissionsImport::plan(existing, imported);
+    ASSERT_EQ(1U, plan.m_unchanged.size());
+
+    const auto applied = PermissionsImport::apply(existing, plan, "reject");
+    ASSERT_EQ(1U, applied.size());
+    EXPECT_EQ(2000001, applied.front().m_order) << "the file is the authority on order";
+}

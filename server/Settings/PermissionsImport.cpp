@@ -703,6 +703,23 @@ vector<UserStore::AclRule> PermissionsImport::apply(const vector<UserStore::AclR
         }
     }
 
+    // An unchanged rule keeps its place in the file's order: a re-import after the source was
+    // reordered has to move it, or the broker would go on checking the old order.
+    for (const auto& rule: plan.m_unchanged)
+    {
+        for (auto& stored: result)
+        {
+            if (stored.m_groupName == rule.m_group.c_str() &&
+                stored.m_action == rule.m_action.c_str() && stored.m_deny == rule.m_deny &&
+                stored.m_filter == rule.m_filter.c_str() && stored.m_pattern == rule.m_pattern)
+            {
+                stored.m_order = rule.m_order;
+                stored.m_source = rule.m_source.c_str();
+                stored.m_sourceRef = rule.m_ref.c_str();
+            }
+        }
+    }
+
     for (const auto& rule: plan.m_new)
     {
         result.push_back({.m_groupName = rule.m_group.c_str(),
