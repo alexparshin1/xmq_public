@@ -100,7 +100,15 @@ AclRules::Decision AclRules::authorize(const string_view username, const string_
     if (m_rules.empty())
     {
         // A broker told to deny what the rules do not cover denies even with no rules at all.
-        return m_defaultDeny ? Decision::Deny : Decision::NotHandled;
+        if (!m_defaultDeny)
+        {
+            return Decision::NotHandled;
+        }
+        if (explanation != nullptr)
+        {
+            *explanation = "denied: deny by default is on and there are no rules";
+        }
+        return Decision::Deny;
     }
 
     const string name(username);
