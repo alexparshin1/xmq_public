@@ -27,10 +27,11 @@ export default class PermissionsScreen extends React.Component {
                 context: {hide: true, inputType: "hidden"}
             },
             {
-                // A combo box, not a select: the existing groups are offered, and `user:<name>`,
-                // `anonymous` or a group that has just been created elsewhere can still be typed.
-                headerName: "Group", field: "group", width: 200, cellClass: "ViewCellLeftAligned",
-                context: {inputType: "combobox", options: []}
+                // The existing groups and accounts are offered, and `user:<name>`, `anonymous` or a
+                // group created elsewhere can still be typed. One row is one subject; adding
+                // several in the editor writes one rule for each.
+                headerName: "Applies to", field: "group", width: 220, cellClass: "ViewCellLeftAligned",
+                context: {inputType: "subjects", options: {groups: [], users: []}}
             },
             {
                 headerName: "Action", field: "action", width: 120, cellClass: "ViewCellLeftAligned",
@@ -69,41 +70,49 @@ export default class PermissionsScreen extends React.Component {
     }
 
     componentDidMount() {
-        this.readGroups();
+        this.readSubjects();
         this.readRules();
     }
 
     /**
-     * Fills the Group field's list with the groups the server knows.
+     * Fills the editor's lists with the groups and accounts the server knows.
      *
-     * A refusal is not reported here: the field is a combo box and still accepts a typed value, so
-     * a page whose group list did not arrive is less useful but not broken. Reporting it as well
-     * would put an error in front of a page that has already loaded.
+     * A refusal is not reported here: both boxes are combo boxes and still accept a typed value, so
+     * a page whose lists did not arrive is less useful but not broken. Reporting it as well would
+     * put an error in front of a page that has already loaded.
      */
-    readGroups() {
-        return ControlAPI.asyncMakeAPICall("UserGroupControl", {action: "list"})
-            .then(data => {
-                if (!data || ControlAPI.apiError(data) || !data.list) {
-                    return;
+    readSubjects() {
+        return Promise.all([
+            ControlAPI.asyncMakeAPICall("UserGroupControl", {action: "list"}),
+            ControlAPI.asyncMakeAPICall("UserControl", {action: "list"})
+        ]).then(([groups, users]) => {
+            const groupNames = groups && !ControlAPI.apiError(groups) && groups.list
+                ? groups.list.map(group => group.name).filter(name => name) : [];
+            // Not a group, but one of the rule targets: offered so it need not be remembered.
+            if (!groupNames.includes("anonymous")) {
+                groupNames.push("anonymous");
+            }
+            const userNames = users && !ControlAPI.apiError(users) && users.list
+                ? users.list.map(user => user.username).filter(name => name) : [];
+            if (!groupNames.length && !userNames.length) {
+                return;
+            }
+            this.setState(state => {
+                const current = state.headers.find(header => header.field === "group");
+                const known = current && current.context ? current.context.options : {};
+                const same = (first, second) => first.length === second.length &&
+                    first.every((name, at) => name === second[at]);
+                if (same(known.groups || [], groupNames) && same(known.users || [], userNames)) {
+                    return null;
                 }
-                const names = data.list.map(group => group.name).filter(name => name);
-                // Not a group, but one of the rule targets: offered so it need not be remembered.
-                if (!names.includes("anonymous")) {
-                    names.push("anonymous");
-                }
-                this.setState(state => {
-                    const current = state.headers.find(header => header.field === "group");
-                    const known = current && current.context ? current.context.options : [];
-                    if (known.length === names.length && known.every((name, at) => name === names[at])) {
-                        return null;
-                    }
-                    return {
-                        headers: state.headers.map(header => header.field === "group"
-                            ? {...header, context: {...header.context, options: names}}
-                            : header)
-                    };
-                });
+                return {
+                    headers: state.headers.map(header => header.field === "group"
+                        ? {...header, context: {...header.context,
+                            options: {groups: groupNames, users: userNames}}}
+                        : header)
+                };
             });
+        });
     }
 
     static succeeded(data) {
@@ -139,15 +148,6 @@ export default class PermissionsScreen extends React.Component {
     }
 
     onRowDataChange = (action, data) => {
-        const rule = {
-            group: String(data.group || "").trim(),
-            action: data.action,
-            deny: data.access === "deny",
-            filter: String(data.filter || "").trim(),
-            source: data.source || "manual",
-            source_ref: data.source_ref || ""
-        };
-
         if (action === "remove") {
             ControlAPI.asyncMakeAPICall("PermissionsControl", {action: "remove", rule_id: data.id})
                 .then(result => {
@@ -158,8 +158,21 @@ export default class PermissionsScreen extends React.Component {
             return;
         }
 
-        if (!rule.group) {
-            errorWindow("A rule needs a group: user:<name>, an account group, or anonymous.");
+        // The editor works on a list of subjects, while a stored rule names one. A row that was
+        // not edited still carries its subject as a string.
+        const subjects = [...new Set(Array.isArray(data.group) ? data.group : [data.group])]
+            .map(subject => String(subject || "").trim())
+            .filter(subject => subject);
+        const rule = {
+            action: data.action,
+            deny: data.access === "deny",
+            filter: String(data.filter || "").trim(),
+            source: data.source || "manual",
+            source_ref: data.source_ref || ""
+        };
+
+        if (!subjects.length) {
+            errorWindow("A rule needs at least one user or group.");
             return;
         }
         if (!rule.filter) {
@@ -167,33 +180,45 @@ export default class PermissionsScreen extends React.Component {
             return;
         }
 
-        // Editing is add-then-remove rather than remove-then-add: if the server refuses the new
-        // rule the old one is still there, and when nothing actually changed the add updates the
-        // same row and the old id is the one to keep.
-        ControlAPI.asyncMakeAPICall("PermissionsControl", {action: "add", rule: rule})
-            .then(result => {
-                if (!PermissionsScreen.succeeded(result)) {
-                    return;
-                }
-                if (action !== "modify") {
+        const original = action === "modify"
+            ? this.state.rows.find(row => row.id === data.id) : null;
+        this.saveRule(subjects, rule, original, data.id);
+    }
+
+    /**
+     * Stores one rule per subject, then drops the rule that was edited if it is not among them.
+     *
+     * Adding first is what makes an edit safe: a refused new rule leaves the old one in place, and
+     * an unchanged one is updated in place, so its id is still the one to keep.
+     */
+    saveRule(subjects, rule, original, editedId) {
+        const savedBySubject = {};
+        const addNext = async index => {
+            if (index === subjects.length) {
+                if (!original || !editedId || savedBySubject[original.group] === editedId) {
                     this.readRules();
                     return;
                 }
-                const saved = (result.rules ? result.rules : []).find(candidate =>
-                    candidate.group === rule.group && candidate.action === rule.action &&
-                    candidate.deny === rule.deny && candidate.filter === rule.filter);
-                if (!saved || saved.id === data.id) {
+                const removed = await ControlAPI.asyncMakeAPICall("PermissionsControl",
+                    {action: "remove", rule_id: editedId});
+                if (PermissionsScreen.succeeded(removed)) {
                     this.readRules();
-                    return;
                 }
-                return ControlAPI.asyncMakeAPICall("PermissionsControl",
-                    {action: "remove", rule_id: data.id})
-                    .then(removed => {
-                        if (PermissionsScreen.succeeded(removed)) {
-                            this.readRules();
-                        }
-                    });
-            });
+                return;
+            }
+            const subject = subjects[index];
+            const result = await ControlAPI.asyncMakeAPICall("PermissionsControl",
+                {action: "add", rule: {...rule, group: subject}});
+            if (!PermissionsScreen.succeeded(result)) {
+                return;
+            }
+            const saved = (result.rules ? result.rules : []).find(candidate =>
+                candidate.group === subject && candidate.action === rule.action &&
+                candidate.deny === rule.deny && candidate.filter === rule.filter);
+            savedBySubject[subject] = saved ? saved.id : null;
+            return addNext(index + 1);
+        };
+        return addNext(0);
     }
 
     runTest = () => {

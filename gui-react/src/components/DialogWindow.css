@@ -153,3 +153,54 @@
 .modalContainerRow select {
     box-sizing: border-box;
 }
+
+/* A list of subjects inside the add/edit dialog: one line per user or group, with the buttons of
+   the two ways to add one underneath. The dialog's own width is fixed, so the boxes are narrow. */
+.dialogSubjects {
+    margin-bottom: 6px;
+}
+
+.dialogSubjectEmpty {
+    color: gray;
+    font-size: 0.9em;
+    padding: 2px 0 6px 0;
+}
+
+.dialogSubjectList {
+    list-style: none;
+    margin: 0 0 6px 0;
+    padding: 0;
+}
+
+.dialogSubject {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    max-width: 300px;
+    padding: 2px 0;
+}
+
+.dialogSubjectName {
+    font-family: monospace;
+}
+
+.dialogSubjectRemove {
+    padding: 2px 8px;
+    border: 1px solid darkred;
+    border-radius: 4px;
+    background-color: white;
+    color: darkred;
+    cursor: pointer;
+}
+
+.dialogSubjectAdd {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 4px;
+}
+
+.dialogSubjectAdd input {
+    width: 140px;
+}

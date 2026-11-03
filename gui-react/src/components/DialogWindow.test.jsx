@@ -25,3 +25,48 @@ test("A combo box offers the known values and still accepts a typed one", () => 
     fireEvent.change(input, {target: {value: "user:alice"}});
     expect(input).toHaveValue("user:alice");
 });
+
+test("The subject list adds a group and a user and removes them by name", () => {
+    render(<DialogWindow
+        windowTitle="Add New Rule"
+        fields={[{
+            headerName: "Applies to", field: "group",
+            context: {inputType: "subjects", options: {groups: ["operators", "water"], users: ["alice"]}}
+        }]}
+        values={{}}
+        onSubmit={() => {}}
+        closeModal={() => {}}/>);
+
+    expect(screen.getByText("No users or groups yet.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Group name"), {target: {value: "water"}});
+    fireEvent.click(screen.getByText("Add Group"));
+    fireEvent.change(screen.getByPlaceholderText("Username"), {target: {value: "alice"}});
+    fireEvent.click(screen.getByText("Add User"));
+
+    expect(screen.getByText("water")).toBeInTheDocument();
+    expect(screen.getByText("user:alice")).toBeInTheDocument();
+
+    // Remove is per entry, so one subject can go without disturbing the others.
+    const water = screen.getByText("water");
+    fireEvent.click(water.parentElement.querySelector("button"));
+    expect(screen.queryByText("water")).toBeNull();
+    expect(screen.getByText("user:alice")).toBeInTheDocument();
+});
+
+test("A group typed with the group: prefix is stored under its bare name", () => {
+    render(<DialogWindow
+        windowTitle="Add New Rule"
+        fields={[{
+            headerName: "Applies to", field: "group",
+            context: {inputType: "subjects", options: {groups: [], users: []}}
+        }]}
+        values={{}}
+        onSubmit={() => {}}
+        closeModal={() => {}}/>);
+
+    fireEvent.change(screen.getByPlaceholderText("Group name"),
+        {target: {value: "group:Administrators"}});
+    fireEvent.click(screen.getByText("Add Group"));
+    expect(screen.getByText("Administrators")).toBeInTheDocument();
+});

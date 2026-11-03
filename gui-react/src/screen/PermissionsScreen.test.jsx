@@ -46,13 +46,19 @@ test("A plan without conflicts does not ask for a resolution", () => {
     expect(container.textContent).toContain("1 new");
 });
 
-test("The Group field offers the groups the server knows", async () => {
+test("The subject editor offers the groups and accounts the server knows", async () => {
     const ControlAPI = require("../ControlAPI").default;
     jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(method => {
         if (method === "UserGroupControl") {
             return Promise.resolve({
                 result: {success: true},
                 list: [{name: "operators"}, {name: "water"}]
+            });
+        }
+        if (method === "UserControl") {
+            return Promise.resolve({
+                result: {success: true},
+                list: [{username: "alice"}, {username: "bob"}]
             });
         }
         return Promise.resolve({result: {success: true}, rules: []});
@@ -67,9 +73,60 @@ test("The Group field offers the groups the server knows", async () => {
             screen.state = {...screen.state, ...patch};
         }
     };
-    await screen.readGroups();
+    await screen.readSubjects();
 
     const group = screen.state.headers.find(header => header.field === "group");
-    expect(group.context.inputType).toBe("combobox");
-    expect(group.context.options).toEqual(["operators", "water", "anonymous"]);
+    expect(group.context.inputType).toBe("subjects");
+    expect(group.context.options.groups).toEqual(["operators", "water", "anonymous"]);
+    expect(group.context.options.users).toEqual(["alice", "bob"]);
+});
+
+test("A rule for several subjects is stored as one rule for each", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const calls = [];
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((method, request) => {
+        calls.push({method, request});
+        return Promise.resolve({result: {success: true}, rules: []});
+    });
+
+    const screen = new PermissionsScreen({});
+    screen.setState = () => {};
+    screen.readRules = () => {};
+
+    await screen.saveRule(["operators", "user:bob"], {
+        action: "subscribe", deny: false, filter: "plant/#", source: "manual", source_ref: ""
+    }, null, null);
+
+    const additions = calls.filter(call => call.request.action === "add");
+    expect(additions.map(call => call.request.rule.group))
+        .toEqual(["operators", "user:bob"]);
+});
+
+test("Editing drops the old rule only when its subject is not kept", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const calls = [];
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((method, request) => {
+        calls.push({method, request});
+        if (request.action === "add") {
+            return Promise.resolve({
+                result: {success: true},
+                rules: [{id: 42, group: request.rule.group, action: request.rule.action,
+                         deny: request.rule.deny, filter: request.rule.filter}]
+            });
+        }
+        return Promise.resolve({result: {success: true}, rules: []});
+    });
+
+    const screen = new PermissionsScreen({});
+    screen.setState = () => {};
+    screen.readRules = () => {};
+    screen.state.rows = [{id: 7, group: "operators"}];
+
+    // The original subject was removed and another added: the old row has to go.
+    await screen.saveRule(["water"], {
+        action: "subscribe", deny: false, filter: "plant/#", source: "manual", source_ref: ""
+    }, {group: "operators"}, 7);
+
+    expect(calls.some(call => call.request.action === "remove" && call.request.rule_id === 7))
+        .toBe(true);
 });

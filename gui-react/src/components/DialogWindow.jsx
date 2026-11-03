@@ -23,6 +23,12 @@ export default class DialogWindow extends React.Component {
                 && this.state.values[field.field] === undefined) {
                 this.state.values[field.field] = context.options[0];
             }
+            if (context.inputType === "subjects"
+                && !Array.isArray(this.state.values[field.field])) {
+                // A row carries one subject, and the editor turns it into a list of them.
+                const current = this.state.values[field.field];
+                this.state.values[field.field] = current ? [String(current)] : [];
+            }
             if (context.inputType === "multiselect"
                 && !Array.isArray(this.state.values[field.field])) {
                 // Empty, and deliberately not the first option: a new account belongs to no group
@@ -36,7 +42,9 @@ export default class DialogWindow extends React.Component {
         values: [],
         fields: [],
         windowWidth: 500,
-        windowHeight: 300
+        windowHeight: 300,
+        // What has been typed into the Add Group / Add User boxes but not added yet.
+        drafts: {}
     };
 
     makeInputWidget(field) {
@@ -82,6 +90,89 @@ export default class DialogWindow extends React.Component {
                     </tbody>
                 </table>
             </div>
+        }
+
+        if (context.inputType === "subjects") {
+            // A rule applies to one subject, but a new rule is often the same rule for several of
+            // them. The list states the subjects the save will turn into separate rules; a group
+            // and a user are added through their own box because their names come from different
+            // places and mean different things.
+            const chosen = Array.isArray(this.state.values[field.field])
+                ? this.state.values[field.field] : [];
+            const options = context.options || {};
+            const groupKey = field.field + "-group";
+            const userKey = field.field + "-user";
+            const draft = key => this.state.drafts[key] ?? "";
+            const setDraft = (key, value) => this.setState(state => ({
+                drafts: {...state.drafts, [key]: value}
+            }));
+            const add = subject => {
+                if (!subject || chosen.includes(subject)) {
+                    return;
+                }
+                this.previewValueChange(field, [...chosen, subject]);
+            };
+            const addGroup = () => {
+                // `group:Name` is how the operator may write it elsewhere; the stored subject is the
+                // bare name. A `user:` typed here is a user, and is filed as one.
+                let subject = draft(groupKey).trim();
+                if (subject.startsWith("group:")) {
+                    subject = subject.substring("group:".length).trim();
+                }
+                add(subject);
+                setDraft(groupKey, "");
+            };
+            const addUser = () => {
+                const typed = draft(userKey).trim();
+                if (!typed) {
+                    return;
+                }
+                add(typed.startsWith("user:") ? typed : "user:" + typed);
+                setDraft(userKey, "");
+            };
+            return <div className="dialogSubjects">
+                {chosen.length === 0
+                    ? <div className="dialogSubjectEmpty">No users or groups yet.</div>
+                    : <ul className="dialogSubjectList">{chosen.map(subject =>
+                        <li key={subject} className="dialogSubject">
+                            <span className="dialogSubjectName">{subject}</span>
+                            <button type="button" className="dialogSubjectRemove"
+                                    onClick={() => this.previewValueChange(
+                                        field, chosen.filter(one => one !== subject))}>
+                                Remove
+                            </button>
+                        </li>)}</ul>}
+                <div className="dialogSubjectAdd">
+                    <input name={groupKey} list={groupKey + "-options"} value={draft(groupKey)}
+                           placeholder="Group name"
+                           onChange={(e) => setDraft(groupKey, e.target.value)}
+                           onKeyDown={(e) => {
+                               if (e.key === "Enter") {
+                                   e.preventDefault();
+                                   addGroup();
+                               }
+                           }}/>
+                    <datalist id={groupKey + "-options"}>
+                        {(options.groups || []).map(name => <option key={name} value={name}/>)}
+                    </datalist>
+                    <button type="button" onClick={addGroup}>Add Group</button>
+                </div>
+                <div className="dialogSubjectAdd">
+                    <input name={userKey} list={userKey + "-options"} value={draft(userKey)}
+                           placeholder="Username"
+                           onChange={(e) => setDraft(userKey, e.target.value)}
+                           onKeyDown={(e) => {
+                               if (e.key === "Enter") {
+                                   e.preventDefault();
+                                   addUser();
+                               }
+                           }}/>
+                    <datalist id={userKey + "-options"}>
+                        {(options.users || []).map(name => <option key={name} value={name}/>)}
+                    </datalist>
+                    <button type="button" onClick={addUser}>Add User</button>
+                </div>
+            </div>;
         }
 
         if (context.inputType === "combobox") {
