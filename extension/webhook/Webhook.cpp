@@ -245,6 +245,20 @@ int connectTcp(const Url& url, const int timeoutMs)
     return socketHandle;
 }
 
+/// Header names are case-insensitive, and an endpoint may answer in any case.
+size_t lowerCaseFind(const std::string& text, const char* needle)
+{
+    const size_t length = strlen(needle);
+    for (size_t at = 0; at + length <= text.size(); ++at)
+    {
+        if (strncasecmp(text.c_str() + at, needle, length) == 0)
+        {
+            return at;
+        }
+    }
+    return std::string::npos;
+}
+
 class Connection
 {
 public:
@@ -323,29 +337,86 @@ public:
         return true;
     }
 
-    std::string readAll()
+    /**
+     * @brief One response, headers and the body its Content-Length promised.
+     *
+     * Keeps the connection for the next request unless the endpoint said it would close, which is
+     * what makes a burst of small records affordable: a message per TCP connection runs into
+     * ephemeral ports long before it runs into CPU.
+     */
+    bool readResponse(int& status, std::string& error)
     {
         std::string response;
-        char        buffer[4096];
+        char        buffer[8192];
+
+        size_t headerEnd = std::string::npos;
+        size_t bodyLength = 0;
         while (true)
         {
+            if (headerEnd == std::string::npos)
+            {
+                headerEnd = response.find("\r\n\r\n");
+                if (headerEnd != std::string::npos)
+                {
+                    const std::string head = response.substr(0, headerEnd);
+                    if (head.size() < 12 || !head.starts_with("HTTP/"))
+                    {
+                        error = "the endpoint sent a malformed response";
+                        return false;
+                    }
+                    try
+                    {
+                        status = std::stoi(head.substr(9, 3));
+                    }
+                    catch (const std::exception&)
+                    {
+                        error = "the endpoint sent a malformed status";
+                        return false;
+                    }
+
+                    const auto lengthAt = lowerCaseFind(head, "content-length:");
+                    if (lengthAt != std::string::npos)
+                    {
+                        bodyLength = std::strtoul(head.c_str() + lengthAt + 15, nullptr, 10);
+                    }
+                    const auto connection = lowerCaseFind(head, "connection:");
+                    if (connection != std::string::npos &&
+                        lowerCaseFind(head.substr(connection), "close") != std::string::npos)
+                    {
+                        m_closeAfterResponse = true;
+                    }
+                }
+            }
+
+            if (headerEnd != std::string::npos &&
+                response.size() >= headerEnd + 4 + bodyLength)
+            {
+                return true;
+            }
+
             const int received = m_ssl != nullptr ? SSL_read(m_ssl, buffer, sizeof(buffer))
                                                   : static_cast<int>(::recv(m_socket, buffer, sizeof(buffer), 0));
             if (received <= 0)
             {
-                break;
+                error = response.empty() ? "the endpoint sent no response"
+                                         : "the endpoint closed the connection mid-response";
+                m_closeAfterResponse = true;
+                return false;
             }
             response.append(buffer, static_cast<size_t>(received));
-            if (response.size() > 1'000'000)
+            if (response.size() > 4 * 1024 * 1024)
             {
-                break;
+                error = "the endpoint sent an oversized response";
+                m_closeAfterResponse = true;
+                return false;
             }
         }
-        return response;
     }
 
+    [[nodiscard]] bool closeAfterResponse() const { return m_closeAfterResponse; }
     void close()
     {
+        m_closeAfterResponse = false;
         if (m_ssl != nullptr)
         {
             SSL_shutdown(m_ssl);
@@ -365,74 +436,100 @@ public:
     }
 
     [[nodiscard]] const std::string& error() const { return m_error; }
+    [[nodiscard]] bool               isOpen() const { return m_socket >= 0; }
 
 private:
     int         m_socket {-1};
     int         m_timeout {defaultTimeoutMs};
     SSL_CTX*    m_context {nullptr};
     SSL*        m_ssl {nullptr};
+    bool        m_closeAfterResponse {false};
     std::string m_error;
 };
 
-int post(const Url& url, const std::string& body, const std::string& secret, const int timeoutMs,
-         const std::vector<std::pair<std::string, std::string>>& headers, std::string& error)
+/**
+ * @brief One destination's side of the conversation.
+ *
+ * The connection is kept open between records. Opening one per record was measured at roughly
+ * twenty thousand a second on loopback, where the limit is ephemeral ports and TIME_WAIT, not CPU -
+ * a connector posting a log storm hits that ceiling long before the broker does.
+ *
+ * A connection the endpoint closed while idle is not an error the caller should see: the first
+ * attempt fails, the connection is re-established, and the record is sent once more.
+ */
+class Peer
 {
-    Connection connection;
-    if (!connection.open(url, timeoutMs))
+public:
+    Peer(Url url, std::string secret, const int timeoutMs,
+         std::vector<std::pair<std::string, std::string>> headers)
+        : m_url(std::move(url))
+        , m_secret(std::move(secret))
+        , m_timeoutMs(timeoutMs)
+        , m_headers(std::move(headers))
     {
-        error = connection.error();
+    }
+
+    int send(const std::string& body, std::string& error)
+    {
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            if (!m_connection.isOpen() && !m_connection.open(m_url, m_timeoutMs))
+            {
+                error = m_connection.error();
+                return -1;
+            }
+
+            std::string request = "POST " + m_url.m_path + " HTTP/1.1\r\n" +
+                "Host: " + m_url.m_host + "\r\n" +
+                "Content-Type: application/json\r\n" +
+                "Content-Length: " + std::to_string(body.size()) + "\r\n" +
+                "User-Agent: xmq-webhook/1.2\r\n" +
+                "Connection: keep-alive\r\n";
+            for (const auto& [name, value]: m_headers)
+            {
+                request += name + ": " + value + "\r\n";
+            }
+            if (!m_secret.empty())
+            {
+                unsigned char digest[EVP_MAX_MD_SIZE];
+                unsigned int  length = 0;
+                HMAC(EVP_sha256(), m_secret.data(), static_cast<int>(m_secret.size()),
+                     reinterpret_cast<const unsigned char*>(body.data()), body.size(), digest, &length);
+                request += "X-XMQ-Signature: sha256=" + hex(digest, length) + "\r\n";
+            }
+            request += "\r\n";
+            request += body;
+
+            if (!m_connection.writeAll(request))
+            {
+                error = m_connection.error();
+                m_connection.close();
+                continue; // a connection that died while idle looks exactly like this
+            }
+
+            int status = -1;
+            if (!m_connection.readResponse(status, error))
+            {
+                m_connection.close();
+                continue;
+            }
+            if (m_connection.closeAfterResponse())
+            {
+                m_connection.close();
+            }
+            return status;
+        }
         return -1;
     }
 
-    std::string request = "POST " + url.m_path + " HTTP/1.1\r\n" +
-        "Host: " + url.m_host + "\r\n" +
-        "Content-Type: application/json\r\n" +
-        "Content-Length: " + std::to_string(body.size()) + "\r\n" +
-        "User-Agent: xmq-webhook/1.0\r\n" +
-        "Connection: close\r\n";
-    for (const auto& [name, value]: headers)
-    {
-        request += name + ": " + value + "\r\n";
-    }
-    if (!secret.empty())
-    {
-        unsigned char digest[EVP_MAX_MD_SIZE];
-        unsigned int  length = 0;
-        HMAC(EVP_sha256(), secret.data(), static_cast<int>(secret.size()),
-             reinterpret_cast<const unsigned char*>(body.data()), body.size(), digest, &length);
-        request += "X-XMQ-Signature: sha256=" + hex(digest, length) + "\r\n";
-    }
-    request += "\r\n";
-    request += body;
+private:
+    Url                                         m_url;
+    std::string                                 m_secret;
+    int                                         m_timeoutMs {defaultTimeoutMs};
+    std::vector<std::pair<std::string, std::string>> m_headers;
+    Connection                                  m_connection;
+};
 
-    if (!connection.writeAll(request))
-    {
-        error = connection.error();
-        return -1;
-    }
-    const auto response = connection.readAll();
-    if (response.empty())
-    {
-        error = "the endpoint sent no response";
-        return -1;
-    }
-    const auto firstLine = response.find("\r\n");
-    const auto status = firstLine == std::string::npos ? response : response.substr(0, firstLine);
-    if (status.size() < 12 || !status.starts_with("HTTP/"))
-    {
-        error = "the endpoint sent a malformed response";
-        return -1;
-    }
-    try
-    {
-        return std::stoi(status.substr(9, 3));
-    }
-    catch (const std::exception&)
-    {
-        error = "the endpoint sent a malformed status";
-        return -1;
-    }
-}
 
 namespace {
 
@@ -821,13 +918,13 @@ constexpr size_t maxQueuedPerDestination = 1024;
 
 /// 2xx is success; 4xx except 429 is refused without a second attempt; everything else retries
 /// with backoff. The same policy for both inputs, in one place.
-bool deliverOnce(const Destination& destination, const std::string& body, const std::string& what)
+bool deliverOnce(Peer& peer, const Destination& destination, const std::string& body,
+                 const std::string& what)
 {
     for (int attempt = 0; attempt <= destination.retries; ++attempt)
     {
         std::string error;
-        const int   status = post(destination.url, body, destination.secret, destination.timeoutMs,
-                                  destination.headers, error);
+        const int   status = peer.send(body, error);
         if (status >= 200 && status < 300)
         {
             return true;
@@ -1073,6 +1170,7 @@ private:
 
     static void run(std::shared_ptr<Destination> destination)
     {
+        Peer peer(destination->url, destination->secret, destination->timeoutMs, destination->headers);
         while (true)
         {
             std::pair<std::string, std::string> entry;
@@ -1087,7 +1185,7 @@ private:
                 entry = std::move(destination->queue.front());
                 destination->queue.pop_front();
             }
-            if (deliverOnce(*destination, entry.first, entry.second))
+            if (deliverOnce(peer, *destination, entry.first, entry.second))
             {
                 destination->sent.fetch_add(1, std::memory_order_relaxed);
             }
