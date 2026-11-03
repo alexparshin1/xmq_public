@@ -154,17 +154,22 @@ vector<PasswordImport::Entry> PasswordImport::parse(const string_view content)
                 entry.m_reason = "line " + to_string(lineNumber) + ": broken $7$ verifier";
             }
         }
-        else if (stored.starts_with("$6$"))
+        else if (stored.starts_with("$6$") || stored.starts_with("$argon2id$"))
         {
-            entry.m_status = Status::Unsupported;
-            entry.m_reason = "line " + to_string(lineNumber) +
-                ": SHA512-crypt (Mosquitto 1.6) is not supported; the password has to be set again";
-        }
-        else if (stored.starts_with("$argon2id$"))
-        {
-            entry.m_status = Status::Unsupported;
-            entry.m_reason = "line " + to_string(lineNumber) +
-                ": Argon2id (Mosquitto 2.1) is not supported; the password has to be set again";
+            // Both are checkable when the platform provides the primitives; otherwise the account
+            // is reported rather than stored as a password nobody can ever satisfy.
+            if (PasswordHash::isHashed(stored))
+            {
+                entry.m_status = Status::New;
+            }
+            else
+            {
+                entry.m_status = Status::Unsupported;
+                entry.m_reason = "line " + to_string(lineNumber) +
+                    (stored.starts_with("$6$")
+                         ? ": SHA512-crypt (Mosquitto 1.6) is not supported by this build; the password has to be set again"
+                         : ": Argon2id (Mosquitto 2.1) is not supported by this build; the password has to be set again");
+            }
         }
         else if (stored.starts_with("$"))
         {

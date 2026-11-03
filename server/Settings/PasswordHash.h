@@ -92,6 +92,12 @@ public:
     /// Whether this looks like a stored verifier at all, as opposed to a password in clear text.
     static bool isHashed(const std::string& stored);
 
+    /// Whether this build can check a Mosquitto 1.6 SHA512-crypt verifier.
+    static bool supportsSha512Crypt();
+
+    /// Whether this build's OpenSSL can check a Mosquitto 2.1 Argon2id verifier.
+    static bool supportsArgon2id();
+
     /// Shortest password accepted.
     static constexpr size_t minimumLength = 8;
 

@@ -52,12 +52,19 @@ TEST(PasswordImport, readsAMosquittoPbkdf2VerifierAsItIs)
     EXPECT_TRUE(PasswordHash::verify("password", entries.front().m_verifier));
 }
 
-TEST(PasswordImport, reportsAFormatItCannotCheckInsteadOfStoringIt)
+TEST(PasswordImport, aSha512CryptVerifierIsCheckableOnlyWhenTheBuildCan)
 {
     const auto entries = PasswordImport::parse(readFile("password-file-sha512-crypt.pwfile"));
     ASSERT_EQ(1U, entries.size());
-    EXPECT_EQ(PasswordImport::Status::Unsupported, entries.front().m_status);
-    EXPECT_NE(string::npos, entries.front().m_reason.find("SHA512-crypt"));
+    if (PasswordHash::supportsSha512Crypt())
+    {
+        EXPECT_EQ(PasswordImport::Status::New, entries.front().m_status);
+    }
+    else
+    {
+        EXPECT_EQ(PasswordImport::Status::Unsupported, entries.front().m_status);
+        EXPECT_NE(string::npos, entries.front().m_reason.find("SHA512-crypt"));
+    }
 }
 
 TEST(PasswordImport, aClearTextLineIsHashedLaterNotStoredAsItArrived)
@@ -80,8 +87,10 @@ TEST(PasswordImport, theMixedFileSeparatesEveryKind)
 
     // A byte-order mark and CRLF are not part of the first username.
     EXPECT_NE(nullptr, find(entries, "user"));
-    EXPECT_EQ(2, counts(PasswordImport::Status::New));
-    EXPECT_EQ(2, counts(PasswordImport::Status::Unsupported));
+    const int checkable = (PasswordHash::supportsSha512Crypt() ? 1 : 0) +
+                          (PasswordHash::supportsArgon2id() ? 1 : 0);
+    EXPECT_EQ(2 + checkable, counts(PasswordImport::Status::New));
+    EXPECT_EQ(2 - checkable, counts(PasswordImport::Status::Unsupported));
     EXPECT_EQ(2, counts(PasswordImport::Status::Invalid));
 
     const auto plain = find(entries, "plain");
@@ -89,9 +98,12 @@ TEST(PasswordImport, theMixedFileSeparatesEveryKind)
     EXPECT_TRUE(plain->m_plaintext);
     EXPECT_EQ("LetMeIn123!", plain->m_verifier);
 
-    const auto argon = find(entries, "new");
-    ASSERT_NE(nullptr, argon);
-    EXPECT_NE(string::npos, argon->m_reason.find("Argon2id"));
+    if (!PasswordHash::supportsArgon2id())
+    {
+        const auto argon = find(entries, "new");
+        ASSERT_NE(nullptr, argon);
+        EXPECT_NE(string::npos, argon->m_reason.find("Argon2id"));
+    }
 }
 
 TEST(PasswordImport, existingAccountsAreCountedAndNotChanged)

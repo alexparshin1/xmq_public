@@ -142,10 +142,12 @@ export default function PermissionsDocumentation() {
 
             <p>
                 The password file understands Mosquitto 2.0 <code>$7$</code> verifiers and
-                clear-text lines; 1.6 <code>$6$</code> and 2.1 <code>argon2id</code> verifiers are
-                reported as not imported, because they cannot be checked here and would otherwise
-                become accounts nobody can sign in to. An imported <code>$7$</code> verifier is
-                replaced with this broker's own at the first successful login.
+                clear-text lines. A 1.6 <code>$6$</code> verifier is checked when the platform's
+                <code>crypt()</code> is available, and a 2.1 <code>argon2id</code> verifier when
+                OpenSSL is 3.2 or newer; the Windows build has no <code>crypt()</code>, so
+                <code>$6$</code> is reported there. A verifier the build cannot check is listed as
+                not imported rather than stored as an account nobody can sign in to. An imported
+                verifier is replaced with this broker's own at the first successful login.
 
                 Dynamic Security roles are flattened onto accounts: the rules a client gets through
                 its roles and groups become rules on <code>user:&lt;name&gt;</code>, in the order

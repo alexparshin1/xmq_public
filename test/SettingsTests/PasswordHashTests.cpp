@@ -80,7 +80,8 @@ TEST(XMQ_PasswordHashTests, refusesRubbishInsteadOfThrowing)
 {
     for (const auto* stored: {"", "plain text password", "pbkdf2-sha256", "pbkdf2-sha256$$$",
                               "pbkdf2-sha256$notanumber$aa$bb", "pbkdf2-sha256$1000$zz$bb",
-                              "pbkdf2-sha256$1000$aa$b", "argon2id$1$aa$bb", "$$$"})
+                              "pbkdf2-sha256$1000$aa$b", "$6$", "$6$salt",
+                              "$argon2id$v=19$m=65536,t=3", "$$$"})
     {
         EXPECT_FALSE(PasswordHash::verify("anything", stored)) << "accepted '" << stored << "'";
         EXPECT_FALSE(PasswordHash::isHashed(stored)) << "called '" << stored << "' a hash";
@@ -149,10 +150,41 @@ TEST(XMQ_PasswordHashTests, refusesBrokenOrForeignMosquittoVerifiers)
 {
     for (const auto* stored: {"$7$", "$7$1000$", "$7$1000$aa", "$7$notanumber$aa$bb",
                               "$7$1000$notbase64!!$bb", "$7$1000$aa$notbase64!!",
-                              "$6$vZY4TS+/HBxHw38S$vvjVFECzb8dyuu/mruD2QKTfdFn0WmKxbc+1TsdB0L8EdHk3v9JRmfjHd56+VaTnUcSZOZ/hzkdvWCtxlX7AUQ==",
-                              "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA"})
+                              "$6$", "$6$salt", "$argon2id$v=19$m=65536,t=3"})
     {
         EXPECT_FALSE(PasswordHash::verify("password", stored)) << "accepted '" << stored << "'";
         EXPECT_FALSE(PasswordHash::isHashed(stored)) << "called '" << stored << "' a hash";
     }
+}
+
+// Vectors generated with OpenSSL (passwd -6, kdf ARGON2ID), so they are not this code's own
+// output checked against itself.
+TEST(XMQ_PasswordHashTests, verifiesASha512CryptVerifierWhenTheBuildCan)
+{
+    if (!PasswordHash::supportsSha512Crypt())
+    {
+        GTEST_SKIP() << "this build has no crypt()";
+    }
+
+    const String stored =
+        "$6$vZY4TS+/HBxHw38S$NbOZZc.qOERVpOTixDlP4tz2C94xhGHZdpddDG59asua7aVRbGSvMt744pMaavdrTk5GBij0rnkxniSKNjHiD1";
+    EXPECT_TRUE(PasswordHash::verify("Secret12!", stored));
+    EXPECT_FALSE(PasswordHash::verify("Secret12", stored));
+    EXPECT_TRUE(PasswordHash::isHashed(stored));
+    EXPECT_TRUE(PasswordHash::needsRehash(stored)) << "a login should replace it with our own";
+}
+
+TEST(XMQ_PasswordHashTests, verifiesAnArgon2idVerifierWhenOpenSSLCan)
+{
+    if (!PasswordHash::supportsArgon2id())
+    {
+        GTEST_SKIP() << "this OpenSSL has no ARGON2ID KDF";
+    }
+
+    const String stored =
+        "$argon2id$v=19$m=65536,t=3,p=1$MDEyMzQ1Njc4OWFiY2RlZg$2vFngNy3PoYhRil/oXuBuGtIDzPAtn2u8PLHyAnFeXs";
+    EXPECT_TRUE(PasswordHash::verify("password", stored));
+    EXPECT_FALSE(PasswordHash::verify("Password", stored));
+    EXPECT_TRUE(PasswordHash::isHashed(stored));
+    EXPECT_TRUE(PasswordHash::needsRehash(stored)) << "a login should replace it with our own";
 }

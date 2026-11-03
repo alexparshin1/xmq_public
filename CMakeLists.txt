@@ -365,6 +365,25 @@ ENDIF ()
 
 
 FIND_PACKAGE(OpenSSL QUIET)
+# SHA512-crypt verifiers (Mosquitto 1.6) are checked with the platform's crypt(). It is not
+# available on Windows; there the format is reported as unsupported rather than guessed at. Some
+# distributions install only the runtime library (libcrypt.so.1), so the full file is found too.
+INCLUDE(CheckSymbolExists)
+CHECK_SYMBOL_EXISTS(crypt "unistd.h" XMQ_HAVE_CRYPT_SYMBOL)
+IF (XMQ_HAVE_CRYPT_SYMBOL)
+    ADD_DEFINITIONS(-DXMQ_HAVE_CRYPT)
+ELSE ()
+    FIND_LIBRARY(XMQ_CRYPT_LIBRARY NAMES crypt)
+    IF (NOT XMQ_CRYPT_LIBRARY)
+        FIND_FILE(XMQ_CRYPT_LIBRARY NAMES libcrypt.so.1
+                  PATHS /usr/lib /lib /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu)
+    ENDIF ()
+    IF (XMQ_CRYPT_LIBRARY)
+        ADD_DEFINITIONS(-DXMQ_HAVE_CRYPT)
+        LINK_LIBRARIES(${XMQ_CRYPT_LIBRARY})
+    ENDIF ()
+ENDIF ()
+
 IF (OPENSSL_FOUND)
     MESSAGE("OpenSSL support:    compile")
     INCLUDE_DIRECTORIES(${OPENSSL_INCLUDE_DIR})

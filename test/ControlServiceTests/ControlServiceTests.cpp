@@ -1454,15 +1454,16 @@ TEST_F(XMQ_ControlServiceTests, userImportPlansAndAppliesMosquittoPasswords)
     input.m_content = content.c_str();
     m_controlService->UserControl(input, output, &authentication);
     verifyResult(output.m_result);
-    EXPECT_EQ(2, output.m_new_count.asInteger());
-    EXPECT_EQ(1, output.m_unsupported_count.asInteger());
+    const int checkable = PasswordHash::supportsSha512Crypt() ? 1 : 0;
+    EXPECT_EQ(2 + checkable, output.m_new_count.asInteger());
+    EXPECT_EQ(1 - checkable, output.m_unsupported_count.asInteger());
     EXPECT_EQ(String::npos, output.m_plan.asString().find("$7$")) << "the plan leaked a verifier";
     EXPECT_EQ(String::npos, output.m_plan.asString().find("Secret12!")) << "the plan leaked a password";
 
     input.m_action = "import-apply";
     m_controlService->UserControl(input, output, &authentication);
     verifyResult(output.m_result);
-    EXPECT_EQ(2, output.m_new_count.asInteger());
+    EXPECT_EQ(2 + checkable, output.m_new_count.asInteger());
 
     auto& users = server()->getSettings()->userManager();
     EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
@@ -1473,18 +1474,25 @@ TEST_F(XMQ_ControlServiceTests, userImportPlansAndAppliesMosquittoPasswords)
     EXPECT_TRUE(users.findUser(hashedUser.c_str()).m_password.asString().starts_with("pbkdf2-sha256$"))
         << "the Mosquitto verifier was not rehashed at login";
     EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
-    EXPECT_THROW(users.findUser(oldUser.c_str()), Exception)
-        << "an unsupported verifier must not become an account nobody can use";
+    if (PasswordHash::supportsSha512Crypt())
+    {
+        EXPECT_FALSE(users.findUser(oldUser.c_str()).m_password.asString().empty());
+    }
+    else
+    {
+        EXPECT_THROW(users.findUser(oldUser.c_str()), Exception)
+            << "an unsupported verifier must not become an account nobody can use";
+    }
 
     // A second import recognises both accounts and adds no duplicate.
     input.m_action = "import-plan";
     m_controlService->UserControl(input, output, &authentication);
     verifyResult(output.m_result);
     EXPECT_EQ(0, output.m_new_count.asInteger());
-    EXPECT_EQ(2, output.m_existing_count.asInteger());
+    EXPECT_EQ(2 + checkable, output.m_existing_count.asInteger());
 
     // Leave the shared accounts database as it was found.
-    for (const auto& name: {hashedUser, plainUser})
+    for (const auto& name: {hashedUser, plainUser, oldUser})
     {
         try
         {
