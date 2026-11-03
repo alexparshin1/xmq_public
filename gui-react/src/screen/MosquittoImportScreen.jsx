@@ -248,21 +248,26 @@ export default class MosquittoImportScreen extends React.Component {
                     <code>$6$</code> and 2.1 <code>argon2id</code> verifiers are reported and need
                     the password to be set again.
                 </p>
+                <p>
+                    Imported accounts can also sign in to this interface, with the rights of the
+                    groups they are put in - none of them become administrators unless an
+                    administrator adds them to that group.
+                </p>
             </div>
 
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">Password file:</label>
-                <FileLoad accept=".pwfile,.txt" onLoad={this.passwordLoaded}/>
+                <FileLoad onLoad={this.passwordLoaded}/>
                 {this.state.passwordName
                     ? <span className="inputScreenHint">{this.state.passwordName}</span>
-                    : null}
+                    : <span className="inputScreenHint">Usually /etc/mosquitto/passwd</span>}
             </div>
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">ACL file:</label>
-                <FileLoad accept=".acl,.conf,.txt" onLoad={this.aclLoaded}/>
+                <FileLoad onLoad={this.aclLoaded}/>
                 {this.state.aclName
                     ? <span className="inputScreenHint">{this.state.aclName}</span>
-                    : null}
+                    : <span className="inputScreenHint">Usually /etc/mosquitto/aclfile</span>}
             </div>
 
             <div className="inputScreenRow">
