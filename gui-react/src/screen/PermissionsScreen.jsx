@@ -78,8 +78,12 @@ export default class PermissionsScreen extends React.Component {
     state = {
         headers: [
             {headerName: "Id", field: "id", hide: true},
-            {headerName: "Applies to", field: "appliesTo", width: 220, cellClass: "ViewCellLeftAligned"},
-            {headerName: "Policy, checked from the top", field: "rules", cellRenderer: PolicyCell, flex: 1}
+            // The width is stated in all three ways the grid understands, so the header and the
+            // cells cannot end up a few pixels apart when the grid recalculates its layout.
+            {headerName: "Applies to", field: "appliesTo", width: 220, minWidth: 220, maxWidth: 220,
+             resizable: false, cellClass: "ViewCellLeftAligned"},
+            {headerName: "Policy, checked from the top", field: "rules", cellRenderer: PolicyCell,
+             flex: 1, minWidth: 400}
         ],
         rows: [],
         subjectOptions: {groups: [], users: []},
@@ -573,7 +577,9 @@ export default class PermissionsScreen extends React.Component {
     policyRowHeight = params => {
         const count = params.data && params.data.rules ? params.data.rules.length : 0;
         const lines = Math.min(5, count) + (count > 5 ? 1 : 0);
-        return Math.max(30, 12 + lines * 19);
+        // Enough for the cell's own padding and a line at the dialog's font size; 19px a line was
+        // a few pixels short and cut the last rule in half.
+        return Math.max(40, 14 + lines * 25);
     }
 
     renderImportPlan() {

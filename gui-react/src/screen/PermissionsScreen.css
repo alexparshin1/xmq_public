@@ -51,6 +51,7 @@
     align-items: baseline;
     gap: 8px;
     white-space: nowrap;
+    line-height: 22px;
 }
 
 .permissionsAllow {
