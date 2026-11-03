@@ -1491,6 +1491,18 @@ void ClientSession::handlePublishMessage(const SMessage& message)
                                            publishMessage->isRetain());
     }
 
+    if (server().extensions().tapping())
+    {
+        // Only the taps that asked for this topic pay for the body; the broker copies it no
+        // further than the extensions that have a matching filter.
+        server().extensions().publishMessage(getClientId(), getUsername(),
+                                             publishMessage->destination()->fullName(),
+                                             reinterpret_cast<const char*>(publishMessage->payloadData()),
+                                             publishMessage->payloadSize(),
+                                             static_cast<uint8_t>(publishMessage->getQos()),
+                                             publishMessage->isRetain());
+    }
+
     if (publishMessage->getQos() == Qos::Qos2 && !beginQos2Receive(publishMessage->getId()))
     {
         // A repeat of a PUBLISH already delivered and still awaiting PUBREL. Delivering again would

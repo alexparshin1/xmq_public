@@ -38,6 +38,7 @@
 #include "xmq_extension.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <exception>
 #include <string>
@@ -115,6 +116,30 @@ public:
     /// may take its time - but a slow observer means dropped events, not a slow broker.
     virtual void onEvent(const xmq_event& /*event*/)
     {
+    }
+
+    /// One accepted message whose topic matched the filter given to subscribeMessages(). Called on
+    /// a thread of the extension's own, never on one that carries messages.
+    virtual void onMessage(const xmq_message& /*message*/)
+    {
+    }
+
+    /**
+     * @brief Ask for accepted messages matching @p filter.
+     *
+     * Call from start(), and again from reload() if the filter changed. Older brokers do not have
+     * the call and return false, which an extension should report rather than pretend succeeded.
+     * @param maxPayload  Largest body to deliver; 0 means no limit. A larger message is dropped,
+     *                    not truncated.
+     */
+    bool subscribeMessages(const std::string& filter, const size_t maxPayload = 0) const
+    {
+        if (m_host.tap_messages == nullptr ||
+            m_host.struct_size < offsetof(xmq_host, tap_messages) + sizeof(m_host.tap_messages))
+        {
+            return false;
+        }
+        return m_host.tap_messages(m_host.context, filter.c_str(), maxPayload) == 0;
     }
 
     /// May this client connect? Called on a thread the broker keeps for authentication, so a
@@ -394,6 +419,16 @@ inline xmq_event_type eventType(const xmq_event& event)
         {                                                                                           \
         }                                                                                           \
     }                                                                                               \
+    void xmqExtensionOnMessage(void* instance, const xmq_message* message)                         \
+    {                                                                                               \
+        try                                                                                         \
+        {                                                                                           \
+            static_cast<ExtensionClass*>(instance)->onMessage(*message);                            \
+        }                                                                                           \
+        catch (...)                                                                                 \
+        {                                                                                           \
+        }                                                                                           \
+    }                                                                                               \
     xmq_auth_decision xmqExtensionAuthenticate(void* instance, const xmq_auth_request* request)     \
     {                                                                                               \
         try                                                                                         \
@@ -447,6 +482,7 @@ inline xmq_event_type eventType(const xmq_event& event)
         }                                                                                           \
     }                                                                                               \
     constexpr xmq_observer      xmqExtensionObserver {.on_event = xmqExtensionOnEvent};             \
+    constexpr xmq_message_tap   xmqExtensionMessageTap {.on_message = xmqExtensionOnMessage};        \
     constexpr xmq_authenticator xmqExtensionAuthenticator {.authenticate = xmqExtensionAuthenticate}; \
     constexpr xmq_authorizer    xmqExtensionAuthorizer {.resolve_group = xmqExtensionResolveGroup,  \
                                                         .authorize = xmqExtensionAuthorize};        \
@@ -470,8 +506,9 @@ inline xmq_event_type eventType(const xmq_event& event)
             ((ExtensionCapabilities) &XMQ_CAP_AUTHORIZER) != 0 ? &xmqExtensionAuthorizer            \
                                                                : nullptr,                           \
         .settings = (ExtensionSettings),                                                            \
-        .setting_count = (ExtensionSettingCount)};                                                  \
-    }                                                                                               \
+        .setting_count = (ExtensionSettingCount),                                                   \
+        .message_tap =                                                                              \
+            ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr};  \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
     {                                                                                               \
@@ -482,4 +519,5 @@ inline xmq_event_type eventType(const xmq_event& event)
             return nullptr;                                                                         \
         }                                                                                           \
         return &xmqExtensionTable;                                                                  \
+    }                                                                                               \
     }

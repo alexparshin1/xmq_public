@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 0
+#define XMQ_EXTENSION_ABI_MINOR 1
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -171,6 +171,26 @@ typedef struct xmq_event
 } xmq_event;
 
 /**
+ * @brief One accepted message, handed to a message tap.
+ *
+ * The payload is binary, not NUL-terminated, and is owned by the broker: it is valid only for the
+ * duration of the callback. A tap that keeps it must copy it. Unlike xmq_event, this is the body
+ * itself - that is the point of the capability - and the broker copies it only for the extensions
+ * that asked for a matching filter.
+ */
+typedef struct xmq_message
+{
+    uint64_t timestamp_us;         /**< Wall clock, microseconds since the epoch. */
+    xmq_str  topic;
+    xmq_str  payload;
+    xmq_str  client_id;
+    xmq_str  username;             /**< Empty for an anonymous client. */
+    uint8_t  qos;
+    uint8_t  retain;
+    uint8_t  reserved[6];
+} xmq_message;
+
+/**
  * @brief What the broker offers an extension.
  *
  * Handed over at creation and valid for the extension's whole life. Every function may be called
@@ -246,6 +266,24 @@ typedef struct xmq_host
      *         or this broker does not publish that name. Valid until on_event() returns.
      */
     xmq_str (*event_attribute)(void* context, const xmq_event* event, const char* name);
+
+    /**
+     * @brief Ask for accepted messages whose topic matches @p filter.
+     *
+     * Called from start(), and again from reload() when the filter changes. The filter is an MQTT
+     * topic filter; every later message accepted by the broker whose topic matches is delivered
+     * to the extension's message_tap callback on a thread of its own. The broker copies the body
+     * only for extensions with a matching tap.
+     *
+     * @param max_payload  The largest body to deliver. A larger one is dropped and counted rather
+     *                     than cut; zero means no limit.
+     * @return 0 when the tap is accepted, -1 when it is not (no message_tap in the extension, an
+     *         empty or invalid filter, or this broker being older than the call).
+     *
+     * A tap that stops reading is dropped from, not waited for: its queue is bounded and the
+     * broker counts what it discarded. The publish path never blocks on a tap.
+     */
+    int64_t (*tap_messages)(void* context, const char* filter, size_t max_payload);
 } xmq_host;
 
 /**
@@ -260,6 +298,18 @@ typedef struct xmq_observer
 {
     void (*on_event)(void* instance, const xmq_event* event);
 } xmq_observer;
+
+/**
+ * @brief Receives the messages a tap asked for.
+ *
+ * Called on a thread of its own, never on one that carries messages. The payload pointer is valid
+ * only for this call; the extension must copy anything it keeps. A callback that blocks delays the
+ * next message for that one tap and costs the broker a bounded queue, not a stalled publish.
+ */
+typedef struct xmq_message_tap
+{
+    void (*on_message)(void* instance, const xmq_message* message);
+} xmq_message_tap;
 
 /** @brief What kind of value a setting holds, so the interface can offer the right control and
  *         refuse a wrong value before it reaches the extension. */
@@ -308,7 +358,8 @@ typedef enum xmq_capability
 {
     XMQ_CAP_OBSERVER = 1u << 0,      /**< Watches broker events. */
     XMQ_CAP_AUTHENTICATOR = 1u << 1, /**< Decides whether a client may connect. */
-    XMQ_CAP_AUTHORIZER = 1u << 2     /**< Decides what a connected client may publish and subscribe to. */
+    XMQ_CAP_AUTHORIZER = 1u << 2,    /**< Decides what a connected client may publish and subscribe to. */
+    XMQ_CAP_MESSAGE_TAP = 1u << 3    /**< Receives the messages the broker accepted, body included. */
 } xmq_capability;
 
 /**
@@ -521,6 +572,9 @@ typedef struct xmq_extension
      */
     const xmq_setting* settings;
     size_t             setting_count;
+
+    /** NULL when the extension does not tap messages. */
+    const xmq_message_tap* message_tap;
 } xmq_extension;
 
 /**

@@ -23,7 +23,10 @@
 #include <algorithm>
 #include <chrono>
 #include <array>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
+#include <limits>
 #include <functional>
 #include <map>
 #include <memory>
@@ -499,6 +502,18 @@ public:
                       std::string_view topic, size_t payloadSize, uint8_t qos, bool retain,
                       EventAttributes attributes = {});
 
+    /// True when at least one extension asked for message bodies. Read on the publish path, so a
+    /// broker with no taps pays one relaxed load.
+    [[nodiscard]] bool tapping() const
+    {
+        return m_tapping.load(std::memory_order_relaxed);
+    }
+
+    /// Offer an accepted message to every tap whose filter matches. Copies the body only after
+    /// the filter matched, and never waits for a tap.
+    void publishMessage(std::string_view clientId, std::string_view username, std::string_view topic,
+                        const char* payload, size_t payloadSize, uint8_t qos, bool retain);
+
     /**
      * @brief Which subjects produce events, as a bit per LogSubject.
      *
@@ -656,6 +671,18 @@ private:
         std::vector<std::pair<std::string, std::string>> m_attributes;
     };
 
+    /// One accepted message on its way to a tap.
+    struct QueuedMessage
+    {
+        uint64_t    m_timestampUs {0};
+        std::string m_topic;
+        std::string m_clientId;
+        std::string m_username;
+        std::string m_payload;
+        uint8_t     m_qos {0};
+        uint8_t     m_retain {0};
+    };
+
     /// A loaded library and the instance made from it.
     struct Loaded
     {
@@ -688,6 +715,19 @@ private:
         std::atomic<uint64_t> m_admitted {0};
         std::atomic<uint64_t> m_refused {0};
         std::atomic<uint64_t> m_storeErrors {0};
+
+        /// A message tap, when the extension asked for one. The thread is its own, so a slow tap
+        /// delays only itself; the queue is bounded, so a tap that stops reading costs events and
+        /// not memory. Guarded by m_tapLock except for the counters.
+        mutable std::mutex      m_tapLock;
+        std::condition_variable m_tapCondition;
+        std::deque<QueuedMessage> m_tapQueue;
+        std::string             m_tapFilter;
+        size_t                  m_tapMaxPayload {std::numeric_limits<size_t>::max()};
+        bool                    m_tapStopping {false};
+        std::thread             m_tapThread;
+        std::atomic<uint64_t>   m_messagesDelivered {0};
+        std::atomic<uint64_t>   m_messagesDropped {0};
 
         /**
          * @brief Calls currently inside this extension.
@@ -723,6 +763,9 @@ private:
     void                                  unload(Loaded& loaded);
     void                                  deliveryThread();
     void                                  authenticationThread();
+    void                                  tapThread(Loaded& loaded);
+    void                                  startTap(Loaded& loaded);
+    void                                  stopTap(Loaded& loaded);
     [[nodiscard]] AuthDecision            askAuthenticators(const AuthRequest& request);
 
     // The three services an extension is given. Static, because they are C function pointers with
@@ -763,6 +806,7 @@ private:
 
     static void    hostWantEventAttributes(void* context, const char* names);
     static xmq_str hostEventAttribute(void* context, const xmq_event* event, const char* name);
+    static int64_t hostTapMessages(void* context, const char* filter, size_t maxPayload);
 
     /// The bit for a name this broker publishes, or zero for one it does not.
     [[nodiscard]] static uint32_t attributeBit(std::string_view name);
@@ -773,6 +817,8 @@ private:
 
     /// Deep enough to absorb a burst, shallow enough that a stuck extension cannot eat memory.
     static constexpr size_t MaxQueuedEvents = 16384;
+    /// Per tap, not shared: a stuck extension must not consume another's budget.
+    static constexpr size_t MaxQueuedTapMessages = 4096;
 
     sptk::Logger                         m_logger;
     std::string                          m_brokerVersion;
@@ -849,6 +895,7 @@ private:
     const xmq_event*                                        m_deliveringEvent {nullptr};
     const std::vector<std::pair<std::string, std::string>>* m_deliveringAttributes {nullptr};
     std::atomic_bool                     m_watching {false};
+    std::atomic_bool                     m_tapping {false};
     std::atomic_bool                     m_authenticating {false};
     std::atomic_bool                     m_authorizing {false};
     std::atomic_bool                     m_terminated {false};

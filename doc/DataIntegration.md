@@ -29,7 +29,7 @@ path, and the foundation both a rule engine and a connector would need.
 
 ### DI-1. Message tap in the extension ABI
 
-`[ ]` Add `XMQ_CAP_MESSAGE_TAP` and bump `XMQ_EXTENSION_ABI_MINOR` to 1. Append to `xmq_extension`
+`[x]` Add `XMQ_CAP_MESSAGE_TAP` and bump `XMQ_EXTENSION_ABI_MINOR` to 1. Append to `xmq_extension`
 a `message_tap` table and to `xmq_host` a `tap_messages(context, filter, max_payload)` function.
 Add `xmq_message` with topic, payload, client id, username, qos, retain and timestamp. Pointers are
 valid only during the callback; payloads are binary and not NUL-terminated.
@@ -39,7 +39,7 @@ refuses it through the existing minor-version check; an older extension loads un
 
 ### DI-2. Tap delivery in the host
 
-`[ ]` `ExtensionHost` keeps one bounded queue per tapped extension, matching by topic filter. The
+`[x]` `ExtensionHost` keeps one bounded queue per tapped extension, matching by topic filter. The
 publish path copies the payload only for matching taps and never waits for the endpoint. A worker
 thread delivers; a full queue drops and counts. `stop()` drains or discards deterministically.
 
@@ -48,7 +48,7 @@ continues and the drop counter rises; a binary payload arrives byte-for-byte.
 
 ### DI-3. SDK wrapper
 
-`[ ]` `XmqExtensionBase` gains `MessageTap` and `subscribeMessages(filter, maxPayload)`; `onMessage`
+`[x]` `XmqExtensionBase` gains `MessageTap` and `subscribeMessages(filter, maxPayload)`; `onMessage`
 receives a view over the payload. The existing authenticator, authorizer and observer are untouched.
 
 ### DI-4. Reference webhook extension

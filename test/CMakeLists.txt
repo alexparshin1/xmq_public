@@ -76,14 +76,16 @@ XMQ_ADD_EXTENSION(xmq_test_user_database
 # Not a sample, and deliberately not under examples/: it blocks inside authorize(), which the ABI
 # forbids, so that an invalidation can be made to land while the broker is inside the extension.
 XMQ_ADD_EXTENSION(xmq_test_slow_authorizer SOURCES ${CMAKE_CURRENT_LIST_DIR}/ExtensionTests/SlowAuthorizer.cpp)
+XMQ_ADD_EXTENSION(xmq_test_tap_recorder SOURCES ${CMAKE_CURRENT_LIST_DIR}/ExtensionTests/TapRecorder.cpp)
 
 ADD_DEPENDENCIES(xmq_unit_tests xmq_test_extension xmq_test_authenticator xmq_test_authorizer
-        xmq_test_slow_authorizer xmq_test_user_database)
+        xmq_test_slow_authorizer xmq_test_user_database xmq_test_tap_recorder)
 TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_EXTENSION_LIBRARY="$<TARGET_FILE:xmq_test_extension>"
         XMQ_TEST_AUTHENTICATOR_LIBRARY="$<TARGET_FILE:xmq_test_authenticator>"
         XMQ_TEST_AUTHORIZER_LIBRARY="$<TARGET_FILE:xmq_test_authorizer>"
         XMQ_TEST_SLOW_AUTHORIZER_LIBRARY="$<TARGET_FILE:xmq_test_slow_authorizer>"
+        XMQ_TEST_TAP_RECORDER_LIBRARY="$<TARGET_FILE:xmq_test_tap_recorder>"
         XMQ_TEST_USER_DATABASE_LIBRARY="$<TARGET_FILE:xmq_test_user_database>")
 
 # The external-client tests drive xmq_pub and xmq_sub as separate processes. They are told where

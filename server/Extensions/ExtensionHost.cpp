@@ -12,6 +12,7 @@
 */
 
 #include "ExtensionHost.h"
+#include "server/Subscription/RetainedMessages.h"
 
 #include <sptk5/xdoc/Document.h>
 
@@ -34,6 +35,18 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+
+/// The message tap of an extension, or nothing when the table was built before the field existed.
+/// struct_size is the whole reason reading an appended field is safe: an extension from ABI 1.0
+/// simply does not have this one, and reading past its table would be reading somebody else's.
+const xmq_message_tap* messageTapOf(const xmq_extension& table)
+{
+    if (table.struct_size < offsetof(xmq_extension, message_tap) + sizeof(table.message_tap))
+    {
+        return nullptr;
+    }
+    return table.message_tap;
+}
 
 /// Counts a call while it is inside an extension, so that switching that extension off waits for it
 /// rather than pulling stop() out from under it.
@@ -403,6 +416,157 @@ xmq_str ExtensionHost::hostEventAttribute(void* context, const xmq_event* event,
     return {.data = nullptr, .length = 0};
 }
 
+int64_t ExtensionHost::hostTapMessages(void* context, const char* filter, const size_t maxPayload)
+{
+    auto* loaded = static_cast<Loaded*>(context);
+    if (loaded == nullptr || loaded->m_host == nullptr || filter == nullptr ||
+        loaded->m_table == nullptr || messageTapOf(*loaded->m_table) == nullptr)
+    {
+        return -1;
+    }
+    const std::string text(filter);
+    if (text.empty())
+    {
+        return -1;
+    }
+
+    {
+        const std::scoped_lock lock(loaded->m_tapLock);
+        loaded->m_tapFilter = text;
+        loaded->m_tapMaxPayload = maxPayload == 0 ? std::numeric_limits<size_t>::max() : maxPayload;
+    }
+    loaded->m_host->m_tapping.store(true, std::memory_order_relaxed);
+    loaded->m_host->startTap(*loaded);
+    return 0;
+}
+
+void ExtensionHost::startTap(Loaded& loaded)
+{
+    if (loaded.m_tapThread.joinable())
+    {
+        return;
+    }
+    {
+        const std::scoped_lock lock(loaded.m_tapLock);
+        loaded.m_tapStopping = false;
+    }
+    loaded.m_tapThread = std::thread([this, &loaded] { tapThread(loaded); });
+}
+
+void ExtensionHost::stopTap(Loaded& loaded)
+{
+    {
+        const std::scoped_lock lock(loaded.m_tapLock);
+        loaded.m_tapStopping = true;
+    }
+    loaded.m_tapCondition.notify_all();
+    if (loaded.m_tapThread.joinable())
+    {
+        loaded.m_tapThread.join();
+    }
+    {
+        const std::scoped_lock lock(loaded.m_tapLock);
+        loaded.m_messagesDropped.fetch_add(loaded.m_tapQueue.size(), std::memory_order_relaxed);
+        loaded.m_tapQueue.clear();
+    }
+}
+
+void ExtensionHost::tapThread(Loaded& loaded)
+{
+    while (true)
+    {
+        QueuedMessage message;
+        {
+            std::unique_lock lock(loaded.m_tapLock);
+            loaded.m_tapCondition.wait(lock, [&loaded]
+                                       { return loaded.m_tapStopping || !loaded.m_tapQueue.empty(); });
+            if (loaded.m_tapQueue.empty() && loaded.m_tapStopping)
+            {
+                break;
+            }
+            message = std::move(loaded.m_tapQueue.front());
+            loaded.m_tapQueue.pop_front();
+        }
+
+        const auto* tap = loaded.m_table == nullptr ? nullptr : messageTapOf(*loaded.m_table);
+        if (tap != nullptr && tap->on_message != nullptr)
+        {
+            const xmq_message view {
+                .timestamp_us = message.m_timestampUs,
+                .topic = {.data = message.m_topic.c_str(), .length = message.m_topic.size()},
+                .payload = {.data = message.m_payload.empty() ? "" : message.m_payload.data(),
+                            .length = message.m_payload.size()},
+                .client_id = {.data = message.m_clientId.c_str(), .length = message.m_clientId.size()},
+                .username = {.data = message.m_username.c_str(), .length = message.m_username.size()},
+                .qos = message.m_qos,
+                .retain = message.m_retain};
+            tap->on_message(loaded.m_instance, &view);
+        }
+        loaded.m_messagesDelivered.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void ExtensionHost::publishMessage(const std::string_view clientId, const std::string_view username,
+                                   const std::string_view topic, const char* payload,
+                                   const size_t payloadSize, const uint8_t qos, const bool retain)
+{
+    if (!m_tapping.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    const auto* active = m_active.load(std::memory_order_acquire);
+    if (active == nullptr)
+    {
+        return;
+    }
+
+    for (Loaded* loaded: *active)
+    {
+        if (!loaded->m_started)
+        {
+            continue;
+        }
+        std::string filter;
+        size_t      maxPayload = 0;
+        {
+            const std::scoped_lock lock(loaded->m_tapLock);
+            filter = loaded->m_tapFilter;
+            maxPayload = loaded->m_tapMaxPayload;
+        }
+        if (filter.empty() || !RetainedMessages::matches(filter, topic))
+        {
+            continue;
+        }
+        if (payloadSize > maxPayload)
+        {
+            loaded->m_messagesDropped.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        // The body is copied only now, after the filter matched and the size was accepted: a tap
+        // that asked for a narrow topic pays nothing for the rest of the broker's traffic.
+        QueuedMessage message;
+        message.m_timestampUs = nowMicroseconds();
+        message.m_topic = std::string(topic);
+        message.m_clientId = std::string(clientId);
+        message.m_username = std::string(username);
+        message.m_payload.assign(payload, payloadSize);
+        message.m_qos = qos;
+        message.m_retain = retain ? 1 : 0;
+
+        {
+            const std::scoped_lock lock(loaded->m_tapLock);
+            if (loaded->m_tapStopping || loaded->m_tapQueue.size() >= MaxQueuedTapMessages)
+            {
+                loaded->m_messagesDropped.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+            loaded->m_tapQueue.push_back(std::move(message));
+        }
+        loaded->m_tapCondition.notify_one();
+    }
+}
+
 void ExtensionHost::hostInvalidateAcl(void* context)
 {
     auto* loaded = static_cast<Loaded*>(context);
@@ -492,7 +656,8 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
                            .user_database_uri = &ExtensionHost::hostUserDatabaseUri,
                            .invalidate_acl = &ExtensionHost::hostInvalidateAcl,
                            .want_event_attributes = &ExtensionHost::hostWantEventAttributes,
-                           .event_attribute = &ExtensionHost::hostEventAttribute};
+                           .event_attribute = &ExtensionHost::hostEventAttribute,
+                           .tap_messages = &ExtensionHost::hostTapMessages};
 
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)
@@ -991,6 +1156,7 @@ void ExtensionHost::publishActiveUnlocked()
     auto watching = false;
     auto authenticating = false;
     auto authorizing = false;
+    auto tapping = false;
 
     for (const auto& loaded: m_loaded)
     {
@@ -1012,6 +1178,10 @@ void ExtensionHost::publishActiveUnlocked()
         {
             authorizing = true;
         }
+        if (messageTapOf(*loaded->m_table) != nullptr)
+        {
+            tapping = true;
+        }
     }
 
     // Recomputed rather than only ever set: switching the last authenticator off has to put the
@@ -1020,6 +1190,7 @@ void ExtensionHost::publishActiveUnlocked()
     m_watching.store(watching, std::memory_order_relaxed);
     m_authenticating.store(authenticating, std::memory_order_relaxed);
     m_authorizing.store(authorizing, std::memory_order_relaxed);
+    m_tapping.store(tapping, std::memory_order_relaxed);
 
     // Kept rather than swapped out: a reader may still be walking the previous one, and it holds a
     // bare pointer to it.
@@ -1469,6 +1640,10 @@ ExtensionHost::Report ExtensionHost::disable(const string& name)
 
 void ExtensionHost::unload(Loaded& loaded)
 {
+    // Before stop(): the tap thread is inside the extension's on_message, and stop() releases
+    // what that call is using.
+    stopTap(loaded);
+
     if (loaded.m_started && loaded.m_table != nullptr && loaded.m_table->stop != nullptr)
     {
         loaded.m_table->stop(loaded.m_instance);
