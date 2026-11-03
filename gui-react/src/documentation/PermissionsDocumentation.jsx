@@ -147,7 +147,9 @@ export default function PermissionsDocumentation() {
                 OpenSSL is 3.2 or newer; the Windows build has no <code>crypt()</code>, so
                 <code>$6$</code> is reported there. A verifier the build cannot check is listed as
                 not imported rather than stored as an account nobody can sign in to. An imported
-                verifier is replaced with this broker's own at the first successful login.
+                verifier is checked on both paths - the interface's own accounts and the
+                user-database extension that MQTT clients authenticate against - and is replaced
+                with this broker's own at the first successful login.
             </p>
 
             <p>

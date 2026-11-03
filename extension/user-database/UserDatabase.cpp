@@ -37,11 +37,13 @@
  *
  * ## Why the password check is a copy
  *
- * The verifier below reads `pbkdf2-sha256$iterations$salt$hash`, which is what the broker writes.
- * It is deliberately a second implementation: an extension includes no broker header, and that
- * boundary is worth more than the thirty lines saved. What keeps the two honest is that the tests
- * hash with the broker's own code and verify with this one, so a change to either format is a
- * failing test rather than a broker that stops admitting anybody.
+ * The verifier below reads the formats the broker can store: its own
+ * `pbkdf2-sha256$iterations$salt$hash`, and the ones a Mosquitto import copies as they are -
+ * `$7$` PBKDF2-SHA512, `$6$` SHA512-crypt where the platform has crypt(), and `$argon2id$` where
+ * OpenSSL is 3.2 or newer. It is deliberately a second implementation: an extension includes no
+ * broker header, and that boundary is worth more than the lines saved. What keeps the two honest is
+ * that the tests hash with the broker's own code and verify with this one, so a change to either
+ * format is a failing test rather than a broker that stops admitting anybody.
  *
  * ## What it does not do
  *
@@ -60,6 +62,19 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+
+#include <sptk5/Base64.h>
+
+#if defined(XMQ_HAVE_CRYPT)
+#include <unistd.h>
+#include <mutex>
+#endif
+
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L
+#include <openssl/core_names.h>
+#include <openssl/kdf.h>
+#include <openssl/params.h>
+#endif
 
 #include <array>
 #include <atomic>
@@ -106,9 +121,195 @@ bool fromHex(const std::string_view text, std::vector<unsigned char>& bytes)
     return true;
 }
 
+bool decodeBase64(const std::string_view text, std::vector<unsigned char>& bytes)
+{
+    std::string padded(text);
+    padded.append((4 - padded.size() % 4) % 4, '=');
+    try
+    {
+        sptk::Buffer decoded;
+        sptk::Base64::decode(decoded, sptk::String(padded));
+        bytes.assign(reinterpret_cast<const unsigned char*>(decoded.data()),
+                     reinterpret_cast<const unsigned char*>(decoded.data()) + decoded.bytes());
+        return !bytes.empty();
+    }
+    catch (const sptk::Exception&)
+    {
+        return false;
+    }
+}
+
+/// Mosquitto 2.0: $7$iterations$base64-salt$base64-hash, PBKDF2-HMAC-SHA512.
+bool verifyMosquitto7(const std::string& password, const std::string_view stored)
+{
+    const auto third = stored.find('$', 3);
+    const auto fourth = third == std::string_view::npos ? third : stored.find('$', third + 1);
+    if (third == std::string_view::npos || fourth == std::string_view::npos)
+    {
+        return false;
+    }
+
+    int        iterations = 0;
+    const auto iterationText = stored.substr(3, third - 3);
+    if (std::from_chars(iterationText.data(), iterationText.data() + iterationText.size(), iterations).ec !=
+            std::errc() ||
+        iterations < 1)
+    {
+        return false;
+    }
+
+    std::vector<unsigned char> salt;
+    std::vector<unsigned char> expected;
+    if (!decodeBase64(stored.substr(third + 1, fourth - third - 1), salt) ||
+        !decodeBase64(stored.substr(fourth + 1), expected) || expected.size() != 64)
+    {
+        return false;
+    }
+
+    std::vector<unsigned char> derived(expected.size());
+    if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()), salt.data(),
+                          static_cast<int>(salt.size()), iterations, EVP_sha512(),
+                          static_cast<int>(derived.size()), derived.data()) != 1)
+    {
+        return false;
+    }
+    return CRYPTO_memcmp(derived.data(), expected.data(), derived.size()) == 0;
+}
+
+/// Mosquitto 1.6: $6$salt$hash, checked by the platform's crypt().
+bool verifySha512Crypt(const std::string& password, const std::string_view stored)
+{
+#if defined(XMQ_HAVE_CRYPT)
+    static std::mutex cryptMutex;
+    const std::lock_guard lock(cryptMutex);
+    const char* computed = crypt(password.c_str(), std::string(stored).c_str());
+    if (computed == nullptr)
+    {
+        return false;
+    }
+    const std::string_view answer(computed);
+    return answer.size() == stored.size() &&
+           CRYPTO_memcmp(answer.data(), stored.data(), answer.size()) == 0;
+#else
+    (void)password;
+    (void)stored;
+    return false;
+#endif
+}
+
+struct Argon2Params
+{
+    uint32_t                  m_memory {0};
+    uint32_t                  m_iterations {0};
+    uint32_t                  m_lanes {0};
+    std::vector<unsigned char> m_salt;
+    std::vector<unsigned char> m_hash;
+};
+
+bool parseArgon2(const std::string_view stored, Argon2Params& params)
+{
+    if (!stored.starts_with("$argon2id$"))
+    {
+        return false;
+    }
+    std::vector<std::string_view> parts;
+    size_t start = 1;
+    while (start <= stored.size())
+    {
+        const auto end = stored.find('$', start);
+        parts.push_back(stored.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
+        if (end == std::string_view::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+    if (parts.size() != 5 || parts[1].substr(0, 2) != "v=")
+    {
+        return false;
+    }
+    const std::string version(parts[1]);
+    const std::string cost(parts[2]);
+    unsigned number = 0;
+    unsigned memory = 0;
+    unsigned iterations = 0;
+    unsigned lanes = 0;
+    if (sscanf(version.c_str(), "v=%u", &number) != 1 || number != 0x13 ||
+        sscanf(cost.c_str(), "m=%u,t=%u,p=%u", &memory, &iterations, &lanes) != 3 ||
+        memory == 0 || iterations == 0 || lanes == 0)
+    {
+        return false;
+    }
+    params.m_memory = memory;
+    params.m_iterations = iterations;
+    params.m_lanes = lanes;
+    return decodeBase64(parts[3], params.m_salt) && decodeBase64(parts[4], params.m_hash);
+}
+
+/// Mosquitto 2.1: Argon2id, checked by OpenSSL 3.2 and newer.
+bool verifyArgon2id(const std::string& password, const std::string_view stored)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L
+    Argon2Params params;
+    if (!parseArgon2(stored, params))
+    {
+        return false;
+    }
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
+    if (kdf == nullptr)
+    {
+        return false;
+    }
+    EVP_KDF_CTX* context = EVP_KDF_CTX_new(kdf);
+    EVP_KDF_free(kdf);
+    if (context == nullptr)
+    {
+        return false;
+    }
+    uint32_t version = 0x13;
+    uint32_t memory = params.m_memory;
+    uint32_t iterations = params.m_iterations;
+    uint32_t lanes = params.m_lanes;
+    uint32_t threads = params.m_lanes;
+    OSSL_PARAM parameters[] = {
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+                                           const_cast<char*>(password.data()), password.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+                                           params.m_salt.data(), params.m_salt.size()),
+        OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ARGON2_VERSION, &version),
+        OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memory),
+        OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ITER, &iterations),
+        OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_ARGON2_LANES, &lanes),
+        OSSL_PARAM_construct_uint(OSSL_KDF_PARAM_THREADS, &threads),
+        OSSL_PARAM_END
+    };
+    std::vector<unsigned char> derived(params.m_hash.size());
+    const int ok = EVP_KDF_derive(context, derived.data(), derived.size(), parameters);
+    EVP_KDF_CTX_free(context);
+    return ok == 1 && CRYPTO_memcmp(derived.data(), params.m_hash.data(), derived.size()) == 0;
+#else
+    (void)password;
+    (void)stored;
+    return false;
+#endif
+}
+
 /// Does this password produce this verifier? The other half of the broker's PasswordHash::hash().
 bool verify(const std::string& password, const std::string& stored)
 {
+    if (stored.starts_with("$7$"))
+    {
+        return verifyMosquitto7(password, stored);
+    }
+    if (stored.starts_with("$6$"))
+    {
+        return verifySha512Crypt(password, stored);
+    }
+    if (stored.starts_with("$argon2id$"))
+    {
+        return verifyArgon2id(password, stored);
+    }
+
     const std::string_view view(stored);
 
     const auto first = view.find('$');

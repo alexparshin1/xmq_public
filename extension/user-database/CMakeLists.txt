@@ -11,6 +11,12 @@
 # linking libsqlite3 or libpq itself.
 XMQ_ADD_EXTENSION(xmq_user_database SOURCES ${CMAKE_CURRENT_LIST_DIR}/UserDatabase.cpp SPTK OPENSSL)
 
+# $6$ verifiers are checked with the platform's crypt(), the same one the broker uses. There is no
+# such library on Windows, and the extension reports that format as unusable there.
+IF (XMQ_CRYPT_LIBRARY)
+    TARGET_LINK_LIBRARIES(xmq_user_database ${XMQ_CRYPT_LIBRARY})
+ENDIF ()
+
 # The SPTK it links lives in the prefix's lib directory, one level above the extensions. Inside a
 # running broker the libraries are already loaded by soname and this changes nothing; it is what
 # makes the library resolve on its own, for ldd and for anything else that loads it.

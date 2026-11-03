@@ -92,6 +92,22 @@ protected:
         store.addUser({.m_username = "grace",
                        .m_password = PasswordHash::hash("Foxglove5#", testIterations),
                        .m_enabled = true});
+
+        // Verifiers taken from Mosquitto: the extension has a copy of the broker's verification,
+        // and these are the three formats an import can leave in the table.
+        store.addUser({.m_username = "mosq7",
+                       .m_password = String(
+                           "$7$1000$MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg=="
+                           "$jPz8DG9Ff+nKXMoEijDl/HUm4U0ku3RSwUTlkMilmjV4DBwpNS88cCCANFiwdS2fcYq3lflTxIvs+lDa29EjYQ=="),
+                       .m_enabled = true});
+        store.addUser({.m_username = "mosq6",
+                       .m_password = String(
+                           "$6$vZY4TS+/HBxHw38S$TYKyMvhux8d8TNm4jAKZATol4ds4X.EncOmEn9GEUyQQfD3moloZaGv2y.qzduFokgiGPeQlYGYx0nfKAYxG/1"),
+                       .m_enabled = true});
+        store.addUser({.m_username = "mosqargon",
+                       .m_password = String(
+                           "$argon2id$v=19$m=65536,t=3,p=1$MDEyMzQ1Njc4OWFiY2RlZg$8asl1zyhIOu4aLnTzlTmzsvDFakpsG37NdBMdZWsylIZP7cE+jFWfcqTxjlIPFNZpRCVfIq9A/44FsZaOiK2Bw"),
+                       .m_enabled = true});
     }
 
     void TearDown() override
@@ -344,4 +360,27 @@ TEST_F(XMQ_UserDatabaseTests, aStoreThatAlreadyHasAccountsIsNotAddedTo)
 
     host.stop();
     filesystem::remove(other, errorCode);
+}
+
+TEST_F(XMQ_UserDatabaseTests, admitsTheVerifiersAnImportBrings)
+{
+    ExtensionHost host(m_logEngine, "test");
+    host.userDatabaseUri(m_uri.c_str());
+    host.start({extension()});
+
+    EXPECT_EQ(ExtensionHost::AuthDecision::Allow, ask(host, "mosq7", "Secret#123"));
+    EXPECT_EQ(ExtensionHost::AuthDecision::Deny, ask(host, "mosq7", "wrong"));
+
+    if (PasswordHash::supportsSha512Crypt())
+    {
+        EXPECT_EQ(ExtensionHost::AuthDecision::Allow, ask(host, "mosq6", "Secret#123"));
+        EXPECT_EQ(ExtensionHost::AuthDecision::Deny, ask(host, "mosq6", "wrong"));
+    }
+    if (PasswordHash::supportsArgon2id())
+    {
+        EXPECT_EQ(ExtensionHost::AuthDecision::Allow, ask(host, "mosqargon", "Secret#123"));
+        EXPECT_EQ(ExtensionHost::AuthDecision::Deny, ask(host, "mosqargon", "wrong"));
+    }
+
+    host.stop();
 }
