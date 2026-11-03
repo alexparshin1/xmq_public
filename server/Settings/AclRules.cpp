@@ -93,7 +93,8 @@ bool AclRules::empty() const
 }
 
 AclRules::Decision AclRules::authorize(const string_view username, const string_view clientId,
-                                       const string_view topic, const bool publish)
+                                       const string_view topic, const bool publish,
+                                       string* explanation)
 {
     const unique_lock lock(m_mutex);
     if (m_rules.empty())
@@ -127,7 +128,8 @@ AclRules::Decision AclRules::authorize(const string_view username, const string_
         cached = m_groupsByUser.emplace(name, std::move(groups)).first;
     }
 
-    return evaluate(m_rules, cached->second, username, clientId, topic, publish, m_defaultDeny);
+    return evaluate(m_rules, cached->second, username, clientId, topic, publish, m_defaultDeny,
+                    explanation);
 }
 
 AclRules::Decision AclRules::authorizeGroups(const vector<string>& groups, const string_view username,
@@ -179,7 +181,21 @@ AclRules::Decision AclRules::evaluate(const vector<UserStore::AclRule>& rules, c
         // A client the rules know about but for which nothing matched is denied: that is Mosquitto's
         // default, and it is what keeps a group with rules an allow-list. A client with no rules at
         // all is left to the extensions, precisely as before.
-        return (managed || defaultDeny) ? Decision::Deny : Decision::NotHandled;
+        if (!managed && !defaultDeny)
+        {
+            return Decision::NotHandled;
+        }
+        if (explanation != nullptr)
+        {
+            // The one case where "no rule" is itself the answer, and the one an operator is most
+            // likely to meet: the subject has rules, so it is an allow-list, and this topic is not
+            // on it. Without this sentence the log says only "refused".
+            *explanation = managed ? string("denied: no rule matches this topic, and a subject with "
+                                            "rules is an allow-list")
+                                   : string("denied: no rule matches this topic, and deny by default "
+                                            "is on");
+        }
+        return Decision::Deny;
     }
 
     if (explanation)

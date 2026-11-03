@@ -2103,7 +2103,8 @@ void Server::accountsChanged()
     m_extensions.accountsChanged();
 }
 
-ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic)
+ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic,
+                                string* explanation)
 {
     using enum ReasonCode;
 
@@ -2115,7 +2116,7 @@ ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic
             server.reloadAclRules();
         }
         const auto native = server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
-                                     topic->fullName(), true);
+                                     topic->fullName(), true, explanation);
         if (native == AclRules::Decision::Deny)
         {
             return refusalFor(client);
@@ -2130,6 +2131,10 @@ ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic
 
     if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_PUBLISH, topic->fullName()) != Success)
     {
+        if (explanation != nullptr)
+        {
+            *explanation = "denied by an authorizing extension";
+        }
         return refusalFor(client);
     }
 
@@ -2145,6 +2150,10 @@ systemChecks:
         {
             return Success;
         }
+    }
+    if (explanation != nullptr)
+    {
+        *explanation = "denied: system and cluster topics are reserved";
     }
     return refusalFor(client);
 }

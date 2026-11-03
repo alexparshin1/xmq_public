@@ -50,8 +50,11 @@ public:
     void invalidateGroups();
 
     /// Decide for a username and client id, resolving user:<name>, account groups and patterns.
+    /// @param explanation  When given, receives the rule that decided, in words a log or a screen
+    ///                     can show: "denied by s/# in Default", "allowed by ...".
     [[nodiscard]] Decision authorize(std::string_view username, std::string_view clientId,
-                                     std::string_view topic, bool publish);
+                                     std::string_view topic, bool publish,
+                                     std::string* explanation = nullptr);
 
     /// The same decision when the caller already knows the groups, for tests and cached callers.
     [[nodiscard]] Decision authorizeGroups(const std::vector<std::string>& groups, std::string_view username,

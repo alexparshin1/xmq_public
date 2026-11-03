@@ -16,6 +16,7 @@
 #include "Server.h"
 #include "base/LatencyTrace.h"
 #include "base/ProtocolException.h"
+#include "base/ReasonCode.h"
 #include "common/SubscribeAckMessage.h"
 #include "common/mqtt/FixedHeader.h"
 #include "common/mqtt/FrameTypeTests.h"
@@ -1336,10 +1337,28 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                     Latency::SNAP_LATENCY(messageProperties, LatencyPhase::ServerHandler);
                 }
 
-                const auto rc = Server::grantPublish(shared(), publishMessage->destination());
+                string refusal;
+                const auto rc = Server::grantPublish(shared(), publishMessage->destination(), &refusal);
                 if (rc == ReasonCode::Success)
                 {
                     handlePublishMessage(sharedMessage);
+                }
+                else
+                {
+                    // Said out loud, because on MQTT 3.1 and 3.1.1 the PUBACK carries no reason
+                    // code: the client is told nothing, and a publisher that logs its own sends
+                    // records a success that never happened. The topic is named because the same
+                    // refusal is what keeps a message out of every tap that would have covered it.
+                    const string topic(publishMessage->destination()->fullName());
+                    const string publisher =
+                        getUsername().empty() ? string(getClientId()) : string(getUsername());
+                    server().logMessage(LogSubject::Publish, LogPriority::Info,
+                                        [publisher, topic, refusal, rc]
+                                        {
+                                            return publisher + ": publish to '" + topic +
+                                                   "' refused (" + xmq::toString(rc) + ")" +
+                                                   (refusal.empty() ? string{} : ": " + refusal);
+                                        });
                 }
                 ackPublishMessage(msg, rc);
             }

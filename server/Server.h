@@ -267,7 +267,9 @@ public:
      * @param topic             Destination topic.
      * @return Reason code or Success.
      */
-    static ReasonCode grantPublish(const SClientSession& client, const Topic* topic);
+    /// @param explanation  When given, receives why a refusal happened, in words a log can show.
+    static ReasonCode grantPublish(const SClientSession& client, const Topic* topic,
+                                   std::string* explanation = nullptr);
 
     /**
      * @brief Subscribe client session to destination.
