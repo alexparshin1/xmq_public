@@ -437,6 +437,14 @@ int64_t ExtensionHost::hostTapMessages(void* context, const char* filter, const 
     }
     loaded->m_host->m_tapping.store(true, std::memory_order_relaxed);
     loaded->m_host->startTap(*loaded);
+
+    // Said once, at registration: a tap that never delivers is otherwise invisible - it has no
+    // thread of its own to be missing from, and nothing is logged when a filter simply matches
+    // nothing.
+    loaded->m_host->m_logger.info(format("{}: tapping messages matching '{}'{}", loaded->m_name,
+                                         text,
+                                         maxPayload == 0 ? std::string{}
+                                                         : format(" up to {} bytes", maxPayload)));
     return 0;
 }
 
@@ -1192,6 +1200,11 @@ void ExtensionHost::publishActiveUnlocked()
     m_authorizing.store(authorizing, std::memory_order_relaxed);
     m_tapping.store(tapping, std::memory_order_relaxed);
 
+    // Named, not just implied: "the extension is loaded" and "the broker copies bodies for it"
+    // are different facts, and only this one decides whether the publish path pays for a tap.
+    m_logger.info(format("capabilities: observer={}, authenticator={}, authorizer={}, message tap={}",
+                         watching, authenticating, authorizing, tapping));
+
     // Kept rather than swapped out: a reader may still be walking the previous one, and it holds a
     // bare pointer to it.
     m_snapshots.push_back(std::move(active));
@@ -1818,7 +1831,14 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
                 return AuthDecision::Allow;
             case XMQ_AUTH_DENY:
                 loaded->m_refused.fetch_add(1, std::memory_order_relaxed);
-                m_logger.info(format("{} refused {}", loaded->m_name, request.m_clientId));
+                // The client id alone does not say who was refused: it is the client's own
+                // invented label, and two clients can choose the same one. The username is what
+                // the operator is looking for, and the client sent it.
+                m_logger.info(request.m_username.empty()
+                                  ? format("{} refused {} (no username)", loaded->m_name,
+                                           request.m_clientId)
+                                  : format("{} refused user '{}' (client {})", loaded->m_name,
+                                           request.m_username, request.m_clientId));
                 return AuthDecision::Deny;
             case XMQ_AUTH_NOT_HANDLED:
                 break;

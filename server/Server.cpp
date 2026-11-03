@@ -1812,9 +1812,11 @@ ReasonCode Server::authenticate(const string&                     clientId,
 
         case ExtensionHost::AuthDecision::Deny:
             logMessage(LogSubject::ServerConnections, LogPriority::Error,
-                       [&clientId]
+                       [&clientId, &username]
                        {
-                           return clientId + ": refused by an extension.";
+                           return (username.empty() ? clientId
+                                                    : username + " (" + clientId + ")") +
+                                  ": refused by an extension.";
                        });
             m_extensions.publishError(LogSubject::Connect, "refused", "Refused by an extension",
                                       clientId, username,
