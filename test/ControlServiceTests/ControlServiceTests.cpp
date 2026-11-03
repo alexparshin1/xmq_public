@@ -1207,8 +1207,10 @@ TEST_F(XMQ_ControlServiceTests, permissionsControlListsAddsTestsAndRemoves)
         verifyResult(output.m_result);
     };
 
-    add("publish", false, "sensors/#");
+    // The deny comes first: order is the policy now, so an allow covering the secret ahead of it
+    // would win.
     add("publish", true, "sensors/secret/#");
+    add("publish", false, "sensors/#");
 
     // The list is canonical and reading it back does not duplicate anything.
     input.m_action = "list";
@@ -1646,6 +1648,68 @@ TEST_F(XMQ_ControlServiceTests, mosquittoImportAppliesAccountsAndRulesInOneTrans
             stored->removeAclRule(rule.m_id);
         }
     }
+}
+
+
+TEST_F(XMQ_ControlServiceTests, permissionsReplacePolicyKeepsTheOrderItIsGiven)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    const String subject = "user:policy-order-" + to_string(::getpid());
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+
+    const auto replace = [&](const vector<pair<bool, String>>& entries)
+    {
+        input.m_action = "replace-policy";
+        input.m_subject = subject;
+        input.m_policy_rules.clear();
+        for (const auto& [deny, filter]: entries)
+        {
+            CAclRule rule;
+            rule.m_group = subject;
+            rule.m_action = "subscribe";
+            rule.m_deny = deny;
+            rule.m_filter = filter;
+            input.m_policy_rules.push_back(rule);
+        }
+        m_controlService->PermissionsControl(input, output, &authentication);
+        return output.m_result.m_success.asBool();
+    };
+
+    const auto test = [&](const String& topic)
+    {
+        input.m_action = "test";
+        input.m_username = "policy-order-" + to_string(::getpid());
+        input.m_topic = topic;
+        input.m_acl_action = "subscribe";
+        m_controlService->PermissionsControl(input, output, &authentication);
+        verifyResult(output.m_result);
+        return String(output.m_decision.asString());
+    };
+
+    ASSERT_TRUE(replace({{false, "sensors/#"}, {true, "sensors/secret/#"}}));
+    // The allow is first, so it covers the secret too: that is what first-match means.
+    EXPECT_EQ("allow", test("sensors/secret/key"));
+
+    ASSERT_TRUE(replace({{true, "sensors/secret/#"}, {false, "sensors/#"}}));
+    EXPECT_EQ("deny", test("sensors/secret/key"));
+    EXPECT_EQ("allow", test("sensors/temp"));
+
+    // The list is the policy: emptying it removes the subject's rules.
+    ASSERT_TRUE(replace({}));
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_FALSE(ranges::any_of(output.m_rules, [&](const auto& rule)
+                               { return rule.m_group.asString() == subject; }));
+
+    // A repeated rule in one policy is refused rather than stored twice.
+    EXPECT_FALSE(replace({{false, "sensors/#"}, {false, "sensors/#"}}));
 }
 
 } // namespace xmq

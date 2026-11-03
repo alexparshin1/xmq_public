@@ -808,6 +808,7 @@
                                     <xsd:enumeration value="import-plan"/>
                                     <xsd:enumeration value="import-apply"/>
                                     <xsd:enumeration value="set-policy"/>
+                                    <xsd:enumeration value="replace-policy"/>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -839,6 +840,9 @@
                             </xsd:annotation>
                         </xsd:element>
                         <xsd:element name="default_deny" type="xsd:boolean" minOccurs="0"/>
+                        <xsd:element name="subject" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="subject_pattern" type="xsd:boolean" minOccurs="0"/>
+                        <xsd:element name="policy_rules" type="tns:AclRule" maxOccurs="unbounded" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

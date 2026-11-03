@@ -970,6 +970,89 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             }
             output.m_default_deny = store.defaultDeny();
         }
+        else if (action == "replace-policy")
+        {
+            const auto subject = input.m_subject.asString();
+            const bool pattern = !input.m_subject_pattern.isNull() && input.m_subject_pattern.asBool();
+            if (subject.empty())
+            {
+                throw Exception("A policy needs a subject.");
+            }
+            if (pattern && subject != "*")
+            {
+                throw Exception("A pattern policy applies to all clients and is stored under '*'.");
+            }
+
+            vector<UserStore::AclRule> entries;
+            set<std::string>           keys;
+            for (const auto& incoming: input.m_policy_rules)
+            {
+                const auto entryAction = incoming.m_action.asString();
+                const auto filter = incoming.m_filter.asString();
+                if (entryAction != "publish" && entryAction != "subscribe")
+                {
+                    throw Exception("A rule action is 'publish' or 'subscribe'.");
+                }
+                if (!validTopicFilter(filter))
+                {
+                    throw Exception("'" + String(filter) + "' is not a valid MQTT topic filter.");
+                }
+                const bool deny = incoming.m_deny.asBool();
+                const auto key = std::string(entryAction.c_str()) + "|" + (deny ? "1" : "0") + "|" +
+                                 std::string(filter.c_str());
+                if (!keys.insert(key).second)
+                {
+                    throw Exception("The policy repeats a rule: " + String(filter));
+                }
+                entries.push_back({.m_groupName = subject,
+                                   .m_action = entryAction,
+                                   .m_deny = deny,
+                                   .m_filter = filter,
+                                   .m_source = "manual",
+                                   .m_order = 0,
+                                   .m_pattern = pattern,
+                                   .m_updatedBy = caller.m_username.asString()});
+            }
+
+            // The subject's rules are replaced as one block where the first of them used to be.
+            // Every order is renumbered densely afterwards, which keeps one global sequence and
+            // leaves the other subjects in the order they had relative to each other.
+            auto all = store.aclRules();
+            ranges::sort(all, [](const auto& first, const auto& second)
+                         { return first.m_order < second.m_order; });
+
+            const auto isSubject = [&](const UserStore::AclRule& rule)
+            {
+                return rule.m_groupName == subject.c_str() && rule.m_pattern == pattern;
+            };
+
+            vector<UserStore::AclRule> result;
+            size_t                     insertAt = all.size();
+            for (const auto& rule: all)
+            {
+                if (isSubject(rule))
+                {
+                    if (insertAt == all.size())
+                    {
+                        insertAt = result.size();
+                    }
+                    continue;
+                }
+                result.push_back(rule);
+            }
+
+            result.insert(result.begin() + static_cast<std::ptrdiff_t>(insertAt), entries.begin(), entries.end());
+            for (size_t index = 0; index < result.size(); ++index)
+            {
+                result[index].m_order = 2000000 + static_cast<int>(index);
+            }
+            store.replaceAclRules(result);
+
+            for (const auto& rule: store.aclRules())
+            {
+                output.m_rules.push_back(describeRule(rule));
+            }
+        }
         else if (action == "set-policy")
         {
             if (input.m_default_deny.isNull())
@@ -1003,15 +1086,20 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             {
                 throw Exception("A pattern rule applies to all clients and is stored under '*'.");
             }
-            // A manual rule is checked before anything imported, and a manual deny before a manual
-            // allow; that is how it kept its deny-wins behaviour once order became the criterion.
+            // Order is the policy now: a rule added on its own goes after what is already there,
+            // rather than into a deny/allow band that would silently reorder the subject's policy.
+            int order = 0;
+            for (const auto& existingRule: store.aclRules())
+            {
+                order = std::max(order, existingRule.m_order + 1);
+            }
             store.addAclRule({.m_groupName = group,
                               .m_action = ruleAction,
                               .m_deny = deny,
                               .m_filter = filter,
                               .m_source = incoming.m_source.isNull() ? String("manual") : incoming.m_source.asString(),
                               .m_sourceRef = incoming.m_source_ref.asString(),
-                              .m_order = deny ? 0 : 1000000,
+                              .m_order = order,
                               .m_pattern = pattern,
                               .m_updatedBy = caller.m_username.asString()});
             for (const auto& rule: store.aclRules())
@@ -1145,7 +1233,8 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
 
         // A rule change is read by the broker on the publish path, so it has to be reloaded; a
         // "test" only asks a question and a "list" changes nothing.
-        if (action == "add" || action == "remove" || action == "import-apply" || action == "set-policy")
+        if (action == "add" || action == "remove" || action == "import-apply" ||
+            action == "set-policy" || action == "replace-policy")
         {
             if (const auto runningServer = server())
             {
