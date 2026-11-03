@@ -792,6 +792,7 @@
                         <!-- True for a rule imported from a Mosquitto pattern: the filter is a
                              template for every client and keeps its %u and %c tokens. -->
                         <xsd:element name="pattern" type="xsd:boolean" minOccurs="0"/>
+                        <xsd:element name="order" type="xsd:int" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

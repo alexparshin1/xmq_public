@@ -936,6 +936,7 @@ CAclRule describeRule(const UserStore::AclRule& rule)
     described.m_source = rule.m_source;
     described.m_source_ref = rule.m_sourceRef;
     described.m_pattern = rule.m_pattern;
+    described.m_order = rule.m_order;
     return described;
 }
 

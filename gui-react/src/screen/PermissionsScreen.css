@@ -35,3 +35,147 @@
     margin: 18px 10px 6px 10px;
     color: #1f3a66;
 }
+
+/* The policy list: one row per subject, with its rules in evaluation order. */
+.permissionsPolicyTable {
+    width: calc(100% - 20px);
+    margin: 0 10px 8px 10px;
+    border-collapse: collapse;
+    background-color: white;
+}
+
+.permissionsPolicyTable th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 2px solid #c8d4e8;
+    color: #1f3a66;
+}
+
+.permissionsPolicyTable td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e0e6ef;
+    vertical-align: top;
+}
+
+.permissionsPolicySubjectName {
+    font-family: monospace;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.permissionsPolicyRules {
+    margin: 0;
+    padding-left: 22px;
+}
+
+.permissionsPolicyRules li {
+    padding: 1px 0;
+}
+
+.permissionsAllow {
+    color: #1b5e20;
+    font-weight: bold;
+}
+
+.permissionsDeny {
+    color: #b71c1c;
+    font-weight: bold;
+}
+
+.permissionsAction {
+    color: #4a5568;
+}
+
+.permissionsPolicyRowButtons {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.permissionsPolicyRowButtons button {
+    width: 90px;
+}
+
+/* The policy editor: an ordered list of rules with the same Add/Remove shape as the subject list. */
+.permissionsPolicyDialog {
+    width: 820px;
+    max-height: 86vh;
+    border-radius: 10px;
+    background-color: white;
+    box-shadow: rgba(0, 0, 0, 0.35) 0 5px 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.permissionsPolicyDialog .title {
+    background-color: cornflowerblue;
+    padding-left: 10px;
+    padding-top: 4px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    height: 24px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.permissionsPolicyBody {
+    padding: 0 10px;
+    overflow-y: auto;
+}
+
+.permissionsPolicySubject {
+    padding: 4px 0 10px 0;
+}
+
+.permissionsPolicySubjectName {
+    font-family: monospace;
+}
+
+.permissionsPolicyEditorTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 8px;
+}
+
+.permissionsPolicyEditorTable th {
+    text-align: left;
+    padding: 4px;
+    border-bottom: 1px solid #c8d4e8;
+    color: #4a5568;
+}
+
+.permissionsPolicyEditorTable td {
+    padding: 3px 4px;
+    border-bottom: 1px solid #eef1f6;
+}
+
+.permissionsPolicyEditorTable input {
+    width: 320px;
+}
+
+.permissionsPolicyEntryButtons {
+    white-space: nowrap;
+}
+
+.permissionsPolicyEntryButtons button {
+    margin-left: 3px;
+    padding: 2px 6px;
+    border: 1px solid cornflowerblue;
+    border-radius: 4px;
+    background-color: white;
+    color: cornflowerblue;
+    cursor: pointer;
+}
+
+.permissionsPolicyEntryButtons button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.permissionsPolicyDialog .modalFooter {
+    display: flex;
+    justify-content: flex-start;
+    padding: 8px;
+    margin-top: auto;
+}

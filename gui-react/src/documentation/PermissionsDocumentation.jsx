@@ -14,9 +14,11 @@ export default function PermissionsDocumentation() {
             </p>
 
             <p>
-                A rule has four parts: the group it applies to, the direction (<code>publish</code>
-                or <code>subscribe</code>), whether it allows or denies, and a topic filter. The
-                group is one of:
+                Each subject has one <b>policy</b>: an ordered list of rules. A rule says whether it
+                allows or denies, which direction it applies to (<code>publish</code> or
+                <code>subscribe</code>), and a topic filter. The list is checked from the top and the
+                first matching rule decides, so an allow above a deny lets the deny's topic through;
+                the order is part of the policy and can be edited. The subject is one of:
             </p>
 
             <table className="userManualTable">
@@ -46,19 +48,20 @@ export default function PermissionsDocumentation() {
             </table>
 
             <p>
-                Rules are checked in order and the first matching rule decides, as in Mosquitto. A
-                client is resolved to <code>user:&lt;name&gt;</code>, then to the groups of its
+                A client is resolved to <code>user:&lt;name&gt;</code>, then to the groups of its
                 account, and a pattern rule from an import applies to every client; the
-                <code>anonymous</code> subject applies only when there is no username. When a client
-                has rules but none of them covers the topic, the answer is deny - Mosquitto's
-                default for a client the rules know about.
+                <code>anonymous</code> subject applies only when there is no username. Rules from
+                all of those subjects share one global order, which is why the list a subject shows
+                is its part of that order rather than a private sequence. When a client has rules
+                but none of them covers the topic, the answer is deny if the setting below says so -
+                Mosquitto's default for a client the rules know about.
             </p>
 
             <p>
-                A rule added here is checked before imported ones, and a manual deny before a manual
-                allow, so a manual deny still wins over a manual allow. An import keeps the order
-                Mosquitto would check its rules in: the client's roles first, then its groups by
-                priority, then the roles in each group, with each role's ACLs by their priority.
+                An import keeps the order Mosquitto would check its rules in: the client's roles
+                first, then its groups by priority, then the roles in each group, with each role's
+                ACLs by their priority. Editing a subject's policy replaces its rules in one step,
+                keeping the other subjects' relative order and renumbering the shared sequence.
             </p>
 
             <p>

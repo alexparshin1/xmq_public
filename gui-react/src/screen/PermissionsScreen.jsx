@@ -1,10 +1,9 @@
 import React from "react";
-import {errorWindow, informationWindow} from "../components/MessageWindow";
-import DataTable from "../components/DataTable";
-import {subjectLabel} from "../components/DialogWindow";
+import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
 import ControlAPI from "../ControlAPI";
 import FileLoad from "../components/FileLoad";
 import PageTitle from "../components/PageTitle";
+import {subjectLabel} from "../components/DialogWindow";
 import "./InputScreen.css";
 import "./PermissionsScreen.css";
 
@@ -41,12 +40,12 @@ export function validTopicFilter(filter) {
 }
 
 /**
- * Permissions screen: topic rules, a way to try them, and an import.
+ * Permissions screen: a policy per subject, a way to try it, and an import.
  *
- * A rule names a group - `user:<name>`, an account group, or `anonymous` - a direction (publish or
- * subscribe), and a topic filter. Rules are checked in order and the first match decides; a client
- * with rules but no match is denied, as in Mosquitto. "read" from Mosquitto is subscribe here,
- * because there is no separate permission for receiving what one is subscribed to.
+ * A policy is the ordered list of rules that applies to one user, one group or anonymous clients.
+ * The list is checked from the top and the first matching rule decides, as in Mosquitto: an allow
+ * above a deny lets the deny's topic through. "read" from Mosquitto is subscribe here, because there
+ * is no separate permission for receiving what one is subscribed to.
  *
  * The import is a plan first and a write second. Nothing is stored while a conflict - an allow and
  * a deny that overlap - is unresolved, and a second import of the same file changes nothing.
@@ -54,52 +53,11 @@ export function validTopicFilter(filter) {
 export default class PermissionsScreen extends React.Component {
 
     state = {
-        headers: [
-            {
-                // The server removes by id, so it has to survive the editor.
-                headerName: "Id", field: "id", hide: true,
-                context: {hide: true, inputType: "hidden"}
-            },
-            {
-                // The existing groups and accounts are offered, and `user:<name>`, `anonymous` or a
-                // group created elsewhere can still be typed. One row is one subject; adding
-                // several in the editor writes one rule for each.
-                headerName: "Applies to", field: "group", width: 220, cellClass: "ViewCellLeftAligned",
-                // A group has no marker of its own in the stored name; the column adds one so the
-                // row reads the same way the editor does.
-                valueFormatter: params => params.data && params.data.pattern
-                    ? "all clients" : subjectLabel(params.value),
-                context: {inputType: "subjects", options: {groups: [], users: []}}
-            },
-            {
-                // A pattern rule is stored under '*' and keeps its %u/%c tokens; an edit has to
-                // carry the flag through, or the rule would become a rule for a group named '*'.
-                headerName: "Pattern", field: "pattern", hide: true,
-                context: {hide: true, inputType: "hidden"}
-            },
-            {
-                headerName: "Action", field: "action", width: 120, cellClass: "ViewCellLeftAligned",
-                context: {inputType: "select", options: ["publish", "subscribe"]}
-            },
-            {
-                // "deny" as the editor shows it; the server takes a boolean, converted on the way out.
-                headerName: "Rule", field: "access", width: 100, cellClass: "ViewCellLeftAligned",
-                context: {inputType: "select", options: ["allow", "deny"]}
-            },
-            {headerName: "Topic filter", field: "filter", width: 280, cellClass: "ViewCellLeftAligned"},
-            {
-                // Carried through an edit so a rule that came from an import keeps saying so.
-                headerName: "Source", field: "source", hide: true,
-                context: {hide: true, inputType: "hidden"}
-            },
-            {
-                headerName: "Source reference", field: "source_ref", hide: true,
-                context: {hide: true, inputType: "hidden"}
-            }
-        ],
         rows: [],
+        subjectOptions: {groups: [], users: []},
         defaultDeny: false,
         policyBusy: false,
+        policyEditor: null,
 
         testUsername: "",
         testClientId: "",
@@ -124,9 +82,9 @@ export default class PermissionsScreen extends React.Component {
     }
 
     /**
-     * Fills the editor's lists with the groups and accounts the server knows.
+     * Fills the subject pickers with the groups and accounts the server knows.
      *
-     * A refusal is not reported here: both boxes are combo boxes and still accept a typed value, so
+     * A refusal is not reported here: the boxes are combo boxes and still accept a typed value, so
      * a page whose lists did not arrive is less useful but not broken. Reporting it as well would
      * put an error in front of a page that has already loaded.
      */
@@ -137,30 +95,12 @@ export default class PermissionsScreen extends React.Component {
         ]).then(([groups, users]) => {
             const groupNames = groups && !ControlAPI.apiError(groups) && groups.list
                 ? groups.list.map(group => group.name).filter(name => name) : [];
-            // Not a group, but one of the rule targets: offered so it need not be remembered.
             if (!groupNames.includes("anonymous")) {
                 groupNames.push("anonymous");
             }
             const userNames = users && !ControlAPI.apiError(users) && users.list
                 ? users.list.map(user => user.username).filter(name => name) : [];
-            if (!groupNames.length && !userNames.length) {
-                return;
-            }
-            this.setState(state => {
-                const current = state.headers.find(header => header.field === "group");
-                const known = current && current.context ? current.context.options : {};
-                const same = (first, second) => first.length === second.length &&
-                    first.every((name, at) => name === second[at]);
-                if (same(known.groups || [], groupNames) && same(known.users || [], userNames)) {
-                    return null;
-                }
-                return {
-                    headers: state.headers.map(header => header.field === "group"
-                        ? {...header, context: {...header.context,
-                            options: {groups: groupNames, users: userNames}}}
-                        : header)
-                };
-            });
+            this.setState({subjectOptions: {groups: groupNames, users: userNames}});
         });
     }
 
@@ -182,44 +122,19 @@ export default class PermissionsScreen extends React.Component {
                 if (!PermissionsScreen.succeeded(data)) {
                     return false;
                 }
-                // The editor's selects work in strings, while the server sends and expects a
-                // boolean, so the flag is converted on the way in and back on the way out.
                 this.setState({
                     rows: (data.rules ? data.rules : []).map(rule => ({
                         ...rule,
                         group: rule.group || "",
                         filter: rule.filter || "",
                         access: rule.deny ? "deny" : "allow",
-                        pattern: rule.pattern === true
+                        pattern: rule.pattern === true,
+                        order: rule.order === undefined ? 0 : rule.order
                     })),
                     defaultDeny: data.default_deny === true
                 });
                 return true;
             });
-    }
-
-    /**
-     * What stops a rule from being saved, or null when nothing does.
-     *
-     * Called by the dialog before it closes, so an invalid topic stays on screen to be corrected
-     * instead of being sent and refused after the dialog has gone. The same test runs again below,
-     * because a caller that bypasses the dialog should not be able to store what it would refuse.
-     */
-    validateRule = values => {
-        const subjects = Array.isArray(values.group)
-            ? values.group : [values.group].filter(subject => subject);
-        if (!subjects.length) {
-            return "A rule needs at least one user or group.";
-        }
-        const filter = String(values.filter || "").trim();
-        if (!filter) {
-            return "A rule needs a topic filter.";
-        }
-        if (!validTopicFilter(filter)) {
-            return "'" + filter + "' is not a valid topic filter: levels cannot be empty, "
-                + "+ and # must each be a whole level, and # must be the last.";
-        }
-        return null;
     }
 
     setDefaultDeny = deny => {
@@ -234,76 +149,200 @@ export default class PermissionsScreen extends React.Component {
             });
     }
 
-    onRowDataChange = (action, data) => {
-        if (action === "remove") {
-            ControlAPI.asyncMakeAPICall("PermissionsControl", {action: "remove", rule_id: data.id})
-                .then(result => {
-                    if (PermissionsScreen.succeeded(result)) {
-                        this.readRules();
-                    }
-                });
-            return;
+    /// One entry per subject, each holding that subject's rules in evaluation order.
+    policies() {
+        const bySubject = new Map();
+        for (const rule of this.state.rows) {
+            const key = (rule.pattern ? "pattern:" : "subject:") + rule.group;
+            let policy = bySubject.get(key);
+            if (!policy) {
+                policy = {key, subject: rule.group, pattern: rule.pattern, rules: []};
+                bySubject.set(key, policy);
+            }
+            policy.rules.push(rule);
         }
-
-        // The editor works on a list of subjects, while a stored rule names one. A row that was
-        // not edited still carries its subject as a string.
-        const subjects = [...new Set(Array.isArray(data.group) ? data.group : [data.group])]
-            .map(subject => String(subject || "").trim())
-            .filter(subject => subject);
-        const rule = {
-            action: data.action,
-            deny: data.access === "deny",
-            filter: String(data.filter || "").trim(),
-            source: data.source || "manual",
-            source_ref: data.source_ref || ""
-        };
-
-        const problem = this.validateRule({group: subjects, filter: rule.filter});
-        if (problem) {
-            errorWindow(problem);
-            return;
+        const policies = [...bySubject.values()];
+        for (const policy of policies) {
+            policy.rules.sort((first, second) => first.order - second.order);
         }
+        policies.sort((first, second) => {
+            const left = first.pattern ? "all clients" : subjectLabel(first.subject);
+            const right = second.pattern ? "all clients" : subjectLabel(second.subject);
+            return left.localeCompare(right);
+        });
+        return policies;
+    }
 
-        const original = action === "modify"
-            ? this.state.rows.find(row => row.id === data.id) : null;
-        this.saveRule(subjects, rule, original, data.id);
+    policyTitle(policy) {
+        if (policy.pattern) {
+            return "All clients";
+        }
+        return subjectLabel(policy.subject);
+    }
+
+    addPolicy = () => {
+        this.setState({
+            policyEditor: {
+                subject: "",
+                pattern: false,
+                original: null,
+                entries: [{deny: false, action: "subscribe", filter: ""}],
+                error: ""
+            }
+        });
+    }
+
+    editPolicy = policy => {
+        this.setState({
+            policyEditor: {
+                subject: policy.subject,
+                pattern: policy.pattern,
+                original: policy,
+                entries: policy.rules.map(rule => ({
+                    deny: rule.deny === true,
+                    action: rule.action,
+                    filter: rule.filter
+                })),
+                error: ""
+            }
+        });
+    }
+
+    closePolicyEditor = () => this.setState({policyEditor: null});
+
+    updatePolicyEntry = (index, patch) => {
+        this.setState(state => {
+            const editor = state.policyEditor;
+            if (!editor) {
+                return null;
+            }
+            const entries = editor.entries.map((entry, at) => at === index ? {...entry, ...patch} : entry);
+            return {policyEditor: {...editor, entries, error: ""}};
+        });
+    }
+
+    addPolicyEntry = () => {
+        this.setState(state => {
+            const editor = state.policyEditor;
+            if (!editor) {
+                return null;
+            }
+            return {policyEditor: {
+                ...editor,
+                entries: [...editor.entries, {deny: false, action: "subscribe", filter: ""}]
+            }};
+        });
+    }
+
+    removePolicyEntry = index => {
+        this.setState(state => {
+            const editor = state.policyEditor;
+            if (!editor) {
+                return null;
+            }
+            return {policyEditor: {
+                ...editor,
+                entries: editor.entries.filter((entry, at) => at !== index)
+            }};
+        });
+    }
+
+    movePolicyEntry = (index, delta) => {
+        this.setState(state => {
+            const editor = state.policyEditor;
+            if (!editor) {
+                return null;
+            }
+            const target = index + delta;
+            if (target < 0 || target >= editor.entries.length) {
+                return null;
+            }
+            const entries = [...editor.entries];
+            [entries[index], entries[target]] = [entries[target], entries[index]];
+            return {policyEditor: {...editor, entries}};
+        });
     }
 
     /**
-     * Stores one rule per subject, then drops the rule that was edited if it is not among them.
+     * Says what is wrong with the policy being edited, or null.
      *
-     * Adding first is what makes an edit safe: a refused new rule leaves the old one in place, and
-     * an unchanged one is updated in place, so its id is still the one to keep.
+     * The order is the policy, so a duplicate entry is refused: the second one could never decide
+     * anything, and keeping it would only make the list ambiguous.
      */
-    saveRule(subjects, rule, original, editedId) {
-        const savedBySubject = {};
-        const addNext = async index => {
-            if (index === subjects.length) {
-                if (!original || !editedId || savedBySubject[original.group] === editedId) {
-                    this.readRules();
+    policyProblem(editor) {
+        if (!editor.subject) {
+            return "Choose the user or group the policy applies to.";
+        }
+        if (editor.entries.length === 0) {
+            return "A policy needs at least one rule.";
+        }
+        const seen = new Set();
+        for (const entry of editor.entries) {
+            const filter = String(entry.filter || "").trim();
+            if (!validTopicFilter(filter)) {
+                return "'" + filter + "' is not a valid topic filter: levels cannot be empty, "
+                    + "+ and # must each be a whole level, and # must be the last.";
+            }
+            const key = entry.action + "|" + (entry.deny ? "1" : "0") + "|" + filter;
+            if (seen.has(key)) {
+                return "The policy repeats " + (entry.deny ? "deny " : "allow ") + entry.action
+                    + " " + filter + ".";
+            }
+            seen.add(key);
+        }
+        return null;
+    }
+
+    savePolicy = async () => {
+        const editor = this.state.policyEditor;
+        if (!editor) {
+            return;
+        }
+        const problem = this.policyProblem(editor);
+        if (problem) {
+            this.setState({policyEditor: {...editor, error: problem}});
+            return;
+        }
+
+        this.setState({policyBusy: true});
+        const data = await ControlAPI.asyncMakeAPICall("PermissionsControl", {
+            action: "replace-policy",
+            subject: editor.subject,
+            subject_pattern: editor.pattern,
+            policy_rules: editor.entries.map(entry => ({
+                // The subject is sent on every entry only because the schema requires it on an
+                // AclRule; the server takes the subject from the field above.
+                group: editor.subject,
+                action: entry.action,
+                deny: entry.deny,
+                filter: String(entry.filter).trim()
+            }))
+        });
+        this.setState({policyBusy: false});
+        if (!PermissionsScreen.succeeded(data)) {
+            return;
+        }
+        this.setState({policyEditor: null});
+        this.readRules();
+    }
+
+    removePolicy = policy => {
+        confirmationWindow("Remove every rule for " + this.policyTitle(policy) + "?", "Remove policy")
+            .then(confirmed => {
+                if (!confirmed) {
                     return;
                 }
-                const removed = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                    {action: "remove", rule_id: editedId});
-                if (PermissionsScreen.succeeded(removed)) {
-                    this.readRules();
-                }
-                return;
-            }
-            const subject = subjects[index];
-            const result = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "add", rule: {...rule, group: subject, pattern: subject === "*"}});
-            if (!PermissionsScreen.succeeded(result)) {
-                return;
-            }
-            const saved = (result.rules ? result.rules : []).find(candidate =>
-                candidate.group === subject && candidate.action === rule.action &&
-                candidate.deny === rule.deny && candidate.filter === rule.filter &&
-                candidate.pattern === (subject === "*"));
-            savedBySubject[subject] = saved ? saved.id : null;
-            return addNext(index + 1);
-        };
-        return addNext(0);
+                ControlAPI.asyncMakeAPICall("PermissionsControl", {
+                    action: "replace-policy",
+                    subject: policy.subject,
+                    subject_pattern: policy.pattern,
+                    policy_rules: []
+                }).then(data => {
+                    if (PermissionsScreen.succeeded(data)) {
+                        this.readRules();
+                    }
+                });
+            });
     }
 
     runTest = () => {
@@ -359,8 +398,6 @@ export default class PermissionsScreen extends React.Component {
             this.setState({
                 importBusy: false,
                 importPlan: plan,
-                // A conflict has to be answered; keeping the existing rule is the safe answer and
-                // the one that leaves the broker's behaviour unchanged.
                 importResolution: plan && plan.conflicts && plan.conflicts.length ? "existing" : "reject"
             });
         });
@@ -387,8 +424,6 @@ export default class PermissionsScreen extends React.Component {
     }
 
     importFileLoaded = (name, content) => {
-        // The extension is a hint, not a decision: a file called .acl that holds JSON is still the
-        // operator's file, and guessing wrong only costs a refused parse that they can see.
         const format = /\.json$/i.test(name) ? "dynsec" : this.state.importFormat;
         this.setState({importName: name, importContent: content, importFormat: format});
     }
@@ -408,6 +443,136 @@ export default class PermissionsScreen extends React.Component {
         return <div className={className}>
             <strong>{wording}.</strong> {result.explanation}
         </div>;
+    }
+
+    renderPolicyEditor() {
+        const editor = this.state.policyEditor;
+        if (!editor) {
+            return null;
+        }
+        const subjects = [];
+        for (const group of this.state.subjectOptions.groups) {
+            subjects.push({value: group, label: subjectLabel(group)});
+        }
+        for (const user of this.state.subjectOptions.users) {
+            subjects.push({value: "user:" + user, label: subjectLabel("user:" + user)});
+        }
+        return <div className="modalBackground">
+            <div className="permissionsPolicyDialog">
+                <div className="title">{editor.original ? "Edit Policy" : "Add Policy"}</div>
+                <div className="permissionsPolicyBody">
+                    <div className="permissionsPolicySubject">
+                        <label className="inputScreenLabel">Applies to:</label>
+                        {editor.original
+                            ? <span className="permissionsPolicySubjectName">
+                                {editor.pattern ? "all clients" : subjectLabel(editor.subject)}
+                              </span>
+                            : <select className="inputScreenSelect" value={editor.subject}
+                                      onChange={e => this.setState(state => ({
+                                          policyEditor: {...state.policyEditor, subject: e.target.value, error: ""}
+                                      }))}>
+                                <option value="">Choose a user or group</option>
+                                {subjects.map(subject =>
+                                    <option key={subject.value} value={subject.value}>{subject.label}</option>)}
+                              </select>}
+                    </div>
+
+                    <table className="permissionsPolicyEditorTable">
+                        <thead>
+                        <tr>
+                            <th>Rule</th>
+                            <th>Action</th>
+                            <th>Topic filter</th>
+                            <th/>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {editor.entries.map((entry, index) =>
+                            <tr key={index}>
+                                <td>
+                                    <select value={entry.deny ? "deny" : "allow"}
+                                            onChange={e => this.updatePolicyEntry(index, {deny: e.target.value === "deny"})}>
+                                        <option value="allow">allow</option>
+                                        <option value="deny">deny</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select value={entry.action}
+                                            onChange={e => this.updatePolicyEntry(index, {action: e.target.value})}>
+                                        <option value="publish">publish</option>
+                                        <option value="subscribe">subscribe</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input value={entry.filter}
+                                           onChange={e => this.updatePolicyEntry(index, {filter: e.target.value})}/>
+                                </td>
+                                <td className="permissionsPolicyEntryButtons">
+                                    <button type="button" disabled={index === 0}
+                                            onClick={() => this.movePolicyEntry(index, -1)}>&uarr;</button>
+                                    <button type="button" disabled={index === editor.entries.length - 1}
+                                            onClick={() => this.movePolicyEntry(index, 1)}>&darr;</button>
+                                    <button type="button"
+                                            onClick={() => this.removePolicyEntry(index)}>Remove</button>
+                                </td>
+                            </tr>)}
+                        </tbody>
+                    </table>
+                    <button type="button" className="inputScreenSaveButton inputScreenActionButton"
+                            onClick={this.addPolicyEntry}>Add rule</button>
+                    {editor.error
+                        ? <div className="subjectPickerError">{editor.error}</div>
+                        : null}
+                </div>
+                <div className="modalFooter">
+                    <button className="modalOkButton" disabled={this.state.policyBusy}
+                            onClick={this.savePolicy}>Ok</button>
+                    <button className="modalCancelButton" onClick={this.closePolicyEditor}>Cancel</button>
+                </div>
+            </div>
+        </div>;
+    }
+
+    renderPolicies() {
+        const policies = this.policies();
+        if (policies.length === 0) {
+            return <p className="inputScreenNote">No rules yet. Add a policy for a user or group.</p>;
+        }
+        return <table className="permissionsPolicyTable">
+            <thead>
+            <tr>
+                <th>Applies to</th>
+                <th>Policy, checked in order</th>
+                <th/>
+            </tr>
+            </thead>
+            <tbody>
+            {policies.map(policy =>
+                <tr key={policy.key}>
+                    <td className="permissionsPolicySubjectName">{this.policyTitle(policy)}</td>
+                    <td>
+                        <ol className="permissionsPolicyRules">
+                            {policy.rules.map(rule =>
+                                <li key={rule.id}>
+                                    <span className={rule.deny ? "permissionsDeny" : "permissionsAllow"}>
+                                        {rule.deny ? "deny" : "allow"}
+                                    </span>
+                                    {" "}
+                                    <span className="permissionsAction">{rule.action}</span>
+                                    {" "}
+                                    <code>{rule.filter}</code>
+                                </li>)}
+                        </ol>
+                    </td>
+                    <td className="permissionsPolicyRowButtons">
+                        <button type="button" className="dataTableAddEditButton"
+                                onClick={() => this.editPolicy(policy)}>Edit</button>
+                        <button type="button" className="dataTableRemoveButton"
+                                onClick={() => this.removePolicy(policy)}>Remove</button>
+                    </td>
+                </tr>)}
+            </tbody>
+        </table>;
     }
 
     renderImportPlan() {
@@ -461,7 +626,7 @@ export default class PermissionsScreen extends React.Component {
             <PageTitle>Permissions</PageTitle>
 
             {/* Two parts, one screen: what the rules are, and what a rule would answer. Tabs
-                rather than one long page because the table alone fills the screen, and the test
+                rather than one long page because the policy list fills the screen, and the test
                 panel below it was found only by scrolling to the bottom. */}
             <div className="permissionsTabs" role="tablist">
                 <button type="button" role="tab" aria-selected={tab === "rules"}
@@ -473,6 +638,7 @@ export default class PermissionsScreen extends React.Component {
             </div>
 
             {tab === "test" ? this.renderTestAccess() : this.renderRules()}
+            {this.renderPolicyEditor()}
         </div>;
     }
 
@@ -480,20 +646,18 @@ export default class PermissionsScreen extends React.Component {
         return <>
             <div className="inputScreenIntro">
                 <p>
+                    Each row is one user, one group, or anonymous clients, and the list beneath it is
+                    that subject's policy. The list is checked from the top and the first matching
+                    rule decides: an allow above a deny lets the deny's topic through. A client the
+                    rules know but no rule covers is denied when the setting below says so.
+                </p>
+                <p>
                     These rules decide which topics an account may publish and subscribe to. A
-                    rule applies to <code>user:&lt;name&gt;</code> for one account,
+                    subject is <code>user:&lt;name&gt;</code> for one account,
                     <code>group:&lt;name&gt;</code> for a group from the Groups page, or
                     <code>anonymous</code> for clients that connect without a username. The
                     <code>group:</code> prefix is how the page shows a group so it cannot be
                     mistaken for a username; the stored rule keeps the bare name.
-                </p>
-                <p>
-                    Rules are checked in order and the first match decides; a client that has rules
-                    but none covering the topic is denied, as in Mosquitto. A rule added here is
-                    checked before imported ones, and a manual deny before a manual allow.
-                    "Subscribe" is also permission to receive on that filter. Per-listener rules are
-                    not available yet, and a subscription is matched as a filter rather than as the
-                    literal topic some brokers distinguish - both are the same for ordinary clients.
                 </p>
             </div>
 
@@ -512,12 +676,12 @@ export default class PermissionsScreen extends React.Component {
                 </span>
             </div>
 
-            <DataTable objectName="Rule" headers={this.state.headers}
-                       rows={this.state.rows}
-                       getRowId={params => String(params.data.id)}
-                       onRowDataChange={this.onRowDataChange}
-                       validate={this.validateRule}
-                       editorWidth={"580px"} editorHeight={"430px"}/>
+            {this.renderPolicies()}
+
+            <div className="inputScreenRow">
+                <button className="inputScreenSaveButton inputScreenActionButton"
+                        onClick={this.addPolicy}>Add Policy</button>
+            </div>
 
             <h3 className="permissionsSectionTitle">Import</h3>
             <div className="inputScreenIntro">

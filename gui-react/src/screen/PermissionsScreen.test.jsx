@@ -4,14 +4,24 @@ import PermissionsScreen, {validTopicFilter} from "./PermissionsScreen";
 
 jest.mock("../components/MessageWindow", () => ({
     errorWindow: jest.fn(),
-    informationWindow: jest.fn()
+    informationWindow: jest.fn(),
+    confirmationWindow: jest.fn()
 }));
-// The grid is a large third-party component; the tab question is about this screen's own markup.
-jest.mock("../components/DataTable", () => () => null);
 
 beforeEach(() => {
     jest.clearAllMocks();
 });
+
+function instance() {
+    const screen = new PermissionsScreen({});
+    screen.setState = update => {
+        const patch = typeof update === "function" ? update(screen.state) : update;
+        if (patch) {
+            screen.state = {...screen.state, ...patch};
+        }
+    };
+    return screen;
+}
 
 test.each([
     ["allow", "Allowed"],
@@ -37,8 +47,6 @@ test("An import plan with a conflict has to be resolved before it is applied", (
         counts: {new: 0, unchanged: 0, redundant: 0, conflicts: 1}
     };
     const {container} = render(screen.renderImportPlan());
-    // The conflict is shown together with the two rules it is between, and the resolution is asked
-    // for rather than guessed.
     expect(container.textContent).toContain("conflict");
     expect(container.textContent).toContain("sensors/temp");
     expect(container.querySelector("select")).not.toBeNull();
@@ -57,89 +65,112 @@ test("A plan without conflicts does not ask for a resolution", () => {
     expect(container.textContent).toContain("1 new");
 });
 
-test("The subject editor offers the groups and accounts the server knows", async () => {
+test("The policy editor offers the groups and accounts the server knows", async () => {
     const ControlAPI = require("../ControlAPI").default;
     jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(method => {
         if (method === "UserGroupControl") {
-            return Promise.resolve({
-                result: {success: true},
-                list: [{name: "operators"}, {name: "water"}]
-            });
+            return Promise.resolve({result: {success: true}, list: [{name: "operators"}, {name: "water"}]});
         }
         if (method === "UserControl") {
-            return Promise.resolve({
-                result: {success: true},
-                list: [{username: "alice"}, {username: "bob"}]
-            });
+            return Promise.resolve({result: {success: true}, list: [{username: "alice"}]});
         }
         return Promise.resolve({result: {success: true}, rules: []});
     });
 
-    const screen = new PermissionsScreen({});
-    // The state is what the table is handed, so it is what the dialog will read; rendering the
-    // grid adds nothing to this question.
-    screen.setState = update => {
-        const patch = typeof update === "function" ? update(screen.state) : update;
-        if (patch) {
-            screen.state = {...screen.state, ...patch};
-        }
-    };
+    const screen = instance();
     await screen.readSubjects();
-
-    const group = screen.state.headers.find(header => header.field === "group");
-    expect(group.context.inputType).toBe("subjects");
-    expect(group.context.options.groups).toEqual(["operators", "water", "anonymous"]);
-    expect(group.context.options.users).toEqual(["alice", "bob"]);
+    expect(screen.state.subjectOptions.groups).toEqual(["operators", "water", "anonymous"]);
+    expect(screen.state.subjectOptions.users).toEqual(["alice"]);
 });
 
-test("A rule for several subjects is stored as one rule for each", async () => {
-    const ControlAPI = require("../ControlAPI").default;
-    const calls = [];
-    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((method, request) => {
-        calls.push({method, request});
-        return Promise.resolve({result: {success: true}, rules: []});
-    });
+test("Rules are grouped into one ordered policy per subject", () => {
+    const screen = instance();
+    screen.state.rows = [
+        {id: 1, group: "operators", pattern: false, order: 20, deny: true, action: "subscribe",
+         filter: "sensors/secret/#"},
+        {id: 2, group: "operators", pattern: false, order: 10, deny: false, action: "subscribe",
+         filter: "sensors/#"},
+        {id: 3, group: "user:alice", pattern: false, order: 30, deny: false, action: "publish",
+         filter: "device/1"}
+    ];
 
-    const screen = new PermissionsScreen({});
-    screen.setState = () => {};
-    screen.readRules = () => {};
-
-    await screen.saveRule(["operators", "user:bob"], {
-        action: "subscribe", deny: false, filter: "plant/#", source: "manual", source_ref: ""
-    }, null, null);
-
-    const additions = calls.filter(call => call.request.action === "add");
-    expect(additions.map(call => call.request.rule.group))
-        .toEqual(["operators", "user:bob"]);
+    const policies = screen.policies();
+    expect(policies.map(policy => policy.subject)).toEqual(["operators", "user:alice"]);
+    // The list is the policy: evaluation order, not the order the rows arrived in.
+    expect(policies[0].rules.map(rule => rule.filter)).toEqual(["sensors/#", "sensors/secret/#"]);
 });
 
-test("Editing drops the old rule only when its subject is not kept", async () => {
-    const ControlAPI = require("../ControlAPI").default;
-    const calls = [];
-    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((method, request) => {
-        calls.push({method, request});
-        if (request.action === "add") {
-            return Promise.resolve({
-                result: {success: true},
-                rules: [{id: 42, group: request.rule.group, action: request.rule.action,
-                         deny: request.rule.deny, filter: request.rule.filter}]
-            });
-        }
-        return Promise.resolve({result: {success: true}, rules: []});
+test("A pattern policy is titled as applying to all clients", () => {
+    const screen = instance();
+    screen.state.rows = [
+        {id: 1, group: "*", pattern: true, order: 10, deny: false, action: "publish",
+         filter: "devices/%c/#"}
+    ];
+    expect(screen.policyTitle(screen.policies()[0])).toBe("All clients");
+});
+
+test("The editor refuses a bad filter, a duplicate and an empty policy", () => {
+    const screen = instance();
+
+    const editor = entries => ({
+        subject: "operators", pattern: false, original: null, entries, error: ""
     });
 
-    const screen = new PermissionsScreen({});
-    screen.setState = () => {};
+    expect(screen.policyProblem(editor([]))).toContain("at least one rule");
+    expect(screen.policyProblem(editor([
+        {deny: false, action: "subscribe", filter: "//s/#"}
+    ]))).toContain("not a valid topic filter");
+    expect(screen.policyProblem(editor([
+        {deny: false, action: "subscribe", filter: "s/#"},
+        {deny: false, action: "subscribe", filter: "s/#"}
+    ]))).toContain("repeats");
+    expect(screen.policyProblem(editor([
+        {deny: false, action: "subscribe", filter: "s/#"}
+    ]))).toBeNull();
+});
+
+test("Saving a policy sends the whole ordered list in one call", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: []}));
+
+    const screen = instance();
     screen.readRules = () => {};
-    screen.state.rows = [{id: 7, group: "operators"}];
+    screen.state.policyEditor = {
+        subject: "operators", pattern: false, original: null, error: "",
+        entries: [
+            {deny: true, action: "subscribe", filter: "sensors/secret/#"},
+            {deny: false, action: "subscribe", filter: "sensors/#"}
+        ]
+    };
+    await screen.savePolicy();
 
-    // The original subject was removed and another added: the old row has to go.
-    await screen.saveRule(["water"], {
-        action: "subscribe", deny: false, filter: "plant/#", source: "manual", source_ref: ""
-    }, {group: "operators"}, 7);
+    expect(call).toHaveBeenCalledWith("PermissionsControl", {
+        action: "replace-policy",
+        subject: "operators",
+        subject_pattern: false,
+        policy_rules: [
+            {group: "operators", action: "subscribe", deny: true, filter: "sensors/secret/#"},
+            {group: "operators", action: "subscribe", deny: false, filter: "sensors/#"}
+        ]
+    });
+    expect(screen.state.policyEditor).toBeNull();
+});
 
-    expect(calls.some(call => call.request.action === "remove" && call.request.rule_id === 7))
-        .toBe(true);
+test("Rules and Test Access are tabs, and the test panel is not below the table", () => {
+    const ControlAPI = require("../ControlAPI").default;
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: [], list: []}));
+
+    const {container} = render(<PermissionsScreen/>);
+    expect(screen.getByRole("tab", {name: "Rules"})).toHaveAttribute("aria-selected", "true");
+    expect(container.textContent).toContain("Each row is one user");
+    expect(container.textContent).not.toContain("Answers the question a rule is meant to answer");
+
+    fireEvent.click(screen.getByRole("tab", {name: "Test Access"}));
+    expect(screen.getByRole("tab", {name: "Test Access"})).toHaveAttribute("aria-selected", "true");
+    expect(container.textContent).toContain("Answers the question a rule is meant to answer");
+    expect(container.textContent).not.toContain("Each row is one user");
 });
 
 test.each([
@@ -151,52 +182,7 @@ test.each([
 test.each([
     "", "//s/#", "s//temp", "s/", "/s", "s/##", "s/+x", "s/#/x", "s+/x"
 ])("A topic filter the server refuses is refused here: %s", filter => {
-    // The check runs before the dialog closes, so a typo is reported while it can still be fixed.
     expect(validTopicFilter(filter)).toBe(false);
-});
-
-test("Adding a rule with an empty topic level is refused before the server is asked", async () => {
-    const ControlAPI = require("../ControlAPI").default;
-    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
-        () => Promise.resolve({result: {success: true}, rules: []}));
-    const MessageWindow = require("../components/MessageWindow");
-
-    const screen = new PermissionsScreen({});
-    screen.state.rows = [];
-    screen.onRowDataChange("add", {
-        group: ["operators"], action: "subscribe", access: "allow", filter: "//s/#"
-    });
-
-    expect(call).not.toHaveBeenCalled();
-    expect(MessageWindow.errorWindow).toHaveBeenCalled();
-});
-
-test("The validator names what is wrong before the dialog can close", () => {
-    const screen = new PermissionsScreen({});
-
-    expect(screen.validateRule({group: ["operators"], filter: "//s/#"}))
-        .toContain("not a valid topic filter");
-    expect(screen.validateRule({group: [], filter: "s/#"}))
-        .toContain("at least one user or group");
-    expect(screen.validateRule({group: "operators", filter: "  "}))
-        .toContain("topic filter");
-    expect(screen.validateRule({group: "operators", filter: "s/+/temp"})).toBeNull();
-});
-
-test("Rules and Test Access are tabs, and the test panel is not below the table", () => {
-    const ControlAPI = require("../ControlAPI").default;
-    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
-        () => Promise.resolve({result: {success: true}, rules: [], list: []}));
-
-    const {container} = render(<PermissionsScreen/>);
-    expect(screen.getByRole("tab", {name: "Rules"})).toHaveAttribute("aria-selected", "true");
-    expect(container.textContent).toContain("These rules decide which topics");
-    expect(container.textContent).not.toContain("Answers the question a rule is meant to answer");
-
-    fireEvent.click(screen.getByRole("tab", {name: "Test Access"}));
-    expect(screen.getByRole("tab", {name: "Test Access"})).toHaveAttribute("aria-selected", "true");
-    expect(container.textContent).toContain("Answers the question a rule is meant to answer");
-    expect(container.textContent).not.toContain("These rules decide which topics");
 });
 
 test("Test access sends the client id, which a %c rule needs", async () => {
@@ -204,30 +190,17 @@ test("Test access sends the client id, which a %c rule needs", async () => {
     const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
         () => Promise.resolve({result: {success: true}, decision: "allow", explanation: "allowed"}));
 
-    const screen = new PermissionsScreen({});
+    const screen = instance();
     screen.state.testUsername = "";
     screen.state.testClientId = "device-7";
     screen.state.testTopic = "devices/device-7/temp";
     screen.state.testAction = "subscribe";
-    screen.setState = update => {
-        const patch = typeof update === "function" ? update(screen.state) : update;
-        if (patch) {
-            screen.state = {...screen.state, ...patch};
-        }
-    };
     await screen.runTest();
 
     expect(call).toHaveBeenCalledWith("PermissionsControl", {
         action: "test", username: "", client_id: "device-7",
         topic: "devices/device-7/temp", acl_action: "subscribe"
     });
-});
-
-test("A pattern rule is shown as applying to all clients", () => {
-    const screen = new PermissionsScreen({});
-    const group = screen.state.headers.find(header => header.field === "group");
-    expect(group.valueFormatter({value: "*", data: {pattern: true}})).toBe("all clients");
-    expect(group.valueFormatter({value: "operators", data: {pattern: false}})).toBe("group:operators");
 });
 
 test("The default-deny policy is read with the rules and can be changed", async () => {
@@ -239,13 +212,7 @@ test("The default-deny policy is read with the rules and can be changed", async 
         return Promise.resolve({result: {success: true}, default_deny: false});
     });
 
-    const screen = new PermissionsScreen({});
-    screen.setState = update => {
-        const patch = typeof update === "function" ? update(screen.state) : update;
-        if (patch) {
-            screen.state = {...screen.state, ...patch};
-        }
-    };
+    const screen = instance();
     await screen.readRules();
     expect(screen.state.defaultDeny).toBe(true);
 
@@ -253,4 +220,23 @@ test("The default-deny policy is read with the rules and can be changed", async 
     expect(screen.state.defaultDeny).toBe(false);
     expect(call).toHaveBeenCalledWith("PermissionsControl",
         {action: "set-policy", default_deny: false});
+});
+
+test("Removing a policy sends an empty list for its subject", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: []}));
+    const MessageWindow = require("../components/MessageWindow");
+    MessageWindow.confirmationWindow.mockResolvedValue(true);
+
+    const screen = instance();
+    screen.readRules = () => {};
+    screen.removePolicy({subject: "operators", pattern: false, rules: []});
+
+    // The confirmation is a promise; let its handler run.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(call).toHaveBeenCalledWith("PermissionsControl", {
+        action: "replace-policy", subject: "operators", subject_pattern: false, policy_rules: []
+    });
 });
