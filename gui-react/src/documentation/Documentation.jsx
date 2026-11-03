@@ -4,6 +4,7 @@ import InstallDocumentation from "./InstallDocumentation";
 import SetupDocumentation from "./SetupDocumentation";
 import TestingDocumentation from "./TestingDocumentation";
 import ClusterDocumentation from "./ClusterDocumentation";
+import PermissionsDocumentation from "./PermissionsDocumentation";
 import LoadBalancerDocumentation from "./LoadBalancerDocumentation";
 import SizingDocumentation from "./SizingDocumentation";
 
@@ -13,6 +14,7 @@ const screens = {
     setup: SetupDocumentation,
     testing: TestingDocumentation,
     cluster: ClusterDocumentation,
+    permissions: PermissionsDocumentation,
     sizing: SizingDocumentation,
     "load-balancer": LoadBalancerDocumentation
 };
