@@ -45,3 +45,31 @@ test("A plan without conflicts does not ask for a resolution", () => {
     expect(container.querySelector("select")).toBeNull();
     expect(container.textContent).toContain("1 new");
 });
+
+test("The Group field offers the groups the server knows", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(method => {
+        if (method === "UserGroupControl") {
+            return Promise.resolve({
+                result: {success: true},
+                list: [{name: "operators"}, {name: "water"}]
+            });
+        }
+        return Promise.resolve({result: {success: true}, rules: []});
+    });
+
+    const screen = new PermissionsScreen({});
+    // The state is what the table is handed, so it is what the dialog will read; rendering the
+    // grid adds nothing to this question.
+    screen.setState = update => {
+        const patch = typeof update === "function" ? update(screen.state) : update;
+        if (patch) {
+            screen.state = {...screen.state, ...patch};
+        }
+    };
+    await screen.readGroups();
+
+    const group = screen.state.headers.find(header => header.field === "group");
+    expect(group.context.inputType).toBe("combobox");
+    expect(group.context.options).toEqual(["operators", "water", "anonymous"]);
+});

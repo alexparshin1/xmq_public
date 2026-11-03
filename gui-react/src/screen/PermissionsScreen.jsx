@@ -26,7 +26,12 @@ export default class PermissionsScreen extends React.Component {
                 headerName: "Id", field: "id", hide: true,
                 context: {hide: true, inputType: "hidden"}
             },
-            {headerName: "Group", field: "group", width: 200, cellClass: "ViewCellLeftAligned"},
+            {
+                // A combo box, not a select: the existing groups are offered, and `user:<name>`,
+                // `anonymous` or a group that has just been created elsewhere can still be typed.
+                headerName: "Group", field: "group", width: 200, cellClass: "ViewCellLeftAligned",
+                context: {inputType: "combobox", options: []}
+            },
             {
                 headerName: "Action", field: "action", width: 120, cellClass: "ViewCellLeftAligned",
                 context: {inputType: "select", options: ["publish", "subscribe"]}
@@ -64,7 +69,41 @@ export default class PermissionsScreen extends React.Component {
     }
 
     componentDidMount() {
+        this.readGroups();
         this.readRules();
+    }
+
+    /**
+     * Fills the Group field's list with the groups the server knows.
+     *
+     * A refusal is not reported here: the field is a combo box and still accepts a typed value, so
+     * a page whose group list did not arrive is less useful but not broken. Reporting it as well
+     * would put an error in front of a page that has already loaded.
+     */
+    readGroups() {
+        return ControlAPI.asyncMakeAPICall("UserGroupControl", {action: "list"})
+            .then(data => {
+                if (!data || ControlAPI.apiError(data) || !data.list) {
+                    return;
+                }
+                const names = data.list.map(group => group.name).filter(name => name);
+                // Not a group, but one of the rule targets: offered so it need not be remembered.
+                if (!names.includes("anonymous")) {
+                    names.push("anonymous");
+                }
+                this.setState(state => {
+                    const current = state.headers.find(header => header.field === "group");
+                    const known = current && current.context ? current.context.options : [];
+                    if (known.length === names.length && known.every((name, at) => name === names[at])) {
+                        return null;
+                    }
+                    return {
+                        headers: state.headers.map(header => header.field === "group"
+                            ? {...header, context: {...header.context, options: names}}
+                            : header)
+                    };
+                });
+            });
     }
 
     static succeeded(data) {

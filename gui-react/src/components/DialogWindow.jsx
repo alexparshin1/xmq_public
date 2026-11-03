@@ -84,6 +84,24 @@ export default class DialogWindow extends React.Component {
             </div>
         }
 
+        if (context.inputType === "combobox") {
+            // Both: the known values are offered, and a value that is not among them can still be
+            // typed. A group list that is only a select cannot express `user:<name>`, and one that
+            // is only a text box makes the operator remember how every group is spelled.
+            const listId = field.field + "-options";
+            return <>
+                <input name={field.field} list={listId}
+                       value={this.state.values[field.field] ?? ""}
+                       onChange={(e) => this.previewValueChange(field, e.target.value)}
+                       style={{width: this.inputWidth(field)}}
+                       required/>
+                <datalist id={listId}>
+                    {(context.options || []).map(option =>
+                        <option key={option} value={option}/>)}
+                </datalist>
+            </>;
+        }
+
         if (context.inputType === "select") {
             return <select name={field.field} value={this.state.values[field.field]}
                            onChange={(e) => this.previewValueChange(field, e.target.value)}>
