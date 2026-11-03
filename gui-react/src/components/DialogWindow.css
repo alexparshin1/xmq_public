@@ -154,53 +154,91 @@
     box-sizing: border-box;
 }
 
-/* A list of subjects inside the add/edit dialog: one line per user or group, with the buttons of
-   the two ways to add one underneath. The dialog's own width is fixed, so the boxes are narrow. */
+/* A list of subjects inside the add/edit dialog: the chosen users and groups on the left, the
+   three actions on the right. The actions belong to the list, not to a row, so they stay put as
+   the list grows. */
 .dialogSubjects {
     margin-bottom: 6px;
+}
+
+.dialogSubjectMain {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.dialogSubjectListBox {
+    width: 240px;
+    height: 110px;
+    overflow-y: auto;
+    border: 1px solid #b0b0b0;
+    border-radius: 4px;
+    background-color: white;
+    padding: 2px;
+}
+
+.dialogSubjectListBox:focus {
+    outline: 2px solid cornflowerblue;
 }
 
 .dialogSubjectEmpty {
     color: gray;
     font-size: 0.9em;
-    padding: 2px 0 6px 0;
-}
-
-.dialogSubjectList {
-    list-style: none;
-    margin: 0 0 6px 0;
-    padding: 0;
+    padding: 4px;
 }
 
 .dialogSubject {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    max-width: 300px;
-    padding: 2px 0;
+    padding: 3px 6px;
+    cursor: default;
+    border-radius: 3px;
+}
+
+.dialogSubject:hover {
+    background-color: #eef3fc;
+}
+
+.dialogSubjectSelected {
+    background-color: cornflowerblue;
+    color: white;
 }
 
 .dialogSubjectName {
     font-family: monospace;
 }
 
-.dialogSubjectRemove {
-    padding: 2px 8px;
-    border: 1px solid darkred;
+.dialogSubjectButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dialogSubjectButtons button {
+    width: 100px;
+    padding: 4px 8px;
+    border: 1px solid cornflowerblue;
     border-radius: 4px;
     background-color: white;
-    color: darkred;
+    color: cornflowerblue;
     cursor: pointer;
 }
 
-.dialogSubjectAdd {
+.dialogSubjectButtons button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.dialogSubjectRemove:not(:disabled) {
+    border-color: darkred;
+    color: darkred;
+}
+
+.dialogSubjectPicker {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-top: 4px;
+    padding-bottom: 6px;
 }
 
-.dialogSubjectAdd input {
-    width: 140px;
+.dialogSubjectPicker input {
+    width: 170px;
 }

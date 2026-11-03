@@ -38,19 +38,25 @@ test("The subject list adds a group and a user and removes them by name", () => 
         closeModal={() => {}}/>);
 
     expect(screen.getByText("No users or groups yet.")).toBeInTheDocument();
+    expect(screen.getByText("Remove")).toBeDisabled();
 
-    fireEvent.change(screen.getByPlaceholderText("Group name"), {target: {value: "water"}});
+    // The add buttons open a picker rather than adding an empty row: what is added has to be a
+    // name, and the picker is where that name is chosen.
     fireEvent.click(screen.getByText("Add Group"));
-    fireEvent.change(screen.getByPlaceholderText("Username"), {target: {value: "alice"}});
+    fireEvent.change(screen.getByPlaceholderText("Group name"), {target: {value: "water"}});
+    fireEvent.click(screen.getByText("Add"));
     fireEvent.click(screen.getByText("Add User"));
+    fireEvent.change(screen.getByPlaceholderText("Username"), {target: {value: "alice"}});
+    fireEvent.click(screen.getByText("Add"));
 
     // A group is shown with a prefix so it cannot be mistaken for a username.
     expect(screen.getByText("group:water")).toBeInTheDocument();
     expect(screen.getByText("user:alice")).toBeInTheDocument();
 
-    // Remove is per entry, so one subject can go without disturbing the others.
-    const water = screen.getByText("group:water");
-    fireEvent.click(water.parentElement.querySelector("button"));
+    // Remove acts on the entry selected in the list, so one subject can go without disturbing the
+    // others.
+    fireEvent.click(screen.getByText("group:water"));
+    fireEvent.click(screen.getByText("Remove"));
     expect(screen.queryByText("group:water")).toBeNull();
     expect(screen.getByText("user:alice")).toBeInTheDocument();
 });
@@ -66,8 +72,9 @@ test("A group typed with the group: prefix is stored under its bare name", () =>
         onSubmit={() => {}}
         closeModal={() => {}}/>);
 
+    fireEvent.click(screen.getByText("Add Group"));
     fireEvent.change(screen.getByPlaceholderText("Group name"),
         {target: {value: "group:Administrators"}});
-    fireEvent.click(screen.getByText("Add Group"));
+    fireEvent.click(screen.getByText("Add"));
     expect(screen.getByText("group:Administrators")).toBeInTheDocument();
 });

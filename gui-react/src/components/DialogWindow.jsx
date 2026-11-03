@@ -56,7 +56,10 @@ export default class DialogWindow extends React.Component {
         windowWidth: 500,
         windowHeight: 300,
         // What has been typed into the Add Group / Add User boxes but not added yet.
-        drafts: {}
+        drafts: {},
+        // Which add box is open for a subjects field, and which entry is selected for Remove.
+        pickers: {},
+        subjectSelection: {}
     };
 
     makeInputWidget(field) {
@@ -106,83 +109,115 @@ export default class DialogWindow extends React.Component {
 
         if (context.inputType === "subjects") {
             // A rule applies to one subject, but a new rule is often the same rule for several of
-            // them. The list states the subjects the save will turn into separate rules; a group
-            // and a user are added through their own box because their names come from different
-            // places and mean different things.
+            // them. The list states the subjects the save will turn into separate rules; the
+            // buttons beside it act on that list, so no button can be read as belonging to a row.
             const chosen = Array.isArray(this.state.values[field.field])
                 ? this.state.values[field.field] : [];
             const options = context.options || {};
-            const groupKey = field.field + "-group";
-            const userKey = field.field + "-user";
-            const draft = key => this.state.drafts[key] ?? "";
-            const setDraft = (key, value) => this.setState(state => ({
-                drafts: {...state.drafts, [key]: value}
+            const selected = this.state.subjectSelection[field.field] ?? null;
+            const picker = this.state.pickers[field.field] ?? null;
+            const draft = this.state.drafts[field.field] ?? "";
+            const setDraft = value => this.setState(state => ({
+                drafts: {...state.drafts, [field.field]: value}
+            }));
+            const setPicker = value => this.setState(state => ({
+                pickers: {...state.pickers, [field.field]: value}
+            }));
+            const select = subject => this.setState(state => ({
+                subjectSelection: {...state.subjectSelection, [field.field]: subject}
             }));
             const add = subject => {
-                if (!subject || chosen.includes(subject)) {
+                if (!subject) {
                     return;
                 }
-                this.previewValueChange(field, [...chosen, subject]);
+                select(subject);
+                if (!chosen.includes(subject)) {
+                    this.previewValueChange(field, [...chosen, subject]);
+                }
+                setPicker(null);
+                setDraft("");
             };
-            const addGroup = () => {
-                // `group:Name` is how the operator may write it elsewhere; the stored subject is the
-                // bare name. A `user:` typed here is a user, and is filed as one.
-                let subject = draft(groupKey).trim();
+            const addPicked = () => {
+                let subject = draft.trim();
+                if (!subject) {
+                    return;
+                }
+                if (picker === "user") {
+                    // A username means user:<name>; the prefix is accepted if typed.
+                    add(subject.startsWith("user:") ? subject : "user:" + subject);
+                    return;
+                }
+                // `group:Name` is how the operator may write it; the stored subject is the bare name.
                 if (subject.startsWith("group:")) {
                     subject = subject.substring("group:".length).trim();
                 }
                 add(subject);
-                setDraft(groupKey, "");
             };
-            const addUser = () => {
-                const typed = draft(userKey).trim();
-                if (!typed) {
+            const remove = () => {
+                if (!selected) {
                     return;
                 }
-                add(typed.startsWith("user:") ? typed : "user:" + typed);
-                setDraft(userKey, "");
+                this.previewValueChange(field, chosen.filter(one => one !== selected));
+                select(null);
             };
+            const pickerOptions = picker === "group" ? (options.groups || []) : (options.users || []);
             return <div className="dialogSubjects">
-                {chosen.length === 0
-                    ? <div className="dialogSubjectEmpty">No users or groups yet.</div>
-                    : <ul className="dialogSubjectList">{chosen.map(subject =>
-                        <li key={subject} className="dialogSubject">
-                            <span className="dialogSubjectName">{subjectLabel(subject)}</span>
-                            <button type="button" className="dialogSubjectRemove"
-                                    onClick={() => this.previewValueChange(
-                                        field, chosen.filter(one => one !== subject))}>
-                                Remove
-                            </button>
-                        </li>)}</ul>}
-                <div className="dialogSubjectAdd">
-                    <input name={groupKey} list={groupKey + "-options"} value={draft(groupKey)}
-                           placeholder="Group name"
-                           onChange={(e) => setDraft(groupKey, e.target.value)}
-                           onKeyDown={(e) => {
-                               if (e.key === "Enter") {
-                                   e.preventDefault();
-                                   addGroup();
-                               }
-                           }}/>
-                    <datalist id={groupKey + "-options"}>
-                        {(options.groups || []).map(name => <option key={name} value={name}/>)}
-                    </datalist>
-                    <button type="button" onClick={addGroup}>Add Group</button>
-                </div>
-                <div className="dialogSubjectAdd">
-                    <input name={userKey} list={userKey + "-options"} value={draft(userKey)}
-                           placeholder="Username"
-                           onChange={(e) => setDraft(userKey, e.target.value)}
-                           onKeyDown={(e) => {
-                               if (e.key === "Enter") {
-                                   e.preventDefault();
-                                   addUser();
-                               }
-                           }}/>
-                    <datalist id={userKey + "-options"}>
-                        {(options.users || []).map(name => <option key={name} value={name}/>)}
-                    </datalist>
-                    <button type="button" onClick={addUser}>Add User</button>
+                {picker
+                    ? <div className="dialogSubjectPicker">
+                        <input name={field.field + "-picker"} list={field.field + "-picker-options"}
+                               value={draft} autoFocus
+                               placeholder={picker === "group" ? "Group name" : "Username"}
+                               onChange={(e) => setDraft(e.target.value)}
+                               onKeyDown={(e) => {
+                                   if (e.key === "Enter") {
+                                       e.preventDefault();
+                                       addPicked();
+                                   }
+                                   if (e.key === "Escape") {
+                                       e.preventDefault();
+                                       setPicker(null);
+                                       setDraft("");
+                                   }
+                               }}/>
+                        <datalist id={field.field + "-picker-options"}>
+                            {pickerOptions.map(name => <option key={name} value={name}/>)}
+                        </datalist>
+                        <button type="button" onClick={addPicked}>Add</button>
+                    </div>
+                    : null}
+                <div className="dialogSubjectMain">
+                    <div className="dialogSubjectListBox" role="listbox" aria-label="Applies to"
+                         tabIndex={chosen.length ? 0 : -1}
+                         onKeyDown={(e) => {
+                             if (e.key === "Delete") {
+                                 e.preventDefault();
+                                 remove();
+                             }
+                         }}>
+                        {chosen.length === 0
+                            ? <div className="dialogSubjectEmpty">No users or groups yet.</div>
+                            : chosen.map(subject =>
+                                <div key={subject} role="option" aria-selected={selected === subject}
+                                     className={"dialogSubject" +
+                                         (selected === subject ? " dialogSubjectSelected" : "")}
+                                     onClick={() => select(subject)}>
+                                    <span className="dialogSubjectName">{subjectLabel(subject)}</span>
+                                </div>)}
+                    </div>
+                    <div className="dialogSubjectButtons">
+                        <button type="button" className="dialogSubjectAddGroup"
+                                onClick={() => {
+                                    setPicker("group");
+                                    setDraft("");
+                                }}>Add Group</button>
+                        <button type="button" className="dialogSubjectAddUser"
+                                onClick={() => {
+                                    setPicker("user");
+                                    setDraft("");
+                                }}>Add User</button>
+                        <button type="button" className="dialogSubjectRemove"
+                                disabled={!selected} onClick={remove}>Remove</button>
+                    </div>
                 </div>
             </div>;
         }

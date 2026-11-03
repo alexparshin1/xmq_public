@@ -399,7 +399,7 @@ export default class PermissionsScreen extends React.Component {
                        rows={this.state.rows}
                        getRowId={params => String(params.data.id)}
                        onRowDataChange={this.onRowDataChange}
-                       editorWidth={"470px"} editorHeight={"330px"}/>
+                       editorWidth={"520px"} editorHeight={"430px"}/>
 
             <PageTitle>Test access</PageTitle>
             <div className="inputScreenIntro">
