@@ -198,3 +198,34 @@ test("Rules and Test Access are tabs, and the test panel is not below the table"
     expect(container.textContent).toContain("Answers the question a rule is meant to answer");
     expect(container.textContent).not.toContain("These rules decide which topics");
 });
+
+test("Test access sends the client id, which a %c rule needs", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, decision: "allow", explanation: "allowed"}));
+
+    const screen = new PermissionsScreen({});
+    screen.state.testUsername = "";
+    screen.state.testClientId = "device-7";
+    screen.state.testTopic = "devices/device-7/temp";
+    screen.state.testAction = "subscribe";
+    screen.setState = update => {
+        const patch = typeof update === "function" ? update(screen.state) : update;
+        if (patch) {
+            screen.state = {...screen.state, ...patch};
+        }
+    };
+    await screen.runTest();
+
+    expect(call).toHaveBeenCalledWith("PermissionsControl", {
+        action: "test", username: "", client_id: "device-7",
+        topic: "devices/device-7/temp", acl_action: "subscribe"
+    });
+});
+
+test("A pattern rule is shown as applying to all clients", () => {
+    const screen = new PermissionsScreen({});
+    const group = screen.state.headers.find(header => header.field === "group");
+    expect(group.valueFormatter({value: "*", data: {pattern: true}})).toBe("all clients");
+    expect(group.valueFormatter({value: "operators", data: {pattern: false}})).toBe("group:operators");
+});

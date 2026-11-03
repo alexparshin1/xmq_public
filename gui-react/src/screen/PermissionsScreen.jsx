@@ -44,8 +44,8 @@ export function validTopicFilter(filter) {
  * Permissions screen: topic rules, a way to try them, and an import.
  *
  * A rule names a group - `user:<name>`, an account group, or `anonymous` - a direction (publish or
- * subscribe), and a topic filter. A group that has any rule is an allow-list: a topic no rule in it
- * covers is refused, and a deny always wins over an allow. "read" from Mosquitto is subscribe here,
+ * subscribe), and a topic filter. Rules are checked in order and the first match decides; a client
+ * with rules but no match is denied, as in Mosquitto. "read" from Mosquitto is subscribe here,
  * because there is no separate permission for receiving what one is subscribed to.
  *
  * The import is a plan first and a write second. Nothing is stored while a conflict - an allow and
@@ -67,8 +67,15 @@ export default class PermissionsScreen extends React.Component {
                 headerName: "Applies to", field: "group", width: 220, cellClass: "ViewCellLeftAligned",
                 // A group has no marker of its own in the stored name; the column adds one so the
                 // row reads the same way the editor does.
-                valueFormatter: params => subjectLabel(params.value),
+                valueFormatter: params => params.data && params.data.pattern
+                    ? "all clients" : subjectLabel(params.value),
                 context: {inputType: "subjects", options: {groups: [], users: []}}
+            },
+            {
+                // A pattern rule is stored under '*' and keeps its %u/%c tokens; an edit has to
+                // carry the flag through, or the rule would become a rule for a group named '*'.
+                headerName: "Pattern", field: "pattern", hide: true,
+                context: {hide: true, inputType: "hidden"}
             },
             {
                 headerName: "Action", field: "action", width: 120, cellClass: "ViewCellLeftAligned",
@@ -93,6 +100,7 @@ export default class PermissionsScreen extends React.Component {
         rows: [],
 
         testUsername: "",
+        testClientId: "",
         testTopic: "",
         testAction: "subscribe",
         testResult: null,
@@ -179,7 +187,8 @@ export default class PermissionsScreen extends React.Component {
                         ...rule,
                         group: rule.group || "",
                         filter: rule.filter || "",
-                        access: rule.deny ? "deny" : "allow"
+                        access: rule.deny ? "deny" : "allow",
+                        pattern: rule.pattern === true
                     }))
                 });
                 return true;
@@ -268,13 +277,14 @@ export default class PermissionsScreen extends React.Component {
             }
             const subject = subjects[index];
             const result = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "add", rule: {...rule, group: subject}});
+                {action: "add", rule: {...rule, group: subject, pattern: subject === "*"}});
             if (!PermissionsScreen.succeeded(result)) {
                 return;
             }
             const saved = (result.rules ? result.rules : []).find(candidate =>
                 candidate.group === subject && candidate.action === rule.action &&
-                candidate.deny === rule.deny && candidate.filter === rule.filter);
+                candidate.deny === rule.deny && candidate.filter === rule.filter &&
+                candidate.pattern === (subject === "*"));
             savedBySubject[subject] = saved ? saved.id : null;
             return addNext(index + 1);
         };
@@ -291,6 +301,7 @@ export default class PermissionsScreen extends React.Component {
         ControlAPI.asyncMakeAPICall("PermissionsControl", {
             action: "test",
             username: this.state.testUsername.trim(),
+            client_id: this.state.testClientId.trim(),
             topic: topic,
             acl_action: this.state.testAction
         }).then(data => {
@@ -397,8 +408,8 @@ export default class PermissionsScreen extends React.Component {
                 <ul>{rules.map((rule, at) => <li key={at}>{describe(rule)}</li>)}</ul>
             </div>
             : null;
-        const describe = rule => rule.group + " " + (rule.deny ? "deny " : "allow ") +
-            rule.action + " " + rule.filter;
+        const describe = rule => (rule.pattern ? "all clients" : rule.group) + " " +
+            (rule.deny ? "deny " : "allow ") + rule.action + " " + rule.filter;
         return <div className="inputScreenNote" style={{maxWidth: "760px"}}>
             <p>
                 {counts.new || 0} new, {counts.unchanged || 0} already present,
@@ -462,11 +473,12 @@ export default class PermissionsScreen extends React.Component {
                     mistaken for a username; the stored rule keeps the bare name.
                 </p>
                 <p>
-                    A group that has any rule here is an allow-list: a topic no rule in it covers is
-                    refused, and a deny always wins over an allow. "Subscribe" is also permission to
-                    receive on that filter. Per-listener rules are not available yet, and a
-                    subscription is matched as a filter rather than as the literal topic some brokers
-                    distinguish - both are the same for ordinary clients.
+                    Rules are checked in order and the first match decides; a client that has rules
+                    but none covering the topic is denied, as in Mosquitto. A rule added here is
+                    checked before imported ones, and a manual deny before a manual allow.
+                    "Subscribe" is also permission to receive on that filter. Per-listener rules are
+                    not available yet, and a subscription is matched as a filter rather than as the
+                    literal topic some brokers distinguish - both are the same for ordinary clients.
                 </p>
             </div>
 
@@ -530,6 +542,12 @@ export default class PermissionsScreen extends React.Component {
                 <label className="inputScreenLabel">Username:</label>
                 <input value={this.state.testUsername}
                        onChange={e => this.setState({testUsername: e.target.value})}/>
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">Client id:</label>
+                <input value={this.state.testClientId}
+                       onChange={e => this.setState({testClientId: e.target.value})}/>
+                <span className="inputScreenHint">Needed for rules that use %c.</span>
             </div>
             <div className="inputScreenRow">
                 <label className="inputScreenLabel">Action:</label>

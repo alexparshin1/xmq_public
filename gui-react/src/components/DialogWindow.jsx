@@ -11,6 +11,9 @@ import "./DataTable.css";
  */
 export function subjectLabel(subject) {
     const text = String(subject ?? "");
+    if (text === "*") {
+        return "all clients";
+    }
     if (!text || text === "anonymous" || text.startsWith("user:") || text.startsWith("group:")) {
         return text;
     }

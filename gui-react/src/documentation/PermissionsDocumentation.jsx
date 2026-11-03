@@ -46,11 +46,19 @@ export default function PermissionsDocumentation() {
             </table>
 
             <p>
-                A group that has any rule is an allow-list: a topic no rule in that group covers is
-                refused there, and the first group with rules that the client resolves to decides.
-                A deny always wins over an allow, whichever came first. A client is resolved to
-                <code>user:&lt;name&gt;</code> first, then to the groups of its account, then to
-                <code>anonymous</code>.
+                Rules are checked in order and the first matching rule decides, as in Mosquitto. A
+                client is resolved to <code>user:&lt;name&gt;</code>, then to the groups of its
+                account, and a pattern rule from an import applies to every client; the
+                <code>anonymous</code> subject applies only when there is no username. When a client
+                has rules but none of them covers the topic, the answer is deny - Mosquitto's
+                default for a client the rules know about.
+            </p>
+
+            <p>
+                A rule added here is checked before imported ones, and a manual deny before a manual
+                allow, so a manual deny still wins over a manual allow. An import keeps the order
+                Mosquitto would check its rules in: the client's roles first, then its groups by
+                priority, then the roles in each group, with each role's ACLs by their priority.
             </p>
 
             <p>
@@ -108,19 +116,20 @@ export default function PermissionsDocumentation() {
                     <td><code>publish</code> and <code>subscribe</code> deny on F</td>
                 </tr>
                 <tr>
-                    <td><code>pattern ... %u</code></td>
-                    <td>The same rule with the username substituted, per account</td>
+                    <td><code>pattern ... %u</code> / <code>%c</code></td>
+                    <td>One rule for every client, with the username or client id substituted when
+                        the rule is checked</td>
                 </tr>
                 </tbody>
             </table>
 
             <p>
                 Dynamic Security roles are flattened onto accounts: the rules a client gets through
-                its roles and groups become rules on <code>user:&lt;name&gt;</code>. The
-                <code>defaultACLAccess</code> settings are carried as <code>#</code> rules for an
-                account that has no rule of its own in that direction. Rules that cannot be
-                represented are listed as not imported, with the reason, rather than dropped
-                silently.
+                its roles and groups become rules on <code>user:&lt;name&gt;</code>, in the order
+                Mosquitto would check them. An allowing <code>defaultACLAccess</code> becomes a
+                <code>#</code> rule checked after everything else; a denying one needs no rule,
+                because no match is already a deny. Rules that cannot be represented are listed as
+                not imported, with the reason, rather than dropped silently.
             </p>
 
             <h4 id="permissions-limitations">Known limitations</h4>
@@ -145,20 +154,17 @@ export default function PermissionsDocumentation() {
                     to permit only one literal subscription also permits the equivalent wildcard.
                 </li>
                 <li>
-                    <b>Dynamic Security priorities are flattened.</b> Mosquitto applies the first
-                    matching rule in order; XMQ applies deny-wins. An imported rule set can
-                    therefore be stricter than the file it came from, and the import says so.
+                    <b><code>%c</code> is only as good as the client id.</b> A client id is chosen by
+                    the client unless it is bound by authentication (a Dynamic Security
+                    <code>clientid</code>, <code>use_username_as_clientid</code>, or unique
+                    credentials per device). A client id or username containing <code>+</code>,
+                    <code>#</code> or <code>/</code> matches no pattern rule, so it cannot widen one.
                 </li>
                 <li>
                     <b>An empty topic level is refused.</b> MQTT allows a topic such as
                     <code>/finance</code>, but a rule filter that names an empty level is treated
                     as a typo by the control API and by the import alike. <code>+</code> and
                     <code>#</code> must each be a whole level, and <code>#</code> the last one.
-                </li>
-                <li>
-                    <b><code>%c</code> is not supported.</b> A client-id pattern cannot be expanded
-                    when the rules are evaluated, so those rules are listed as not imported.
-                    <code>%u</code> is expanded when the rule is imported.
                 </li>
             </ul>
             </section>
