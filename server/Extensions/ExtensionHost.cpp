@@ -1416,6 +1416,10 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_admitted = loaded->m_admitted.load(std::memory_order_relaxed);
         one.m_refused = loaded->m_refused.load(std::memory_order_relaxed);
         one.m_storeErrors = loaded->m_storeErrors.load(std::memory_order_relaxed);
+        one.m_messagesDelivered = loaded->m_messagesDelivered.load(std::memory_order_relaxed);
+        one.m_messagesDropped = loaded->m_messagesDropped.load(std::memory_order_relaxed);
+        one.m_logsDelivered = loaded->m_logsDelivered.load(std::memory_order_relaxed);
+        one.m_logsDropped = loaded->m_logsDropped.load(std::memory_order_relaxed);
 
         if (loaded->m_table != nullptr)
         {
@@ -1822,6 +1826,26 @@ void ExtensionHost::unload(Loaded& loaded)
     // what those calls are using.
     stopTap(loaded);
     stopLogTap(loaded);
+
+    // Said at shutdown because there is nowhere else to see it: a tap that fell behind dropped
+    // records silently, by design, and the totals are the only trace.
+    if (const auto messages = loaded.m_messagesDelivered.load(std::memory_order_relaxed) +
+                              loaded.m_messagesDropped.load(std::memory_order_relaxed);
+        messages > 0)
+    {
+        m_logger.info(format("{}: {} messages delivered, {} dropped",
+                             loaded.m_name,
+                             loaded.m_messagesDelivered.load(std::memory_order_relaxed),
+                             loaded.m_messagesDropped.load(std::memory_order_relaxed)));
+    }
+    if (const auto records = loaded.m_logsDelivered.load(std::memory_order_relaxed) +
+                             loaded.m_logsDropped.load(std::memory_order_relaxed);
+        records > 0)
+    {
+        m_logger.info(format("{}: {} log records delivered, {} dropped", loaded.m_name,
+                             loaded.m_logsDelivered.load(std::memory_order_relaxed),
+                             loaded.m_logsDropped.load(std::memory_order_relaxed)));
+    }
 
     if (loaded.m_started && loaded.m_table != nullptr && loaded.m_table->stop != nullptr)
     {

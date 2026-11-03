@@ -646,6 +646,13 @@
                     <xsd:element name="admitted" type="xsd:int"/>
                     <xsd:element name="refused" type="xsd:int"/>
                     <xsd:element name="store_errors" type="xsd:int"/>
+                    <!-- What the two taps moved and what they had to throw away. A tap that falls
+                         behind drops rather than delaying the broker, and there is no other way to
+                         see it happen: the queue fills and the log stays silent. -->
+                    <xsd:element name="messages_delivered" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="messages_dropped" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="logs_delivered" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="logs_dropped" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="settings" type="tns:ExtensionSetting"
                                  maxOccurs="unbounded" minOccurs="0"/>
                 </xsd:sequence>

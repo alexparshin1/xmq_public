@@ -497,6 +497,10 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_admitted = static_cast<int>(from.m_admitted);
     into.m_refused = static_cast<int>(from.m_refused);
     into.m_store_errors = static_cast<int>(from.m_storeErrors);
+    into.m_messages_delivered = static_cast<int>(from.m_messagesDelivered);
+    into.m_messages_dropped = static_cast<int>(from.m_messagesDropped);
+    into.m_logs_delivered = static_cast<int>(from.m_logsDelivered);
+    into.m_logs_dropped = static_cast<int>(from.m_logsDropped);
 
     for (const auto& setting: from.m_settings)
     {

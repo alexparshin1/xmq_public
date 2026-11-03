@@ -116,6 +116,31 @@ TEST_F(TapTests, dropsWhatExceedsTheTapPayloadLimit)
     this_thread::sleep_for(chrono::milliseconds(100));
     EXPECT_TRUE(content().empty()) << content();
 
+    // Counted, because a drop is silent by design: the queue is bounded so the broker never waits,
+    // and this counter is the only way to learn that a tap is losing messages.
+    const auto described = host.describe();
+    ASSERT_EQ(1U, described.size());
+    EXPECT_EQ(0U, described[0].m_messagesDelivered);
+    EXPECT_EQ(1U, described[0].m_messagesDropped);
+
+    host.stop();
+}
+
+TEST_F(TapTests, countsWhatTheTapDelivered)
+{
+    ExtensionHost host(m_logEngine, "tap");
+    host.start({extension()});
+    ASSERT_TRUE(host.tapping());
+
+    const char payload[] = {'x'};
+    host.publishMessage("client", "user", "sensors/1", payload, sizeof(payload), 0, false);
+    EXPECT_FALSE(waitForContent(1).empty());
+
+    const auto described = host.describe();
+    ASSERT_EQ(1U, described.size());
+    EXPECT_EQ(1U, described[0].m_messagesDelivered);
+    EXPECT_EQ(0U, described[0].m_messagesDropped);
+
     host.stop();
 }
 

@@ -371,6 +371,10 @@ public:
         uint64_t                        m_admitted {0};
         uint64_t                        m_refused {0};
         uint64_t                        m_storeErrors {0};
+        uint64_t                        m_messagesDelivered {0};
+        uint64_t                        m_messagesDropped {0};
+        uint64_t                        m_logsDelivered {0};
+        uint64_t                        m_logsDropped {0};
     };
 
     /**
