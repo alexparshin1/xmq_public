@@ -78,12 +78,13 @@ export default class PermissionsScreen extends React.Component {
     state = {
         headers: [
             {headerName: "Id", field: "id", hide: true},
-            // The width is stated in all three ways the grid understands, so the header and the
-            // cells cannot end up a few pixels apart when the grid recalculates its layout.
-            {headerName: "Applies to", field: "appliesTo", width: 220, minWidth: 220, maxWidth: 220,
-             resizable: false, cellClass: "ViewCellLeftAligned"},
+            // Resizing is safe: the header and the cells are one column definition, so they move
+            // together. The offset that looked like a header problem was the policy cell's own
+            // left padding, not the grid.
+            {headerName: "Applies to", field: "appliesTo", width: 220, minWidth: 120,
+             resizable: true, cellClass: "ViewCellLeftAligned"},
             {headerName: "Policy, checked from the top", field: "rules", cellRenderer: PolicyCell,
-             flex: 1, minWidth: 400}
+             flex: 1, minWidth: 400, resizable: true}
         ],
         rows: [],
         subjectOptions: {groups: [], users: []},
