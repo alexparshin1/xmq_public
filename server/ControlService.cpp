@@ -20,6 +20,7 @@
 #include "Settings/PasswordHash.h"
 #include "Settings/UserStore.h"
 #include "Settings/PermissionsImport.h"
+#include "Settings/AclRules.h"
 #include "Settings/UriSecret.h"
 #include "Cluster/Coordinator.h"
 #include "Cluster/NodeIdentity.h"
@@ -894,6 +895,7 @@ CAclRule describeRule(const UserStore::AclRule& rule)
     described.m_filter = rule.m_filter;
     described.m_source = rule.m_source;
     described.m_source_ref = rule.m_sourceRef;
+    described.m_pattern = rule.m_pattern;
     return described;
 }
 
@@ -945,12 +947,22 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             {
                 throw Exception("'" + String(filter) + "' is not a valid MQTT topic filter.");
             }
+            const bool deny = incoming.m_deny.asBool();
+            const bool pattern = !incoming.m_pattern.isNull() && incoming.m_pattern.asBool();
+            if (pattern && group != "*")
+            {
+                throw Exception("A pattern rule applies to all clients and is stored under '*'.");
+            }
+            // A manual rule is checked before anything imported, and a manual deny before a manual
+            // allow; that is how it kept its deny-wins behaviour once order became the criterion.
             store.addAclRule({.m_groupName = group,
                               .m_action = ruleAction,
-                              .m_deny = incoming.m_deny.asBool(),
+                              .m_deny = deny,
                               .m_filter = filter,
                               .m_source = incoming.m_source.isNull() ? String("manual") : incoming.m_source.asString(),
                               .m_sourceRef = incoming.m_source_ref.asString(),
+                              .m_order = deny ? 0 : 1000000,
+                              .m_pattern = pattern,
                               .m_updatedBy = caller.m_username.asString()});
             for (const auto& rule: store.aclRules())
             {
@@ -973,6 +985,7 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
         else if (action == "test")
         {
             const auto username = input.m_username.asString();
+            const auto clientId = input.m_client_id.isNull() ? String() : input.m_client_id.asString();
             const auto topic = input.m_topic.asString();
             const auto aclAction = input.m_acl_action.asString();
             if (topic.empty() || (aclAction != "publish" && aclAction != "subscribe"))
@@ -980,71 +993,32 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
                 throw Exception("A test needs a topic and an action ('publish' or 'subscribe').");
             }
 
-            vector<String> groups;
+            vector<std::string> groups;
             if (username.empty())
             {
                 groups.push_back("anonymous");
             }
             else
             {
-                groups.push_back("user:" + String(username));
+                groups.push_back("user:" + std::string(username.c_str()));
                 if (const auto user = store.findUser(username))
                 {
                     for (const auto& group: store.groupsOfUser(user->m_id))
                     {
-                        groups.push_back(group.m_name);
+                        groups.push_back(group.m_name.c_str());
                     }
                 }
-                groups.push_back("anonymous");
             }
 
-            const auto rules = store.aclRules();
-            String     decision("not_handled");
-            String     explanation("no rule covers this topic");
-            for (const auto& group: groups)
-            {
-                const auto hasGroupRules = ranges::any_of(rules, [&group](const auto& rule)
-                                                          { return rule.m_groupName == group; });
-                if (!hasGroupRules)
-                {
-                    continue;
-                }
-
-                const UserStore::AclRule* firstAllow = nullptr;
-                for (const auto& rule: rules)
-                {
-                    if (rule.m_groupName != group || rule.m_action != aclAction ||
-                        !RetainedMessages::matches(rule.m_filter, topic))
-                    {
-                        continue;
-                    }
-                    if (rule.m_deny)
-                    {
-                        decision = "deny";
-                        explanation = "denied by " + rule.m_filter + " in group " + group;
-                        output.m_decision = decision;
-                        output.m_explanation = explanation;
-                        output.m_result.m_success = true;
-                        return;
-                    }
-                    if (firstAllow == nullptr)
-                    {
-                        firstAllow = &rule;
-                    }
-                }
-                if (firstAllow)
-                {
-                    decision = "allow";
-                    explanation = "allowed by " + firstAllow->m_filter + " in group " + group;
-                    break;
-                }
-                // The first group with rules decides; no matching rule in it is not a fall-through
-                // to another group, because resolveGroup() would have stopped at this group too.
-                break;
-            }
-
-            output.m_decision = decision;
-            output.m_explanation = explanation;
+            // The same evaluator the broker uses, so "test" cannot answer something the publish
+            // path would decide differently.
+            std::string explanation;
+            const auto  decision = AclRules::evaluate(store.aclRules(), groups, username.c_str(),
+                                                      clientId.c_str(), topic.c_str(),
+                                                      aclAction == "publish", &explanation);
+            output.m_decision = decision == AclRules::Decision::Allow ? "allow"
+                : (decision == AclRules::Decision::Deny ? "deny" : "not_handled");
+            output.m_explanation = explanation.empty() ? "no rule applies to this client" : explanation;
         }
         else if (action == "import-plan" || action == "import-apply")
         {

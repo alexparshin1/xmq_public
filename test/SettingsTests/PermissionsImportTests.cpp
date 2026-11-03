@@ -11,12 +11,12 @@ using namespace xmq;
 namespace {
 
 bool hasRule(const vector<PermissionsImport::Rule>& rules, const string& group, const string& action,
-             const bool deny, const string& filter)
+             const bool deny, const string& filter, const bool pattern = false)
 {
     return ranges::any_of(rules, [&](const auto& rule)
                           {
                               return rule.m_group == group && rule.m_action == action && rule.m_deny == deny &&
-                                     rule.m_filter == filter;
+                                     rule.m_filter == filter && rule.m_pattern == pattern;
                           });
 }
 
@@ -39,10 +39,14 @@ TEST(PermissionsImport, readsAMosquittoAclFile)
 
     EXPECT_TRUE(hasRule(rules, "anonymous", "subscribe", false, "$SYS/#"));
     EXPECT_TRUE(hasRule(rules, "user:sensor-1", "publish", false, "site/sensor-1/telemetry/#"));
-    EXPECT_TRUE(hasRule(rules, "user:sensor-1", "subscribe", false, "devices/sensor-1/#"));
     EXPECT_TRUE(hasRule(rules, "user:sensor-1", "publish", true, "site/sensor-1/telemetry/secret/#"));
     EXPECT_TRUE(hasRule(rules, "user:admin", "subscribe", false, "#"));
-    EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note) { return note.find("%c") != string::npos; }));
+
+    // A pattern is one rule for every client, with its tokens intact: %c can be honoured now, and
+    // %u does not depend on the accounts that happen to exist at import time.
+    EXPECT_TRUE(hasRule(rules, "*", "subscribe", false, "devices/%u/#", true));
+    EXPECT_TRUE(hasRule(rules, "*", "subscribe", false, "devices/%c/#", true));
+    EXPECT_FALSE(ranges::any_of(skipped, [](const auto& note) { return note.find("%c") != string::npos; }));
 }
 
 TEST(PermissionsImport, duplicateAndConflictClassification)
@@ -109,11 +113,22 @@ TEST(PermissionsImport, readsDynamicSecurityRolesAndDefaults)
 
     vector<string> skipped;
     const auto rules = PermissionsImport::parseDynamicSecurity(content, skipped);
-    EXPECT_TRUE(hasRule(rules, "user:sensor-1", "publish", false, "site/sensor-1/telemetry/#"));
-    EXPECT_TRUE(hasRule(rules, "user:sensor-1", "subscribe", false, "site/sensor-1/config/#"));
+    // %u stays in the filter: it is replaced when the rule is checked, as in Mosquitto.
+    EXPECT_TRUE(hasRule(rules, "user:sensor-1", "publish", false, "site/%u/telemetry/#"));
+    EXPECT_TRUE(hasRule(rules, "user:sensor-1", "subscribe", false, "site/%u/config/#"));
     EXPECT_TRUE(hasRule(rules, "user:sensor-1", "subscribe", false, "plant/#"));
     EXPECT_TRUE(hasRule(rules, "user:admin", "publish", false, "#"));
-    EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note) { return note.find("deny-wins") != string::npos; }));
+
+    // The direct role is checked before the role that comes through the group.
+    const auto direct = ranges::find_if(rules, [](const auto& rule)
+                                        { return rule.m_filter == "site/%u/telemetry/#"; });
+    const auto grouped = ranges::find_if(rules, [](const auto& rule)
+                                         { return rule.m_filter == "plant/#"; });
+    ASSERT_NE(rules.end(), direct);
+    ASSERT_NE(rules.end(), grouped);
+    EXPECT_LT(direct->m_order, grouped->m_order);
+    EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note)
+                              { return note.find("substituted when the rule is checked") != string::npos; }));
 }
 
 TEST(PermissionsImport, refusesAFilterWithAnEmptyLevel)

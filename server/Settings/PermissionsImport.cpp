@@ -1,7 +1,6 @@
 #include "PermissionsImport.h"
 
 #include <algorithm>
-#include <cctype>
 #include <map>
 #include <optional>
 #include <ranges>
@@ -17,6 +16,14 @@ namespace ranges = std::ranges;
 namespace xmq {
 
 namespace {
+
+/// Manual rules sit before anything an import brought in, and a manual deny before a manual allow.
+constexpr int manualDenyOrder = 0;
+constexpr int manualAllowOrder = 1000000;
+/// Imported rules keep the order Mosquitto would check them in.
+constexpr int importedOrderBase = 2000000;
+/// A default ACL ("allow everything not otherwise matched") is checked last.
+constexpr int defaultOrderBase = 4000000;
 
 string trim(const string& text)
 {
@@ -56,7 +63,8 @@ bool validFilter(const string_view filter)
     const auto parts = levels(filter);
     for (size_t index = 0; index < parts.size(); ++index)
     {
-        // The same rule the control API applies: no empty levels, one whole level for a wildcard.
+        // One rule for the control API, the import and the evaluator: no empty levels, and the
+        // wildcards must each be a whole level, with # the last one. A %u or %c token is a level.
         if (parts[index].empty())
         {
             return false;
@@ -73,7 +81,7 @@ bool validFilter(const string_view filter)
     return true;
 }
 
-string join(const vector<string>& parts, string_view separator);
+string join(const vector<string>& parts, const string_view separator);
 
 bool covers(const string_view broader, const string_view narrower)
 {
@@ -224,14 +232,18 @@ string ruleJson(const PermissionsImport::Rule& rule)
 {
     return "{\"group\":" + jsonQuote(rule.m_group) + ",\"action\":" + jsonQuote(rule.m_action) +
            ",\"deny\":" + (rule.m_deny ? "true" : "false") + ",\"filter\":" + jsonQuote(rule.m_filter) +
-           ",\"source\":" + jsonQuote(rule.m_source) + ",\"ref\":" + jsonQuote(rule.m_ref) + "}";
+           ",\"source\":" + jsonQuote(rule.m_source) + ",\"ref\":" + jsonQuote(rule.m_ref) +
+           ",\"order\":" + to_string(rule.m_order) +
+           ",\"pattern\":" + (rule.m_pattern ? "true" : "false") + "}";
 }
 
 string ruleJson(const UserStore::AclRule& rule)
 {
     return "{\"group\":" + jsonQuote(rule.m_groupName.c_str()) + ",\"action\":" + jsonQuote(rule.m_action.c_str()) +
            ",\"deny\":" + (rule.m_deny ? "true" : "false") + ",\"filter\":" + jsonQuote(rule.m_filter.c_str()) +
-           ",\"source\":" + jsonQuote(rule.m_source.c_str()) + ",\"ref\":" + jsonQuote(rule.m_sourceRef.c_str()) + "}";
+           ",\"source\":" + jsonQuote(rule.m_source.c_str()) + ",\"ref\":" + jsonQuote(rule.m_sourceRef.c_str()) +
+           ",\"order\":" + to_string(rule.m_order) +
+           ",\"pattern\":" + (rule.m_pattern ? "true" : "false") + "}";
 }
 
 string arrayJson(const vector<PermissionsImport::Rule>& rules)
@@ -248,6 +260,92 @@ string arrayJson(const vector<PermissionsImport::Rule>& rules)
     return result + "]";
 }
 
+/// One ACL as Dynamic Security writes it, before the event type has been mapped onto an action.
+struct DynAcl
+{
+    string m_type;
+    string m_topic;
+    bool   m_allow {true};
+    int    m_priority {-1};
+    size_t m_listed {0};
+};
+
+int nodePriority(const xdoc::SNode& node)
+{
+    const auto priority = node->findFirst("priority");
+    return priority ? priority->getInteger() : -1;
+}
+
+/// A role's ACLs in Mosquitto's order: priority from highest to lowest, then as listed.
+vector<DynAcl> roleAcls(const xdoc::SNode& role)
+{
+    vector<DynAcl> acls;
+    size_t         listed = 0;
+    for (const auto& acl: role->nodes("acls"))
+    {
+        acls.push_back({acl->getString("acltype").c_str(), acl->getString("topic").c_str(),
+                        acl->getBoolean("allow"), nodePriority(acl), listed++});
+    }
+    ranges::stable_sort(acls, [](const auto& first, const auto& second)
+                        {
+                            if (first.m_priority != second.m_priority)
+                            {
+                                return first.m_priority > second.m_priority;
+                            }
+                            return first.m_listed < second.m_listed;
+                        });
+    return acls;
+}
+
+/// One role assignment, with the priority the client or group gives it.
+struct RoleAssignment
+{
+    string m_name;
+    int    m_priority {-1};
+};
+
+vector<RoleAssignment> roleAssignments(const xdoc::SNode& node)
+{
+    vector<RoleAssignment> assignments;
+    for (const auto& assignment: node->nodes("roles"))
+    {
+        assignments.push_back({assignment->getString("rolename").c_str(), nodePriority(assignment)});
+    }
+    ranges::stable_sort(assignments, [](const auto& first, const auto& second)
+                        {
+                            if (first.m_priority != second.m_priority)
+                            {
+                                return first.m_priority > second.m_priority;
+                            }
+                            return first.m_name < second.m_name;
+                        });
+    return assignments;
+}
+
+struct GroupAssignment
+{
+    string m_name;
+    int    m_priority {-1};
+};
+
+vector<GroupAssignment> groupAssignments(const xdoc::SNode& node)
+{
+    vector<GroupAssignment> groups;
+    for (const auto& assignment: node->nodes("groups"))
+    {
+        groups.push_back({assignment->getString("groupname").c_str(), nodePriority(assignment)});
+    }
+    ranges::stable_sort(groups, [](const auto& first, const auto& second)
+                        {
+                            if (first.m_priority != second.m_priority)
+                            {
+                                return first.m_priority > second.m_priority;
+                            }
+                            return first.m_name < second.m_name;
+                        });
+    return groups;
+}
+
 } // namespace
 
 vector<PermissionsImport::Rule> PermissionsImport::parseAcl(const string_view content,
@@ -255,15 +353,7 @@ vector<PermissionsImport::Rule> PermissionsImport::parseAcl(const string_view co
 {
     vector<Rule> rules;
     string       current = "anonymous";
-    set<string>  users;
-    struct Pattern
-    {
-        string action;
-        bool   deny;
-        string filter;
-        size_t line;
-    };
-    vector<Pattern> patterns;
+    int          position = 0;
 
     size_t lineNumber = 0;
     istringstream stream{string(content)};
@@ -285,10 +375,6 @@ vector<PermissionsImport::Rule> PermissionsImport::parseAcl(const string_view co
             string name;
             line >> name;
             current = name.empty() ? "anonymous" : "user:" + name;
-            if (!name.empty())
-            {
-                users.insert(current);
-            }
             continue;
         }
         if (keyword != "topic" && keyword != "pattern")
@@ -331,54 +417,21 @@ vector<PermissionsImport::Rule> PermissionsImport::parseAcl(const string_view co
             actions.emplace_back("publish", true);
         }
 
-        if (keyword == "pattern")
-        {
-            for (const auto& [action, deny]: actions)
-            {
-                patterns.push_back({action, deny, filter, lineNumber});
-            }
-            continue;
-        }
+        // A pattern is a template for every client, so it is stored once with its %u/%c tokens
+        // intact rather than expanded over the accounts that happen to exist today.
+        const bool pattern = keyword == "pattern";
         for (const auto& [action, deny]: actions)
         {
-            rules.push_back({current, action, deny, filter, "mosquitto",
-                             "acl:" + to_string(lineNumber)});
-        }
-    }
-
-    for (const auto& pattern: patterns)
-    {
-        if (pattern.filter.find("%c") != string::npos)
-        {
-            skipped.push_back("line " + to_string(pattern.line) + ": '%c' is not supported by the authorizer");
-            continue;
-        }
-        vector<string> targets;
-        if (pattern.filter.find("%u") != string::npos)
-        {
-            targets.assign(users.begin(), users.end());
-        }
-        else
-        {
-            targets.assign(users.begin(), users.end());
-            targets.push_back("anonymous");
-        }
-        for (const auto& group: targets)
-        {
-            auto expanded = pattern.filter;
-            const auto user = group.starts_with("user:") ? group.substr(5) : "";
-            for (auto at = expanded.find("%u"); at != string::npos && !user.empty();
-                 at = expanded.find("%u", at + user.size()))
-            {
-                expanded.replace(at, 2, user);
-            }
-            if (!validFilter(expanded))
-            {
-                skipped.push_back("line " + to_string(pattern.line) + ": invalid expanded filter '" + expanded + "'");
-                continue;
-            }
-            rules.push_back({group, pattern.action, pattern.deny, expanded, "mosquitto",
-                             "acl:" + to_string(pattern.line)});
+            // Mosquitto checks every deny before any allow; otherwise the file order stands.
+            const auto order = (deny ? importedOrderBase : importedOrderBase + 1000000) + position++;
+            rules.push_back({.m_group = pattern ? "*" : current,
+                             .m_action = action,
+                             .m_deny = deny,
+                             .m_filter = filter,
+                             .m_source = "mosquitto",
+                             .m_ref = "acl:" + to_string(lineNumber),
+                             .m_order = order,
+                             .m_pattern = pattern});
         }
     }
     return rules;
@@ -402,20 +455,29 @@ vector<PermissionsImport::Rule> PermissionsImport::parseDynamicSecurity(const st
         groups[node->getString("groupname").c_str()] = node;
     }
 
-    const auto defaults = root->findFirst("defaultACLAccess");
-    const bool defaultPublish = defaults && defaults->getBoolean("publishClientSend");
+    const auto defaults        = root->findFirst("defaultACLAccess");
+    const bool defaultPublish   = defaults && defaults->getBoolean("publishClientSend");
     const bool defaultSubscribe = defaults && defaults->getBoolean("subscribe");
-    const auto anonymousGroup = root->findFirst("anonymousGroup") ? root->getString("anonymousGroup") : String("unauthenticated");
+    const auto anonymousGroup = root->findFirst("anonymousGroup")
+        ? root->getString("anonymousGroup") : String("unauthenticated");
 
     vector<Rule> rules;
 
     const auto addRule = [&rules](const string& group, const string& action, const bool deny,
-                                  const string& filter, const string& ref)
+                                  const string& filter, const string& ref, const int order)
     {
-        rules.push_back({group, action, deny, filter, "dynamic-security", ref});
+        rules.push_back({.m_group = group,
+                         .m_action = action,
+                         .m_deny = deny,
+                         .m_filter = filter,
+                         .m_source = "dynamic-security",
+                         .m_ref = ref,
+                         .m_order = order,
+                         .m_pattern = false});
     };
 
-    const auto roleRules = [&](const string& rolename, const string& username, const string& label)
+    const auto addRole = [&](const string& rolename, const string& subject, const string& label,
+                             int& position)
     {
         const auto found = roles.find(rolename);
         if (found == roles.end())
@@ -423,66 +485,51 @@ vector<PermissionsImport::Rule> PermissionsImport::parseDynamicSecurity(const st
             skipped.push_back(label + ": role '" + rolename + "' not found");
             return;
         }
-        for (const auto& acl: found->second->nodes("acls"))
+        for (const auto& acl: roleAcls(found->second))
         {
-            const string acltype = acl->getString("acltype").c_str();
-            string       topic = acl->getString("topic").c_str();
-            const bool allow = acl->getBoolean("allow");
             const auto ref = label + "/role/" + rolename;
-            if (topic.empty())
+            if (acl.m_topic.empty())
             {
                 skipped.push_back(ref + ": empty topic");
                 continue;
             }
-            if (string(topic).find("%c") != string::npos)
+            if (!validFilter(acl.m_topic))
             {
-                skipped.push_back(ref + ": '%c' is not supported by the authorizer");
+                skipped.push_back(ref + ": invalid filter '" + acl.m_topic + "'");
                 continue;
             }
-            if (!username.empty())
+            const auto order = importedOrderBase + position++;
+            if (acl.m_type == "publishClientSend")
             {
-                for (auto at = topic.find("%u"); at != string::npos; at = topic.find("%u", at + username.size()))
-                {
-                    topic.replace(at, 2, username);
-                }
+                addRule(subject, "publish", !acl.m_allow, acl.m_topic, ref, order);
             }
-            if (!validFilter(topic))
+            else if (acl.m_type == "subscribeLiteral" || acl.m_type == "subscribePattern")
             {
-                skipped.push_back(ref + ": invalid filter '" + topic + "'");
-                continue;
-            }
-            const string group = "user:" + username;
-            if (acltype == "publishClientSend")
-            {
-                addRule(group, "publish", !allow, topic, ref);
-            }
-            else if (acltype == "subscribeLiteral" || acltype == "subscribePattern")
-            {
-                if (acltype == "subscribeLiteral")
+                if (acl.m_type == "subscribeLiteral")
                 {
                     skipped.push_back(ref + ": subscribeLiteral is approximated as a filter");
                 }
-                addRule(group, "subscribe", !allow, topic, ref);
+                addRule(subject, "subscribe", !acl.m_allow, acl.m_topic, ref, order);
             }
-            else if (acltype == "publishClientReceive")
+            else if (acl.m_type == "publishClientReceive")
             {
-                if (!allow)
+                if (!acl.m_allow)
                 {
                     skipped.push_back(ref + ": publishClientReceive deny is carried as a subscribe deny");
-                    addRule(group, "subscribe", true, topic, ref);
+                    addRule(subject, "subscribe", true, acl.m_topic, ref, order);
                 }
                 else
                 {
                     skipped.push_back(ref + ": publishClientReceive allow is implied by subscribe");
                 }
             }
-            else if (acltype.starts_with("unsubscribe"))
+            else if (acl.m_type.starts_with("unsubscribe"))
             {
-                skipped.push_back(ref + ": " + string(acltype) + " has no equivalent");
+                skipped.push_back(ref + ": " + acl.m_type + " has no equivalent");
             }
             else
             {
-                skipped.push_back(ref + ": unknown acltype '" + string(acltype) + "'");
+                skipped.push_back(ref + ": unknown acltype '" + acl.m_type + "'");
             }
         }
     };
@@ -495,36 +542,40 @@ vector<PermissionsImport::Rule> PermissionsImport::parseDynamicSecurity(const st
             skipped.push_back("client without a username is not imported");
             continue;
         }
-        const auto label = "client/" + string(username);
-        for (const auto& assignment: client->nodes("roles"))
+        const string subject = "user:" + username;
+        int          position = 0;
+
+        // Direct roles first, in the order Mosquitto checks them.
+        for (const auto& assignment: roleAssignments(client))
         {
-            roleRules(assignment->getString("rolename").c_str(), username, label + "/direct");
+            addRole(assignment.m_name, subject, "client/" + username + "/direct", position);
         }
-        for (const auto& assignment: client->nodes("groups"))
+        // Then the client's groups, by the priority the client gives each one.
+        for (const auto& assignment: groupAssignments(client))
         {
-            const string groupname = assignment->getString("groupname").c_str();
-            const auto found = groups.find(groupname);
+            const auto found = groups.find(assignment.m_name);
             if (found == groups.end())
             {
-                skipped.push_back(label + ": group '" + groupname + "' not found");
+                skipped.push_back("client/" + username + ": group '" + assignment.m_name + "' not found");
                 continue;
             }
-            for (const auto& role: found->second->nodes("roles"))
+            for (const auto& role: roleAssignments(found->second))
             {
-                roleRules(role->getString("rolename").c_str(), username, label + "/group/" + groupname);
+                addRole(role.m_name, subject,
+                        "client/" + username + "/group/" + assignment.m_name, position);
             }
         }
-        const bool hasPublish = ranges::any_of(rules, [&](const auto& rule)
-                                               { return rule.m_group == "user:" + string(username) && rule.m_action == "publish"; });
-        const bool hasSubscribe = ranges::any_of(rules, [&](const auto& rule)
-                                                 { return rule.m_group == "user:" + string(username) && rule.m_action == "subscribe"; });
-        if (defaultPublish && !hasPublish)
+
+        // Default access applies only when no ACL matched, so it is placed after everything else.
+        if (defaultPublish)
         {
-            addRule("user:" + string(username), "publish", false, "#", "default/publishClientSend");
+            addRule(subject, "publish", false, "#", "default/publishClientSend",
+                    defaultOrderBase + position++);
         }
-        if (defaultSubscribe && !hasSubscribe)
+        if (defaultSubscribe)
         {
-            addRule("user:" + string(username), "subscribe", false, "#", "default/subscribe");
+            addRule(subject, "subscribe", false, "#", "default/subscribe",
+                    defaultOrderBase + position++);
         }
     }
 
@@ -532,39 +583,26 @@ vector<PermissionsImport::Rule> PermissionsImport::parseDynamicSecurity(const st
     const auto anonymous = groups.find(anonymousGroup.c_str());
     if (anonymous != groups.end())
     {
-        for (const auto& role: anonymous->second->nodes("roles"))
+        int position = 0;
+        for (const auto& role: roleAssignments(anonymous->second))
         {
-            const string rolename = role->getString("rolename").c_str();
-            const auto found = roles.find(rolename);
-            if (found == roles.end())
-            {
-                skipped.push_back("anonymous: role '" + string(rolename) + "' not found");
-                continue;
-            }
-            for (const auto& acl: found->second->nodes("acls"))
-            {
-                string topic = acl->getString("topic").c_str();
-                if (topic.empty() || string(topic).find("%u") != string::npos ||
-                    string(topic).find("%c") != string::npos)
-                {
-                    skipped.push_back("anonymous: a pattern needs a user");
-                    continue;
-                }
-                const string acltype = acl->getString("acltype").c_str();
-                const bool allow = acl->getBoolean("allow");
-                if (acltype == "publishClientSend")
-                {
-                    addRule("anonymous", "publish", !allow, topic, "anonymous/" + string(rolename));
-                }
-                else if (acltype == "subscribeLiteral" || acltype == "subscribePattern")
-                {
-                    addRule("anonymous", "subscribe", !allow, topic, "anonymous/" + string(rolename));
-                }
-            }
+            addRole(role.m_name, "anonymous", "anonymous/group/" + string(anonymousGroup.c_str()),
+                    position);
+        }
+        if (defaultPublish)
+        {
+            addRule("anonymous", "publish", false, "#", "default/publishClientSend",
+                    defaultOrderBase + position++);
+        }
+        if (defaultSubscribe)
+        {
+            addRule("anonymous", "subscribe", false, "#", "default/subscribe",
+                    defaultOrderBase + position++);
         }
     }
 
-    skipped.push_back("priorities are flattened: XMQ applies deny-wins, stricter than Mosquitto's first-match order");
+    skipped.push_back("ACL order follows Mosquitto's priorities; %u and %c are substituted when the "
+                      "rule is checked, not when it is imported");
     return rules;
 }
 
@@ -576,7 +614,8 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
     const auto sameKey = [](const UserStore::AclRule& stored, const Rule& rule)
     {
         return stored.m_groupName == rule.m_group.c_str() && stored.m_action == rule.m_action.c_str() &&
-               stored.m_deny == rule.m_deny && stored.m_filter == rule.m_filter.c_str();
+               stored.m_deny == rule.m_deny && stored.m_filter == rule.m_filter.c_str() &&
+               stored.m_pattern == rule.m_pattern;
     };
 
     for (const auto& rule: imported)
@@ -596,6 +635,7 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
                                return stored.m_groupName == rule.m_group.c_str() &&
                                       stored.m_action == rule.m_action.c_str() &&
                                       stored.m_deny == rule.m_deny &&
+                                      stored.m_pattern == rule.m_pattern &&
                                       covers(stored.m_filter.c_str(), rule.m_filter);
                            }))
         {
@@ -607,7 +647,7 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
         for (const auto& stored: existing)
         {
             if (stored.m_groupName != rule.m_group.c_str() || stored.m_action != rule.m_action.c_str() ||
-                stored.m_deny == rule.m_deny)
+                stored.m_pattern != rule.m_pattern || stored.m_deny == rule.m_deny)
             {
                 continue;
             }
@@ -615,8 +655,14 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
             {
                 result.m_conflicts.push_back(
                     {rule,
-                     {stored.m_groupName.c_str(), stored.m_action.c_str(), stored.m_deny,
-                      stored.m_filter.c_str(), stored.m_source.c_str(), stored.m_sourceRef.c_str()},
+                     {.m_group = stored.m_groupName.c_str(),
+                      .m_action = stored.m_action.c_str(),
+                      .m_deny = stored.m_deny,
+                      .m_filter = stored.m_filter.c_str(),
+                      .m_source = stored.m_source.c_str(),
+                      .m_ref = stored.m_sourceRef.c_str(),
+                      .m_order = stored.m_order,
+                      .m_pattern = stored.m_pattern},
                      *scope});
                 conflicted = true;
             }
@@ -643,14 +689,17 @@ vector<UserStore::AclRule> PermissionsImport::apply(const vector<UserStore::AclR
                      {
                          return stored.m_groupName == old.m_group.c_str() &&
                                 stored.m_action == old.m_action.c_str() &&
-                                stored.m_deny == old.m_deny && stored.m_filter == old.m_filter.c_str();
+                                stored.m_deny == old.m_deny && stored.m_filter == old.m_filter.c_str() &&
+                                stored.m_pattern == old.m_pattern;
                      });
             result.push_back({.m_groupName = conflict.m_imported.m_group.c_str(),
                               .m_action = conflict.m_imported.m_action.c_str(),
                               .m_deny = conflict.m_imported.m_deny,
                               .m_filter = conflict.m_imported.m_filter.c_str(),
                               .m_source = conflict.m_imported.m_source.c_str(),
-                              .m_sourceRef = conflict.m_imported.m_ref.c_str()});
+                              .m_sourceRef = conflict.m_imported.m_ref.c_str(),
+                              .m_order = conflict.m_imported.m_order,
+                              .m_pattern = conflict.m_imported.m_pattern});
         }
     }
 
@@ -661,7 +710,9 @@ vector<UserStore::AclRule> PermissionsImport::apply(const vector<UserStore::AclR
                           .m_deny = rule.m_deny,
                           .m_filter = rule.m_filter.c_str(),
                           .m_source = rule.m_source.c_str(),
-                          .m_sourceRef = rule.m_ref.c_str()});
+                          .m_sourceRef = rule.m_ref.c_str(),
+                          .m_order = rule.m_order,
+                          .m_pattern = rule.m_pattern});
     }
 
     // The store's identity is the canonical key; the plan already deduplicated, but a caller may
@@ -670,7 +721,8 @@ vector<UserStore::AclRule> PermissionsImport::apply(const vector<UserStore::AclR
     for (const auto& rule: result)
     {
         const auto key = string(rule.m_groupName.c_str()) + "|" + rule.m_action.c_str() + "|" +
-                         (rule.m_deny ? "1" : "0") + "|" + rule.m_filter.c_str();
+                         (rule.m_deny ? "1" : "0") + "|" + (rule.m_pattern ? "1" : "0") + "|" +
+                         rule.m_filter.c_str();
         unique.emplace(key, rule);
     }
     result.clear();

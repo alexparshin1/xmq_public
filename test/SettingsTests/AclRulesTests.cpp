@@ -48,23 +48,23 @@ protected:
 
 TEST_F(AclRulesTests, aGroupWithRulesIsAnAllowListAndDenyWins)
 {
-    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("alice", "sensors/temp", true));
-    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "sensors/secret/key", true));
-    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "other/topic", true));
-    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "sensors/temp", false))
+    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("alice", "client-1", "sensors/temp", true));
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "client-1", "sensors/secret/key", true));
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "client-1", "other/topic", true));
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "client-1", "sensors/temp", false))
         << "a publish rule does not grant subscribe";
 }
 
 TEST_F(AclRulesTests, aUserWithNoGroupRulesIsNotHandled)
 {
-    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "sensors/temp", true));
-    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("", "anything", true));
+    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client-1", "sensors/temp", true));
+    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("", "", "anything", true));
 }
 
 TEST_F(AclRulesTests, accountGroupsAreEvaluatedByTheirName)
 {
-    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorizeGroups({"operators"}, "plant/line1", false));
-    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorizeGroups({"operators"}, "other/line1", false));
+    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorizeGroups({"operators"}, "", "", "plant/line1", false));
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorizeGroups({"operators"}, "", "", "other/line1", false));
 }
 
 TEST_F(AclRulesTests, reloadingRulesDropsTheCachedGroups)
@@ -76,9 +76,9 @@ TEST_F(AclRulesTests, reloadingRulesDropsTheCachedGroups)
                       .m_filter = "devices/#"});
     m_rules.reload(m_pool, m_users);
 
-    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("bob", "devices/1", true));
+    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("bob", "client-1", "devices/1", true));
     m_rules.invalidateGroups();
-    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("bob", "devices/1", true));
+    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("bob", "client-1", "devices/1", true));
 }
 
 TEST_F(AclRulesTests, emptyWhenThereAreNoRules)
@@ -90,5 +90,70 @@ TEST_F(AclRulesTests, emptyWhenThereAreNoRules)
     AclRules rules;
     rules.reload(empty, m_users);
     EXPECT_TRUE(rules.empty());
-    EXPECT_EQ(AclRules::Decision::NotHandled, rules.authorize("alice", "sensors/temp", true));
+    EXPECT_EQ(AclRules::Decision::NotHandled, rules.authorize("alice", "client-1", "sensors/temp", true));
+}
+
+TEST_F(AclRulesTests, aPatternRuleSubstitutesTheClientId)
+{
+    UserStore store(m_pool);
+    store.addAclRule({.m_groupName = "*",
+                      .m_action = "subscribe",
+                      .m_deny = false,
+                      .m_filter = "devices/%c/#",
+                      .m_source = "mosquitto",
+                      .m_order = 100,
+                      .m_pattern = true});
+    m_rules.reload(m_pool, m_users);
+
+    EXPECT_EQ(AclRules::Decision::Allow,
+              m_rules.authorize("bob", "device-7", "devices/device-7/temp", false));
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorize("bob", "device-8", "devices/device-7/temp", false))
+        << "another client id does not match";
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorize("bob", "+", "devices/+/temp", false))
+        << "a client id that would add a wildcard matches nothing";
+}
+
+TEST_F(AclRulesTests, theEarliestOrderWinsEvenBetweenAllowAndDeny)
+{
+    UserStore store(m_pool);
+    store.addAclRule({.m_groupName = "user:carol",
+                      .m_action = "publish",
+                      .m_deny = true,
+                      .m_filter = "sensors/#",
+                      .m_source = "dynamic-security",
+                      .m_order = 10});
+    store.addAclRule({.m_groupName = "user:carol",
+                      .m_action = "publish",
+                      .m_deny = false,
+                      .m_filter = "sensors/temp",
+                      .m_source = "dynamic-security",
+                      .m_order = 20});
+    m_rules.reload(m_pool, m_users);
+
+    // The first rule in Mosquitto's order decides, even when a later one says the opposite.
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("carol", "client", "sensors/temp", true));
+}
+
+TEST_F(AclRulesTests, anonymousRulesDoNotApplyToNamedClients)
+{
+    UserStore store(m_pool);
+    store.addAclRule({.m_groupName = "anonymous",
+                      .m_action = "publish",
+                      .m_deny = false,
+                      .m_filter = "public/#",
+                      .m_order = 100});
+    m_rules.reload(m_pool, m_users);
+
+    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client", "public/x", true));
+    EXPECT_EQ(AclRules::Decision::Allow, m_rules.authorize("", "", "public/x", true));
+}
+
+TEST_F(AclRulesTests, noMatchingRuleDeniesAClientTheRulesKnow)
+{
+    // alice has publish rules; a topic none of them covers is denied rather than left open.
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("alice", "client", "elsewhere", true));
+    // bob has no rules at all, so the decision belongs to the extensions, as it always did.
+    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client", "elsewhere", true));
 }

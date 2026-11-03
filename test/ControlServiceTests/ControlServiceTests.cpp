@@ -1234,7 +1234,8 @@ TEST_F(XMQ_ControlServiceTests, permissionsControlListsAddsTestsAndRemoves)
 
     EXPECT_EQ("allow", test("sensors/temp"));
     EXPECT_EQ("deny", test("sensors/secret/key"));
-    EXPECT_EQ("not_handled", test("somewhere/else"));
+    // The rules know this client, so a topic none of them covers is denied: Mosquitto's default.
+    EXPECT_EQ("deny", test("somewhere/else"));
 
     // Remove both, so the shared accounts database is left as it was found.
     input.m_action = "list";
@@ -1357,6 +1358,61 @@ TEST_F(XMQ_ControlServiceTests, permissionsRejectInvalidTopicFilters)
     for (const auto& rule: output.m_rules)
     {
         if (rule.m_group.asString() != group)
+        {
+            continue;
+        }
+        CPermissionsControl         remove;
+        CPermissionsControlResponse removed;
+        remove.m_action = "remove";
+        remove.m_rule_id = rule.m_id.asInteger();
+        m_controlService->PermissionsControl(remove, removed, &authentication);
+    }
+}
+
+
+TEST_F(XMQ_ControlServiceTests, permissionsPatternRulesUseTheClientId)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+
+    input.m_action = "add";
+    input.m_rule.m_group = "*";
+    input.m_rule.m_action = "subscribe";
+    input.m_rule.m_deny = false;
+    input.m_rule.m_filter = "devices/%c/#";
+    input.m_rule.m_pattern = true;
+    input.m_rule.m_source = "mosquitto";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+
+    const auto test = [&](const String& clientId, const String& topic)
+    {
+        input.m_action = "test";
+        input.m_username = "";
+        input.m_client_id = clientId;
+        input.m_topic = topic;
+        input.m_acl_action = "subscribe";
+        m_controlService->PermissionsControl(input, output, &authentication);
+        verifyResult(output.m_result);
+        return String(output.m_decision.asString());
+    };
+
+    EXPECT_EQ("allow", test("device-7", "devices/device-7/temp"));
+    EXPECT_EQ("deny", test("device-8", "devices/device-7/temp"));
+    EXPECT_EQ("deny", test("+", "devices/+/temp")) << "a wildcard client id cannot widen a pattern";
+
+    // Leave the shared accounts database as it was found.
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    for (const auto& rule: output.m_rules)
+    {
+        if (!rule.m_pattern.asBool())
         {
             continue;
         }

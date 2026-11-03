@@ -14,6 +14,10 @@ namespace xmq {
  * Both Mosquitto formats reduce to the same canonical rule. An import is a plan first: every rule
  * is new, unchanged, redundant or a conflict, duplicates are recognised by their canonical key, and
  * nothing is written while a conflict is unresolved.
+ *
+ * Each rule carries the position at which Mosquitto would check it, so the broker's evaluation can
+ * follow the source rather than a house order. A pattern rule keeps its %u and %c tokens; they are
+ * replaced when the rule is checked, not when it is imported.
  */
 class PermissionsImport
 {
@@ -26,6 +30,8 @@ public:
         std::string m_filter;
         std::string m_source;
         std::string m_ref;
+        int         m_order {0};      ///< Evaluation position, lowest first.
+        bool        m_pattern {false}; ///< The filter is a template for every client.
     };
 
     struct Conflict

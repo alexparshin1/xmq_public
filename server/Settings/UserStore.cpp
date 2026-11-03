@@ -209,7 +209,8 @@ void UserStore::createSchema()
             "CREATE INDEX ix_user_to_group_by_group ON " + String(string(membershipTable)) + " (user_group_id)");
     }
 
-    if (!tableExists("xmq_acl_rule"))
+    const bool aclTableExisted = tableExists("xmq_acl_rule");
+    if (!aclTableExisted)
     {
         // The canonical key is (group_name, action, deny, topic_filter). No UNIQUE constraint:
         // MySQL indexes a 1024-character column only with a prefix, which would make two different
@@ -223,10 +224,31 @@ void UserStore::createSchema()
             "  topic_filter varchar(1024) NOT NULL,"
             "  source       varchar(40),"
             "  source_ref   varchar(255),"
+            "  check_order  int NOT NULL DEFAULT 0,"
+            "  is_pattern   int NOT NULL DEFAULT 0,"
             "  revision     int NOT NULL DEFAULT 1,"
             "  updated_at   varchar(40),"
             "  updated_by   varchar(80))" + tableSuffix());
         executeStatement("CREATE INDEX ix_xmq_acl_rule_group ON xmq_acl_rule (group_name)");
+    }
+
+    // Added in XMQ 1.1: a rule has an evaluation position, and a pattern rule is a template for
+    // every client. Only an installation from before this needs the columns added; a fresh table
+    // already has them, and a column that exists would make the ALTER TABLE throw anyway.
+    if (aclTableExisted)
+    {
+        for (const auto* column: {"check_order int NOT NULL DEFAULT 0",
+                                  "is_pattern int NOT NULL DEFAULT 0"})
+        {
+            try
+            {
+                executeStatement("ALTER TABLE xmq_acl_rule ADD COLUMN " + String(column));
+            }
+            catch (const Exception&)
+            {
+                // Column already exists.
+            }
+        }
     }
 
     if (!tableExists(String(string(versionTable))))
@@ -350,6 +372,8 @@ UserStore::AclRule readAclRule(Query& query)
                                .m_filter = query["topic_filter"].asString(),
                                .m_source = query["source"].asString(),
                                .m_sourceRef = query["source_ref"].asString(),
+                               .m_order = query["check_order"].asInteger(),
+                               .m_pattern = query["is_pattern"].asInteger() != 0,
                                .m_revision = query["revision"].asInteger(),
                                .m_updatedAt = query["updated_at"].asString(),
                                .m_updatedBy = query["updated_by"].asString()};
@@ -502,8 +526,8 @@ std::vector<UserStore::AclRule> UserStore::aclRules()
 {
     const AutoDatabaseConnection connection(*m_database);
     Query query(connection.connection(),
-                "SELECT id, group_name, action, deny, topic_filter, source, source_ref, revision, "
-                "updated_at, updated_by FROM xmq_acl_rule "
+                "SELECT id, group_name, action, deny, topic_filter, source, source_ref, "
+                "check_order, is_pattern, revision, updated_at, updated_by FROM xmq_acl_rule "
                 "ORDER BY group_name, action, deny, topic_filter");
     query.open();
 
@@ -523,11 +547,12 @@ int64_t UserStore::addAclRule(const AclRule& rule)
 
     Query existing(connection.connection(),
                    "SELECT id FROM xmq_acl_rule WHERE group_name = :group_name AND action = :action "
-                   "AND deny = :deny AND topic_filter = :topic_filter");
+                   "AND deny = :deny AND topic_filter = :topic_filter AND is_pattern = :is_pattern");
     existing.param("group_name") = rule.m_groupName;
     existing.param("action") = rule.m_action;
     existing.param("deny") = rule.m_deny ? 1 : 0;
     existing.param("topic_filter") = rule.m_filter;
+    existing.param("is_pattern") = rule.m_pattern ? 1 : 0;
     existing.open();
     if (!existing.eof())
     {
@@ -536,10 +561,11 @@ int64_t UserStore::addAclRule(const AclRule& rule)
 
         // The same rule from another source updates where it came from; it is not a second rule.
         Query update(connection.connection(),
-                     "UPDATE xmq_acl_rule SET source = :source, source_ref = :source_ref "
-                     "WHERE id = :id");
+                     "UPDATE xmq_acl_rule SET source = :source, source_ref = :source_ref, "
+                     "check_order = :check_order WHERE id = :id");
         update.param("source") = rule.m_source;
         update.param("source_ref") = rule.m_sourceRef;
+        update.param("check_order") = rule.m_order;
         update.param("id") = id;
         update.exec();
         raiseVersion(connection);
@@ -549,14 +575,17 @@ int64_t UserStore::addAclRule(const AclRule& rule)
 
     Query insert(connection.connection(),
                  "INSERT INTO xmq_acl_rule (group_name, action, deny, topic_filter, source, source_ref, "
-                 "revision, updated_at, updated_by) "
-                 "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, 1, :updated_at, :updated_by)");
+                 "check_order, is_pattern, revision, updated_at, updated_by) "
+                 "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, "
+                 ":check_order, :is_pattern, 1, :updated_at, :updated_by)");
     insert.param("group_name") = rule.m_groupName;
     insert.param("action") = rule.m_action;
     insert.param("deny") = rule.m_deny ? 1 : 0;
     insert.param("topic_filter") = rule.m_filter;
     insert.param("source") = rule.m_source;
     insert.param("source_ref") = rule.m_sourceRef;
+    insert.param("check_order") = rule.m_order;
+    insert.param("is_pattern") = rule.m_pattern ? 1 : 0;
     insert.param("updated_at") = rule.m_updatedAt.empty() ? nowUtc() : rule.m_updatedAt;
     insert.param("updated_by") = rule.m_updatedBy;
     insert.exec();
@@ -565,11 +594,12 @@ int64_t UserStore::addAclRule(const AclRule& rule)
     // so it is asked for the id of the row just written.
     Query added(connection.connection(),
                 "SELECT id FROM xmq_acl_rule WHERE group_name = :group_name AND action = :action "
-                "AND deny = :deny AND topic_filter = :topic_filter");
+                "AND deny = :deny AND topic_filter = :topic_filter AND is_pattern = :is_pattern");
     added.param("group_name") = rule.m_groupName;
     added.param("action") = rule.m_action;
     added.param("deny") = rule.m_deny ? 1 : 0;
     added.param("topic_filter") = rule.m_filter;
+    added.param("is_pattern") = rule.m_pattern ? 1 : 0;
     added.open();
     const auto id = added.eof() ? int64_t {0} : added["id"].asInt64();
     added.close();
@@ -598,14 +628,17 @@ void UserStore::replaceAclRules(const std::vector<AclRule>& rules)
     {
         Query insert(connection->connection(),
                      "INSERT INTO xmq_acl_rule (group_name, action, deny, topic_filter, source, source_ref, "
-                     "revision, updated_at, updated_by) "
-                     "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, 1, :updated_at, :updated_by)");
+                     "check_order, is_pattern, revision, updated_at, updated_by) "
+                     "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, "
+                     ":check_order, :is_pattern, 1, :updated_at, :updated_by)");
         insert.param("group_name") = rule.m_groupName;
         insert.param("action") = rule.m_action;
         insert.param("deny") = rule.m_deny ? 1 : 0;
         insert.param("topic_filter") = rule.m_filter;
         insert.param("source") = rule.m_source;
         insert.param("source_ref") = rule.m_sourceRef;
+        insert.param("check_order") = rule.m_order;
+        insert.param("is_pattern") = rule.m_pattern ? 1 : 0;
         insert.param("updated_at") = rule.m_updatedAt.empty() ? nowUtc() : rule.m_updatedAt;
         insert.param("updated_by") = rule.m_updatedBy;
         insert.exec();

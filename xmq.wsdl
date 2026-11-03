@@ -781,6 +781,9 @@
                         <xsd:element name="filter" type="xsd:string"/>
                         <xsd:element name="source" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="source_ref" type="xsd:string" minOccurs="0"/>
+                        <!-- True for a rule imported from a Mosquitto pattern: the filter is a
+                             template for every client and keeps its %u and %c tokens. -->
+                        <xsd:element name="pattern" type="xsd:boolean" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
@@ -802,6 +805,7 @@
                         <xsd:element name="rule" type="tns:AclRule" minOccurs="0"/>
                         <xsd:element name="rule_id" type="xsd:int" minOccurs="0"/>
                         <xsd:element name="username" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="client_id" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="topic" type="xsd:string" minOccurs="0"/>
                         <!-- The three optional choices are plain strings rather than enumerations:
                              a generated restriction is checked even when an optional element is

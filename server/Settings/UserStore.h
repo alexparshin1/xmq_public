@@ -147,12 +147,14 @@ public:
         sptk::String m_filter;
         sptk::String m_source;       ///< "manual", "mosquitto", "dynamic-security".
         sptk::String m_sourceRef;    ///< File and line, or import id.
+        int          m_order {0};    ///< Evaluation position, lowest first; see PermissionsImport.
+        bool         m_pattern {false}; ///< The filter is a template for every client (%u, %c).
         int          m_revision {1};
         sptk::String m_updatedAt;
         sptk::String m_updatedBy;
     };
 
-    /// Every topic permission, ordered by group, action, filter and deny.
+    /// Every topic permission, ordered by group, action, deny, filter.
     [[nodiscard]] std::vector<AclRule> aclRules();
 
     /**
