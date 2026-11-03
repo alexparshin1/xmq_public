@@ -18,7 +18,7 @@ export const documentationPages = [
     {id: "permissions", label: "Permissions", path: "/xmq_doc_permissions",
         title: "Topic Permissions",
         description: "Rules for who may publish or subscribe to what, importing Mosquitto ACLs, and the known limitations.",
-        anchors: ["permissions", "permissions-import", "permissions-limitations"]},
+        anchors: ["permissions", "permissions-import", "permissions-csv", "permissions-limitations"]},
     {id: "cluster", label: "Cluster", path: "/xmq_doc_cluster",
         title: "Setting up a Cluster",
         description: "Shared accounts and Redis, node certificates, and joining a cluster.",

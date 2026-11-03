@@ -172,6 +172,33 @@ export default function PermissionsDocumentation() {
                 not imported, with the reason, rather than dropped silently.
             </p>
 
+            <h5 id="permissions-csv">Many devices from a spreadsheet</h5>
+
+            <p>
+                An XLS or XLSX file is not read directly. Save the sheet as
+                <b>CSV UTF-8</b>, then make one <code>username:password</code> line per device.
+                With the username in column A and the password in column B, a third column with
+                <code>=A2&amp;":"&amp;B2</code> produces the line; a small script does the same for
+                larger sheets. The result is the password file described above, so it is imported
+                through <b>Import from Mosquitto</b>: clear-text lines are accepted there and are
+                hashed with this broker's verifier.
+            </p>
+
+            <p>
+                That import puts every account in <code>Default</code>; it has no column for groups,
+                so a fleet that needs a group per device type cannot be expressed this way yet. When
+                a pilot needs a concrete layout - for example <code>username,password,groups</code> -
+                a CSV import with that shape will be added rather than guessed at now.
+            </p>
+
+            <p>
+                The file holds clear passwords: send it over HTTPS, delete it after the import, use
+                unique passwords rather than one shared secret, and look at the import plan for
+                repeated usernames before applying it. The plan never shows a password. For very
+                large files, import in batches; the broker hashes every password as it adds the
+                account.
+            </p>
+
             <h4 id="permissions-limitations">Known limitations</h4>
 
             <ul>
