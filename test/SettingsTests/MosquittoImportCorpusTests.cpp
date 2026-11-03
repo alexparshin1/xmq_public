@@ -1,5 +1,7 @@
+#include "common/DirectoryNames.h"
 #include "server/Settings/AclRules.h"
 #include "server/Settings/PermissionsImport.h"
+#include "server/Settings/UserStore.h"
 
 #include <gtest/gtest.h>
 
@@ -9,6 +11,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <unistd.h>
 
 using namespace std;
 using namespace sptk;
@@ -304,4 +307,55 @@ TEST(MosquittoImportCorpus, dynamicSecurityPrioritiesProduceMosquittoOrder)
               decide(rules, groups, "sensor", "sensor-1", "humidity/sensor/50", true));
     EXPECT_EQ(AclRules::Decision::Deny,
               decide(rules, groups, "sensor", "sensor-1", "elsewhere", true));
+}
+
+TEST(MosquittoImportCorpus, everyFileSurvivesPlanApplyAndTheStore)
+{
+    const auto file = filesystem::temp_directory_path() /
+                      ("xmq_mosquitto_corpus_" + to_string(::getpid()) + ".db");
+    filesystem::remove(file);
+    const auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
+    UserStore  store(pool);
+    store.createSchema();
+
+    for (const auto& entry: filesystem::directory_iterator(corpusDirectory))
+    {
+        if (!entry.is_regular_file() || entry.path().filename() == "README.md")
+        {
+            continue;
+        }
+        const auto content = readFile(entry.path());
+        vector<string> skipped;
+        vector<PermissionsImport::Rule> imported;
+        if (entry.path().extension() == ".acl")
+        {
+            imported = PermissionsImport::parseAcl(content, skipped);
+        }
+        else
+        {
+            imported = PermissionsImport::parseDynamicSecurity(content, skipped);
+        }
+
+        const auto plan = PermissionsImport::plan({}, imported);
+        const auto applied = PermissionsImport::apply({}, plan, "reject");
+        store.replaceAclRules(applied);
+
+        const auto stored = store.aclRules();
+        EXPECT_EQ(applied.size(), stored.size()) << entry.path().filename();
+        // The evaluation position and the pattern flag survive the round trip, not just the key.
+        for (const auto& rule: stored)
+        {
+            const auto original = ranges::find_if(applied, [&](const auto& candidate)
+                                                 {
+                                                     return candidate.m_groupName == rule.m_groupName &&
+                                                            candidate.m_action == rule.m_action &&
+                                                            candidate.m_deny == rule.m_deny &&
+                                                            candidate.m_filter == rule.m_filter &&
+                                                            candidate.m_pattern == rule.m_pattern;
+                                                 });
+            ASSERT_NE(applied.end(), original) << entry.path().filename();
+            EXPECT_EQ(original->m_order, rule.m_order) << entry.path().filename();
+        }
+    }
+    filesystem::remove(file);
 }
