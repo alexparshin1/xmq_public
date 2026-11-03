@@ -19,6 +19,9 @@
 
 #include <sptk5/net/FastTCPServer.h>
 
+#include <functional>
+#include <string_view>
+
 namespace xmq {
 
 class XMQ_EXPORT ServerData : public sptk::FastTCPServer
@@ -100,6 +103,15 @@ public:
     void logMessage(LogSubject subject, sptk::LogPriority priority, const std::string& message) const;
     void logMessage(LogSubject subject, sptk::LogPriority priority, const sptk::Logger::OutputString& output) const;
 
+    /**
+     * @brief A second destination for the lines that reach the log file.
+     *
+     * Set once, by the server, to the extension host's log tap. It runs on the thread that wrote
+     * the line, so it must only enqueue: this is the path that carries every log write, including
+     * the ones that report a fault elsewhere.
+     */
+    void setLogSink(std::function<void(LogSubject, sptk::LogPriority, std::string_view)> sink);
+
     [[nodiscard]] std::string getNodeName() const;
 
     [[nodiscard]] RecordId getNodeId() const;
@@ -113,6 +125,7 @@ private:
     std::shared_ptr<sptk::LogEngine>      m_logEngine;                                     ///< External log engine.
     std::shared_ptr<sptk::Logger>         m_logger;                                        ///< Logger.
     std::shared_ptr<Settings>             m_settings;                                      ///< Server getSettings.
+    std::function<void(LogSubject, sptk::LogPriority, std::string_view)> m_logSink;         ///< Second destination, if any.
     STopicManager                         m_topicManager;                                  ///< Topic manager.
     SGenericProtocols                     m_genericProtocols;                              ///< Generic protocols.
     std::shared_ptr<ClientSessionManager> m_clientSessionManager;                          ///< Client session manager.

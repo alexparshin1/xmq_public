@@ -194,6 +194,23 @@ protected:
                            {"allow_http", "true"}}};
     }
 
+    ExtensionHost::Configured logExtension(const Receiver& receiver, const string& minLevel,
+                                           const string& subjects = "") const
+    {
+        return ExtensionHost::Configured {
+            .m_name = "webhook",
+            .m_library = webhookLibrary(),
+            .m_settings = {{"url", "http://127.0.0.1:" + to_string(receiver.port()) + "/hook"},
+                           {"secret", "topsecret"},
+                           {"timeout_ms", "2000"},
+                           {"retries", "0"},
+                           {"allow_http", "true"},
+                           {"send_messages", "false"},
+                           {"send_log", "true"},
+                           {"log_min_level", minLevel},
+                           {"log_subjects", subjects}}};
+    }
+
     FileLogEngine m_logEngine {"webhook-tests.log"};
 };
 
@@ -243,6 +260,65 @@ TEST_F(WebhookTests, postsJSONAndRetriesAServerError)
     const auto signatures = receiver.signatures();
     ASSERT_EQ(2U, signatures.size());
     EXPECT_EQ("sha256=" + hmacHex(bodies[1], "topsecret"), signatures[1]);
+
+    host.stop();
+    receiver.stop();
+}
+
+
+TEST_F(WebhookTests, postsLogRecordsFromTheSecondInput)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({logExtension(receiver, "error")});
+    ASSERT_TRUE(host.logTapping());
+
+    host.publishLog(LogPriority::Info, LogSubject::Connect, "not severe enough");
+    host.publishLog(LogPriority::Error, LogSubject::ServerConnections,
+                    "test-client: refused by an extension");
+
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 1 && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(chrono::milliseconds(20));
+    }
+
+    const auto bodies = receiver.bodies();
+    ASSERT_EQ(1U, bodies.size()) << "the info line should not have been sent";
+    EXPECT_NE(string::npos, bodies[0].find("\"source\":\"log\""));
+    EXPECT_NE(string::npos, bodies[0].find("\"level\":\"error\""));
+    EXPECT_NE(string::npos, bodies[0].find("\"subject\":\"server_connections\""));
+    EXPECT_NE(string::npos, bodies[0].find("refused by an extension"));
+
+    host.stop();
+    receiver.stop();
+}
+
+TEST_F(WebhookTests, aLogSubjectFilterKeepsTheOtherSubjectsOut)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({logExtension(receiver, "debug", "connect")});
+    ASSERT_TRUE(host.logTapping());
+
+    host.publishLog(LogPriority::Error, LogSubject::StorageEvents, "storage is unhappy");
+    host.publishLog(LogPriority::Error, LogSubject::Connect, "a connect went wrong");
+
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 1 && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(chrono::milliseconds(20));
+    }
+    this_thread::sleep_for(chrono::milliseconds(100));
+
+    const auto bodies = receiver.bodies();
+    ASSERT_EQ(1U, bodies.size());
+    EXPECT_NE(string::npos, bodies[0].find("a connect went wrong"));
+    EXPECT_EQ(string::npos, bodies[0].find("storage is unhappy"));
 
     host.stop();
     receiver.stop();

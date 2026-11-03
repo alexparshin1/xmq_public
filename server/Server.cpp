@@ -211,6 +211,14 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     // first client arrives, and none of them may keep the broker from starting.
     m_extensions.start(ExtensionHost::readConfiguration(settings->configurationPath(), *logEngine));
 
+    // Everything that reaches the log file is offered to the extension host from here: a connector
+    // that reports faults is useless if it only sees the messages clients publish, since the
+    // faults that matter are the ones that stop those messages from existing.
+    setLogSink([this](const LogSubject subject, const LogPriority priority, const string_view text)
+    {
+        m_extensions.publishLog(priority, subject, text);
+    });
+
     // A broker with no authenticator admits no named client at all, because there is no longer a
     // fallback to its own accounts. That is the intended shape - authentication belongs to an
     // extension - but it is indistinguishable from a broken broker unless it is said, and the log

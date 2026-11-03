@@ -73,12 +73,22 @@ SClientSessionManager ServerData::getClientSessionManager() const
     return m_clientSessionManager;
 }
 
+void ServerData::setLogSink(std::function<void(LogSubject, LogPriority, string_view)> sink)
+{
+    const unique_lock lock(m_mutex);
+    m_logSink = std::move(sink);
+}
+
 void ServerData::logMessage(const LogSubject subject, const LogPriority priority, const string& message) const
 {
     const shared_lock lock(m_mutex);
     if (m_settings && m_settings->logSubjectEnabled(subject, priority))
     {
         m_logger->log(priority, format("<{}> {}", to_string(subject), message));
+        if (m_logSink)
+        {
+            m_logSink(subject, priority, message);
+        }
     }
 }
 
@@ -87,10 +97,12 @@ void ServerData::logMessage(const LogSubject subject, const LogPriority priority
     const shared_lock lock(m_mutex);
     if (m_settings && m_settings->logSubjectEnabled(subject, priority))
     {
-        m_logger->log(priority, [subject, &output]
-                      {
-                          return format("<{}> {}", to_string(subject), output());
-                      });
+        const auto message = output();
+        m_logger->log(priority, format("<{}> {}", to_string(subject), message));
+        if (m_logSink)
+        {
+            m_logSink(subject, priority, message);
+        }
     }
 }
 

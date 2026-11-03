@@ -23,7 +23,7 @@ export const documentationPages = [
         title: "Data Integration",
         description: "Posting accepted MQTT messages to an HTTP(S) endpoint, with a filter, a signature and retries.",
         anchors: ["data-integration", "data-integration-enable", "data-integration-payload",
-                  "data-integration-delivery", "data-integration-security"]},
+                  "data-integration-log", "data-integration-delivery", "data-integration-security"]},
     {id: "cluster", label: "Cluster", path: "/xmq_doc_cluster",
         title: "Setting up a Cluster",
         description: "Shared accounts and Redis, node certificates, and joining a cluster.",

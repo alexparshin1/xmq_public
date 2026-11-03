@@ -116,3 +116,18 @@ different envelope or a different first connector, only DI-4 and DI-5 change.
 The tap is deliberately below the rule engine: it hands over a message, not a query language. That
 keeps the ABI small and lets a rule engine be written as an extension later, without changing the
 broker again.
+
+### DI-9. Log records as a second input (prototype)
+
+`[x]`
+
+The webhook carries the broker's log as well as accepted messages, with `send_messages` and
+`send_log` independent and one endpoint for both. Records come from the single logging funnel
+(`ServerData::logMessage`), so they include refusals from the account database, the permission
+evaluator and the extension host - the faults that stop messages from existing at all.
+
+Prototype, on purpose: ABI 1.2 adds `XMQ_CAP_LOG_TAP`, `xmq_log_record` and `request_logs`, and
+the level scale, the subject filter and per-instance settings are open questions. The next
+decision is whether an operator needs several connectors (different endpoints) or whether one
+endpoint that distinguishes `source` is enough; the current extension loader allows one instance
+per extension name.

@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 1
+#define XMQ_EXTENSION_ABI_MINOR 2
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -191,6 +191,23 @@ typedef struct xmq_message
 } xmq_message;
 
 /**
+ * @brief One line of the broker's log, handed to a log tap.
+ *
+ * The message is UTF-8 text without the priority prefix, owned by the broker and valid only for
+ * the duration of the callback. The subject is the broker's own category ("connect",
+ * "server_connections", "storage_events"), not a client-chosen string. The level is the same
+ * xmq_log_priority the extension logs with, so "at least a warning" reads the same in both
+ * directions; a critical record arrives as XMQ_LOG_ERROR, since that is the top of this scale.
+ */
+typedef struct xmq_log_record
+{
+    uint64_t timestamp_us;         /**< Wall clock, microseconds since the epoch. */
+    uint32_t level;                /**< An xmq_log_priority. */
+    xmq_str  subject;
+    xmq_str  message;
+} xmq_log_record;
+
+/**
  * @brief What the broker offers an extension.
  *
  * Handed over at creation and valid for the extension's whole life. Every function may be called
@@ -284,6 +301,22 @@ typedef struct xmq_host
      * broker counts what it discarded. The publish path never blocks on a tap.
      */
     int64_t (*tap_messages)(void* context, const char* filter, size_t max_payload);
+
+    /**
+     * @brief Ask for the broker's log records at @p min_level and above.
+     *
+     * Called from start(), and again from reload() when the level changes. Records are delivered
+     * to log_tap.on_record on a thread of its own, with the same non-blocking, bounded-queue
+     * behaviour as a message tap: a tap that stops reading loses records, never the broker.
+     *
+     * Records the broker itself did not log are not here: an extension's own lines go to the log
+     * file directly, precisely so that a failing connector cannot feed itself.
+     *
+     * @param min_level  An xmq_log_priority: records at or above it are delivered, so
+     *                   XMQ_LOG_ERROR means errors only and XMQ_LOG_DEBUG means everything.
+     * @return 0 when the tap is accepted, -1 when it is not.
+     */
+    int64_t (*request_logs)(void* context, uint32_t min_level);
 } xmq_host;
 
 /**
@@ -310,6 +343,17 @@ typedef struct xmq_message_tap
 {
     void (*on_message)(void* instance, const xmq_message* message);
 } xmq_message_tap;
+
+/**
+ * @brief Receives the log records a tap asked for.
+ *
+ * Called on a thread of its own, never on the one that wrote the line. The pointers are valid
+ * only for this call.
+ */
+typedef struct xmq_log_tap
+{
+    void (*on_record)(void* instance, const xmq_log_record* record);
+} xmq_log_tap;
 
 /** @brief What kind of value a setting holds, so the interface can offer the right control and
  *         refuse a wrong value before it reaches the extension. */
@@ -359,7 +403,8 @@ typedef enum xmq_capability
     XMQ_CAP_OBSERVER = 1u << 0,      /**< Watches broker events. */
     XMQ_CAP_AUTHENTICATOR = 1u << 1, /**< Decides whether a client may connect. */
     XMQ_CAP_AUTHORIZER = 1u << 2,    /**< Decides what a connected client may publish and subscribe to. */
-    XMQ_CAP_MESSAGE_TAP = 1u << 3    /**< Receives the messages the broker accepted, body included. */
+    XMQ_CAP_MESSAGE_TAP = 1u << 3,   /**< Receives the messages the broker accepted, body included. */
+    XMQ_CAP_LOG_TAP = 1u << 4        /**< Receives the broker's own log records. */
 } xmq_capability;
 
 /**
@@ -575,6 +620,9 @@ typedef struct xmq_extension
 
     /** NULL when the extension does not tap messages. */
     const xmq_message_tap* message_tap;
+
+    /** NULL when the extension does not tap the log. */
+    const xmq_log_tap* log_tap;
 } xmq_extension;
 
 /**

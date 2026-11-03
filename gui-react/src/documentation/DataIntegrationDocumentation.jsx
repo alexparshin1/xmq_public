@@ -73,6 +73,56 @@ export default function DataIntegrationDocumentation() {
                 constant time and reject a request without it when one is configured.
             </p>
 
+            <h4 id="data-integration-log">Log records</h4>
+
+            <p>
+                The same connector can carry the broker's own log. Turn
+                <code>send_log</code> on and choose the lowest level worth sending:
+            </p>
+
+            <pre className="userManualCode">{`"send_messages": "true",
+"send_log": "true",
+"log_min_level": "error",
+"log_subjects": ""`}</pre>
+
+            <p>
+                Both inputs are independent and share one endpoint; every body says which it is
+                with <code>"source"</code>. A log record looks like this:
+            </p>
+
+            <pre className="userManualCode">{`{
+  "id": "1762790400123-7",
+  "source": "log",
+  "version": 1,
+  "timestamp": "2026-11-03T19:45:00Z",
+  "level": "error",
+  "subject": "server_connections",
+  "message": "test-client: refused by an extension"
+}`}</pre>
+
+            <p>
+                <code>log_subjects</code> is a comma-separated list of the broker's log categories
+                (<code>connect</code>, <code>publish</code>, <code>server_connections</code>,
+                <code>server_events</code>, <code>storage_events</code>,
+                <code>cluster_connections</code>, <code>cluster_events</code>); empty means all of
+                them. Refused publications and failed logins are the records that matter most, and
+                they arrive even when no client can connect.
+            </p>
+
+            <p>
+                This is deliberately not an MQTT topic such as <code>$SYS/error</code>. The faults
+                worth reporting are often the ones that stop MQTT from working - a refused
+                connection, an unreachable account database - so routing them through the same
+                broker and its ACLs would make the report depend on the thing that failed.
+            </p>
+
+            <p>
+                <b>Prototype.</b> The log input is the second slice of data integration, and the
+                extension ABI it uses (1.2) is not final: the level scale, the subject filter and
+                whether several connectors may share one library are all open. Treat it as a way to
+                prove the shape, not as an interface to build against.
+            </p>
+
             <h4 id="data-integration-delivery">Delivery</h4>
 
             <p>

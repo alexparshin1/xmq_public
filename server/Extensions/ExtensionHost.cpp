@@ -48,6 +48,17 @@ const xmq_message_tap* messageTapOf(const xmq_extension& table)
     return table.message_tap;
 }
 
+/// The log tap of an extension, on the same terms: an extension built before the field existed
+/// simply does not have it.
+const xmq_log_tap* logTapOf(const xmq_extension& table)
+{
+    if (table.struct_size < offsetof(xmq_extension, log_tap) + sizeof(table.log_tap))
+    {
+        return nullptr;
+    }
+    return table.log_tap;
+}
+
 /// Counts a call while it is inside an extension, so that switching that extension off waits for it
 /// rather than pulling stop() out from under it.
 class InFlight
@@ -575,6 +586,153 @@ void ExtensionHost::publishMessage(const std::string_view clientId, const std::s
     }
 }
 
+namespace {
+
+/// The ABI's own scale, which the extension also logs with: 0 debug ... 3 error. The broker's
+/// syslog priorities run the other way and have more steps, so they are folded here, once, rather
+/// than in every extension that has to compare.
+uint32_t extensionLevel(const sptk::LogPriority priority)
+{
+    switch (priority)
+    {
+        case sptk::LogPriority::Debug: return XMQ_LOG_DEBUG;
+        case sptk::LogPriority::Info:
+        case sptk::LogPriority::Notice: return XMQ_LOG_INFO;
+        case sptk::LogPriority::Warning: return XMQ_LOG_WARNING;
+        default: return XMQ_LOG_ERROR;
+    }
+}
+
+} // namespace
+
+int64_t ExtensionHost::hostRequestLogs(void* context, const uint32_t minLevel)
+{
+    auto* loaded = static_cast<Loaded*>(context);
+    if (loaded == nullptr || loaded->m_host == nullptr || loaded->m_table == nullptr ||
+        logTapOf(*loaded->m_table) == nullptr || minLevel > XMQ_LOG_ERROR)
+    {
+        return -1;
+    }
+
+    {
+        const std::scoped_lock lock(loaded->m_logLock);
+        loaded->m_logMinLevel = minLevel;
+        loaded->m_logWanted = true;
+    }
+    loaded->m_host->m_logTapping.store(true, std::memory_order_relaxed);
+    loaded->m_host->startLogTap(*loaded);
+
+    loaded->m_host->m_logger.info(format("{}: watching the log at level {} and above",
+                                         loaded->m_name, minLevel));
+    return 0;
+}
+
+void ExtensionHost::startLogTap(Loaded& loaded)
+{
+    if (loaded.m_logThread.joinable())
+    {
+        return;
+    }
+    {
+        const std::scoped_lock lock(loaded.m_logLock);
+        loaded.m_logStopping = false;
+    }
+    loaded.m_logThread = std::thread([this, &loaded] { logThread(loaded); });
+}
+
+void ExtensionHost::stopLogTap(Loaded& loaded)
+{
+    {
+        const std::scoped_lock lock(loaded.m_logLock);
+        loaded.m_logStopping = true;
+    }
+    loaded.m_logCondition.notify_all();
+    if (loaded.m_logThread.joinable())
+    {
+        loaded.m_logThread.join();
+    }
+    {
+        const std::scoped_lock lock(loaded.m_logLock);
+        loaded.m_logsDropped.fetch_add(loaded.m_logQueue.size(), std::memory_order_relaxed);
+        loaded.m_logQueue.clear();
+    }
+}
+
+void ExtensionHost::logThread(Loaded& loaded)
+{
+    while (true)
+    {
+        QueuedLogRecord record;
+        {
+            std::unique_lock lock(loaded.m_logLock);
+            loaded.m_logCondition.wait(lock, [&loaded]
+                                       { return loaded.m_logStopping || !loaded.m_logQueue.empty(); });
+            if (loaded.m_logQueue.empty() && loaded.m_logStopping)
+            {
+                break;
+            }
+            record = std::move(loaded.m_logQueue.front());
+            loaded.m_logQueue.pop_front();
+        }
+
+        const auto* tap = loaded.m_table == nullptr ? nullptr : logTapOf(*loaded.m_table);
+        if (tap != nullptr && tap->on_record != nullptr)
+        {
+            const xmq_log_record view {
+                .timestamp_us = record.m_timestampUs,
+                .level = record.m_level,
+                .subject = {.data = record.m_subject.c_str(), .length = record.m_subject.size()},
+                .message = {.data = record.m_message.empty() ? "" : record.m_message.data(),
+                            .length = record.m_message.size()}};
+            tap->on_record(loaded.m_instance, &view);
+        }
+        loaded.m_logsDelivered.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void ExtensionHost::publishLog(const sptk::LogPriority priority, const LogSubject subject,
+                               const std::string_view message)
+{
+    if (!m_logTapping.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    const auto* active = m_active.load(std::memory_order_acquire);
+    if (active == nullptr)
+    {
+        return;
+    }
+
+    const auto level = extensionLevel(priority);
+
+    for (Loaded* loaded: *active)
+    {
+        if (!loaded->m_started)
+        {
+            continue;
+        }
+        {
+            const std::scoped_lock lock(loaded->m_logLock);
+            if (!loaded->m_logWanted || level < loaded->m_logMinLevel)
+            {
+                continue;
+            }
+            if (loaded->m_logStopping || loaded->m_logQueue.size() >= MaxQueuedLogRecords)
+            {
+                loaded->m_logsDropped.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+            QueuedLogRecord record;
+            record.m_timestampUs = nowMicroseconds();
+            record.m_level = level;
+            record.m_subject = to_string(subject);
+            record.m_message = std::string(message);
+            loaded->m_logQueue.push_back(std::move(record));
+        }
+        loaded->m_logCondition.notify_one();
+    }
+}
+
 void ExtensionHost::hostInvalidateAcl(void* context)
 {
     auto* loaded = static_cast<Loaded*>(context);
@@ -665,7 +823,8 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
                            .invalidate_acl = &ExtensionHost::hostInvalidateAcl,
                            .want_event_attributes = &ExtensionHost::hostWantEventAttributes,
                            .event_attribute = &ExtensionHost::hostEventAttribute,
-                           .tap_messages = &ExtensionHost::hostTapMessages};
+                           .tap_messages = &ExtensionHost::hostTapMessages,
+                           .request_logs = &ExtensionHost::hostRequestLogs};
 
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)
@@ -1165,6 +1324,7 @@ void ExtensionHost::publishActiveUnlocked()
     auto authenticating = false;
     auto authorizing = false;
     auto tapping = false;
+    auto logTapping = false;
 
     for (const auto& loaded: m_loaded)
     {
@@ -1190,6 +1350,10 @@ void ExtensionHost::publishActiveUnlocked()
         {
             tapping = true;
         }
+        if (logTapOf(*loaded->m_table) != nullptr)
+        {
+            logTapping = true;
+        }
     }
 
     // Recomputed rather than only ever set: switching the last authenticator off has to put the
@@ -1199,11 +1363,12 @@ void ExtensionHost::publishActiveUnlocked()
     m_authenticating.store(authenticating, std::memory_order_relaxed);
     m_authorizing.store(authorizing, std::memory_order_relaxed);
     m_tapping.store(tapping, std::memory_order_relaxed);
+    m_logTapping.store(logTapping, std::memory_order_relaxed);
 
     // Named, not just implied: "the extension is loaded" and "the broker copies bodies for it"
     // are different facts, and only this one decides whether the publish path pays for a tap.
-    m_logger.info(format("capabilities: observer={}, authenticator={}, authorizer={}, message tap={}",
-                         watching, authenticating, authorizing, tapping));
+    m_logger.info(format("capabilities: observer={}, authenticator={}, authorizer={}, message tap={}, log tap={}",
+                         watching, authenticating, authorizing, tapping, logTapping));
 
     // Kept rather than swapped out: a reader may still be walking the previous one, and it holds a
     // bare pointer to it.
@@ -1653,9 +1818,10 @@ ExtensionHost::Report ExtensionHost::disable(const string& name)
 
 void ExtensionHost::unload(Loaded& loaded)
 {
-    // Before stop(): the tap thread is inside the extension's on_message, and stop() releases
-    // what that call is using.
+    // Before stop(): the tap threads are inside the extension's callbacks, and stop() releases
+    // what those calls are using.
     stopTap(loaded);
+    stopLogTap(loaded);
 
     if (loaded.m_started && loaded.m_table != nullptr && loaded.m_table->stop != nullptr)
     {

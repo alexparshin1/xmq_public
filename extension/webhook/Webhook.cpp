@@ -444,12 +444,15 @@ public:
             const std::shared_lock lock(m_configLock);
             config = m_config;
         }
+        if (!config.m_sendMessages)
+        {
+            return;
+        }
 
         const std::string payload(message.payload.data, message.payload.length);
         const std::string body =
-            "{\"id\":\"" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             std::chrono::system_clock::now().time_since_epoch()).count()) +
-            "-" + std::to_string(m_sequence.fetch_add(1)) + "\"" +
+            "{\"id\":\"" + nextId() + "\"" +
+            ",\"source\":\"message\"" +
             ",\"version\":1" +
             ",\"timestamp\":\"" + isoTimestamp() + "\"" +
             ",\"topic\":\"" + jsonEscape(xmq::view(message.topic)) + "\"" +
@@ -459,6 +462,113 @@ public:
             ",\"username\":\"" + jsonEscape(xmq::view(message.username)) + "\"" +
             ",\"payload_base64\":\"" + base64(payload) + "\"}";
 
+        deliver(config, body, "message for " + std::string(xmq::view(message.topic)));
+    }
+
+    /// One line of the broker's own log: the other input of the same connector, so a single
+    /// endpoint can be told both what clients sent and what the broker could not do.
+    void onLog(const xmq_log_record& record) override
+    {
+        Config config;
+        {
+            const std::shared_lock lock(m_configLock);
+            config = m_config;
+        }
+        if (!config.m_sendLog)
+        {
+            return;
+        }
+
+        const std::string_view subject = xmq::view(record.subject);
+        if (!config.m_logSubjects.empty() &&
+            std::ranges::none_of(config.m_logSubjects,
+                                 [subject](const std::string& candidate)
+                                 { return subject == candidate; }))
+        {
+            return;
+        }
+
+        const std::string body =
+            "{\"id\":\"" + nextId() + "\"" +
+            ",\"source\":\"log\"" +
+            ",\"version\":1" +
+            ",\"timestamp\":\"" + isoTimestamp() + "\"" +
+            ",\"level\":\"" + levelName(record.level) + "\"" +
+            ",\"subject\":\"" + jsonEscape(subject) + "\"" +
+            ",\"message\":\"" + jsonEscape(xmq::view(record.message)) + "\"}";
+
+        deliver(config, body, std::string("log record from ") + std::string(subject));
+    }
+
+private:
+    struct Config
+    {
+        Url         m_url;
+        std::string m_secret;
+        int         m_timeoutMs {defaultTimeoutMs};
+        int         m_retries {defaultRetries};
+        bool        m_sendMessages {true};
+        bool        m_sendLog {false};
+        uint32_t    m_logMinLevel {XMQ_LOG_ERROR};
+        std::vector<std::string> m_logSubjects;
+    };
+
+    std::string nextId()
+    {
+        return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch()).count()) +
+               "-" + std::to_string(m_sequence.fetch_add(1));
+    }
+
+    static std::string levelName(const uint32_t level)
+    {
+        switch (level)
+        {
+            case XMQ_LOG_DEBUG: return "debug";
+            case XMQ_LOG_INFO: return "info";
+            case XMQ_LOG_WARNING: return "warning";
+            default: return "error";
+        }
+    }
+
+    static bool parseLevel(const std::string& text, uint32_t& level)
+    {
+        if (text == "debug") { level = XMQ_LOG_DEBUG; return true; }
+        if (text == "info") { level = XMQ_LOG_INFO; return true; }
+        if (text == "warning") { level = XMQ_LOG_WARNING; return true; }
+        if (text == "error") { level = XMQ_LOG_ERROR; return true; }
+        return false;
+    }
+
+    /// "connect, server_events" - commas with whatever spaces an operator leaves around them.
+    static std::vector<std::string> splitSubjects(const std::string& text)
+    {
+        std::vector<std::string> subjects;
+        size_t                   at = 0;
+        while (at < text.size())
+        {
+            const auto comma = text.find(',', at);
+            auto       piece = text.substr(at, comma == std::string::npos ? std::string::npos :
+                                                                           comma - at);
+            const auto first = piece.find_first_not_of(" \t");
+            const auto last = piece.find_last_not_of(" \t");
+            if (first != std::string::npos)
+            {
+                subjects.push_back(piece.substr(first, last - first + 1));
+            }
+            if (comma == std::string::npos)
+            {
+                break;
+            }
+            at = comma + 1;
+        }
+        return subjects;
+    }
+
+    /// The same retry policy for both inputs: 2xx is success, 4xx except 429 is refused without a
+    /// second attempt, everything else is retried with backoff.
+    void deliver(const Config& config, const std::string& body, const std::string& what)
+    {
         for (int attempt = 0; attempt <= config.m_retries; ++attempt)
         {
             std::string error;
@@ -481,18 +591,8 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds(std::min(2000, 100 << attempt)));
             }
         }
-        log(XMQ_LOG_ERROR, std::string("a message for ") + std::string(xmq::view(message.topic)) +
-                               " was not delivered");
+        log(XMQ_LOG_ERROR, "a " + what + " was not delivered");
     }
-
-private:
-    struct Config
-    {
-        Url         m_url;
-        std::string m_secret;
-        int         m_timeoutMs {defaultTimeoutMs};
-        int         m_retries {defaultRetries};
-    };
 
     bool configure()
     {
@@ -525,9 +625,39 @@ private:
             return false;
         }
 
+        config.m_sendMessages = setting("send_messages", "true") == "true";
+        config.m_sendLog = setting("send_log", "false") == "true";
+        if (!parseLevel(setting("log_min_level", "error"), config.m_logMinLevel))
+        {
+            log(XMQ_LOG_ERROR, "log_min_level must be debug, info, warning or error");
+            return false;
+        }
+        for (const auto& piece: splitSubjects(setting("log_subjects")))
+        {
+            config.m_logSubjects.push_back(piece);
+        }
+        if (!config.m_sendMessages && !config.m_sendLog)
+        {
+            log(XMQ_LOG_ERROR, "send_messages and send_log are both off, so nothing would be sent");
+            return false;
+        }
+
         {
             const std::unique_lock lock(m_configLock);
             m_config = std::move(config);
+        }
+
+        // Registered after the settings are in place: both callbacks read them, and a tap that
+        // arrived first would post with whatever the previous reload left.
+        if (m_config.m_sendLog &&
+            !requestLogs(static_cast<xmq_log_priority>(m_config.m_logMinLevel)))
+        {
+            log(XMQ_LOG_ERROR, "this broker cannot deliver log records to an extension");
+            return false;
+        }
+        if (!m_config.m_sendMessages)
+        {
+            return true;
         }
         return subscribeMessages(setting("topic_filter", "#"),
                                  static_cast<size_t>(std::stoull(setting("max_payload", "1048576"))));
@@ -552,9 +682,18 @@ constexpr xmq_setting settings[] = {
     {"retries", "Retries", "Attempts after the first one", XMQ_SETTING_INTEGER, "3", nullptr, 0},
     {"allow_http", "Allow HTTP", "Permit a plain HTTP URL (for a local receiver)", XMQ_SETTING_BOOLEAN,
      "false", nullptr, 0},
+    {"send_messages", "Send messages", "Post the messages the broker accepts", XMQ_SETTING_BOOLEAN,
+     "true", nullptr, 0},
+    {"send_log", "Send log", "Post the broker's own log records as well", XMQ_SETTING_BOOLEAN,
+     "false", nullptr, 0},
+    {"log_min_level", "Log level", "Lowest log level to send: debug, info, warning or error",
+     XMQ_SETTING_STRING, "error", nullptr, 0},
+    {"log_subjects", "Log subjects", "Comma-separated broker log subjects; empty means all",
+     XMQ_SETTING_STRING, "", nullptr, 0},
 };
 
 } // namespace
 
-XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.0", XMQ_CAP_MESSAGE_TAP,
-                               "Posts accepted MQTT messages to an HTTP(S) endpoint.", settings)
+XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.1", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_LOG_TAP,
+                               "Posts accepted MQTT messages and the broker's log to an HTTP(S) endpoint.",
+                               settings)

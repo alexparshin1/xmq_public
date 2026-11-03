@@ -514,6 +514,17 @@ public:
     void publishMessage(std::string_view clientId, std::string_view username, std::string_view topic,
                         const char* payload, size_t payloadSize, uint8_t qos, bool retain);
 
+    /// True when at least one extension asked for the broker's log. Read on every line the broker
+    /// writes, so a recording tap costs one relaxed load.
+    [[nodiscard]] bool logTapping() const
+    {
+        return m_logTapping.load(std::memory_order_relaxed);
+    }
+
+    /// Offer one line of the broker's log to every tap that asked for that level. Called from the
+    /// logging path, so it copies only after the level matched and never waits for a tap.
+    void publishLog(sptk::LogPriority priority, LogSubject subject, std::string_view message);
+
     /**
      * @brief Which subjects produce events, as a bit per LogSubject.
      *
@@ -671,6 +682,15 @@ private:
         std::vector<std::pair<std::string, std::string>> m_attributes;
     };
 
+    /// One log line on its way to a tap.
+    struct QueuedLogRecord
+    {
+        uint64_t    m_timestampUs {0};
+        uint32_t    m_level {0};
+        std::string m_subject;
+        std::string m_message;
+    };
+
     /// One accepted message on its way to a tap.
     struct QueuedMessage
     {
@@ -729,6 +749,18 @@ private:
         std::atomic<uint64_t>   m_messagesDelivered {0};
         std::atomic<uint64_t>   m_messagesDropped {0};
 
+        /// The same for the log tap, with its own queue and thread: a connector that cannot reach
+        /// its endpoint must not delay the messages flowing through the other tap.
+        mutable std::mutex      m_logLock;
+        std::condition_variable m_logCondition;
+        std::deque<QueuedLogRecord> m_logQueue;
+        uint32_t                m_logMinLevel {0}; ///< An xmq_log_priority; the lowest delivered.
+        bool                    m_logWanted {false}; ///< Asked for at all, so 0 is not "nothing".
+        bool                    m_logStopping {false};
+        std::thread             m_logThread;
+        std::atomic<uint64_t>   m_logsDelivered {0};
+        std::atomic<uint64_t>   m_logsDropped {0};
+
         /**
          * @brief Calls currently inside this extension.
          *
@@ -766,6 +798,9 @@ private:
     void                                  tapThread(Loaded& loaded);
     void                                  startTap(Loaded& loaded);
     void                                  stopTap(Loaded& loaded);
+    void                                  logThread(Loaded& loaded);
+    void                                  startLogTap(Loaded& loaded);
+    void                                  stopLogTap(Loaded& loaded);
     [[nodiscard]] AuthDecision            askAuthenticators(const AuthRequest& request);
 
     // The three services an extension is given. Static, because they are C function pointers with
@@ -807,6 +842,7 @@ private:
     static void    hostWantEventAttributes(void* context, const char* names);
     static xmq_str hostEventAttribute(void* context, const xmq_event* event, const char* name);
     static int64_t hostTapMessages(void* context, const char* filter, size_t maxPayload);
+    static int64_t hostRequestLogs(void* context, uint32_t minLevel);
 
     /// The bit for a name this broker publishes, or zero for one it does not.
     [[nodiscard]] static uint32_t attributeBit(std::string_view name);
@@ -819,6 +855,7 @@ private:
     static constexpr size_t MaxQueuedEvents = 16384;
     /// Per tap, not shared: a stuck extension must not consume another's budget.
     static constexpr size_t MaxQueuedTapMessages = 4096;
+    static constexpr size_t MaxQueuedLogRecords = 4096;
 
     sptk::Logger                         m_logger;
     std::string                          m_brokerVersion;
@@ -896,6 +933,7 @@ private:
     const std::vector<std::pair<std::string, std::string>>* m_deliveringAttributes {nullptr};
     std::atomic_bool                     m_watching {false};
     std::atomic_bool                     m_tapping {false};
+    std::atomic_bool                     m_logTapping {false};
     std::atomic_bool                     m_authenticating {false};
     std::atomic_bool                     m_authorizing {false};
     std::atomic_bool                     m_terminated {false};

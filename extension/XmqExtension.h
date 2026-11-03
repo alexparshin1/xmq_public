@@ -142,6 +142,28 @@ public:
         return m_host.tap_messages(m_host.context, filter.c_str(), maxPayload) == 0;
     }
 
+    /// One line of the broker's log, at the level asked for in requestLogs(). Called on a thread of
+    /// the extension's own, never on the one that wrote the line.
+    virtual void onLog(const xmq_log_record& /*record*/)
+    {
+    }
+
+    /**
+     * @brief Ask for the broker's log at @p minLevel and above.
+     *
+     * Call from start(), and again from reload() if the level changed. Older brokers do not have
+     * the call and return false.
+     */
+    bool requestLogs(const xmq_log_priority minLevel = XMQ_LOG_ERROR) const
+    {
+        if (m_host.request_logs == nullptr ||
+            m_host.struct_size < offsetof(xmq_host, request_logs) + sizeof(m_host.request_logs))
+        {
+            return false;
+        }
+        return m_host.request_logs(m_host.context, static_cast<uint32_t>(minLevel)) == 0;
+    }
+
     /// May this client connect? Called on a thread the broker keeps for authentication, so a
     /// blocking directory lookup here is not merely allowed but expected. Answer NOT_HANDLED for
     /// clients this extension was not meant to judge - denying them would lock out everyone the
@@ -429,6 +451,16 @@ inline xmq_event_type eventType(const xmq_event& event)
         {                                                                                           \
         }                                                                                           \
     }                                                                                               \
+    void xmqExtensionOnLog(void* instance, const xmq_log_record* record)                            \
+    {                                                                                               \
+        try                                                                                         \
+        {                                                                                           \
+            static_cast<ExtensionClass*>(instance)->onLog(*record);                                 \
+        }                                                                                           \
+        catch (...)                                                                                 \
+        {                                                                                           \
+        }                                                                                           \
+    }                                                                                               \
     xmq_auth_decision xmqExtensionAuthenticate(void* instance, const xmq_auth_request* request)     \
     {                                                                                               \
         try                                                                                         \
@@ -483,6 +515,7 @@ inline xmq_event_type eventType(const xmq_event& event)
     }                                                                                               \
     constexpr xmq_observer      xmqExtensionObserver {.on_event = xmqExtensionOnEvent};             \
     constexpr xmq_message_tap   xmqExtensionMessageTap {.on_message = xmqExtensionOnMessage};        \
+    constexpr xmq_log_tap       xmqExtensionLogTap {.on_record = xmqExtensionOnLog};                 \
     constexpr xmq_authenticator xmqExtensionAuthenticator {.authenticate = xmqExtensionAuthenticate}; \
     constexpr xmq_authorizer    xmqExtensionAuthorizer {.resolve_group = xmqExtensionResolveGroup,  \
                                                         .authorize = xmqExtensionAuthorize};        \
@@ -508,7 +541,8 @@ inline xmq_event_type eventType(const xmq_event& event)
         .settings = (ExtensionSettings),                                                            \
         .setting_count = (ExtensionSettingCount),                                                   \
         .message_tap =                                                                              \
-            ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr};  \
+            ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr, \
+        .log_tap = ((ExtensionCapabilities) &XMQ_CAP_LOG_TAP) != 0 ? &xmqExtensionLogTap : nullptr}; \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
     {                                                                                               \
