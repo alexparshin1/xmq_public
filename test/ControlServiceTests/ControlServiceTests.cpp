@@ -1465,6 +1465,12 @@ TEST_F(XMQ_ControlServiceTests, userImportPlansAndAppliesMosquittoPasswords)
     auto& users = server()->getSettings()->userManager();
     EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
     EXPECT_TRUE(PasswordHash::verify("Secret12!", users.findUser(plainUser.c_str()).m_password.asString()));
+
+    // The first successful login replaces Mosquitto's verifier with this broker's own.
+    EXPECT_TRUE(users.authenticate(hashedUser.c_str(), "password"));
+    EXPECT_TRUE(users.findUser(hashedUser.c_str()).m_password.asString().starts_with("pbkdf2-sha256$"))
+        << "the Mosquitto verifier was not rehashed at login";
+    EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
     EXPECT_THROW(users.findUser(oldUser.c_str()), Exception)
         << "an unsupported verifier must not become an account nobody can use";
 

@@ -174,8 +174,8 @@ private:
     mutable VerificationCache m_verificationCache;
 
     mutable std::shared_mutex                    m_mutex;
-    std::map<uint64_t, CUser>                    m_users;     ///< User index
-    std::map<std::string, UserInfo, std::less<>> m_passwords; ///< User passwords
+    mutable std::map<uint64_t, CUser>                    m_users;     ///< User index
+    mutable std::map<std::string, UserInfo, std::less<>> m_passwords; ///< User passwords
     OnChangeEvent                                m_onChange;  ///< Event called when users are changed
     bool                                         m_allowAnonymous {false};
     int                                          m_iterations {0}; ///< Hashing cost for new passwords.

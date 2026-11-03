@@ -170,6 +170,39 @@ UserManager::AuthOutcome UserManager::authenticateWithOutcome(const std::string&
     // a way to spend the broker's cores from outside; a corrected password is a different entry and
     // is verified properly, so this delays no repair.
     m_verificationCache.remember(username, password, allowed);
+
+    // A verifier from another broker - Mosquitto's $7$, or an older cost - is replaced now, while
+    // the clear password is in hand. This is the only moment it ever is, and doing it later would
+    // mean asking somebody for a password that already works.
+    if (allowed && PasswordHash::needsRehash(verifier, passwordIterations()))
+    {
+        const auto upgraded = PasswordHash::hash(password, passwordIterations());
+        const unique_lock lock(m_mutex);
+        const auto        passwordIt = m_passwords.find(username);
+        if (passwordIt != m_passwords.end() && passwordIt->second.m_password == verifier)
+        {
+            const auto userIt = m_users.find(passwordIt->second.m_id);
+            if (userIt != m_users.end())
+            {
+                auto updated = userIt->second;
+                updated.m_password = upgraded;
+                try
+                {
+                    // The database first: if it cannot be written, the old verifier still works and
+                    // the memory must keep agreeing with what is stored.
+                    storeUserUnlocked(updated);
+                }
+                catch (const Exception&)
+                {
+                    return allowed ? AuthOutcome::Allowed : AuthOutcome::BadCredentials;
+                }
+                userIt->second = std::move(updated);
+            }
+            passwordIt->second.m_password = upgraded;
+            m_verificationCache.remember(username, password, true);
+        }
+    }
+
     return allowed ? AuthOutcome::Allowed : AuthOutcome::BadCredentials;
 }
 

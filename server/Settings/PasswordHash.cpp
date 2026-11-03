@@ -264,7 +264,8 @@ bool PasswordHash::needsRehash(const string& stored, const int iterations)
         return false;
     }
 
-    return algorithm != algorithmName || storedIterations != iterations;
+    // A lower configured cost is not a reason to weaken a stored password.
+    return algorithm != algorithmName || storedIterations < iterations;
 }
 
 bool PasswordHash::isHashed(const string& stored)
