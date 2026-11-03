@@ -73,6 +73,73 @@ export default function DataIntegrationDocumentation() {
                 constant time and reject a request without it when one is configured.
             </p>
 
+            <h4 id="data-integration-destinations">Several destinations</h4>
+
+            <p>
+                One connector can post to more than one endpoint, each with its own body template
+                and its own filters. Set <code>destinations</code> to a JSON array; it replaces the
+                single-URL settings entirely:
+            </p>
+
+            <pre className="userManualCode">{`"destinations": "[
+  {"url": "https://ntfy.sh/xmq-errors",
+   "sources": "log",
+   "log_min_level": "error",
+   "template": "[{{level}}] {{subject}}: {{message}}"},
+
+  {"url": "https://collector.example/hook",
+   "sources": "messages",
+   "topic_filter": "sensors/#",
+   "secret": "a shared secret"}
+]"`}</pre>
+
+            <p>
+                The whole array is one setting, so its quotes are escaped in the configuration
+                file; the first destination above sends a plain-text body, the second the standard
+                JSON envelope. A messenger that wants JSON of its own - Slack's
+                <code>{"{\"text\": ...}"}</code>, for instance - needs that JSON as the template,
+                which means a string inside a string.
+            </p>
+
+            <p>
+                Each entry takes <code>url</code> and, optionally, <code>template</code>,
+                <code>sources</code> (<code>messages</code>, <code>log</code> or both),
+                <code>topic_filter</code>, <code>log_min_level</code>, <code>log_subjects</code>,
+                <code>headers</code>, <code>secret</code>, <code>retries</code>,
+                <code>timeout_ms</code>, <code>max_payload</code> and <code>allow_http</code>. With
+                no template the body is the JSON envelope shown above; with one, the body is the
+                template with these names replaced:
+                <code>{"{{id}}"}</code>, <code>{"{{source}}"}</code>, <code>{"{{timestamp}}"}</code>,
+                <code>{"{{topic}}"}</code>, <code>{"{{qos}}"}</code>, <code>{"{{retain}}"}</code>,
+                <code>{"{{client_id}}"}</code>, <code>{"{{username}}"}</code>,
+                <code>{"{{payload_base64}}"}</code>, <code>{"{{level}}"}</code>, <code>{"{{subject}}"}</code>,
+                <code>{"{{message}}"}</code>.
+            </p>
+
+            <p>
+                Substituted values are JSON-escaped, so a quote or a newline in a message cannot
+                break the body. A partially applied template is not attempted: an unknown name is
+                left as written, which the endpoint will reject rather than accept as empty.
+            </p>
+
+            <p>
+                Every destination has its own queue and its own thread: a messenger that is slow to
+                answer does not hold up the collector beside it, and a destination that falls behind
+                drops (and counts) rather than delaying the broker. The message tap is registered
+                once for all destinations, with the widest filter, so each body is copied to the
+                extension before the per-destination filters narrow it. That is the price of several
+                destinations in one extension.
+            </p>
+
+            <p>
+                <b>Prototype caveat.</b> <code>destinations</code> is a JSON document inside a
+                string setting: the settings screen shows it as one field, and a
+                <code>secret</code> inside it is not masked the way the single-URL
+                <code>secret</code> is, because the interface masks whole values, not parts of one.
+                Separate connector instances, each with its own masked settings, are the shape this
+                should grow into.
+            </p>
+
             <h4 id="data-integration-log">Log records</h4>
 
             <p>

@@ -79,6 +79,10 @@ public:
 
     ~Receiver() { stop(); }
 
+    /// How many requests to answer with 500 before succeeding, so a retry can be observed without
+    /// every test paying for one.
+    void failFirst(const int count) { m_failFirst = count; }
+
     [[nodiscard]] uint16_t port() const { return m_port; }
     [[nodiscard]] size_t requests() const
     {
@@ -150,7 +154,7 @@ private:
                 const std::scoped_lock lock(m_mutex);
                 m_bodies.push_back(request.substr(headerEnd + 4, contentLength));
             }
-            const bool fail = m_served.fetch_add(1) == 0;
+            const bool fail = m_served.fetch_add(1) < m_failFirst;
             const std::string response = fail
                 ? "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 : "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -162,6 +166,7 @@ private:
     int                 m_fd {-1};
     uint16_t            m_port {0};
     std::atomic<int>    m_served {0};
+    int                 m_failFirst {0};
     std::atomic<bool>   m_stopping {false};
     std::thread         m_thread;
     mutable std::mutex  m_mutex;
@@ -192,6 +197,22 @@ protected:
                            {"timeout_ms", "2000"},
                            {"retries", retries},
                            {"allow_http", "true"}}};
+    }
+
+    ExtensionHost::Configured destinationsExtension(const Receiver& messages, const Receiver& logs) const
+    {
+        const string destinations =
+            "[{\"url\":\"http://127.0.0.1:" + to_string(messages.port()) + "/messages\"," +
+            "\"allow_http\":\"true\",\"sources\":\"messages\"," +
+            "\"topic_filter\":\"sensors/#\"," +
+            "\"template\":\"{\\\"text\\\":\\\"{{topic}}\\\"}\"}," +
+            "{\"url\":\"http://127.0.0.1:" + to_string(logs.port()) + "/logs\"," +
+            "\"allow_http\":\"true\",\"sources\":\"log\",\"log_min_level\":\"warning\"," +
+            "\"template\":\"{\\\"text\\\":\\\"[{{level}}] {{message}}\\\"}\"}]";
+        return ExtensionHost::Configured {
+            .m_name = "webhook",
+            .m_library = webhookLibrary(),
+            .m_settings = {{"destinations", destinations}}};
     }
 
     ExtensionHost::Configured logExtension(const Receiver& receiver, const string& minLevel,
@@ -235,6 +256,7 @@ std::string hmacHex(const std::string& body, const std::string& secret)
 TEST_F(WebhookTests, postsJSONAndRetriesAServerError)
 {
     Receiver receiver;
+    receiver.failFirst(1);
     ASSERT_TRUE(receiver.start());
 
     ExtensionHost host(m_logEngine, "webhook");
@@ -320,6 +342,64 @@ TEST_F(WebhookTests, aLogSubjectFilterKeepsTheOtherSubjectsOut)
     EXPECT_NE(string::npos, bodies[0].find("a connect went wrong"));
     EXPECT_EQ(string::npos, bodies[0].find("storage is unhappy"));
 
+    host.stop();
+    receiver.stop();
+}
+
+
+TEST_F(WebhookTests, sendsEachDestinationItsOwnTemplateFromItsOwnInput)
+{
+    Receiver messages;
+    Receiver logs;
+    ASSERT_TRUE(messages.start());
+    ASSERT_TRUE(logs.start());
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({destinationsExtension(messages, logs)});
+    ASSERT_TRUE(host.tapping());
+    ASSERT_TRUE(host.logTapping());
+
+    const std::string payload = "hello";
+    host.publishMessage("client-1", "user", "sensors/1", payload.data(), payload.size(), 0, false);
+    host.publishMessage("client-1", "user", "other/1", payload.data(), payload.size(), 0, false);
+    host.publishLog(LogPriority::Info, LogSubject::Connect, "below the level");
+    host.publishLog(LogPriority::Error, LogSubject::ServerConnections, "boom \"quoted\"\nnext");
+
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while ((messages.requests() < 1 || logs.requests() < 1) && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(chrono::milliseconds(20));
+    }
+    this_thread::sleep_for(chrono::milliseconds(100));
+
+    const auto messageBodies = messages.bodies();
+    ASSERT_EQ(1U, messageBodies.size()) << "only the matching topic belongs to the first destination";
+    EXPECT_EQ(R"({"text":"sensors/1"})", messageBodies[0]);
+
+    const auto logBodies = logs.bodies();
+    ASSERT_EQ(1U, logBodies.size()) << "the info line is below the destination's warning level";
+    EXPECT_EQ(R"({"text":"[error] boom \"quoted\"\nnext"})", logBodies[0]);
+
+    host.stop();
+    messages.stop();
+    logs.stop();
+}
+
+TEST_F(WebhookTests, refusesADestinationsListThatIsNotAnArray)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({ExtensionHost::Configured {
+        .m_name = "webhook",
+        .m_library = webhookLibrary(),
+        .m_settings = {{"destinations", "{\"url\":\"http://127.0.0.1/" +
+                                          to_string(receiver.port()) + "/hook\"}"}}}});
+
+    // Refused at start, so the host unloads it rather than keeping a half-configured connector.
+    EXPECT_FALSE(host.tapping());
+    EXPECT_FALSE(host.logTapping());
     host.stop();
     receiver.stop();
 }

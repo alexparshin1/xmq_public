@@ -37,10 +37,18 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <condition_variable>
+#include <cstdio>
 #include <cstring>
+#include <deque>
+#include <limits>
+#include <memory>
 #include <mutex>
+#include <ranges>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
@@ -367,7 +375,7 @@ private:
 };
 
 int post(const Url& url, const std::string& body, const std::string& secret, const int timeoutMs,
-         std::string& error)
+         const std::vector<std::pair<std::string, std::string>>& headers, std::string& error)
 {
     Connection connection;
     if (!connection.open(url, timeoutMs))
@@ -382,6 +390,10 @@ int post(const Url& url, const std::string& body, const std::string& secret, con
         "Content-Length: " + std::to_string(body.size()) + "\r\n" +
         "User-Agent: xmq-webhook/1.0\r\n" +
         "Connection: close\r\n";
+    for (const auto& [name, value]: headers)
+    {
+        request += name + ": " + value + "\r\n";
+    }
     if (!secret.empty())
     {
         unsigned char digest[EVP_MAX_MD_SIZE];
@@ -422,10 +434,433 @@ int post(const Url& url, const std::string& body, const std::string& secret, con
     }
 }
 
+namespace {
+
+/// A JSON value as far as this connector needs one: the destinations list is an array of objects
+/// of strings, and the headers inside it are an object of strings. A full parser would be a
+/// dependency; this is the smallest thing that can read the settings without guessing.
+struct JsonValue
+{
+    enum class Kind
+    {
+        Null,
+        String,
+        Number,
+        Boolean,
+        Object,
+        Array
+    };
+
+    Kind                                          kind {Kind::Null};
+    std::string                                   text;
+    std::vector<std::pair<std::string, JsonValue>> object;
+    std::vector<JsonValue>                        array;
+};
+
+class JsonReader
+{
+public:
+    explicit JsonReader(const std::string_view text)
+        : m_text(text)
+    {
+    }
+
+    bool read(JsonValue& value)
+    {
+        skipSpace();
+        return readValue(value) && (skipSpace(), true);
+    }
+
+    [[nodiscard]] const std::string& error() const { return m_error; }
+
+private:
+    void skipSpace()
+    {
+        while (m_at < m_text.size() &&
+               (m_text[m_at] == ' ' || m_text[m_at] == '\t' || m_text[m_at] == '\n' || m_text[m_at] == '\r'))
+        {
+            ++m_at;
+        }
+    }
+
+    bool fail(const std::string& what)
+    {
+        m_error = what + " at offset " + std::to_string(m_at);
+        return false;
+    }
+
+    bool readValue(JsonValue& value)
+    {
+        if (m_at >= m_text.size())
+        {
+            return fail("the value ended early");
+        }
+        switch (m_text[m_at])
+        {
+            case '{': return readObject(value);
+            case '[': return readArray(value);
+            case '"':
+            {
+                value.kind = JsonValue::Kind::String;
+                return readString(value.text);
+            }
+            case 't':
+            case 'f':
+            {
+                const auto word = m_text.substr(m_at, 4);
+                const bool isTrue = word.starts_with("true");
+                if (!isTrue && !word.starts_with("false"))
+                {
+                    return fail("not a JSON value");
+                }
+                value.kind = JsonValue::Kind::Boolean;
+                value.text = isTrue ? "true" : "false";
+                m_at += isTrue ? 4 : 5;
+                return true;
+            }
+            case 'n':
+            {
+                if (!m_text.substr(m_at).starts_with("null"))
+                {
+                    return fail("not a JSON value");
+                }
+                value.kind = JsonValue::Kind::Null;
+                m_at += 4;
+                return true;
+            }
+            default:
+            {
+                const auto start = m_at;
+                while (m_at < m_text.size() &&
+                       (std::isdigit(static_cast<unsigned char>(m_text[m_at])) || m_text[m_at] == '-' ||
+                        m_text[m_at] == '+' || m_text[m_at] == '.' || m_text[m_at] == 'e' ||
+                        m_text[m_at] == 'E'))
+                {
+                    ++m_at;
+                }
+                if (start == m_at)
+                {
+                    return fail("not a JSON value");
+                }
+                value.kind = JsonValue::Kind::Number;
+                value.text = std::string(m_text.substr(start, m_at - start));
+                return true;
+            }
+        }
+    }
+
+    bool readObject(JsonValue& value)
+    {
+        value.kind = JsonValue::Kind::Object;
+        ++m_at; // '{'
+        skipSpace();
+        if (m_at < m_text.size() && m_text[m_at] == '}')
+        {
+            ++m_at;
+            return true;
+        }
+        while (true)
+        {
+            skipSpace();
+            std::string name;
+            if (!readString(name))
+            {
+                return false;
+            }
+            skipSpace();
+            if (m_at >= m_text.size() || m_text[m_at] != ':')
+            {
+                return fail("expected ':'");
+            }
+            ++m_at;
+            skipSpace();
+            JsonValue member;
+            if (!readValue(member))
+            {
+                return false;
+            }
+            value.object.emplace_back(std::move(name), std::move(member));
+            skipSpace();
+            if (m_at < m_text.size() && m_text[m_at] == ',')
+            {
+                ++m_at;
+                continue;
+            }
+            if (m_at < m_text.size() && m_text[m_at] == '}')
+            {
+                ++m_at;
+                return true;
+            }
+            return fail("expected ',' or '}'");
+        }
+    }
+
+    bool readArray(JsonValue& value)
+    {
+        value.kind = JsonValue::Kind::Array;
+        ++m_at; // '['
+        skipSpace();
+        if (m_at < m_text.size() && m_text[m_at] == ']')
+        {
+            ++m_at;
+            return true;
+        }
+        while (true)
+        {
+            skipSpace();
+            JsonValue element;
+            if (!readValue(element))
+            {
+                return false;
+            }
+            value.array.push_back(std::move(element));
+            skipSpace();
+            if (m_at < m_text.size() && m_text[m_at] == ',')
+            {
+                ++m_at;
+                continue;
+            }
+            if (m_at < m_text.size() && m_text[m_at] == ']')
+            {
+                ++m_at;
+                return true;
+            }
+            return fail("expected ',' or ']'");
+        }
+    }
+
+    bool readString(std::string& out)
+    {
+        if (m_at >= m_text.size() || m_text[m_at] != '"')
+        {
+            return fail("expected a string");
+        }
+        ++m_at;
+        out.clear();
+        while (m_at < m_text.size())
+        {
+            const char character = m_text[m_at++];
+            if (character == '"')
+            {
+                return true;
+            }
+            if (character != '\\')
+            {
+                out += character;
+                continue;
+            }
+            if (m_at >= m_text.size())
+            {
+                return fail("a string ended in the middle of an escape");
+            }
+            switch (const char escaped = m_text[m_at++])
+            {
+                case '"': out += '"'; break;
+                case '\\': out += '\\'; break;
+                case '/': out += '/'; break;
+                case 'b': out += '\b'; break;
+                case 'f': out += '\f'; break;
+                case 'n': out += '\n'; break;
+                case 'r': out += '\r'; break;
+                case 't': out += '\t'; break;
+                case 'u':
+                {
+                    unsigned code = 0;
+                    for (int digit = 0; digit < 4; ++digit)
+                    {
+                        code <<= 4U;
+                        const char hexDigit = m_at < m_text.size() ? m_text[m_at++] : '0';
+                        code |= hexDigit >= '0' && hexDigit <= '9' ? static_cast<unsigned>(hexDigit - '0')
+                                : hexDigit >= 'a' && hexDigit <= 'f' ? static_cast<unsigned>(hexDigit - 'a' + 10)
+                                : hexDigit >= 'A' && hexDigit <= 'F' ? static_cast<unsigned>(hexDigit - 'A' + 10)
+                                                                     : 0U;
+                    }
+                    // UTF-8, for the ranges a settings file is likely to hold; a surrogate pair is
+                    // left as two replacements rather than guessed at.
+                    if (code < 0x80)
+                    {
+                        out += static_cast<char>(code);
+                    }
+                    else if (code < 0x800)
+                    {
+                        out += static_cast<char>(0xC0 | (code >> 6U));
+                        out += static_cast<char>(0x80 | (code & 0x3FU));
+                    }
+                    else
+                    {
+                        out += static_cast<char>(0xE0 | (code >> 12U));
+                        out += static_cast<char>(0x80 | ((code >> 6U) & 0x3FU));
+                        out += static_cast<char>(0x80 | (code & 0x3FU));
+                    }
+                    break;
+                }
+                default: return fail("unknown escape");
+            }
+        }
+        return fail("a string was not closed");
+    }
+
+    const std::string_view m_text;
+    size_t                   m_at {0};
+    std::string              m_error;
+};
+
+/// MQTT topic matching, because the host is given one filter for the whole extension while each
+/// destination has its own: the host filter is "#" and the narrowing happens here.
+bool topicMatches(const std::string_view filter, const std::string_view topic)
+{
+    size_t at = 0;
+    size_t topicAt = 0;
+    while (true)
+    {
+        const auto filterEnd = filter.find('/', at);
+        const auto topicEnd = topic.find('/', topicAt);
+        const auto filterLevel = filter.substr(at, filterEnd == std::string_view::npos
+                                                       ? std::string_view::npos
+                                                       : filterEnd - at);
+        const auto topicLevel = topic.substr(topicAt, topicEnd == std::string_view::npos
+                                                         ? std::string_view::npos
+                                                         : topicEnd - topicAt);
+
+        if (filterLevel == "#")
+        {
+            return true;
+        }
+        if (filterLevel != "+" && filterLevel != topicLevel)
+        {
+            return false;
+        }
+
+        const bool filterLast = filterEnd == std::string_view::npos;
+        const bool topicLast = topicEnd == std::string_view::npos;
+        if (filterLast && topicLast)
+        {
+            return true;
+        }
+        if (filterLast)
+        {
+            return false;
+        }
+        if (topicLast)
+        {
+            // Mosquitto's "sport/#" covers "sport" itself.
+            return filter.substr(filterEnd + 1) == "#";
+        }
+        at = filterEnd + 1;
+        topicAt = topicEnd + 1;
+    }
+}
+
+/// Replaces {{name}} with the JSON-escaped value, so a template stays valid JSON whatever the text
+/// holds. An unknown name is left alone rather than silently emptied.
+std::string renderTemplate(const std::string& tmpl,
+                           const std::vector<std::pair<std::string, std::string>>& values)
+{
+    std::string out;
+    size_t      at = 0;
+    while (at < tmpl.size())
+    {
+        const auto open = tmpl.find("{{", at);
+        if (open == std::string::npos)
+        {
+            out += tmpl.substr(at);
+            break;
+        }
+        out += tmpl.substr(at, open - at);
+        const auto close = tmpl.find("}}", open + 2);
+        if (close == std::string::npos)
+        {
+            out += tmpl.substr(open);
+            break;
+        }
+        const auto name = tmpl.substr(open + 2, close - open - 2);
+        const auto found = std::ranges::find_if(values,
+                                                [&name](const auto& entry) { return entry.first == name; });
+        if (found == values.end())
+        {
+            out += tmpl.substr(open, close + 2 - open);
+        }
+        else
+        {
+            out += jsonEscape(found->second);
+        }
+        at = close + 2;
+    }
+    return out;
+}
+
+/// One place to post to: its own URL, body template, filters, and its own queue and thread so a
+/// slow messenger cannot delay the collector beside it.
+struct Destination
+{
+    std::string name;
+    Url         url;
+    std::string secret;
+    int         timeoutMs {defaultTimeoutMs};
+    int         retries {defaultRetries};
+    std::string tmpl;            ///< Empty means the full JSON envelope.
+    bool        sendMessages {true};
+    bool        sendLog {false};
+    std::string topicFilter {"#"};
+    size_t      maxPayload {std::numeric_limits<size_t>::max()};
+    uint32_t    minLevel {XMQ_LOG_ERROR};
+    std::vector<std::string> logSubjects;
+    std::vector<std::pair<std::string, std::string>> headers;
+
+    std::mutex                lock;
+    std::condition_variable   condition;
+    std::deque<std::pair<std::string, std::string>> queue; ///< body, what it was
+    bool                      stopping {false};
+    std::thread               thread;
+    std::atomic<uint64_t>     sent {0};
+    std::atomic<uint64_t>     failed {0};
+    std::atomic<uint64_t>     dropped {0};
+};
+
+constexpr size_t maxQueuedPerDestination = 1024;
+
+/// 2xx is success; 4xx except 429 is refused without a second attempt; everything else retries
+/// with backoff. The same policy for both inputs, in one place.
+bool deliverOnce(const Destination& destination, const std::string& body, const std::string& what)
+{
+    for (int attempt = 0; attempt <= destination.retries; ++attempt)
+    {
+        std::string error;
+        const int   status = post(destination.url, body, destination.secret, destination.timeoutMs,
+                                  destination.headers, error);
+        if (status >= 200 && status < 300)
+        {
+            return true;
+        }
+        if (status >= 400 && status < 500 && status != 429)
+        {
+            // The endpoint will say no again; a retry would only be noise.
+            std::fprintf(stderr, "webhook: %s refused the message: HTTP %d\n", what.c_str(), status);
+            return false;
+        }
+        if (!error.empty())
+        {
+            std::fprintf(stderr, "webhook: delivery of %s failed: %s\n", what.c_str(), error.c_str());
+        }
+        if (attempt < destination.retries)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::min(2000, 100 << attempt)));
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 class Webhook : public xmq::XmqExtensionBase
 {
 public:
     using XmqExtensionBase::XmqExtensionBase;
+
+    ~Webhook() override
+    {
+        stopDestinations();
+    }
 
     bool start() override
     {
@@ -439,85 +874,131 @@ public:
 
     void onMessage(const xmq_message& message) override
     {
-        Config config;
-        {
-            const std::shared_lock lock(m_configLock);
-            config = m_config;
-        }
-        if (!config.m_sendMessages)
+        const auto destinations = snapshot();
+        if (destinations.empty())
         {
             return;
         }
 
-        const std::string payload(message.payload.data, message.payload.length);
-        const std::string body =
-            "{\"id\":\"" + nextId() + "\"" +
-            ",\"source\":\"message\"" +
-            ",\"version\":1" +
-            ",\"timestamp\":\"" + isoTimestamp() + "\"" +
-            ",\"topic\":\"" + jsonEscape(xmq::view(message.topic)) + "\"" +
-            ",\"qos\":" + std::to_string(static_cast<unsigned>(message.qos)) +
-            ",\"retain\":" + (message.retain != 0 ? "true" : "false") +
-            ",\"client_id\":\"" + jsonEscape(xmq::view(message.client_id)) + "\"" +
-            ",\"username\":\"" + jsonEscape(xmq::view(message.username)) + "\"" +
-            ",\"payload_base64\":\"" + base64(payload) + "\"}";
+        const std::string topic(xmq::view(message.topic));
+        const std::string id = nextId();
+        const std::string timestamp = isoTimestamp();
+        std::string       envelope;
+        std::vector<std::pair<std::string, std::string>> values;
 
-        deliver(config, body, "message for " + std::string(xmq::view(message.topic)));
+        for (const auto& destination: destinations)
+        {
+            if (!destination->sendMessages || !topicMatches(destination->topicFilter, topic) ||
+                message.payload.length > destination->maxPayload)
+            {
+                continue;
+            }
+            if (values.empty())
+            {
+                values = {
+                    {"id", id},
+                    {"source", "message"},
+                    {"timestamp", timestamp},
+                    {"topic", topic},
+                    {"qos", std::to_string(static_cast<unsigned>(message.qos))},
+                    {"retain", message.retain != 0 ? "true" : "false"},
+                    {"client_id", std::string(xmq::view(message.client_id))},
+                    {"username", std::string(xmq::view(message.username))},
+                    {"payload_base64",
+                     base64(std::string(message.payload.data, message.payload.length))}};
+                envelope = messageEnvelope(values);
+            }
+            enqueue(*destination, destination->tmpl.empty() ? envelope
+                                                            : renderTemplate(destination->tmpl, values),
+                    "message for " + topic);
+        }
     }
 
-    /// One line of the broker's own log: the other input of the same connector, so a single
-    /// endpoint can be told both what clients sent and what the broker could not do.
+    /// One line of the broker's own log: the other input, so one endpoint can be told both what
+    /// clients sent and what the broker could not do.
     void onLog(const xmq_log_record& record) override
     {
-        Config config;
-        {
-            const std::shared_lock lock(m_configLock);
-            config = m_config;
-        }
-        if (!config.m_sendLog)
+        const auto destinations = snapshot();
+        if (destinations.empty())
         {
             return;
         }
 
-        const std::string_view subject = xmq::view(record.subject);
-        if (!config.m_logSubjects.empty() &&
-            std::ranges::none_of(config.m_logSubjects,
-                                 [subject](const std::string& candidate)
-                                 { return subject == candidate; }))
+        const std::string subject(xmq::view(record.subject));
+        const std::string message(xmq::view(record.message));
+        const std::string id = nextId();
+        const std::string timestamp = isoTimestamp();
+        std::string       envelope;
+        std::vector<std::pair<std::string, std::string>> values;
+
+        for (const auto& destination: destinations)
         {
-            return;
+            if (!destination->sendLog || record.level < destination->minLevel)
+            {
+                continue;
+            }
+            if (!destination->logSubjects.empty() &&
+                std::ranges::none_of(destination->logSubjects,
+                                     [&subject](const std::string& candidate)
+                                     { return candidate == subject; }))
+            {
+                continue;
+            }
+            if (values.empty())
+            {
+                values = {
+                    {"id", id},
+                    {"source", "log"},
+                    {"timestamp", timestamp},
+                    {"level", levelName(record.level)},
+                    {"subject", subject},
+                    {"message", message}};
+                envelope = logEnvelope(values);
+            }
+            enqueue(*destination, destination->tmpl.empty() ? envelope
+                                                            : renderTemplate(destination->tmpl, values),
+                    "log record from " + subject);
         }
-
-        const std::string body =
-            "{\"id\":\"" + nextId() + "\"" +
-            ",\"source\":\"log\"" +
-            ",\"version\":1" +
-            ",\"timestamp\":\"" + isoTimestamp() + "\"" +
-            ",\"level\":\"" + levelName(record.level) + "\"" +
-            ",\"subject\":\"" + jsonEscape(subject) + "\"" +
-            ",\"message\":\"" + jsonEscape(xmq::view(record.message)) + "\"}";
-
-        deliver(config, body, std::string("log record from ") + std::string(subject));
     }
 
 private:
-    struct Config
+    static std::string messageEnvelope(const std::vector<std::pair<std::string, std::string>>& values)
     {
-        Url         m_url;
-        std::string m_secret;
-        int         m_timeoutMs {defaultTimeoutMs};
-        int         m_retries {defaultRetries};
-        bool        m_sendMessages {true};
-        bool        m_sendLog {false};
-        uint32_t    m_logMinLevel {XMQ_LOG_ERROR};
-        std::vector<std::string> m_logSubjects;
-    };
+        const auto value = [&values](const std::string& name)
+        {
+            const auto found = std::ranges::find_if(values,
+                                                    [&name](const auto& entry)
+                                                    { return entry.first == name; });
+            return found == values.end() ? std::string{} : found->second;
+        };
+        return "{\"id\":\"" + jsonEscape(value("id")) + "\"" +
+               ",\"source\":\"message\"" +
+               ",\"version\":1" +
+               ",\"timestamp\":\"" + jsonEscape(value("timestamp")) + "\"" +
+               ",\"topic\":\"" + jsonEscape(value("topic")) + "\"" +
+               ",\"qos\":" + value("qos") +
+               ",\"retain\":" + value("retain") +
+               ",\"client_id\":\"" + jsonEscape(value("client_id")) + "\"" +
+               ",\"username\":\"" + jsonEscape(value("username")) + "\"" +
+               ",\"payload_base64\":\"" + jsonEscape(value("payload_base64")) + "\"}";
+    }
 
-    std::string nextId()
+    static std::string logEnvelope(const std::vector<std::pair<std::string, std::string>>& values)
     {
-        return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::system_clock::now().time_since_epoch()).count()) +
-               "-" + std::to_string(m_sequence.fetch_add(1));
+        const auto value = [&values](const std::string& name)
+        {
+            const auto found = std::ranges::find_if(values,
+                                                    [&name](const auto& entry)
+                                                    { return entry.first == name; });
+            return found == values.end() ? std::string{} : found->second;
+        };
+        return "{\"id\":\"" + jsonEscape(value("id")) + "\"" +
+               ",\"source\":\"log\"" +
+               ",\"version\":1" +
+               ",\"timestamp\":\"" + jsonEscape(value("timestamp")) + "\"" +
+               ",\"level\":\"" + jsonEscape(value("level")) + "\"" +
+               ",\"subject\":\"" + jsonEscape(value("subject")) + "\"" +
+               ",\"message\":\"" + jsonEscape(value("message")) + "\"}";
     }
 
     static std::string levelName(const uint32_t level)
@@ -540,148 +1021,368 @@ private:
         return false;
     }
 
-    /// "connect, server_events" - commas with whatever spaces an operator leaves around them.
-    static std::vector<std::string> splitSubjects(const std::string& text)
+    static std::vector<std::string> splitList(const std::string& text, const char separator)
     {
-        std::vector<std::string> subjects;
+        std::vector<std::string> pieces;
         size_t                   at = 0;
-        while (at < text.size())
+        while (at <= text.size())
         {
-            const auto comma = text.find(',', at);
-            auto       piece = text.substr(at, comma == std::string::npos ? std::string::npos :
-                                                                           comma - at);
+            const auto end = text.find(separator, at);
+            auto       piece = text.substr(at, end == std::string::npos ? std::string::npos : end - at);
             const auto first = piece.find_first_not_of(" \t");
             const auto last = piece.find_last_not_of(" \t");
             if (first != std::string::npos)
             {
-                subjects.push_back(piece.substr(first, last - first + 1));
+                pieces.push_back(piece.substr(first, last - first + 1));
             }
-            if (comma == std::string::npos)
+            if (end == std::string::npos)
             {
                 break;
             }
-            at = comma + 1;
+            at = end + 1;
         }
-        return subjects;
+        return pieces;
     }
 
-    /// The same retry policy for both inputs: 2xx is success, 4xx except 429 is refused without a
-    /// second attempt, everything else is retried with backoff.
-    void deliver(const Config& config, const std::string& body, const std::string& what)
+    std::string nextId()
     {
-        for (int attempt = 0; attempt <= config.m_retries; ++attempt)
+        return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch()).count()) +
+               "-" + std::to_string(m_sequence.fetch_add(1));
+    }
+
+    std::vector<std::shared_ptr<Destination>> snapshot() const
+    {
+        const std::scoped_lock lock(m_destinationsLock);
+        return m_current;
+    }
+
+    void enqueue(Destination& destination, std::string body, std::string what)
+    {
         {
-            std::string error;
-            const int status = post(config.m_url, body, config.m_secret, config.m_timeoutMs, error);
-            if (status >= 200 && status < 300)
+            const std::scoped_lock lock(destination.lock);
+            if (destination.stopping || destination.queue.size() >= maxQueuedPerDestination)
             {
+                destination.dropped.fetch_add(1, std::memory_order_relaxed);
                 return;
             }
-            if (status >= 400 && status < 500 && status != 429)
+            destination.queue.emplace_back(std::move(body), std::move(what));
+        }
+        destination.condition.notify_one();
+    }
+
+    static void run(std::shared_ptr<Destination> destination)
+    {
+        while (true)
+        {
+            std::pair<std::string, std::string> entry;
             {
-                log(XMQ_LOG_WARNING, "the endpoint refused the message: HTTP " + std::to_string(status));
-                return;
+                std::unique_lock lock(destination->lock);
+                destination->condition.wait(lock, [&destination]
+                                            { return destination->stopping || !destination->queue.empty(); });
+                if (destination->queue.empty() && destination->stopping)
+                {
+                    return;
+                }
+                entry = std::move(destination->queue.front());
+                destination->queue.pop_front();
             }
-            if (!error.empty())
+            if (deliverOnce(*destination, entry.first, entry.second))
             {
-                log(XMQ_LOG_WARNING, "delivery failed: " + error);
+                destination->sent.fetch_add(1, std::memory_order_relaxed);
             }
-            if (attempt < config.m_retries)
+            else
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(std::min(2000, 100 << attempt)));
+                destination->failed.fetch_add(1, std::memory_order_relaxed);
             }
         }
-        log(XMQ_LOG_ERROR, "a " + what + " was not delivered");
+    }
+
+    void stopDestinations()
+    {
+        std::vector<std::shared_ptr<Destination>> retiring;
+        {
+            const std::scoped_lock lock(m_destinationsLock);
+            retiring = std::move(m_current);
+            m_current.clear();
+        }
+        for (const auto& destination: retiring)
+        {
+            {
+                const std::scoped_lock lock(destination->lock);
+                destination->stopping = true;
+            }
+            destination->condition.notify_all();
+            if (destination->thread.joinable())
+            {
+                destination->thread.join();
+            }
+        }
+    }
+
+    /// The flat settings build one destination, the way this connector was configured before
+    /// several of them existed. A destinations array replaces that entirely.
+    std::shared_ptr<Destination> legacyDestination(std::string& error) const
+    {
+        auto destination = std::make_shared<Destination>();
+        destination->name = "destination 1";
+        if (!parseUrl(setting("url"), destination->url))
+        {
+            error = "url must be an http:// or https:// address";
+            return nullptr;
+        }
+        if (!destination->url.m_tls && setting("allow_http", "false") != "true")
+        {
+            error = "plain HTTP is refused unless allow_http is true";
+            return nullptr;
+        }
+        destination->secret = setting("secret");
+        try
+        {
+            destination->timeoutMs = std::stoi(setting("timeout_ms", "5000"));
+            destination->retries = std::stoi(setting("retries", "3"));
+            const auto maxPayload = setting("max_payload", "1048576");
+            destination->maxPayload = std::stoull(maxPayload) == 0
+                                          ? std::numeric_limits<size_t>::max()
+                                          : static_cast<size_t>(std::stoull(maxPayload));
+        }
+        catch (const std::exception&)
+        {
+            error = "timeout_ms, retries and max_payload must be numbers";
+            return nullptr;
+        }
+        destination->sendMessages = setting("send_messages", "true") == "true";
+        destination->sendLog = setting("send_log", "false") == "true";
+        destination->topicFilter = setting("topic_filter", "#");
+        if (!parseLevel(setting("log_min_level", "error"), destination->minLevel))
+        {
+            error = "log_min_level must be debug, info, warning or error";
+            return nullptr;
+        }
+        destination->logSubjects = splitList(setting("log_subjects"), ',');
+        return destination;
+    }
+
+    std::shared_ptr<Destination> parsedDestination(const JsonValue& object, const size_t index,
+                                                   std::string& error) const
+    {
+        auto destination = std::make_shared<Destination>();
+        destination->name = "destination " + std::to_string(index + 1);
+
+        const auto member = [&object](const std::string& name) -> const JsonValue*
+        {
+            const auto found = std::ranges::find_if(object.object,
+                                                    [&name](const auto& entry)
+                                                    { return entry.first == name; });
+            return found == object.object.end() ? nullptr : &found->second;
+        };
+        const auto text = [&member](const std::string& name, const std::string& fallback)
+        {
+            const auto* value = member(name);
+            return value == nullptr ? fallback : value->text;
+        };
+
+        const auto* url = member("url");
+        if (url == nullptr || !parseUrl(url->text, destination->url))
+        {
+            error = destination->name + ": url must be an http:// or https:// address";
+            return nullptr;
+        }
+        if (!destination->url.m_tls && text("allow_http", "false") != "true")
+        {
+            error = destination->name + ": plain HTTP is refused unless allow_http is true";
+            return nullptr;
+        }
+        destination->secret = text("secret", "");
+        destination->tmpl = text("template", "");
+        destination->topicFilter = text("topic_filter", "#");
+        try
+        {
+            destination->timeoutMs = std::stoi(text("timeout_ms", "5000"));
+            destination->retries = std::stoi(text("retries", "3"));
+            const auto maxPayload = std::stoull(text("max_payload", "0"));
+            destination->maxPayload = maxPayload == 0
+                                          ? std::numeric_limits<size_t>::max()
+                                          : static_cast<size_t>(maxPayload);
+        }
+        catch (const std::exception&)
+        {
+            error = destination->name + ": timeout_ms, retries and max_payload must be numbers";
+            return nullptr;
+        }
+
+        const auto sources = splitList(text("sources", "messages"), ',');
+        destination->sendMessages = std::ranges::find(sources, "messages") != sources.end();
+        destination->sendLog = std::ranges::find(sources, "log") != sources.end();
+        if (!destination->sendMessages && !destination->sendLog)
+        {
+            error = destination->name + ": sources must name messages, log or both";
+            return nullptr;
+        }
+        if (!parseLevel(text("log_min_level", "error"), destination->minLevel))
+        {
+            error = destination->name + ": log_min_level must be debug, info, warning or error";
+            return nullptr;
+        }
+        destination->logSubjects = splitList(text("log_subjects", ""), ',');
+
+        if (const auto* headers = member("headers"); headers != nullptr)
+        {
+            if (headers->kind != JsonValue::Kind::Object)
+            {
+                error = destination->name + ": headers must be an object of strings";
+                return nullptr;
+            }
+            for (const auto& [name, value]: headers->object)
+            {
+                destination->headers.emplace_back(name, value.text);
+            }
+        }
+        return destination;
     }
 
     bool configure()
     {
-        Config config;
-        const auto url = setting("url");
-        if (!parseUrl(url, config.m_url))
+        std::vector<std::shared_ptr<Destination>> wanted;
+        const auto                                list = setting("destinations");
+
+        if (list.empty())
         {
-            log(XMQ_LOG_ERROR, "url must be an http:// or https:// address");
-            return false;
+            std::string error;
+            if (auto destination = legacyDestination(error); destination != nullptr)
+            {
+                wanted.push_back(std::move(destination));
+            }
+            else
+            {
+                log(XMQ_LOG_ERROR, error);
+                return false;
+            }
         }
-        if (!config.m_url.m_tls && setting("allow_http", "false") != "true")
+        else
         {
-            log(XMQ_LOG_ERROR, "plain HTTP is refused unless allow_http is true");
-            return false;
-        }
-        config.m_secret = setting("secret");
-        try
-        {
-            config.m_timeoutMs = std::stoi(setting("timeout_ms", "5000"));
-            config.m_retries = std::stoi(setting("retries", "3"));
-        }
-        catch (const std::exception&)
-        {
-            log(XMQ_LOG_ERROR, "timeout_ms and retries must be numbers");
-            return false;
-        }
-        if (config.m_timeoutMs <= 0 || config.m_retries < 0)
-        {
-            log(XMQ_LOG_ERROR, "timeout_ms must be positive and retries cannot be negative");
-            return false;
+            JsonValue   parsed;
+            JsonReader  reader(list);
+            if (!reader.read(parsed) || parsed.kind != JsonValue::Kind::Array)
+            {
+                log(XMQ_LOG_ERROR, "destinations must be a JSON array: " +
+                                       (reader.error().empty() ? std::string("not an array")
+                                                               : reader.error()));
+                return false;
+            }
+            for (size_t index = 0; index < parsed.array.size(); ++index)
+            {
+                std::string error;
+                if (parsed.array[index].kind != JsonValue::Kind::Object)
+                {
+                    log(XMQ_LOG_ERROR, "destination " + std::to_string(index + 1) + " must be an object");
+                    return false;
+                }
+                auto destination = parsedDestination(parsed.array[index], index, error);
+                if (destination == nullptr)
+                {
+                    log(XMQ_LOG_ERROR, error);
+                    return false;
+                }
+                wanted.push_back(std::move(destination));
+            }
+            if (wanted.empty())
+            {
+                log(XMQ_LOG_ERROR, "destinations is empty, so nothing would be sent");
+                return false;
+            }
         }
 
-        config.m_sendMessages = setting("send_messages", "true") == "true";
-        config.m_sendLog = setting("send_log", "false") == "true";
-        if (!parseLevel(setting("log_min_level", "error"), config.m_logMinLevel))
+        // The host is asked once for the widest thing any destination wants; the narrowing is per
+        // destination, above. One filter for all of them costs every body being copied here, which
+        // is the price of several destinations in one extension and is worth saying out loud.
+        bool   anyMessages = false;
+        bool   anyLog = false;
+        size_t maxPayload = 0;
+        uint32_t minLevel = XMQ_LOG_ERROR;
+        for (const auto& destination: wanted)
         {
-            log(XMQ_LOG_ERROR, "log_min_level must be debug, info, warning or error");
-            return false;
-        }
-        for (const auto& piece: splitSubjects(setting("log_subjects")))
-        {
-            config.m_logSubjects.push_back(piece);
-        }
-        if (!config.m_sendMessages && !config.m_sendLog)
-        {
-            log(XMQ_LOG_ERROR, "send_messages and send_log are both off, so nothing would be sent");
-            return false;
+            if (destination->sendMessages)
+            {
+                anyMessages = true;
+                if (destination->maxPayload == std::numeric_limits<size_t>::max())
+                {
+                    maxPayload = 0;
+                }
+                else if (maxPayload != 0)
+                {
+                    maxPayload = std::max(maxPayload, destination->maxPayload);
+                }
+            }
+            if (destination->sendLog)
+            {
+                anyLog = true;
+                minLevel = std::min(minLevel, destination->minLevel);
+            }
         }
 
+        // Named once at start: a destination that silently ignores everything looks exactly like
+        // one that was never configured, and the filter is the usual reason.
+        for (const auto& destination: wanted)
         {
-            const std::unique_lock lock(m_configLock);
-            m_config = std::move(config);
+            log(XMQ_LOG_INFO, destination->name + ": " + destination->url.m_host + ":" +
+                                  destination->url.m_port + destination->url.m_path +
+                                  (destination->sendMessages ? " messages '" + destination->topicFilter + "'" : "") +
+                                  (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
         }
 
-        // Registered after the settings are in place: both callbacks read them, and a tap that
-        // arrived first would post with whatever the previous reload left.
-        if (m_config.m_sendLog &&
-            !requestLogs(static_cast<xmq_log_priority>(m_config.m_logMinLevel)))
+        stopDestinations();
+        {
+            const std::scoped_lock lock(m_destinationsLock);
+            m_current = wanted;
+        }
+        for (const auto& destination: wanted)
+        {
+            destination->thread = std::thread([destination] { run(destination); });
+        }
+
+        // Registered after the destinations are running: a body that arrived first would be queued
+        // against a list that is about to be replaced.
+        if (anyLog && !requestLogs(static_cast<xmq_log_priority>(minLevel)))
         {
             log(XMQ_LOG_ERROR, "this broker cannot deliver log records to an extension");
+            stopDestinations();
             return false;
         }
-        if (!m_config.m_sendMessages)
+        if (anyMessages && !subscribeMessages("#", maxPayload))
         {
-            return true;
+            log(XMQ_LOG_ERROR, "this broker refused the message tap");
+            stopDestinations();
+            return false;
         }
-        return subscribeMessages(setting("topic_filter", "#"),
-                                 static_cast<size_t>(std::stoull(setting("max_payload", "1048576"))));
+        log(XMQ_LOG_INFO, "sending to " + std::to_string(wanted.size()) + " destination(s)");
+        return true;
     }
 
-    mutable std::shared_mutex m_configLock;
-    Config                    m_config;
-    std::atomic<uint64_t>     m_sequence {0};
+    mutable std::mutex                                  m_destinationsLock;
+    std::vector<std::shared_ptr<Destination>>           m_current;
+    std::atomic<uint64_t>                               m_sequence {0};
 };
 
 constexpr xmq_setting settings[] = {
-    {"url", "URL", "Where accepted messages are posted, http:// or https://", XMQ_SETTING_STRING, "",
-     nullptr, 1},
+    {"destinations", "Destinations",
+     "A JSON array of {url, template, sources, topic_filter, log_min_level, log_subjects, headers, "
+     "secret, retries, timeout_ms, max_payload, allow_http}. When set, it replaces the single-URL "
+     "settings below.",
+     XMQ_SETTING_STRING, "", nullptr, 0},
+    {"url", "URL", "One destination: where accepted messages are posted, http:// or https://",
+     XMQ_SETTING_STRING, "", nullptr, 0},
     {"secret", "Secret", "HMAC-SHA256 key for the X-XMQ-Signature header", XMQ_SETTING_SECRET, "",
      nullptr, 0},
-    {"topic_filter", "Topic filter", "Only messages matching this MQTT filter are sent", XMQ_SETTING_STRING,
-     "#", nullptr, 0},
+    {"topic_filter", "Topic filter", "Only messages matching this MQTT filter are sent",
+     XMQ_SETTING_STRING, "#", nullptr, 0},
     {"max_payload", "Max payload", "Largest body to send, in bytes", XMQ_SETTING_INTEGER, "1048576",
      nullptr, 0},
     {"timeout_ms", "Timeout", "HTTP connect and read timeout, in milliseconds", XMQ_SETTING_INTEGER,
      "5000", nullptr, 0},
     {"retries", "Retries", "Attempts after the first one", XMQ_SETTING_INTEGER, "3", nullptr, 0},
-    {"allow_http", "Allow HTTP", "Permit a plain HTTP URL (for a local receiver)", XMQ_SETTING_BOOLEAN,
-     "false", nullptr, 0},
+    {"allow_http", "Allow HTTP", "Permit a plain HTTP URL (for a local receiver)",
+     XMQ_SETTING_BOOLEAN, "false", nullptr, 0},
     {"send_messages", "Send messages", "Post the messages the broker accepts", XMQ_SETTING_BOOLEAN,
      "true", nullptr, 0},
     {"send_log", "Send log", "Post the broker's own log records as well", XMQ_SETTING_BOOLEAN,
@@ -694,6 +1395,7 @@ constexpr xmq_setting settings[] = {
 
 } // namespace
 
-XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.1", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_LOG_TAP,
-                               "Posts accepted MQTT messages and the broker's log to an HTTP(S) endpoint.",
+XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.2", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_LOG_TAP,
+                               "Posts accepted MQTT messages and the broker's log to one or more "
+                               "HTTP(S) endpoints.",
                                settings)

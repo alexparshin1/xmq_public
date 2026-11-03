@@ -126,6 +126,21 @@ The webhook carries the broker's log as well as accepted messages, with `send_me
 (`ServerData::logMessage`), so they include refusals from the account database, the permission
 evaluator and the extension host - the faults that stop messages from existing at all.
 
+### DI-10. Several destinations with their own templates (prototype)
+
+`[x]`
+
+`destinations` is a JSON array in one setting: each entry has its own URL, body template
+(`{{topic}}`, `{{message}}`, `{{level}}`, ...), sources (messages, log or both), filters, headers,
+secret and retry policy. Each destination gets its own queue and thread, so a slow messenger
+cannot delay the collector beside it. Substituted values are JSON-escaped, which keeps a template
+valid whatever the message holds.
+
+Known costs, recorded rather than hidden: the host registers one message tap with the widest
+filter for all destinations, so every body is copied to the extension before the per-destination
+filters narrow it; a `secret` inside the JSON is not masked by the settings screen; and the
+settings field is a JSON document typed by hand.
+
 Prototype, on purpose: ABI 1.2 adds `XMQ_CAP_LOG_TAP`, `xmq_log_record` and `request_logs`, and
 the level scale, the subject filter and per-instance settings are open questions. The next
 decision is whether an operator needs several connectors (different endpoints) or whether one

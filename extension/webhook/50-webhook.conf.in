@@ -7,6 +7,8 @@
       "enabled": false,
       "required": false,
       "settings": {
+        "_comment_destinations": "A JSON array replaces everything below it: one entry per endpoint, each with its own url, template, sources, filters and retries.",
+        "destinations": "",
         "url": "",
         "secret": "",
         "topic_filter": "#",
