@@ -206,39 +206,69 @@
     font-family: monospace;
 }
 
+/* The buttons keep the rule table's style - the same classes - so the two dialogs that touch the
+   same rules do not look like two different products. */
 .dialogSubjectButtons {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    align-items: flex-start;
 }
 
 .dialogSubjectButtons button {
     width: 100px;
-    padding: 4px 8px;
-    border: 1px solid cornflowerblue;
-    border-radius: 4px;
-    background-color: white;
-    color: cornflowerblue;
-    cursor: pointer;
 }
 
 .dialogSubjectButtons button:disabled {
-    opacity: 0.45;
+    opacity: 0.55;
     cursor: not-allowed;
 }
 
-.dialogSubjectRemove:not(:disabled) {
-    border-color: darkred;
-    color: darkred;
+/* The Add Group / Add User dialog, opened above the rule dialog. */
+.subjectPickerBackground {
+    z-index: 1100;
 }
 
-.dialogSubjectPicker {
+.subjectPickerDialog {
+    width: 400px;
+    min-height: 160px;
+    border-radius: 10px;
+    background-color: white;
+    box-shadow: rgba(0, 0, 0, 0.35) 0 5px 15px;
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-bottom: 6px;
+    flex-direction: column;
 }
 
-.dialogSubjectPicker input {
-    width: 170px;
+.subjectPickerDialog .title {
+    background-color: cornflowerblue;
+    padding-left: 10px;
+    padding-top: 4px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    height: 24px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.subjectPickerBody {
+    padding-left: 10px;
+    text-align: left;
+}
+
+.subjectPickerBody input {
+    width: 220px;
+}
+
+.subjectPickerError {
+    color: crimson;
+    font-size: 0.9em;
+    padding: 6px 10px 0 10px;
+}
+
+.subjectPickerDialog .modalFooter {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: auto;
+    padding: 8px;
 }

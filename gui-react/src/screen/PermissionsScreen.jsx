@@ -8,6 +8,38 @@ import PageTitle from "../components/PageTitle";
 import "./InputScreen.css";
 
 /**
+ * Whether a rule's topic filter is one the server accepts.
+ *
+ * The same rules the control API applies, checked here so a typo is reported before the dialog
+ * closes: no empty level, `+` and `#` each a whole level, and `#` the last one. Empty levels are
+ * legal MQTT, but a filter that names one is a typo far more often than an intention, and the
+ * import refuses them for the same reason.
+ */
+export function validTopicFilter(filter) {
+    const text = String(filter || "");
+    if (!text) {
+        return false;
+    }
+    const levels = text.split("/");
+    for (let at = 0; at < levels.length; ++at) {
+        const level = levels[at];
+        if (!level) {
+            return false;
+        }
+        if (level === "+") {
+            continue;
+        }
+        if (level === "#") {
+            return at === levels.length - 1;
+        }
+        if (level.includes("#") || level.includes("+")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * Permissions screen: topic rules, a way to try them, and an import.
  *
  * A rule names a group - `user:<name>`, an account group, or `anonymous` - a direction (publish or
@@ -181,6 +213,11 @@ export default class PermissionsScreen extends React.Component {
         }
         if (!rule.filter) {
             errorWindow("A rule needs a topic filter.");
+            return;
+        }
+        if (!validTopicFilter(rule.filter)) {
+            errorWindow("'" + rule.filter + "' is not a valid topic filter: levels cannot be empty, "
+                + "+ and # must each be a whole level, and # must be the last.");
             return;
         }
 

@@ -1,6 +1,9 @@
 import React from "react";
 import './DialogWindow.css';
 import PasswordInput from "./PasswordInput";
+// The rule table's buttons are the model for this dialog's; importing its sheet keeps them the
+// same even on a page where the table happens to be absent.
+import "./DataTable.css";
 
 /**
  * How a rule subject is shown: `user:<name>` and `anonymous` already say what they are, a group
@@ -59,7 +62,8 @@ export default class DialogWindow extends React.Component {
         drafts: {},
         // Which add box is open for a subjects field, and which entry is selected for Remove.
         pickers: {},
-        subjectSelection: {}
+        subjectSelection: {},
+        pickerErrors: {}
     };
 
     makeInputWidget(field) {
@@ -116,12 +120,16 @@ export default class DialogWindow extends React.Component {
             const options = context.options || {};
             const selected = this.state.subjectSelection[field.field] ?? null;
             const picker = this.state.pickers[field.field] ?? null;
+            const pickerError = this.state.pickerErrors[field.field] ?? "";
             const draft = this.state.drafts[field.field] ?? "";
             const setDraft = value => this.setState(state => ({
                 drafts: {...state.drafts, [field.field]: value}
             }));
             const setPicker = value => this.setState(state => ({
                 pickers: {...state.pickers, [field.field]: value}
+            }));
+            const setPickerError = value => this.setState(state => ({
+                pickerErrors: {...state.pickerErrors, [field.field]: value}
             }));
             const select = subject => this.setState(state => ({
                 subjectSelection: {...state.subjectSelection, [field.field]: subject}
@@ -136,22 +144,36 @@ export default class DialogWindow extends React.Component {
                 }
                 setPicker(null);
                 setDraft("");
+                setPickerError("");
+            };
+            const closePicker = () => {
+                setPicker(null);
+                setDraft("");
+                setPickerError("");
             };
             const addPicked = () => {
-                let subject = draft.trim();
-                if (!subject) {
+                const typed = draft.trim();
+                if (!typed) {
+                    setPickerError("A name is required.");
                     return;
                 }
                 if (picker === "user") {
                     // A username means user:<name>; the prefix is accepted if typed.
-                    add(subject.startsWith("user:") ? subject : "user:" + subject);
+                    const name = typed.startsWith("user:") ? typed.substring("user:".length) : typed;
+                    if (!(options.users || []).includes(name)) {
+                        setPickerError("There is no account named '" + name + "'.");
+                        return;
+                    }
+                    add("user:" + name);
                     return;
                 }
                 // `group:Name` is how the operator may write it; the stored subject is the bare name.
-                if (subject.startsWith("group:")) {
-                    subject = subject.substring("group:".length).trim();
+                const name = typed.startsWith("group:") ? typed.substring("group:".length).trim() : typed;
+                if (!(options.groups || []).includes(name)) {
+                    setPickerError("There is no group named '" + name + "'.");
+                    return;
                 }
-                add(subject);
+                add(name);
             };
             const remove = () => {
                 if (!selected) {
@@ -163,26 +185,49 @@ export default class DialogWindow extends React.Component {
             const pickerOptions = picker === "group" ? (options.groups || []) : (options.users || []);
             return <div className="dialogSubjects">
                 {picker
-                    ? <div className="dialogSubjectPicker">
-                        <input name={field.field + "-picker"} list={field.field + "-picker-options"}
-                               value={draft} autoFocus
-                               placeholder={picker === "group" ? "Group name" : "Username"}
-                               onChange={(e) => setDraft(e.target.value)}
-                               onKeyDown={(e) => {
-                                   if (e.key === "Enter") {
-                                       e.preventDefault();
-                                       addPicked();
-                                   }
-                                   if (e.key === "Escape") {
-                                       e.preventDefault();
-                                       setPicker(null);
-                                       setDraft("");
-                                   }
-                               }}/>
-                        <datalist id={field.field + "-picker-options"}>
-                            {pickerOptions.map(name => <option key={name} value={name}/>)}
-                        </datalist>
-                        <button type="button" onClick={addPicked}>Add</button>
+                    ? <div className="modalBackground subjectPickerBackground">
+                        <div className="subjectPickerDialog">
+                            <div className="title">
+                                {picker === "group" ? "Add Group" : "Add User"}
+                            </div>
+                            <div className="subjectPickerBody">
+                                <label className="modalContainerLabel"
+                                       htmlFor={field.field + "-picker"}>
+                                    {picker === "group" ? "Group:" : "User:"}
+                                </label>
+                                <input id={field.field + "-picker"}
+                                       name={field.field + "-picker"}
+                                       list={field.field + "-picker-options"}
+                                       value={draft} autoFocus
+                                       placeholder={picker === "group" ? "Group name" : "Username"}
+                                       onChange={(e) => {
+                                           setDraft(e.target.value);
+                                           setPickerError("");
+                                       }}
+                                       onKeyDown={(e) => {
+                                           if (e.key === "Enter") {
+                                               e.preventDefault();
+                                               addPicked();
+                                           }
+                                           if (e.key === "Escape") {
+                                               e.preventDefault();
+                                               closePicker();
+                                           }
+                                       }}/>
+                                <datalist id={field.field + "-picker-options"}>
+                                    {pickerOptions.map(name => <option key={name} value={name}/>)}
+                                </datalist>
+                            </div>
+                            {pickerError
+                                ? <div className="subjectPickerError">{pickerError}</div>
+                                : null}
+                            <div className="modalFooter">
+                                <button type="button" className="modalOkButton"
+                                        onClick={addPicked}>Ok</button>
+                                <button type="button" className="modalCancelButton"
+                                        onClick={closePicker}>Cancel</button>
+                            </div>
+                        </div>
                     </div>
                     : null}
                 <div className="dialogSubjectMain">
@@ -205,17 +250,19 @@ export default class DialogWindow extends React.Component {
                                 </div>)}
                     </div>
                     <div className="dialogSubjectButtons">
-                        <button type="button" className="dialogSubjectAddGroup"
+                        <button type="button" className="dataTableAddEditButton"
                                 onClick={() => {
                                     setPicker("group");
                                     setDraft("");
+                                    setPickerError("");
                                 }}>Add Group</button>
-                        <button type="button" className="dialogSubjectAddUser"
+                        <button type="button" className="dataTableAddEditButton"
                                 onClick={() => {
                                     setPicker("user");
                                     setDraft("");
+                                    setPickerError("");
                                 }}>Add User</button>
-                        <button type="button" className="dialogSubjectRemove"
+                        <button type="button" className="dataTableRemoveButton"
                                 disabled={!selected} onClick={remove}>Remove</button>
                     </div>
                 </div>

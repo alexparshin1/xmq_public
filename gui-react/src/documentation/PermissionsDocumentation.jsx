@@ -59,6 +59,14 @@ export default function PermissionsDocumentation() {
             </p>
 
             <p>
+                A rule added on the page names a subject that already exists: the picker offers the
+                groups and accounts the server knows and refuses a name that is not among them. An
+                imported rule may name an account that has not been created yet - a file can
+                describe rules before the accounts they belong to - and such a rule is shown like
+                any other.
+            </p>
+
+            <p>
                 The <b>Test access</b> panel answers a specific question without changing anything,
                 using the same evaluation the broker applies, and names the rule that decided.
             </p>
@@ -140,6 +148,12 @@ export default function PermissionsDocumentation() {
                     <b>Dynamic Security priorities are flattened.</b> Mosquitto applies the first
                     matching rule in order; XMQ applies deny-wins. An imported rule set can
                     therefore be stricter than the file it came from, and the import says so.
+                </li>
+                <li>
+                    <b>An empty topic level is refused.</b> MQTT allows a topic such as
+                    <code>/finance</code>, but a rule filter that names an empty level is treated
+                    as a typo by the control API and by the import alike. <code>+</code> and
+                    <code>#</code> must each be a whole level, and <code>#</code> the last one.
                 </li>
                 <li>
                     <b><code>%c</code> is not supported.</b> A client-id pattern cannot be expanded

@@ -1,6 +1,11 @@
 import React from "react";
 import {render} from "@testing-library/react";
-import PermissionsScreen from "./PermissionsScreen";
+import PermissionsScreen, {validTopicFilter} from "./PermissionsScreen";
+
+jest.mock("../components/MessageWindow", () => ({
+    errorWindow: jest.fn(),
+    informationWindow: jest.fn()
+}));
 
 test.each([
     ["allow", "Allowed"],
@@ -129,4 +134,33 @@ test("Editing drops the old rule only when its subject is not kept", async () =>
 
     expect(calls.some(call => call.request.action === "remove" && call.request.rule_id === 7))
         .toBe(true);
+});
+
+test.each([
+    "s", "s/#", "s/+/temp", "#", "+", "$SYS/#", "a/b/c"
+])("A topic filter the server accepts is accepted here: %s", filter => {
+    expect(validTopicFilter(filter)).toBe(true);
+});
+
+test.each([
+    "", "//s/#", "s//temp", "s/", "/s", "s/##", "s/+x", "s/#/x", "s+/x"
+])("A topic filter the server refuses is refused here: %s", filter => {
+    // The check runs before the dialog closes, so a typo is reported while it can still be fixed.
+    expect(validTopicFilter(filter)).toBe(false);
+});
+
+test("Adding a rule with an empty topic level is refused before the server is asked", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: []}));
+    const MessageWindow = require("../components/MessageWindow");
+
+    const screen = new PermissionsScreen({});
+    screen.state.rows = [];
+    screen.onRowDataChange("add", {
+        group: ["operators"], action: "subscribe", access: "allow", filter: "//s/#"
+    });
+
+    expect(call).not.toHaveBeenCalled();
+    expect(MessageWindow.errorWindow).toHaveBeenCalled();
 });
