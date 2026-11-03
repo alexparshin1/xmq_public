@@ -98,6 +98,8 @@ export default class PermissionsScreen extends React.Component {
             }
         ],
         rows: [],
+        defaultDeny: false,
+        policyBusy: false,
 
         testUsername: "",
         testClientId: "",
@@ -189,7 +191,8 @@ export default class PermissionsScreen extends React.Component {
                         filter: rule.filter || "",
                         access: rule.deny ? "deny" : "allow",
                         pattern: rule.pattern === true
-                    }))
+                    })),
+                    defaultDeny: data.default_deny === true
                 });
                 return true;
             });
@@ -217,6 +220,18 @@ export default class PermissionsScreen extends React.Component {
                 + "+ and # must each be a whole level, and # must be the last.";
         }
         return null;
+    }
+
+    setDefaultDeny = deny => {
+        this.setState({policyBusy: true});
+        return ControlAPI.asyncMakeAPICall("PermissionsControl", {action: "set-policy", default_deny: deny})
+            .then(data => {
+                if (!PermissionsScreen.succeeded(data)) {
+                    this.setState({policyBusy: false});
+                    return;
+                }
+                this.setState({defaultDeny: data.default_deny === true, policyBusy: false});
+            });
     }
 
     onRowDataChange = (action, data) => {
@@ -480,6 +495,21 @@ export default class PermissionsScreen extends React.Component {
                     not available yet, and a subscription is matched as a filter rather than as the
                     literal topic some brokers distinguish - both are the same for ordinary clients.
                 </p>
+            </div>
+
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">Clients with no matching rule:</label>
+                <select className="inputScreenSelect"
+                        value={this.state.defaultDeny ? "deny" : "allow"}
+                        disabled={this.state.policyBusy}
+                        onChange={e => this.setDefaultDeny(e.target.value === "deny")}>
+                    <option value="deny">Deny</option>
+                    <option value="allow">Allow</option>
+                </select>
+                <span className="inputScreenHint">
+                    Deny is Mosquitto's default when an ACL file is present; Allow leaves a client
+                    the rules do not know to the extensions.
+                </span>
             </div>
 
             <DataTable objectName="Rule" headers={this.state.headers}

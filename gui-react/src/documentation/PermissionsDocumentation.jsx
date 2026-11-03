@@ -62,6 +62,14 @@ export default function PermissionsDocumentation() {
             </p>
 
             <p>
+                <b>Clients with no matching rule.</b> Mosquitto denies them when an ACL file is
+                present. XMQ has the same choice as a setting on this page, and an import that
+                brings at least one rule turns it on. An import of an empty file leaves the setting
+                as it was: opening or locking the whole broker on no evidence would both be worse
+                than leaving it alone.
+            </p>
+
+            <p>
                 <b>Subscribe</b> is also permission to receive what is published on that filter.
                 There is no separate delivery permission.
             </p>
@@ -82,6 +90,11 @@ export default function PermissionsDocumentation() {
             <h4 id="permissions-import">Importing rules</h4>
 
             <p>
+                The <b>Import from Mosquitto</b> page takes the password file and the ACL file as
+                file inputs, read by the browser and sent as content: the XMQ server does not open
+                <code>/etc/mosquitto</code> with its own privileges, and cannot be used to read a
+                file the administrator could not. Either file may be left empty.
+
                 The import reads a Mosquitto <code>acl_file</code> or a
                 <code>dynamic-security.json</code>. It is planned before it is applied: rules
                 already present are recognised and not duplicated, a rule an existing rule already
@@ -124,6 +137,12 @@ export default function PermissionsDocumentation() {
             </table>
 
             <p>
+                The password file understands Mosquitto 2.0 <code>$7$</code> verifiers and
+                clear-text lines; 1.6 <code>$6$</code> and 2.1 <code>argon2id</code> verifiers are
+                reported as not imported, because they cannot be checked here and would otherwise
+                become accounts nobody can sign in to. An imported <code>$7$</code> verifier is
+                replaced with this broker's own at the first successful login.
+
                 Dynamic Security roles are flattened onto accounts: the rules a client gets through
                 its roles and groups become rules on <code>user:&lt;name&gt;</code>, in the order
                 Mosquitto would check them. An allowing <code>defaultACLAccess</code> becomes a

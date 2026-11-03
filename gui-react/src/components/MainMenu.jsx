@@ -63,6 +63,7 @@ export default class MainMenu extends React.Component {
             "/users": "Users",
             "/usergroups": "Groups",
             "/permissions": "Permissions",
+            "/import": "Import",
             "/listeners": "Listeners",
             "/sslkeys": "SSL Keys",
             "/persistence": "Persistence",

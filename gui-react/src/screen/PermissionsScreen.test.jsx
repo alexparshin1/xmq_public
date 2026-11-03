@@ -229,3 +229,28 @@ test("A pattern rule is shown as applying to all clients", () => {
     expect(group.valueFormatter({value: "*", data: {pattern: true}})).toBe("all clients");
     expect(group.valueFormatter({value: "operators", data: {pattern: false}})).toBe("group:operators");
 });
+
+test("The default-deny policy is read with the rules and can be changed", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((method, request) => {
+        if (request.action === "list") {
+            return Promise.resolve({result: {success: true}, rules: [], default_deny: true});
+        }
+        return Promise.resolve({result: {success: true}, default_deny: false});
+    });
+
+    const screen = new PermissionsScreen({});
+    screen.setState = update => {
+        const patch = typeof update === "function" ? update(screen.state) : update;
+        if (patch) {
+            screen.state = {...screen.state, ...patch};
+        }
+    };
+    await screen.readRules();
+    expect(screen.state.defaultDeny).toBe(true);
+
+    await screen.setDefaultDeny(false);
+    expect(screen.state.defaultDeny).toBe(false);
+    expect(call).toHaveBeenCalledWith("PermissionsControl",
+        {action: "set-policy", default_deny: false});
+});

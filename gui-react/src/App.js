@@ -13,6 +13,7 @@ import LoginScreen from "./screen/LoginScreen";
 import UsersScreen from "./screen/UsersScreen";
 import UserGroupsScreen from "./screen/UserGroupsScreen";
 import PermissionsScreen from "./screen/PermissionsScreen";
+import MosquittoImportScreen from "./screen/MosquittoImportScreen";
 import ListenersScreen from "./screen/Listeners";
 import PersistenceScreen from "./screen/PersistenceScreen";
 import SSLKeysScreen from "./screen/SSLKeysScreen";
@@ -86,6 +87,7 @@ class App extends React.Component {
                                     <Route path="/users" element={<RequireAuth><UsersScreen/></RequireAuth>}/>
                                     <Route path="/usergroups" element={<RequireAuth><UserGroupsScreen/></RequireAuth>}/>
                                     <Route path="/permissions" element={<RequireAuth><PermissionsScreen/></RequireAuth>}/>
+                                    <Route path="/import" element={<RequireAuth><MosquittoImportScreen/></RequireAuth>}/>
                                     <Route path="/listeners" element={<RequireAuth><ListenersScreen/></RequireAuth>}/>
                                     <Route path="/persistence" element={<RequireAuth><PersistenceScreen/></RequireAuth>}/>
                                     <Route path="/sslkeys" element={<RequireAuth><SSLKeysScreen/></RequireAuth>}/>
