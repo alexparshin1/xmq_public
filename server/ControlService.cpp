@@ -1210,7 +1210,16 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
                     throw Exception("The import has " + std::to_string(plan.m_conflicts.size()) +
                                     " conflict(s); choose existing, imported or skip.");
                 }
-                const auto result = PermissionsImport::apply(existing, plan, resolution.c_str());
+                auto result = PermissionsImport::apply(existing, plan, resolution.c_str());
+                // One global sequence, not two numbering schemes meeting: the imported orders are
+                // sorted into place and the table is renumbered, so a rule imported after a policy
+                // edit cannot share an order with one the edit left behind.
+                ranges::stable_sort(result, [](const auto& first, const auto& second)
+                                    { return first.m_order < second.m_order; });
+                for (size_t index = 0; index < result.size(); ++index)
+                {
+                    result[index].m_order = 2000000 + static_cast<int>(index);
+                }
                 store.replaceAclRules(result);
                 // A source with rules is a broker under ACL control: from now on a client the rules
                 // know but do not cover is denied. An empty source changes nothing - locking the
