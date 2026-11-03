@@ -59,11 +59,11 @@ export default function PermissionsDocumentation() {
             </p>
 
             <p>
-                A rule added on the page names a subject that already exists: the picker offers the
-                groups and accounts the server knows and refuses a name that is not among them. An
-                imported rule may name an account that has not been created yet - a file can
-                describe rules before the accounts they belong to - and such a rule is shown like
-                any other.
+                A rule added on the page names a subject that already exists: the picker is a combo
+                box of the groups and accounts the server knows, so a name that does not exist
+                cannot be entered at all. An imported rule may name an account that has not been
+                created yet - a file can describe rules before the accounts they belong to - and
+                such a rule is shown like any other.
             </p>
 
             <p>

@@ -256,8 +256,10 @@
     text-align: left;
 }
 
-.subjectPickerBody input {
+.subjectPickerBody select {
     width: 220px;
+    padding: 3px;
+    border-radius: 4px;
 }
 
 .subjectPickerError {

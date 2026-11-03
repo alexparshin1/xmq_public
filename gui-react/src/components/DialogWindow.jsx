@@ -151,29 +151,19 @@ export default class DialogWindow extends React.Component {
                 setDraft("");
                 setPickerError("");
             };
+            // What the picker can offer, already in the form the rule stores: a group under its bare
+            // name ("anonymous" included), a user as user:<name>.
+            const pickerSubjects = picker === "group"
+                ? (options.groups || [])
+                : (options.users || []).map(name => "user:" + name);
             const addPicked = () => {
-                const typed = draft.trim();
-                if (!typed) {
-                    setPickerError("A name is required.");
+                // A select can only hand back one of its options; the check is what keeps a value
+                // that is not one of them - from a stale list, say - out of the rule.
+                if (!draft || !pickerSubjects.includes(draft)) {
+                    setPickerError("Choose a name from the list.");
                     return;
                 }
-                if (picker === "user") {
-                    // A username means user:<name>; the prefix is accepted if typed.
-                    const name = typed.startsWith("user:") ? typed.substring("user:".length) : typed;
-                    if (!(options.users || []).includes(name)) {
-                        setPickerError("There is no account named '" + name + "'.");
-                        return;
-                    }
-                    add("user:" + name);
-                    return;
-                }
-                // `group:Name` is how the operator may write it; the stored subject is the bare name.
-                const name = typed.startsWith("group:") ? typed.substring("group:".length).trim() : typed;
-                if (!(options.groups || []).includes(name)) {
-                    setPickerError("There is no group named '" + name + "'.");
-                    return;
-                }
-                add(name);
+                add(draft);
             };
             const remove = () => {
                 if (!selected) {
@@ -182,7 +172,6 @@ export default class DialogWindow extends React.Component {
                 this.previewValueChange(field, chosen.filter(one => one !== selected));
                 select(null);
             };
-            const pickerOptions = picker === "group" ? (options.groups || []) : (options.users || []);
             return <div className="dialogSubjects">
                 {picker
                     ? <div className="modalBackground subjectPickerBackground">
@@ -195,35 +184,40 @@ export default class DialogWindow extends React.Component {
                                        htmlFor={field.field + "-picker"}>
                                     {picker === "group" ? "Group:" : "User:"}
                                 </label>
-                                <input id={field.field + "-picker"}
-                                       name={field.field + "-picker"}
-                                       list={field.field + "-picker-options"}
-                                       value={draft} autoFocus
-                                       placeholder={picker === "group" ? "Group name" : "Username"}
-                                       onChange={(e) => {
-                                           setDraft(e.target.value);
-                                           setPickerError("");
-                                       }}
-                                       onKeyDown={(e) => {
-                                           if (e.key === "Enter") {
-                                               e.preventDefault();
-                                               addPicked();
-                                           }
-                                           if (e.key === "Escape") {
-                                               e.preventDefault();
-                                               closePicker();
-                                           }
-                                       }}/>
-                                <datalist id={field.field + "-picker-options"}>
-                                    {pickerOptions.map(name => <option key={name} value={name}/>)}
-                                </datalist>
+                                {/* A real combo box: every value in it exists, so a name that does
+                                    not cannot be entered at all, and a typo has nothing to match. */}
+                                <select id={field.field + "-picker"}
+                                        name={field.field + "-picker"}
+                                        value={draft} autoFocus
+                                        onChange={(e) => {
+                                            setDraft(e.target.value);
+                                            setPickerError("");
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                addPicked();
+                                            }
+                                            if (e.key === "Escape") {
+                                                e.preventDefault();
+                                                closePicker();
+                                            }
+                                        }}>
+                                    <option value="">
+                                        {pickerSubjects.length === 0
+                                            ? (picker === "group" ? "No groups exist yet" : "No accounts exist yet")
+                                            : (picker === "group" ? "Choose a group" : "Choose a user")}
+                                    </option>
+                                    {pickerSubjects.map(subject =>
+                                        <option key={subject} value={subject}>{subjectLabel(subject)}</option>)}
+                                </select>
                             </div>
                             {pickerError
                                 ? <div className="subjectPickerError">{pickerError}</div>
                                 : null}
                             <div className="modalFooter">
                                 <button type="button" className="modalOkButton"
-                                        onClick={addPicked}>Ok</button>
+                                        disabled={!draft} onClick={addPicked}>Ok</button>
                                 <button type="button" className="modalCancelButton"
                                         onClick={closePicker}>Cancel</button>
                             </div>
@@ -267,24 +261,6 @@ export default class DialogWindow extends React.Component {
                     </div>
                 </div>
             </div>;
-        }
-
-        if (context.inputType === "combobox") {
-            // Both: the known values are offered, and a value that is not among them can still be
-            // typed. A group list that is only a select cannot express `user:<name>`, and one that
-            // is only a text box makes the operator remember how every group is spelled.
-            const listId = field.field + "-options";
-            return <>
-                <input name={field.field} list={listId}
-                       value={this.state.values[field.field] ?? ""}
-                       onChange={(e) => this.previewValueChange(field, e.target.value)}
-                       style={{width: this.inputWidth(field)}}
-                       required/>
-                <datalist id={listId}>
-                    {(context.options || []).map(option =>
-                        <option key={option} value={option}/>)}
-                </datalist>
-            </>;
         }
 
         if (context.inputType === "select") {
