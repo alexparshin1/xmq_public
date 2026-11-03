@@ -53,7 +53,7 @@ receives a view over the payload. The existing authenticator, authorizer and obs
 
 ### DI-4. Reference webhook extension
 
-`[ ]` `extension/webhook`: settings `url`, `secret`, `topic_filter`, `max_payload`, `timeout_ms`.
+`[x]` `extension/webhook`: settings `url`, `secret`, `topic_filter`, `max_payload`, `timeout_ms`.
 POSTs JSON:
 
 ```json
@@ -76,24 +76,24 @@ flight per worker.
 
 ### DI-5. Settings and screen
 
-`[ ]` The extension declares its settings; the Extensions screen shows them. The URL and secret are
+`[x]` The extension declares its settings; the Extensions screen shows them. The URL and secret are
 marked secret where the field supports it. A missing or malformed URL is refused in `start()` and
 logged, not silently ignored.
 
 ### DI-6. Tests
 
-`[ ]` A test extension taps `sensors/#` and records payloads, including a binary one. A local HTTP
+`[x]` A test extension taps `sensors/#` and records payloads, including a binary one. A local HTTP
 server receives the webhook, checks the HMAC and the JSON, and can answer 500 once to prove the
 retry. A queue full test proves publishing is not blocked. A stopped extension delivers nothing.
 
 ### DI-7. Documentation
 
-`[ ]` A Data Integration page under Documentation: what is sent, the signature, retries, the drop
+`[x]` A Data Integration page under Documentation: what is sent, the signature, retries, the drop
 counter and the security of the endpoint secret.
 
 ### DI-8. Build and packaging
 
-`[ ]` The webhook extension is built by the normal extension machinery, installed with its
+`[x]` The webhook extension is built by the normal extension machinery, installed with its
 configuration template, and is off unless enabled.
 
 ## Sequence

@@ -88,6 +88,12 @@ TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_TAP_RECORDER_LIBRARY="$<TARGET_FILE:xmq_test_tap_recorder>"
         XMQ_TEST_USER_DATABASE_LIBRARY="$<TARGET_FILE:xmq_test_user_database>")
 
+IF (UNIX)
+    ADD_DEPENDENCIES(xmq_unit_tests xmq_webhook)
+    TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
+            XMQ_TEST_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_webhook>")
+ENDIF ()
+
 # The external-client tests drive xmq_pub and xmq_sub as separate processes. They are told where
 # this build put them rather than looking them up on PATH: on PATH they resolve to whatever copy is
 # installed on the machine - a different version, or on a machine where XMQ has never been

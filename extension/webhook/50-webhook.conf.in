@@ -1,0 +1,20 @@
+{
+  "extensions": [
+    {
+      "_comment": "Posts accepted MQTT messages to an HTTP(S) endpoint. Disabled until a URL is set. The payload is base64 in JSON; the request is signed with HMAC-SHA256 when a secret is configured. POSIX only in this release.",
+      "name": "webhook",
+      "library": "@XMQ_WEBHOOK_LIBRARY@",
+      "enabled": false,
+      "required": false,
+      "settings": {
+        "url": "",
+        "secret": "",
+        "topic_filter": "#",
+        "max_payload": "1048576",
+        "timeout_ms": "5000",
+        "retries": "3",
+        "allow_http": "false"
+      }
+    }
+  ]
+}
