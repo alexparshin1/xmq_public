@@ -104,3 +104,16 @@ test("The ACL preview says when the import turns default deny on", () => {
     const {container} = render(screen.renderAclPlan());
     expect(container.textContent).toContain("turns on deny-by-default");
 });
+
+test("A .json ACL file is read as dynamic-security", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, plan: JSON.stringify(aclPlan), default_deny: false}));
+
+    const screen = instance();
+    screen.aclLoaded("dynamic-security.json", "{\"clients\":[]}");
+    expect(screen.state.aclFormat).toBe("dynsec");
+    await screen.preview();
+    expect(call).toHaveBeenCalledWith("PermissionsControl",
+        {action: "import-plan", format: "dynsec", content: "{\"clients\":[]}"});
+});

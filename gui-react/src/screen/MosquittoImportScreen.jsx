@@ -21,6 +21,7 @@ export default class MosquittoImportScreen extends React.Component {
         passwordContent: "",
         aclName: "",
         aclContent: "",
+        aclFormat: "acl",
         passwordPlan: null,
         aclPlan: null,
         aclDefaultDeny: false,
@@ -58,7 +59,10 @@ export default class MosquittoImportScreen extends React.Component {
     }
 
     aclLoaded = (name, content) => {
-        this.setState({aclName: name, aclContent: content, aclPlan: null, result: null});
+        // The extension is a hint: a dynamic-security file is JSON, an ACL file is not. The
+        // selector beside the input can still be changed if the name lies.
+        const aclFormat = /\.json$/i.test(name) ? "dynsec" : "acl";
+        this.setState({aclName: name, aclContent: content, aclFormat, aclPlan: null, result: null});
     }
 
     preview = async () => {
@@ -85,7 +89,7 @@ export default class MosquittoImportScreen extends React.Component {
 
         if (aclContent.trim()) {
             const data = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "import-plan", format: "acl", content: aclContent});
+                {action: "import-plan", format: this.state.aclFormat, content: aclContent});
             if (!MosquittoImportScreen.succeeded(data)) {
                 this.setState({busy: false});
                 return false;
@@ -132,7 +136,7 @@ export default class MosquittoImportScreen extends React.Component {
 
         if (this.state.aclContent.trim()) {
             const data = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "import-apply", format: "acl", content: this.state.aclContent,
+                {action: "import-apply", format: this.state.aclFormat, content: this.state.aclContent,
                  resolution: "reject"});
             if (!MosquittoImportScreen.succeeded(data)) {
                 this.setState({busy: false});
@@ -243,7 +247,9 @@ export default class MosquittoImportScreen extends React.Component {
                     be left empty, and then that part is not imported.
                 </p>
                 <p>
-                    Nothing is written until <b>Import</b> is pressed. The password file may use
+                    A <code>dynamic-security.json</code> can be chosen as the ACL file; a
+                    <code>.json</code> name selects that format automatically. Nothing is written
+                    until <b>Import</b> is pressed. The password file may use
                     Mosquitto 2.0 <code>$7$</code> verifiers or clear-text lines; 1.6
                     <code>$6$</code> and 2.1 <code>argon2id</code> verifiers are reported and need
                     the password to be set again.
@@ -268,6 +274,17 @@ export default class MosquittoImportScreen extends React.Component {
                 {this.state.aclName
                     ? <span className="inputScreenHint">{this.state.aclName}</span>
                     : <span className="inputScreenHint">Usually /etc/mosquitto/aclfile</span>}
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">ACL format:</label>
+                <select className="inputScreenSelect" value={this.state.aclFormat}
+                        onChange={e => this.setState({aclFormat: e.target.value, aclPlan: null})}>
+                    <option value="acl">Mosquitto ACL file</option>
+                    <option value="dynsec">dynamic-security.json</option>
+                </select>
+                <span className="inputScreenHint">
+                    A .json file switches this by itself; the format tells the parser which file it is.
+                </span>
             </div>
 
             <div className="inputScreenRow">
