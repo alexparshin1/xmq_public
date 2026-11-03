@@ -53,8 +53,9 @@ export default function PermissionsDocumentation() {
                 <code>anonymous</code> subject applies only when there is no username. Rules from
                 all of those subjects share one global order, which is why the list a subject shows
                 is its part of that order rather than a private sequence. When a client has rules
-                but none of them covers the topic, the answer is deny if the setting below says so -
-                Mosquitto's default for a client the rules know about.
+                but none of them covers the topic, the answer is deny: its rules are an allow-list,
+                exactly as in Mosquitto. The setting below decides only clients that have no rules
+                at all.
             </p>
 
             <p>

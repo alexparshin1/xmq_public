@@ -656,8 +656,9 @@ export default class PermissionsScreen extends React.Component {
                 <p>
                     Each row is one user, one group, or anonymous clients, and the list beneath it is
                     that subject's policy. The list is checked from the top and the first matching
-                    rule decides: an allow above a deny lets the deny's topic through. A client the
-                    rules know but no rule covers is denied when the setting below says so.
+                    rule decides: an allow above a deny lets the deny's topic through. A client
+                    whose subjects have any rule at all is an allow-list, as in Mosquitto: a topic
+                    none of its rules covers is denied, whatever the setting below says.
                 </p>
                 <p>
                     These rules decide which topics an account may publish and subscribe to. A
@@ -670,7 +671,7 @@ export default class PermissionsScreen extends React.Component {
             </div>
 
             <div className="inputScreenRow">
-                <label className="inputScreenLabel">Clients with no matching rule:</label>
+                <label className="inputScreenLabel">Clients with no rules at all:</label>
                 <select className="inputScreenSelect"
                         value={this.state.defaultDeny ? "deny" : "allow"}
                         disabled={this.state.policyBusy}
@@ -679,8 +680,9 @@ export default class PermissionsScreen extends React.Component {
                     <option value="allow">Allow</option>
                 </select>
                 <span className="inputScreenHint">
-                    Deny is Mosquitto's default when an ACL file is present; Allow leaves a client
-                    the rules do not know to the extensions.
+                    This decides only a client whose account and groups define no rule: Allow
+                    leaves it to the extensions, Deny refuses it. It does not soften a client that
+                    does have rules - that list stays an allow-list.
                 </span>
             </div>
 
