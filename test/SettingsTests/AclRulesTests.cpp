@@ -157,3 +157,18 @@ TEST_F(AclRulesTests, noMatchingRuleDeniesAClientTheRulesKnow)
     // bob has no rules at all, so the decision belongs to the extensions, as it always did.
     EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client", "elsewhere", true));
 }
+
+TEST_F(AclRulesTests, defaultDenyDeniesAClientTheRulesDoNotKnow)
+{
+    UserStore store(m_pool);
+    store.setDefaultDeny(true);
+    m_rules.reload(m_pool, m_users);
+
+    // bob has no rules at all; before this setting the decision belonged to the extensions.
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("bob", "client", "anything", true));
+    EXPECT_EQ(AclRules::Decision::Deny, m_rules.authorize("", "", "anything", false));
+
+    store.setDefaultDeny(false);
+    m_rules.reload(m_pool, m_users);
+    EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client", "anything", true));
+}

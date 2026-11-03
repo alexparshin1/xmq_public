@@ -807,6 +807,7 @@
                                     <xsd:enumeration value="test"/>
                                     <xsd:enumeration value="import-plan"/>
                                     <xsd:enumeration value="import-apply"/>
+                                    <xsd:enumeration value="set-policy"/>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -837,6 +838,7 @@
                                 <xsd:documentation>Test action: "publish" or "subscribe".</xsd:documentation>
                             </xsd:annotation>
                         </xsd:element>
+                        <xsd:element name="default_deny" type="xsd:boolean" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
@@ -852,6 +854,7 @@
                         <xsd:element name="unchanged_count" type="xsd:int" minOccurs="0"/>
                         <xsd:element name="redundant_count" type="xsd:int" minOccurs="0"/>
                         <xsd:element name="conflict_count" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="default_deny" type="xsd:boolean" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

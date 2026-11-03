@@ -209,6 +209,12 @@ void UserStore::createSchema()
             "CREATE INDEX ix_user_to_group_by_group ON " + String(string(membershipTable)) + " (user_group_id)");
     }
 
+    if (!tableExists("xmq_permissions_policy"))
+    {
+        executeStatement("CREATE TABLE xmq_permissions_policy (id int PRIMARY KEY, default_deny int NOT NULL DEFAULT 0)" + tableSuffix());
+        executeStatement("INSERT INTO xmq_permissions_policy (id, default_deny) VALUES (1, 0)");
+    }
+
     const bool aclTableExisted = tableExists("xmq_acl_rule");
     if (!aclTableExisted)
     {
@@ -520,6 +526,36 @@ std::pair<int64_t, int64_t> UserStore::createStandardGroups()
     };
 
     return {ensure(String(string(defaultGroupName))), ensure(String(string(administratorsGroupName)))};
+}
+
+bool UserStore::defaultDeny()
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query query(connection.connection(), "SELECT default_deny FROM xmq_permissions_policy WHERE id = 1");
+    query.open();
+    const bool deny = !query.eof() && query["default_deny"].asInteger() != 0;
+    query.close();
+    return deny;
+}
+
+void UserStore::setDefaultDeny(const bool deny)
+{
+    const AutoDatabaseConnection connection(*m_database);
+    Query update(connection.connection(),
+                 "UPDATE xmq_permissions_policy SET default_deny = :default_deny WHERE id = 1");
+    update.param("default_deny") = deny ? 1 : 0;
+    update.exec();
+
+    // A table created before the update path ran, or a row somebody deleted: put it back.
+    Query exists(connection.connection(), "SELECT count(*) FROM xmq_permissions_policy WHERE id = 1");
+    exists.open();
+    const auto present = !exists.eof() && exists[uint32_t {0}].asInteger() > 0;
+    exists.close();
+    if (!present)
+    {
+        executeStatement("INSERT INTO xmq_permissions_policy (id, default_deny) VALUES (1, " +
+                         String(deny ? "1" : "0") + ")");
+    }
 }
 
 std::vector<UserStore::AclRule> UserStore::aclRules()

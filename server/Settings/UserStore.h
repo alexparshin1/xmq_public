@@ -157,6 +157,12 @@ public:
     /// Every topic permission, ordered by group, action, deny, filter.
     [[nodiscard]] std::vector<AclRule> aclRules();
 
+    /// Whether a client the rules know but do not cover is denied. One value for the whole broker.
+    [[nodiscard]] bool defaultDeny();
+
+    /// Sets that answer. Shared through the accounts database, so every node applies it.
+    void setDefaultDeny(bool deny);
+
     /**
      * @brief Adds one topic permission, or returns the id of the identical one already there.
      *

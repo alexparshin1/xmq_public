@@ -2084,8 +2084,11 @@ void Server::reloadAclRules()
 
 void Server::accountsChanged()
 {
+    // The rules and the default-deny policy live with the accounts, so an account change is also
+    // the moment to re-read them: a change made on another node arrives through the cluster as this
+    // call, and it has to reach the publish path there too.
+    reloadAclRules();
     m_extensions.accountsChanged();
-    m_aclRules.invalidateGroups();
 }
 
 ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic)

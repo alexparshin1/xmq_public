@@ -1488,4 +1488,75 @@ TEST_F(XMQ_ControlServiceTests, userImportPlansAndAppliesMosquittoPasswords)
     }
 }
 
+
+TEST_F(XMQ_ControlServiceTests, permissionsPolicyAndTheImportTurnOnDefaultDeny)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+
+    const auto policy = [&](const bool deny)
+    {
+        input.m_action = "set-policy";
+        input.m_default_deny = deny;
+        m_controlService->PermissionsControl(input, output, &authentication);
+        verifyResult(output.m_result);
+        return output.m_default_deny.asBool();
+    };
+
+    EXPECT_TRUE(policy(true));
+    EXPECT_TRUE(output.m_default_deny.asBool());
+
+    input.m_action = "test";
+    input.m_username = "nobody-" + to_string(::getpid());
+    input.m_topic = "some/topic";
+    input.m_acl_action = "publish";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ("deny", output.m_decision.asString())
+        << "default deny covers a client the rules do not know";
+
+    EXPECT_FALSE(policy(false));
+
+    // An empty ACL changes nothing: opening or locking the broker on no evidence is worse than
+    // leaving the current answer alone.
+    input.m_action = "import-apply";
+    input.m_format = "acl";
+    input.m_content = "# nothing here\n";
+    input.m_resolution = "reject";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_FALSE(output.m_default_deny.asBool());
+
+    // A file with a rule is a broker under ACL control.
+    const String group = "user:policy-" + to_string(::getpid());
+    const auto   acl = "user " + string(group.c_str()) + "\ntopic read sensors/#\n";
+    input.m_content = acl.c_str();
+    m_controlService->PermissionsControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_TRUE(output.m_default_deny.asBool());
+
+    // Leave the shared accounts database as it was found.
+    EXPECT_FALSE(policy(false));
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    for (const auto& rule: output.m_rules)
+    {
+        if (rule.m_group.asString() != group)
+        {
+            continue;
+        }
+        CPermissionsControl         remove;
+        CPermissionsControlResponse removed;
+        remove.m_action = "remove";
+        remove.m_rule_id = rule.m_id.asInteger();
+        m_controlService->PermissionsControl(remove, removed, &authentication);
+    }
+}
+
 } // namespace xmq

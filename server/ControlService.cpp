@@ -968,6 +968,16 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             {
                 output.m_rules.push_back(describeRule(rule));
             }
+            output.m_default_deny = store.defaultDeny();
+        }
+        else if (action == "set-policy")
+        {
+            if (input.m_default_deny.isNull())
+            {
+                throw Exception("A policy needs default_deny.");
+            }
+            store.setDefaultDeny(input.m_default_deny.asBool());
+            output.m_default_deny = store.defaultDeny();
         }
         else if (action == "add")
         {
@@ -1055,7 +1065,8 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             std::string explanation;
             const auto  decision = AclRules::evaluate(store.aclRules(), groups, username.c_str(),
                                                       clientId.c_str(), topic.c_str(),
-                                                      aclAction == "publish", &explanation);
+                                                      aclAction == "publish", store.defaultDeny(),
+                                                      &explanation);
             output.m_decision = decision == AclRules::Decision::Allow ? "allow"
                 : (decision == AclRules::Decision::Deny ? "deny" : "not_handled");
             output.m_explanation = explanation.empty() ? "no rule applies to this client" : explanation;
@@ -1094,6 +1105,7 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             output.m_unchanged_count = static_cast<int>(plan.m_unchanged.size());
             output.m_redundant_count = static_cast<int>(plan.m_redundant.size());
             output.m_conflict_count = static_cast<int>(plan.m_conflicts.size());
+            output.m_default_deny = store.defaultDeny();
 
             if (action == "import-apply")
             {
@@ -1111,6 +1123,14 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
                 }
                 const auto result = PermissionsImport::apply(existing, plan, resolution.c_str());
                 store.replaceAclRules(result);
+                // A source with rules is a broker under ACL control: from now on a client the rules
+                // know but do not cover is denied. An empty source changes nothing - locking the
+                // broker or opening it on no evidence would both be worse than leaving it be.
+                if (!imported.empty())
+                {
+                    store.setDefaultDeny(true);
+                }
+                output.m_default_deny = store.defaultDeny();
                 output.m_rules.clear();
                 for (const auto& rule: store.aclRules())
                 {
@@ -1125,7 +1145,7 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
 
         // A rule change is read by the broker on the publish path, so it has to be reloaded; a
         // "test" only asks a question and a "list" changes nothing.
-        if (action == "add" || action == "remove" || action == "import-apply")
+        if (action == "add" || action == "remove" || action == "import-apply" || action == "set-policy")
         {
             if (const auto runningServer = server())
             {

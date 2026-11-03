@@ -68,11 +68,13 @@ public:
                              const std::vector<std::string>& groups,
                              std::string_view username, std::string_view clientId,
                              std::string_view topic, bool publish,
+                             bool defaultDeny = false,
                              std::string* explanation = nullptr);
 
 private:
     mutable std::shared_mutex                m_mutex;
     std::vector<UserStore::AclRule>          m_rules;
+    bool                                     m_defaultDeny {false};
     std::unordered_map<std::string, std::vector<std::string>> m_groupsByUser;
     const UserManager*                       m_users {nullptr};
 };

@@ -72,6 +72,7 @@ void AclRules::reload(const shared_ptr<DatabaseConnectionPool>& database, const 
     UserStore store(database);
     store.createSchema();
     m_rules = store.aclRules();
+    m_defaultDeny = store.defaultDeny();
 }
 
 void AclRules::invalidateGroups()
@@ -120,7 +121,7 @@ AclRules::Decision AclRules::authorize(const string_view username, const string_
         cached = m_groupsByUser.emplace(name, std::move(groups)).first;
     }
 
-    return evaluate(m_rules, cached->second, username, clientId, topic, publish);
+    return evaluate(m_rules, cached->second, username, clientId, topic, publish, m_defaultDeny);
 }
 
 AclRules::Decision AclRules::authorizeGroups(const vector<string>& groups, const string_view username,
@@ -128,13 +129,13 @@ AclRules::Decision AclRules::authorizeGroups(const vector<string>& groups, const
                                              const bool publish) const
 {
     const shared_lock lock(m_mutex);
-    return evaluate(m_rules, groups, username, clientId, topic, publish);
+    return evaluate(m_rules, groups, username, clientId, topic, publish, m_defaultDeny);
 }
 
 AclRules::Decision AclRules::evaluate(const vector<UserStore::AclRule>& rules, const vector<string>& groups,
                                       const string_view username, const string_view clientId,
                                       const string_view topic, const bool publish,
-                                      string* explanation)
+                                      const bool defaultDeny, string* explanation)
 {
     const UserStore::AclRule* winner = nullptr;
     bool                     managed = false;
@@ -172,7 +173,7 @@ AclRules::Decision AclRules::evaluate(const vector<UserStore::AclRule>& rules, c
         // A client the rules know about but for which nothing matched is denied: that is Mosquitto's
         // default, and it is what keeps a group with rules an allow-list. A client with no rules at
         // all is left to the extensions, precisely as before.
-        return managed ? Decision::Deny : Decision::NotHandled;
+        return (managed || defaultDeny) ? Decision::Deny : Decision::NotHandled;
     }
 
     if (explanation)

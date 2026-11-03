@@ -1677,7 +1677,7 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
                     m_settings->userManager().refreshUser(username);
                 }
             }
-            m_server->extensions().accountsChanged();
+            m_server->accountsChanged();
             break;
         case Unknown:
             logMessage(LogPriority::Error, [&message]
