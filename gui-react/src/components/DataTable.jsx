@@ -50,6 +50,7 @@ export default class DataTable extends React.Component {
                     getRowId={this.props.getRowId}
                     columnDefs={this.props.headers}
                     rowSelection="single"
+                    getRowHeight={this.props.getRowHeight}
                     pagination={pagination}
                     paginationPageSize={paginationPageSize}
                     paginationPageSizeSelector={paginationPageSizeSelector}
@@ -100,13 +101,19 @@ export default class DataTable extends React.Component {
     }
 
     edit() {
-        const rowId = this.getSelectedRowId();
-        if (rowId == null) {
+        const row = this.getSelectedRow();
+        if (row == null) {
             this.requireSelection("edit");
             return;
         }
+        // A page whose row is not a set of fields - a policy, say - edits it in a dialog of its
+        // own rather than in the generic one built from the columns.
+        if (this.props.onEdit) {
+            this.props.onEdit(row);
+            return;
+        }
         this.editorTitle = "Edit " + this.objectName;
-        this.editorValues = this.getSelectedRow();
+        this.editorValues = row;
         this.setState({showEditor: true});
     }
 

@@ -36,72 +36,43 @@
     color: #1f3a66;
 }
 
-/* The policy list: one row per subject, with its rules in evaluation order. */
-.permissionsPolicyTable {
-    width: calc(100% - 20px);
-    margin: 0 10px 8px 10px;
-    border-collapse: collapse;
-    background-color: white;
+/* One subject's policy inside a grid cell: rules in checking order, without numbers. */
+.permissionsPolicyCell {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 0;
+    border-left: 2px solid #e0e6ef;
+    padding-left: 8px;
 }
 
-.permissionsPolicyTable th {
-    text-align: left;
-    padding: 6px 8px;
-    border-bottom: 2px solid #c8d4e8;
-    color: #1f3a66;
-}
-
-.permissionsPolicyTable td {
-    padding: 6px 8px;
-    border-bottom: 1px solid #e0e6ef;
-    vertical-align: top;
-}
-
-.permissionsPolicySubjectName {
-    font-family: monospace;
-    font-weight: bold;
+.permissionsPolicyLine {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
     white-space: nowrap;
-}
-
-.permissionsPolicyRules {
-    margin: 0;
-    padding-left: 22px;
-}
-
-.permissionsPolicyRules li {
-    padding: 1px 0;
-}
-
-/* A policy can be longer than a row should be; five lines and a count keep the table readable,
-   and Edit still opens every rule. */
-.permissionsPolicyMore {
-    list-style: none;
-    margin-left: -16px;
-    color: gray;
-    font-style: italic;
 }
 
 .permissionsAllow {
     color: #1b5e20;
     font-weight: bold;
+    min-width: 38px;
 }
 
 .permissionsDeny {
     color: #b71c1c;
     font-weight: bold;
+    min-width: 38px;
 }
 
 .permissionsAction {
     color: #4a5568;
+    min-width: 70px;
 }
 
-.permissionsPolicyRowButtons {
-    white-space: nowrap;
-    text-align: right;
-}
-
-.permissionsPolicyRowButtons button {
-    width: 90px;
+.permissionsPolicyMore {
+    color: gray;
+    font-style: italic;
 }
 
 /* The policy editor: an ordered list of rules with the same Add/Remove shape as the subject list. */
@@ -167,19 +138,12 @@
     white-space: nowrap;
 }
 
-.permissionsPolicyEntryButtons button {
-    margin-left: 3px;
-    padding: 2px 6px;
-    border: 1px solid cornflowerblue;
-    border-radius: 4px;
-    background-color: white;
-    color: cornflowerblue;
-    cursor: pointer;
-}
-
-.permissionsPolicyEntryButtons button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+/* The same buttons as the rest of the interface, at the size a row of the dialog can hold. */
+.permissionsPolicySmallButton {
+    width: auto;
+    min-width: 30px;
+    margin: 1px;
+    padding: 2px 8px;
 }
 
 .permissionsPolicyDialog .modalFooter {
@@ -187,4 +151,13 @@
     justify-content: flex-start;
     padding: 8px;
     margin-top: auto;
+}
+
+.permissionsPolicyCell {
+    font-size: 0.92em;
+}
+
+.permissionsPolicySmallButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }

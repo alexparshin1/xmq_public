@@ -1,6 +1,7 @@
 import React from "react";
 import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
 import ControlAPI from "../ControlAPI";
+import DataTable from "../components/DataTable";
 import FileLoad from "../components/FileLoad";
 import PageTitle from "../components/PageTitle";
 import {subjectLabel} from "../components/DialogWindow";
@@ -40,6 +41,28 @@ export function validTopicFilter(filter) {
 }
 
 /**
+ * One subject's policy inside a grid cell: the rules in the order they are checked, without the
+ * numbers an ordered list would add. Five lines fit a readable row; the rest is a count, and Edit
+ * opens all of them.
+ */
+export function PolicyCell(params) {
+    const rules = (params.data && params.data.rules) || [];
+    return <div className="permissionsPolicyCell">
+        {rules.slice(0, 5).map(rule =>
+            <div key={rule.id} className="permissionsPolicyLine">
+                <span className={rule.deny ? "permissionsDeny" : "permissionsAllow"}>
+                    {rule.deny ? "deny" : "allow"}
+                </span>
+                <span className="permissionsAction">{rule.action}</span>
+                <code>{rule.filter}</code>
+            </div>)}
+        {rules.length > 5
+            ? <div className="permissionsPolicyMore">... and {rules.length - 5} more</div>
+            : null}
+    </div>;
+}
+
+/**
  * Permissions screen: a policy per subject, a way to try it, and an import.
  *
  * A policy is the ordered list of rules that applies to one user, one group or anonymous clients.
@@ -53,6 +76,11 @@ export function validTopicFilter(filter) {
 export default class PermissionsScreen extends React.Component {
 
     state = {
+        headers: [
+            {headerName: "Id", field: "id", hide: true},
+            {headerName: "Applies to", field: "appliesTo", width: 220, cellClass: "ViewCellLeftAligned"},
+            {headerName: "Policy, checked from the top", field: "rules", cellRenderer: PolicyCell, flex: 1}
+        ],
         rows: [],
         subjectOptions: {groups: [], users: []},
         defaultDeny: false,
@@ -156,7 +184,8 @@ export default class PermissionsScreen extends React.Component {
             const key = (rule.pattern ? "pattern:" : "subject:") + rule.group;
             let policy = bySubject.get(key);
             if (!policy) {
-                policy = {key, subject: rule.group, pattern: rule.pattern, rules: []};
+                policy = {key, id: key, subject: rule.group, pattern: rule.pattern,
+                          appliesTo: rule.pattern ? "All clients" : subjectLabel(rule.group), rules: []};
                 bySubject.set(key, policy);
             }
             policy.rules.push(rule);
@@ -508,17 +537,19 @@ export default class PermissionsScreen extends React.Component {
                                            onChange={e => this.updatePolicyEntry(index, {filter: e.target.value})}/>
                                 </td>
                                 <td className="permissionsPolicyEntryButtons">
-                                    <button type="button" disabled={index === 0}
+                                    <button type="button" className="dataTableAddEditButton permissionsPolicySmallButton"
+                                            disabled={index === 0}
                                             onClick={() => this.movePolicyEntry(index, -1)}>&uarr;</button>
-                                    <button type="button" disabled={index === editor.entries.length - 1}
+                                    <button type="button" className="dataTableAddEditButton permissionsPolicySmallButton"
+                                            disabled={index === editor.entries.length - 1}
                                             onClick={() => this.movePolicyEntry(index, 1)}>&darr;</button>
-                                    <button type="button"
+                                    <button type="button" className="dataTableRemoveButton permissionsPolicySmallButton"
                                             onClick={() => this.removePolicyEntry(index)}>Remove</button>
                                 </td>
                             </tr>)}
                         </tbody>
                     </table>
-                    <button type="button" className="inputScreenSaveButton inputScreenActionButton"
+                    <button type="button" className="dataTableAddEditButton"
                             onClick={this.addPolicyEntry}>Add rule</button>
                     {editor.error
                         ? <div className="subjectPickerError">{editor.error}</div>
@@ -533,51 +564,16 @@ export default class PermissionsScreen extends React.Component {
         </div>;
     }
 
-    renderPolicies() {
-        const policies = this.policies();
-        if (policies.length === 0) {
-            return <p className="inputScreenNote">No rules yet. Add a policy for a user or group.</p>;
+    onPolicyRowChange = (action, row) => {
+        if (action === "remove") {
+            this.removePolicy(row);
         }
-        return <table className="permissionsPolicyTable">
-            <thead>
-            <tr>
-                <th>Applies to</th>
-                <th>Policy, checked in order</th>
-                <th/>
-            </tr>
-            </thead>
-            <tbody>
-            {policies.map(policy =>
-                <tr key={policy.key}>
-                    <td className="permissionsPolicySubjectName">{this.policyTitle(policy)}</td>
-                    <td>
-                        <ol className="permissionsPolicyRules">
-                            {policy.rules.slice(0, 5).map(rule =>
-                                <li key={rule.id}>
-                                    <span className={rule.deny ? "permissionsDeny" : "permissionsAllow"}>
-                                        {rule.deny ? "deny" : "allow"}
-                                    </span>
-                                    {" "}
-                                    <span className="permissionsAction">{rule.action}</span>
-                                    {" "}
-                                    <code>{rule.filter}</code>
-                                </li>)}
-                            {policy.rules.length > 5
-                                ? <li className="permissionsPolicyMore">
-                                    ... and {policy.rules.length - 5} more
-                                  </li>
-                                : null}
-                        </ol>
-                    </td>
-                    <td className="permissionsPolicyRowButtons">
-                        <button type="button" className="dataTableAddEditButton"
-                                onClick={() => this.editPolicy(policy)}>Edit</button>
-                        <button type="button" className="dataTableRemoveButton"
-                                onClick={() => this.removePolicy(policy)}>Remove</button>
-                    </td>
-                </tr>)}
-            </tbody>
-        </table>;
+    }
+
+    policyRowHeight = params => {
+        const count = params.data && params.data.rules ? params.data.rules.length : 0;
+        const lines = Math.min(5, count) + (count > 5 ? 1 : 0);
+        return Math.max(30, 12 + lines * 19);
     }
 
     renderImportPlan() {
@@ -681,12 +677,13 @@ export default class PermissionsScreen extends React.Component {
                 </span>
             </div>
 
-            {this.renderPolicies()}
-
-            <div className="inputScreenRow">
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        onClick={this.addPolicy}>Add Policy</button>
-            </div>
+            <DataTable objectName="Policy" headers={this.state.headers}
+                       rows={this.policies()}
+                       getRowId={params => String(params.data.id)}
+                       getRowHeight={this.policyRowHeight}
+                       onAdd={this.addPolicy}
+                       onEdit={this.editPolicy}
+                       onRowDataChange={this.onPolicyRowChange}/>
 
             <h3 className="permissionsSectionTitle">Import</h3>
             <div className="inputScreenIntro">

@@ -1,6 +1,8 @@
 import React from "react";
 import {fireEvent, render, screen} from "@testing-library/react";
-import PermissionsScreen, {validTopicFilter} from "./PermissionsScreen";
+import PermissionsScreen, {PolicyCell, validTopicFilter} from "./PermissionsScreen";
+
+jest.mock("../components/DataTable", () => () => null);
 
 jest.mock("../components/MessageWindow", () => ({
     errorWindow: jest.fn(),
@@ -242,13 +244,11 @@ test("Removing a policy sends an empty list for its subject", async () => {
 });
 
 test("A long policy shows five rules and how many are hidden", () => {
-    const screen = instance();
-    screen.state.rows = Array.from({length: 7}, (unused, at) => ({
-        id: at + 1, group: "operators", pattern: false, order: at, deny: false,
-        action: "subscribe", filter: "sensors/" + at
+    const rules = Array.from({length: 7}, (unused, at) => ({
+        id: at + 1, deny: false, action: "subscribe", filter: "sensors/" + at
     }));
-    const {container} = render(screen.renderPolicies());
-    const items = container.querySelectorAll(".permissionsPolicyRules li");
-    expect(items).toHaveLength(6);
-    expect(items[5].textContent).toContain("... and 2 more");
+    const {container} = render(<PolicyCell data={{rules}}/>);
+    const lines = container.querySelectorAll(".permissionsPolicyLine");
+    expect(lines).toHaveLength(5);
+    expect(container.textContent).toContain("... and 2 more");
 });
