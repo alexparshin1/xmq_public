@@ -32,8 +32,11 @@ export default function PermissionsDocumentation() {
                     <td>That one account, by its username.</td>
                 </tr>
                 <tr>
-                    <td>a group name</td>
-                    <td>Every account that belongs to the group on the <b>Users</b> page.</td>
+                    <td><code>group:&lt;name&gt;</code></td>
+                    <td>Every account that belongs to the group on the <b>Users</b> page. The
+                        <code>group:</code> prefix is how the interface shows it, so a group cannot
+                        be mistaken for a username; the stored rule keeps the bare name, and so does
+                        an imported rule.</td>
                 </tr>
                 <tr>
                     <td><code>anonymous</code></td>

@@ -44,13 +44,14 @@ test("The subject list adds a group and a user and removes them by name", () => 
     fireEvent.change(screen.getByPlaceholderText("Username"), {target: {value: "alice"}});
     fireEvent.click(screen.getByText("Add User"));
 
-    expect(screen.getByText("water")).toBeInTheDocument();
+    // A group is shown with a prefix so it cannot be mistaken for a username.
+    expect(screen.getByText("group:water")).toBeInTheDocument();
     expect(screen.getByText("user:alice")).toBeInTheDocument();
 
     // Remove is per entry, so one subject can go without disturbing the others.
-    const water = screen.getByText("water");
+    const water = screen.getByText("group:water");
     fireEvent.click(water.parentElement.querySelector("button"));
-    expect(screen.queryByText("water")).toBeNull();
+    expect(screen.queryByText("group:water")).toBeNull();
     expect(screen.getByText("user:alice")).toBeInTheDocument();
 });
 
@@ -68,5 +69,5 @@ test("A group typed with the group: prefix is stored under its bare name", () =>
     fireEvent.change(screen.getByPlaceholderText("Group name"),
         {target: {value: "group:Administrators"}});
     fireEvent.click(screen.getByText("Add Group"));
-    expect(screen.getByText("Administrators")).toBeInTheDocument();
+    expect(screen.getByText("group:Administrators")).toBeInTheDocument();
 });

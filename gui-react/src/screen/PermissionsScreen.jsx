@@ -1,6 +1,7 @@
 import React from "react";
 import {errorWindow, informationWindow} from "../components/MessageWindow";
 import DataTable from "../components/DataTable";
+import {subjectLabel} from "../components/DialogWindow";
 import ControlAPI from "../ControlAPI";
 import FileLoad from "../components/FileLoad";
 import PageTitle from "../components/PageTitle";
@@ -31,6 +32,9 @@ export default class PermissionsScreen extends React.Component {
                 // group created elsewhere can still be typed. One row is one subject; adding
                 // several in the editor writes one rule for each.
                 headerName: "Applies to", field: "group", width: 220, cellClass: "ViewCellLeftAligned",
+                // A group has no marker of its own in the stored name; the column adds one so the
+                // row reads the same way the editor does.
+                valueFormatter: params => subjectLabel(params.value),
                 context: {inputType: "subjects", options: {groups: [], users: []}}
             },
             {
@@ -376,9 +380,11 @@ export default class PermissionsScreen extends React.Component {
             <div className="inputScreenIntro">
                 <p>
                     These rules decide which topics an account may publish and subscribe to. A
-                    group is <code>user:&lt;name&gt;</code> for one account, the name of a group
-                    from the Groups page, or <code>anonymous</code> for clients that connect
-                    without a username.
+                    rule applies to <code>user:&lt;name&gt;</code> for one account,
+                    <code>group:&lt;name&gt;</code> for a group from the Groups page, or
+                    <code>anonymous</code> for clients that connect without a username. The
+                    <code>group:</code> prefix is how the page shows a group so it cannot be
+                    mistaken for a username; the stored rule keeps the bare name.
                 </p>
                 <p>
                     A group that has any rule here is an allow-list: a topic no rule in it covers is

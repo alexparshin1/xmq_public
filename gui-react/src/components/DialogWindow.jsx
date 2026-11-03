@@ -2,6 +2,18 @@ import React from "react";
 import './DialogWindow.css';
 import PasswordInput from "./PasswordInput";
 
+/**
+ * How a rule subject is shown: `user:<name>` and `anonymous` already say what they are, a group
+ * does not. The prefix is for the eye only - the stored rule and the import keep the bare name.
+ */
+export function subjectLabel(subject) {
+    const text = String(subject ?? "");
+    if (!text || text === "anonymous" || text.startsWith("user:") || text.startsWith("group:")) {
+        return text;
+    }
+    return "group:" + text;
+}
+
 export default class DialogWindow extends React.Component {
     constructor(props) {
         super(props);
@@ -135,7 +147,7 @@ export default class DialogWindow extends React.Component {
                     ? <div className="dialogSubjectEmpty">No users or groups yet.</div>
                     : <ul className="dialogSubjectList">{chosen.map(subject =>
                         <li key={subject} className="dialogSubject">
-                            <span className="dialogSubjectName">{subject}</span>
+                            <span className="dialogSubjectName">{subjectLabel(subject)}</span>
                             <button type="button" className="dialogSubjectRemove"
                                     onClick={() => this.previewValueChange(
                                         field, chosen.filter(one => one !== subject))}>
