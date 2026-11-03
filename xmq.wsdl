@@ -803,32 +803,27 @@
                         <xsd:element name="rule_id" type="xsd:int" minOccurs="0"/>
                         <xsd:element name="username" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="topic" type="xsd:string" minOccurs="0"/>
-                        <xsd:element name="format" minOccurs="0">
-                            <xsd:simpleType>
-                                <xsd:restriction base="xsd:string">
-                                    <xsd:enumeration value="acl"/>
-                                    <xsd:enumeration value="dynsec"/>
-                                </xsd:restriction>
-                            </xsd:simpleType>
+                        <!-- The three optional choices are plain strings rather than enumerations:
+                             a generated restriction is checked even when an optional element is
+                             absent, and an empty value is then rejected before the request can reach
+                             the action that does not use it. The server validates each value in the
+                             branches that read it, and the values are listed here for the schema. -->
+                        <xsd:element name="format" type="xsd:string" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Import format: "acl" or "dynsec".</xsd:documentation>
+                            </xsd:annotation>
                         </xsd:element>
                         <xsd:element name="content" type="xsd:string" minOccurs="0"/>
-                        <xsd:element name="resolution" minOccurs="0">
-                            <xsd:simpleType>
-                                <xsd:restriction base="xsd:string">
-                                    <xsd:enumeration value="reject"/>
-                                    <xsd:enumeration value="existing"/>
-                                    <xsd:enumeration value="imported"/>
-                                    <xsd:enumeration value="skip"/>
-                                </xsd:restriction>
-                            </xsd:simpleType>
+                        <xsd:element name="resolution" type="xsd:string" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Conflict resolution: "reject", "existing",
+                                    "imported" or "skip".</xsd:documentation>
+                            </xsd:annotation>
                         </xsd:element>
-                        <xsd:element name="acl_action">
-                            <xsd:simpleType>
-                                <xsd:restriction base="xsd:string">
-                                    <xsd:enumeration value="publish"/>
-                                    <xsd:enumeration value="subscribe"/>
-                                </xsd:restriction>
-                            </xsd:simpleType>
+                        <xsd:element name="acl_action" type="xsd:string" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>Test action: "publish" or "subscribe".</xsd:documentation>
+                            </xsd:annotation>
                         </xsd:element>
                     </xsd:sequence>
                 </xsd:complexType>
