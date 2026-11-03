@@ -181,6 +181,11 @@ bool UserManager::hasPassword(const std::string& username) const
     return iterator != m_passwords.end() && !iterator->second.m_password.empty();
 }
 
+int UserManager::passwordIterations() const
+{
+    return m_iterations > 0 ? m_iterations : PasswordHash::defaultIterations;
+}
+
 WSArray<CUser> UserManager::getUsers(const String& regexFilter, const bool scramblePasswords) const
 {
     shared_ptr<RegularExpression> filter;

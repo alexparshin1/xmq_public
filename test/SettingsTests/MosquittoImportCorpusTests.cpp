@@ -1,5 +1,6 @@
 #include "common/DirectoryNames.h"
 #include "server/Settings/AclRules.h"
+#include "server/Settings/PasswordImport.h"
 #include "server/Settings/PermissionsImport.h"
 #include "server/Settings/UserStore.h"
 
@@ -97,7 +98,9 @@ TEST(MosquittoImportCorpus, everyFileIsImported)
     const set<string> expected {
         "acl-access-variants.acl", "acl-change.acl", "acl-empty.acl", "aclfile-example.acl",
         "acl-mixed-patterns.acl", "acl-persist-deny.acl", "dynamic-security-init.json",
-        "dynamic-security-priorities.json"};
+        "dynamic-security-priorities.json",
+        "password-file-mixed.pwfile", "password-file-pbkdf2.pwfile",
+        "password-file-plain.pwfile", "password-file-sha512-crypt.pwfile"};
 
     set<string> seen;
     for (const auto& entry: filesystem::directory_iterator(corpusDirectory))
@@ -123,6 +126,10 @@ TEST(MosquittoImportCorpus, everyFileIsImported)
             else if (extension == ".json")
             {
                 PermissionsImport::parseDynamicSecurity(content, skipped);
+            }
+            else if (extension == ".pwfile")
+            {
+                PasswordImport::parse(content);
             }
             else
             {
@@ -323,6 +330,10 @@ TEST(MosquittoImportCorpus, everyFileSurvivesPlanApplyAndTheStore)
         if (!entry.is_regular_file() || entry.path().filename() == "README.md")
         {
             continue;
+        }
+        if (entry.path().extension() == ".pwfile")
+        {
+            continue; // accounts are covered by PasswordImport's own tests
         }
         const auto content = readFile(entry.path());
         vector<string> skipped;

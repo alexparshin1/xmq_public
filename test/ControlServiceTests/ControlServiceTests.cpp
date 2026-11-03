@@ -1424,4 +1424,68 @@ TEST_F(XMQ_ControlServiceTests, permissionsPatternRulesUseTheClientId)
     }
 }
 
+
+TEST_F(XMQ_ControlServiceTests, userImportPlansAndAppliesMosquittoPasswords)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    const String suffix = to_string(::getpid());
+    const String hashedUser = "mosq-hashed-" + suffix;
+    const String plainUser = "mosq-plain-" + suffix;
+    const String oldUser = "mosq-old-" + suffix;
+
+    const string content =
+        string(hashedUser.c_str()) +
+        ":$7$1000$h0tqVxBwkB9rKAXukTtffzdbBQtNy1q5FBTDwSW4hucfjpqunBbxW10NVnRk7Cfh0lQndnOv2+k4wJavgz1JNw=="
+        "$02ujkUXlKkJGFzlQHNjUgXwG3XRB1mr3vs8NX5teGCJGbN4hdgSpHNHuj47j8r5SHXsO7GeHpmkpPNhLraVVcQ==\n" +
+        string(plainUser.c_str()) + ":Secret12!\n" +
+        string(oldUser.c_str()) +
+        ":$6$vZY4TS+/HBxHw38S$vvjVFECzb8dyuu/mruD2QKTfdFn0WmKxbc+1TsdB0L8EdHk3v9JRmfjHd56+VaTnUcSZOZ/hzkdvWCtxlX7AUQ==\n";
+
+    CUserControl         input;
+    CUserControlResponse output;
+    input.m_action = "import-plan";
+    input.m_content = content.c_str();
+    m_controlService->UserControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(2, output.m_new_count.asInteger());
+    EXPECT_EQ(1, output.m_unsupported_count.asInteger());
+    EXPECT_EQ(String::npos, output.m_plan.asString().find("$7$")) << "the plan leaked a verifier";
+    EXPECT_EQ(String::npos, output.m_plan.asString().find("Secret12!")) << "the plan leaked a password";
+
+    input.m_action = "import-apply";
+    m_controlService->UserControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(2, output.m_new_count.asInteger());
+
+    auto& users = server()->getSettings()->userManager();
+    EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
+    EXPECT_TRUE(PasswordHash::verify("Secret12!", users.findUser(plainUser.c_str()).m_password.asString()));
+    EXPECT_THROW(users.findUser(oldUser.c_str()), Exception)
+        << "an unsupported verifier must not become an account nobody can use";
+
+    // A second import recognises both accounts and adds no duplicate.
+    input.m_action = "import-plan";
+    m_controlService->UserControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(0, output.m_new_count.asInteger());
+    EXPECT_EQ(2, output.m_existing_count.asInteger());
+
+    // Leave the shared accounts database as it was found.
+    for (const auto& name: {hashedUser, plainUser})
+    {
+        try
+        {
+            users.removeUser(users.findUser(name.c_str()));
+        }
+        catch (const Exception&)
+        {
+        }
+    }
+}
+
 } // namespace xmq

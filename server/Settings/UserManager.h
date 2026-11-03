@@ -96,6 +96,9 @@ public:
                                      std::string_view company, const sptk::DateTime& expires);
 
     sptk::WSArray<CUser>      getUsers(const sptk::String& regexFilter, bool scramblePasswords) const;
+
+    /// The configured cost for a new password, or the default when none is configured.
+    [[nodiscard]] int passwordIterations() const;
     [[nodiscard]] CUser       getUser(uint64_t id);
     CUser                     findUser(const std::string& username);
 

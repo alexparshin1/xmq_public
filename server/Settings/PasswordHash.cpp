@@ -18,6 +18,8 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include <sptk5/Base64.h>
+
 #include <array>
 #include <algorithm>
 #include <cctype>
@@ -108,6 +110,69 @@ bool split(const string& stored, string_view& algorithm, int& iterations,
     return !algorithm.empty() && !salt.empty() && !hash.empty();
 }
 
+/**
+ * @brief Whether this is a Mosquitto 2.0 verifier: `$7$iterations$base64-salt$base64-hash`.
+ *
+ * Mosquitto's password file is the one other format XMQ reads. It is PBKDF2-HMAC-SHA512 with the
+ * cost in the string, so it can be checked as it stands - there is no way to re-hash a password
+ * nobody knows. `needsRehash()` says true for it, which lets a login replace it with this class's
+ * stronger verifier once the clear password is in hand.
+ */
+bool isMosquittoPbkdf2(const string_view stored)
+{
+    return stored.starts_with("$7$");
+}
+
+bool verifyMosquitto(const string& password, const string_view stored)
+{
+    // $7$iterations$salt$hash
+    const auto third = stored.find('$', 3);
+    if (third == string_view::npos)
+    {
+        return false;
+    }
+    const auto fourth = stored.find('$', third + 1);
+    if (fourth == string_view::npos)
+    {
+        return false;
+    }
+
+    int iterations = 0;
+    const auto iterationText = stored.substr(3, third - 3);
+    const auto [end, error] = from_chars(iterationText.data(),
+                                         iterationText.data() + iterationText.size(), iterations);
+    if (error != errc {} || end != iterationText.data() + iterationText.size() || iterations <= 0)
+    {
+        return false;
+    }
+
+    Buffer salt;
+    Buffer expected;
+    try
+    {
+        Base64::decode(salt, String(string(stored.substr(third + 1, fourth - third - 1))));
+        Base64::decode(expected, String(string(stored.substr(fourth + 1))));
+    }
+    catch (const Exception&)
+    {
+        return false;
+    }
+    if (salt.bytes() == 0 || expected.bytes() != 64) // SHA-512 is 64 bytes
+    {
+        return false;
+    }
+
+    vector<unsigned char> derived(64);
+    if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
+                          salt.data(), static_cast<int>(salt.bytes()),
+                          iterations, EVP_sha512(),
+                          static_cast<int>(derived.size()), derived.data()) != 1)
+    {
+        return false;
+    }
+    return CRYPTO_memcmp(derived.data(), expected.data(), derived.size()) == 0;
+}
+
 /// PBKDF2-HMAC-SHA256 of one password against one salt.
 bool derive(const string& password, const vector<unsigned char>& salt, const int iterations,
             const size_t length, vector<unsigned char>& derived)
@@ -149,6 +214,11 @@ String PasswordHash::hash(const string& password, const int iterations)
 
 bool PasswordHash::verify(const string& password, const string& stored)
 {
+    if (isMosquittoPbkdf2(stored))
+    {
+        return verifyMosquitto(password, stored);
+    }
+
     string_view algorithm;
     string_view saltHex;
     string_view hashHex;
@@ -177,6 +247,13 @@ bool PasswordHash::verify(const string& password, const string& stored)
 
 bool PasswordHash::needsRehash(const string& stored, const int iterations)
 {
+    // A Mosquitto verifier is checkable but weaker than this class's default, so a successful
+    // login is the moment to replace it - the password is the one thing the import never had.
+    if (isMosquittoPbkdf2(stored))
+    {
+        return true;
+    }
+
     string_view algorithm;
     string_view salt;
     string_view hash;
@@ -192,6 +269,29 @@ bool PasswordHash::needsRehash(const string& stored, const int iterations)
 
 bool PasswordHash::isHashed(const string& stored)
 {
+    if (isMosquittoPbkdf2(stored))
+    {
+        // Only if it is a complete, decodable verifier; a truncated one is broken, not a hash.
+        const auto third = stored.find('$', 3);
+        const auto fourth = third == string::npos ? string::npos : stored.find('$', third + 1);
+        if (third == string::npos || fourth == string::npos)
+        {
+            return false;
+        }
+        try
+        {
+            Buffer salt;
+            Buffer hash;
+            Base64::decode(salt, String(stored.substr(third + 1, fourth - third - 1)));
+            Base64::decode(hash, String(stored.substr(fourth + 1)));
+            return salt.bytes() > 0 && hash.bytes() == 64;
+        }
+        catch (const Exception&)
+        {
+            return false;
+        }
+    }
+
     string_view algorithm;
     string_view saltHex;
     string_view hashHex;

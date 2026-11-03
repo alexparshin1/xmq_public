@@ -128,3 +128,31 @@ TEST(XMQ_PasswordHashTests, saysEverythingThatIsMissingAtOnce)
     EXPECT_EQ("The password needs at least 8 characters and at least one digit.",
               PasswordHash::weakness("Short!"));
 }
+
+// A verifier from Mosquitto's own test suite (plugins/password-file/test.pwfile), whose password is
+// "password". The point is to check the format as it is found in the wild, not one this code wrote.
+TEST(XMQ_PasswordHashTests, verifiesAMosquittoPbkdf2Verifier)
+{
+    const String stored =
+        "$7$1000$h0tqVxBwkB9rKAXukTtffzdbBQtNy1q5FBTDwSW4hucfjpqunBbxW10NVnRk7Cfh0lQndnOv2+k4wJavgz1JNw=="
+        "$02ujkUXlKkJGFzlQHNjUgXwG3XRB1mr3vs8NX5teGCJGbN4hdgSpHNHuj47j8r5SHXsO7GeHpmkpPNhLraVVcQ==";
+
+    EXPECT_TRUE(PasswordHash::verify("password", stored));
+    EXPECT_FALSE(PasswordHash::verify("Password", stored));
+    EXPECT_FALSE(PasswordHash::verify("", stored));
+
+    EXPECT_TRUE(PasswordHash::isHashed(stored));
+    EXPECT_TRUE(PasswordHash::needsRehash(stored)) << "a login should replace it with our own";
+}
+
+TEST(XMQ_PasswordHashTests, refusesBrokenOrForeignMosquittoVerifiers)
+{
+    for (const auto* stored: {"$7$", "$7$1000$", "$7$1000$aa", "$7$notanumber$aa$bb",
+                              "$7$1000$notbase64!!$bb", "$7$1000$aa$notbase64!!",
+                              "$6$vZY4TS+/HBxHw38S$vvjVFECzb8dyuu/mruD2QKTfdFn0WmKxbc+1TsdB0L8EdHk3v9JRmfjHd56+VaTnUcSZOZ/hzkdvWCtxlX7AUQ==",
+                              "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA"})
+    {
+        EXPECT_FALSE(PasswordHash::verify("password", stored)) << "accepted '" << stored << "'";
+        EXPECT_FALSE(PasswordHash::isHashed(stored)) << "called '" << stored << "' a hash";
+    }
+}

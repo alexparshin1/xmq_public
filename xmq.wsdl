@@ -568,10 +568,13 @@
                                     <xsd:enumeration value="remove"></xsd:enumeration>
                                     <xsd:enumeration value="retire"></xsd:enumeration>
                                     <xsd:enumeration value="list"></xsd:enumeration>
+                                    <xsd:enumeration value="import-plan"></xsd:enumeration>
+                                    <xsd:enumeration value="import-apply"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
                         <xsd:element name="user" type="tns:User" maxOccurs="1" minOccurs="0"></xsd:element>
+                        <xsd:element name="content" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                         <xsd:element name="allow_anonymous" type="xsd:boolean" maxOccurs="1"
                                      minOccurs="0"></xsd:element>
                         <xsd:element name="filter" type="xsd:string" maxOccurs="1" minOccurs="0"></xsd:element>
@@ -733,6 +736,11 @@
                         <xsd:element name="allow_anonymous"
                                      type="xsd:boolean" maxOccurs="1" minOccurs="0">
                         </xsd:element>
+                        <xsd:element name="plan" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="new_count" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="existing_count" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="unsupported_count" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="invalid_count" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

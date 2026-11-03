@@ -20,6 +20,8 @@
 #include "Settings/PasswordHash.h"
 #include "Settings/UserStore.h"
 #include "Settings/PermissionsImport.h"
+#include "Settings/PasswordImport.h"
+#include "Settings/PasswordHash.h"
 #include "Settings/AclRules.h"
 #include "Settings/UriSecret.h"
 #include "Cluster/Coordinator.h"
@@ -695,6 +697,44 @@ void ControlService::UserControl(const CUserControl& input, CUserControlResponse
         else if (input.m_action.asString() == "remove")
         {
             settings->userManager().removeUser(input.m_user);
+        }
+        else if (input.m_action.asString() == "import-plan" || input.m_action.asString() == "import-apply")
+        {
+            const string content = input.m_content.isNull() ? string() : string(input.m_content.asString().c_str());
+            if (content.empty())
+            {
+                throw Exception("The import has no content.");
+            }
+
+            set<std::string> existing;
+            for (const auto& account: settings->userManager().getUsers("", false))
+            {
+                existing.insert(account.m_username.asString().c_str());
+            }
+
+            const auto entries = PasswordImport::parse(content);
+            auto       plan = PasswordImport::plan(entries, existing);
+            const auto planJson = PasswordImport::toJson(plan);
+            output.m_plan = planJson.c_str();
+            output.m_new_count = static_cast<int>(plan.m_new.size());
+            output.m_existing_count = static_cast<int>(plan.m_existing.size());
+            output.m_unsupported_count = static_cast<int>(plan.m_unsupported.size());
+            output.m_invalid_count = static_cast<int>(plan.m_invalid.size());
+
+            if (input.m_action.asString() == "import-apply")
+            {
+                for (const auto& entry: plan.m_new)
+                {
+                    CUser imported;
+                    imported.m_username = entry.m_username;
+                    imported.m_password = entry.m_plaintext
+                        ? PasswordHash::hash(entry.m_verifier, settings->userManager().passwordIterations())
+                        : String(entry.m_verifier);
+                    imported.m_is_enabled = true;
+                    settings->userManager().addUser(imported);
+                }
+                output.m_new_count = static_cast<int>(plan.m_new.size());
+            }
         }
         else if (input.m_action.asString() == "list")
         {
