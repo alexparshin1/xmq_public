@@ -42,8 +42,6 @@
     flex-direction: column;
     gap: 1px;
     padding: 2px 0;
-    border-left: 2px solid #e0e6ef;
-    padding-left: 8px;
 }
 
 .permissionsPolicyLine {
