@@ -1318,4 +1318,54 @@ TEST_F(XMQ_ControlServiceTests, permissionsImportPlansAppliesAndRefusesConflicts
     }
 }
 
+
+TEST_F(XMQ_ControlServiceTests, permissionsRejectInvalidTopicFilters)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+    const String group = "user:filter-" + to_string(::getpid());
+
+    const auto add = [&](const String& filter)
+    {
+        input.m_action = "add";
+        input.m_rule.m_group = group;
+        input.m_rule.m_action = "subscribe";
+        input.m_rule.m_deny = false;
+        input.m_rule.m_filter = filter;
+        output.m_result.m_success = false;
+        m_controlService->PermissionsControl(input, output, &authentication);
+        return output.m_result.m_success.asBool();
+    };
+
+    EXPECT_FALSE(add("//s/#")) << "an empty level is refused as a typo";
+    EXPECT_FALSE(add("s//temp")) << "an empty level is refused in the middle too";
+    EXPECT_FALSE(add("s/")) << "a trailing empty level is refused";
+    EXPECT_FALSE(add("s/##")) << "# is a whole level and the last one";
+    EXPECT_FALSE(add("s/+x")) << "+ is a whole level";
+    EXPECT_TRUE(add("s/+/temp")) << "+ as a whole level is valid";
+    EXPECT_TRUE(add("s/#")) << "# as the last whole level is valid";
+
+    // Leave the shared accounts database as it was found.
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    for (const auto& rule: output.m_rules)
+    {
+        if (rule.m_group.asString() != group)
+        {
+            continue;
+        }
+        CPermissionsControl         remove;
+        CPermissionsControlResponse removed;
+        remove.m_action = "remove";
+        remove.m_rule_id = rule.m_id.asInteger();
+        m_controlService->PermissionsControl(remove, removed, &authentication);
+    }
+}
+
 } // namespace xmq

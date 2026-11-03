@@ -115,3 +115,19 @@ TEST(PermissionsImport, readsDynamicSecurityRolesAndDefaults)
     EXPECT_TRUE(hasRule(rules, "user:admin", "publish", false, "#"));
     EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note) { return note.find("deny-wins") != string::npos; }));
 }
+
+TEST(PermissionsImport, refusesAFilterWithAnEmptyLevel)
+{
+    vector<string> skipped;
+    const auto rules = PermissionsImport::parseAcl(R"(
+        user u
+        topic read //s/#
+        topic read s/+/temp
+    )", skipped);
+
+    // The same rule the control API applies, so an import cannot store what a manual add refuses.
+    EXPECT_TRUE(hasRule(rules, "user:u", "subscribe", false, "s/+/temp"));
+    EXPECT_FALSE(hasRule(rules, "user:u", "subscribe", false, "//s/#"));
+    EXPECT_TRUE(ranges::any_of(skipped, [](const auto& note)
+                              { return note.find("//s/#") != string::npos; }));
+}

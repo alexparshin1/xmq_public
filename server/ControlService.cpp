@@ -856,11 +856,23 @@ bool validTopicFilter(const String& filter)
     {
         const auto slash = string(text).find('/', start);
         const auto level = string(text).substr(start, slash == string::npos ? string::npos : slash - start);
-        if (level == "#")
+
+        // An empty level is legal MQTT - "/finance" has two - but a rule filter that names one is
+        // far more often a typo than an intention, and the Permissions API and the import agree on
+        // refusing it so that neither can create a rule the other would reject.
+        if (level.empty())
+        {
+            return false;
+        }
+        if (level == "+")
+        {
+            // The single-level wildcard, valid as a whole level.
+        }
+        else if (level == "#")
         {
             return slash == string::npos;
         }
-        if (level.find_first_of("#+") != string::npos)
+        else if (level.find_first_of("#+") != string::npos)
         {
             return false;
         }

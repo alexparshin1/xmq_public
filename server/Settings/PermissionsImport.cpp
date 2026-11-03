@@ -56,6 +56,11 @@ bool validFilter(const string_view filter)
     const auto parts = levels(filter);
     for (size_t index = 0; index < parts.size(); ++index)
     {
+        // The same rule the control API applies: no empty levels, one whole level for a wildcard.
+        if (parts[index].empty())
+        {
+            return false;
+        }
         if (parts[index].find('#') != string::npos && (parts[index] != "#" || index + 1 != parts.size()))
         {
             return false;
