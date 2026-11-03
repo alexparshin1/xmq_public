@@ -496,8 +496,8 @@ export default class PermissionsScreen extends React.Component {
                     Importing is planned first: rules already present are recognised and not
                     duplicated, a rule an existing rule already covers is not added, and an allow
                     that overlaps a deny is a conflict that has to be answered before anything is
-                    stored. Dynamic Security priorities are flattened, so a deny wins here where
-                    Mosquitto would take the first matching rule; the plan says so.
+                    stored. The order Mosquitto would check the imported rules in is kept, and
+                    %u/%c are substituted when a rule is checked, not when it is imported.
                 </p>
             </div>
             <div className="inputScreenRow">
