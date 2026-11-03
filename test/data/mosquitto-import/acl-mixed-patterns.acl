@@ -1,0 +1,6 @@
+topic read public/announcements/#
+user device
+topic write devices/device/telemetry/#
+pattern read devices/%u/commands/#
+pattern deny devices/%u/commands/secret/#
+pattern write devices/%c/state

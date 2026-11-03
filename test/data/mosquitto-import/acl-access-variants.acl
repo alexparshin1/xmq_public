@@ -1,0 +1,7 @@
+topic readwrite topic/global/#
+topic deny      topic/global/except
+user username
+topic readwrite topic/username/#
+topic deny      topic/username/except
+pattern readwrite pattern/%u/#
+pattern deny      pattern/%u/except

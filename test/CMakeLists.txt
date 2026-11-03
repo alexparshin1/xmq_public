@@ -116,3 +116,8 @@ ENDIF ()
 # lingering as a stale duplicate, which copy_directory never removed.
 TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_SCENARIO_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/ScenarioTests")
+
+# The Mosquitto import corpus: rules copied from Mosquitto's own examples and test suite. Read from
+# the source tree for the same reason as the scenarios - the tests only read them.
+TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
+        XMQ_TEST_MOSQUITTO_IMPORT_DIRECTORY="${CMAKE_CURRENT_LIST_DIR}/data/mosquitto-import")

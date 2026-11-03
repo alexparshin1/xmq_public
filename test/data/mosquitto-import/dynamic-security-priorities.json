@@ -1,0 +1,47 @@
+{
+  "clients": [
+    {
+      "username": "sensor",
+      "clientid": "sensor-1",
+      "roles": [{"rolename": "hallway", "priority": 3}],
+      "groups": [
+        {"groupname": "temperature", "priority": 2},
+        {"groupname": "humidity", "priority": 1}
+      ]
+    },
+    {"username": "admin", "roles": [{"rolename": "admin"}]}
+  ],
+  "groups": [
+    {"groupname": "temperature", "roles": [
+      {"rolename": "input", "priority": 5},
+      {"rolename": "output", "priority": 1}
+    ]},
+    {"groupname": "humidity", "roles": [{"rolename": "humidity"}]}
+  ],
+  "roles": [
+    {"rolename": "hallway", "acls": [
+      {"acltype": "publishClientSend", "topic": "room/%c/temp", "allow": true, "priority": 3},
+      {"acltype": "subscribePattern", "topic": "room/%u/#", "allow": true, "priority": 1}
+    ]},
+    {"rolename": "input", "acls": [
+      {"acltype": "publishClientSend", "topic": "input/%u/#", "allow": true, "priority": 3},
+      {"acltype": "publishClientSend", "topic": "input/secret/#", "allow": false, "priority": 5}
+    ]},
+    {"rolename": "output", "acls": [
+      {"acltype": "publishClientSend", "topic": "output/#", "allow": true, "priority": 1}
+    ]},
+    {"rolename": "humidity", "acls": [
+      {"acltype": "publishClientSend", "topic": "humidity/%u/#", "allow": true, "priority": 1}
+    ]},
+    {"rolename": "admin", "acls": [
+      {"acltype": "publishClientSend", "topic": "#", "allow": true},
+      {"acltype": "subscribePattern", "topic": "#", "allow": true}
+    ]}
+  ],
+  "defaultACLAccess": {
+    "publishClientSend": false,
+    "publishClientReceive": true,
+    "subscribe": false,
+    "unsubscribe": true
+  }
+}
