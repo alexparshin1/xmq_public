@@ -794,6 +794,8 @@
                                     <xsd:enumeration value="add"/>
                                     <xsd:enumeration value="remove"/>
                                     <xsd:enumeration value="test"/>
+                                    <xsd:enumeration value="import-plan"/>
+                                    <xsd:enumeration value="import-apply"/>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -801,6 +803,25 @@
                         <xsd:element name="rule_id" type="xsd:int" minOccurs="0"/>
                         <xsd:element name="username" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="topic" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="format" minOccurs="0">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="acl"/>
+                                    <xsd:enumeration value="dynsec"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="content" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="resolution" minOccurs="0">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="reject"/>
+                                    <xsd:enumeration value="existing"/>
+                                    <xsd:enumeration value="imported"/>
+                                    <xsd:enumeration value="skip"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
                         <xsd:element name="acl_action">
                             <xsd:simpleType>
                                 <xsd:restriction base="xsd:string">
@@ -819,6 +840,11 @@
                         <xsd:element name="rules" type="tns:AclRule" maxOccurs="unbounded" minOccurs="0"/>
                         <xsd:element name="decision" type="xsd:string" minOccurs="0"/>
                         <xsd:element name="explanation" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="plan" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="new_count" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="unchanged_count" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="redundant_count" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="conflict_count" type="xsd:int" minOccurs="0"/>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

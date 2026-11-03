@@ -4,6 +4,7 @@
 SET (xmq_files
   service/CXmqServiceBase.cpp service/CXmqServiceBase.h
   service/CXmqWSDL.cpp service/CXmqWSDL.h
+  service/CAclRule.cpp service/CAclRule.h
   service/CAuthentication.cpp service/CAuthentication.h
   service/CBridge.cpp service/CBridge.h
   service/CBridgeControl.cpp service/CBridgeControl.h
@@ -47,6 +48,8 @@ SET (xmq_files
   service/CMessageProperty.cpp service/CMessageProperty.h
   service/CNodeSettings.cpp service/CNodeSettings.h
   service/CPeerCertificate.cpp service/CPeerCertificate.h
+  service/CPermissionsControl.cpp service/CPermissionsControl.h
+  service/CPermissionsControlResponse.cpp service/CPermissionsControlResponse.h
   service/CPersistence.cpp service/CPersistence.h
   service/CPersistenceControl.cpp service/CPersistenceControl.h
   service/CPersistenceControlResponse.cpp service/CPersistenceControlResponse.h

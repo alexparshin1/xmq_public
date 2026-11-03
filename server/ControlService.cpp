@@ -19,6 +19,7 @@
 #include "Settings/ClusterStore.h"
 #include "Settings/PasswordHash.h"
 #include "Settings/UserStore.h"
+#include "Settings/PermissionsImport.h"
 #include "Settings/UriSecret.h"
 #include "Cluster/Coordinator.h"
 #include "Cluster/NodeIdentity.h"
@@ -1033,11 +1034,78 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
             output.m_decision = decision;
             output.m_explanation = explanation;
         }
+        else if (action == "import-plan" || action == "import-apply")
+        {
+            const auto   format = input.m_format.asString();
+            const string content = input.m_content.asString().c_str();
+            if (format != "acl" && format != "dynsec")
+            {
+                throw Exception("Import format is 'acl' or 'dynsec'.");
+            }
+            if (string(content).empty())
+            {
+                throw Exception("The import has no content.");
+            }
+
+            vector<string>                 skipped;
+            vector<PermissionsImport::Rule> imported;
+            if (format == "acl")
+            {
+                imported = PermissionsImport::parseAcl(content, skipped);
+            }
+            else
+            {
+                imported = PermissionsImport::parseDynamicSecurity(content, skipped);
+            }
+
+            const auto existing = store.aclRules();
+            auto       plan = PermissionsImport::plan(existing, imported);
+            plan.m_skipped = std::move(skipped);
+
+            const auto planJson = PermissionsImport::toJson(plan);
+            output.m_plan = planJson.c_str();
+            output.m_new_count = static_cast<int>(plan.m_new.size());
+            output.m_unchanged_count = static_cast<int>(plan.m_unchanged.size());
+            output.m_redundant_count = static_cast<int>(plan.m_redundant.size());
+            output.m_conflict_count = static_cast<int>(plan.m_conflicts.size());
+
+            if (action == "import-apply")
+            {
+                const auto asked = input.m_resolution.isNull() ? String() : input.m_resolution.asString();
+                const auto resolution = asked.empty() ? String("reject") : asked;
+                if (resolution != "reject" && resolution != "existing" && resolution != "imported" &&
+                    resolution != "skip")
+                {
+                    throw Exception("A conflict is resolved with existing, imported, skip, or reject.");
+                }
+                if (!plan.m_conflicts.empty() && resolution == "reject")
+                {
+                    throw Exception("The import has " + std::to_string(plan.m_conflicts.size()) +
+                                    " conflict(s); choose existing, imported or skip.");
+                }
+                const auto result = PermissionsImport::apply(existing, plan, resolution.c_str());
+                store.replaceAclRules(result);
+                output.m_rules.clear();
+                for (const auto& rule: store.aclRules())
+                {
+                    output.m_rules.push_back(describeRule(rule));
+                }
+            }
+        }
         else
         {
             throw Exception("Unknown permissions action '" + String(action) + "'.");
         }
 
+        // A rule change is read by the broker on the publish path, so it has to be reloaded; a
+        // "test" only asks a question and a "list" changes nothing.
+        if (action == "add" || action == "remove" || action == "import-apply")
+        {
+            if (const auto runningServer = server())
+            {
+                runningServer->reloadAclRules();
+            }
+        }
         if (action != "list" && action != "test")
         {
             if (const auto runningServer = server())

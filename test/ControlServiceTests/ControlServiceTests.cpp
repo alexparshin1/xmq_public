@@ -1254,4 +1254,68 @@ TEST_F(XMQ_ControlServiceTests, permissionsControlListsAddsTestsAndRemoves)
     }
 }
 
+
+TEST_F(XMQ_ControlServiceTests, permissionsImportPlansAppliesAndRefusesConflicts)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    const String suffix = to_string(::getpid());
+    const String group = "user:import-" + suffix;
+    const String username = "import-" + suffix;
+    const auto   acl = "user " + string(username.c_str()) + "\ntopic readwrite sensors/#\n";
+    const auto   denied = "user " + string(username.c_str()) + "\ntopic deny sensors/secret/#\n";
+
+    CPermissionsControl         input;
+    CPermissionsControlResponse output;
+
+    const auto run = [&](const String& action, const String& content, const String& resolution = "")
+    {
+        input.m_action = action;
+        input.m_format = "acl";
+        input.m_content = content;
+        input.m_resolution = resolution;
+        m_controlService->PermissionsControl(input, output, &authentication);
+        return output.m_result.m_success.asBool();
+    };
+
+    ASSERT_TRUE(run("import-plan", acl.c_str()));
+    EXPECT_EQ(2, output.m_new_count.asInteger()) << "readwrite is a publish and a subscribe rule";
+    EXPECT_FALSE(output.m_plan.asString().empty());
+
+    ASSERT_TRUE(run("import-apply", acl.c_str()));
+    ASSERT_TRUE(run("import-plan", acl.c_str()));
+    EXPECT_EQ(0, output.m_new_count.asInteger());
+    EXPECT_EQ(2, output.m_unchanged_count.asInteger()) << "a second import must not duplicate";
+
+    // A deny on a topic the existing allow covers is a conflict. Applying without a decision fails.
+    ASSERT_TRUE(run("import-plan", denied.c_str()));
+    EXPECT_GE(output.m_conflict_count.asInteger(), 1);
+    EXPECT_FALSE(run("import-apply", denied.c_str())) << "a conflict was applied without a decision";
+
+    // Choosing the imported rule replaces the conflicting allow.
+    ASSERT_TRUE(run("import-apply", denied.c_str(), "imported"));
+    ASSERT_TRUE(run("import-plan", denied.c_str()));
+    EXPECT_EQ(0, output.m_conflict_count.asInteger()) << "the conflicting allow is gone";
+
+    // Leave the shared accounts database as it was found.
+    input.m_action = "list";
+    m_controlService->PermissionsControl(input, output, &authentication);
+    for (const auto& rule: output.m_rules)
+    {
+        if (rule.m_group.asString() != group)
+        {
+            continue;
+        }
+        CPermissionsControl         remove;
+        CPermissionsControlResponse removed;
+        remove.m_action = "remove";
+        remove.m_rule_id = rule.m_id.asInteger();
+        m_controlService->PermissionsControl(remove, removed, &authentication);
+    }
+}
+
 } // namespace xmq
