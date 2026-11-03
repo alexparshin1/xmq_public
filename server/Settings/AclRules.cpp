@@ -93,7 +93,8 @@ AclRules::Decision AclRules::authorize(const string_view username, const string_
     const unique_lock lock(m_mutex);
     if (m_rules.empty())
     {
-        return Decision::NotHandled;
+        // A broker told to deny what the rules do not cover denies even with no rules at all.
+        return m_defaultDeny ? Decision::Deny : Decision::NotHandled;
     }
 
     const string name(username);

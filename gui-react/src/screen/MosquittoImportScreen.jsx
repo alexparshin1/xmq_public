@@ -95,7 +95,7 @@ export default class MosquittoImportScreen extends React.Component {
         }
 
         this.setState({busy: false, passwordPlan, aclPlan, aclDefaultDeny});
-        return true;
+        return {passwordPlan, aclPlan, aclDefaultDeny};
     }
 
     hasConflicts() {
@@ -104,12 +104,15 @@ export default class MosquittoImportScreen extends React.Component {
     }
 
     importAll = async () => {
-        if (!this.state.passwordPlan && !this.state.aclPlan) {
-            if (!await this.preview()) {
-                return;
-            }
+        // Always planned against the content that is about to be sent: a file can be chosen again
+        // after a preview, and applying a stale plan to new content is exactly the mistake this
+        // page exists to avoid. The returned plan is used, not the state, which React may not have
+        // applied yet.
+        const preview = await this.preview();
+        if (!preview) {
+            return;
         }
-        if (this.hasConflicts()) {
+        if (preview.aclPlan && preview.aclPlan.counts && preview.aclPlan.counts.conflicts > 0) {
             errorWindow("The ACL has conflicts. Open Permissions, Import tab, and resolve them there.");
             return;
         }

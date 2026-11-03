@@ -51,7 +51,7 @@ test("Preview reads both files through the server and keeps the plans apart", as
     const screen = instance();
     screen.state.passwordContent = "alice:secret\n";
     screen.state.aclContent = "user alice\ntopic write sensors/#\n";
-    expect(await screen.preview()).toBe(true);
+    expect(await screen.preview()).toEqual(expect.objectContaining({passwordPlan, aclPlan}));
 
     expect(calls.map(call => call.method)).toEqual(["UserControl", "PermissionsControl"]);
     expect(calls[1].request).toEqual({action: "import-plan", format: "acl",
@@ -86,8 +86,11 @@ test("An ACL with conflicts cannot be applied from here", async () => {
     const ControlAPI = require("../ControlAPI").default;
     const call = jest.spyOn(ControlAPI, "asyncMakeAPICall");
     const screen = instance();
-    screen.state.aclContent = "user alice\ntopic deny sensors/#\n";
-    screen.state.aclPlan = {...aclPlan, counts: {new: 0, unchanged: 0, redundant: 0, conflicts: 1}};
+    // The plan is produced by the server; what matters here is that conflicts stop the apply.
+    screen.preview = async () => ({
+        passwordPlan: null,
+        aclPlan: {...aclPlan, counts: {new: 0, unchanged: 0, redundant: 0, conflicts: 1}}
+    });
 
     await screen.importAll();
     expect(call).not.toHaveBeenCalled();

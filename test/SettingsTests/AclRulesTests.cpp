@@ -172,3 +172,19 @@ TEST_F(AclRulesTests, defaultDenyDeniesAClientTheRulesDoNotKnow)
     m_rules.reload(m_pool, m_users);
     EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client", "anything", true));
 }
+
+TEST_F(AclRulesTests, defaultDenyAppliesEvenWithNoRulesAtAll)
+{
+    const auto file = filesystem::temp_directory_path() /
+                      ("xmq_acl_empty_deny_" + to_string(::getpid()) + ".db");
+    filesystem::remove(file);
+    auto empty = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
+    {
+        UserStore store(empty);
+        store.createSchema();
+        store.setDefaultDeny(true);
+    }
+    AclRules rules;
+    rules.reload(empty, m_users);
+    EXPECT_EQ(AclRules::Decision::Deny, rules.authorize("anyone", "client", "anything", true));
+}

@@ -2086,8 +2086,17 @@ void Server::accountsChanged()
 {
     // The rules and the default-deny policy live with the accounts, so an account change is also
     // the moment to re-read them: a change made on another node arrives through the cluster as this
-    // call, and it has to reach the publish path there too.
-    reloadAclRules();
+    // call, and it has to reach the publish path there too. A database that cannot be read leaves
+    // the rules already loaded in place, which is the answer the broker had a moment ago.
+    try
+    {
+        reloadAclRules();
+    }
+    catch (const Exception& e)
+    {
+        logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                   std::string("Cannot reload topic permissions: ") + e.what());
+    }
     m_extensions.accountsChanged();
 }
 
