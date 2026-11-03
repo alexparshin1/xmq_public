@@ -687,7 +687,7 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
                 }
                 if (const auto scope = intersection(earlier.m_filter, rule.m_filter))
                 {
-                    result.m_conflicts.push_back({rule, earlier, *scope});
+                    result.m_conflicts.push_back({rule, earlier, *scope, true});
                     conflicted = true;
                 }
             }
@@ -747,8 +747,31 @@ vector<UserStore::AclRule> PermissionsImport::apply(const vector<UserStore::AclR
         }
     }
 
+    // A conflict inside the file means the earlier rule is not a rule of the result when the
+    // imported one wins; it was never in the stored set for the erase above to find.
+    const auto superseded = [&](const Rule& rule)
+    {
+        if (resolution != "imported")
+        {
+            return false;
+        }
+        return ranges::any_of(plan.m_conflicts, [&](const auto& conflict)
+                              {
+                                  return conflict.m_same_file &&
+                                         conflict.m_existing.m_group == rule.m_group &&
+                                         conflict.m_existing.m_action == rule.m_action &&
+                                         conflict.m_existing.m_deny == rule.m_deny &&
+                                         conflict.m_existing.m_filter == rule.m_filter &&
+                                         conflict.m_existing.m_pattern == rule.m_pattern;
+                              });
+    };
+
     for (const auto& rule: plan.m_new)
     {
+        if (superseded(rule))
+        {
+            continue;
+        }
         result.push_back({.m_groupName = rule.m_group.c_str(),
                           .m_action = rule.m_action.c_str(),
                           .m_deny = rule.m_deny,

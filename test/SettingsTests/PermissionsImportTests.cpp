@@ -177,3 +177,21 @@ TEST(PermissionsImport, aFileThatContradictsItselfIsAConflict)
     EXPECT_EQ("sensors/#", plan.m_conflicts.front().m_scope);
     EXPECT_EQ("sensors/#", plan.m_conflicts.front().m_existing.m_filter);
 }
+
+TEST(PermissionsImport, aSameFileConflictIsResolvedByDroppingTheLosingRule)
+{
+    const vector<PermissionsImport::Rule> imported {
+        {"user:u", "subscribe", false, "sensors/#", "mosquitto", "acl:1", 3000000},
+        {"user:u", "subscribe", true, "sensors/#", "mosquitto", "acl:2", 2000000},
+    };
+    const auto plan = PermissionsImport::plan({}, imported);
+    ASSERT_EQ(1U, plan.m_conflicts.size());
+
+    const auto keptDeny = PermissionsImport::apply({}, plan, "imported");
+    ASSERT_EQ(1U, keptDeny.size()) << "the allow was not superseded";
+    EXPECT_TRUE(keptDeny.front().m_deny);
+
+    const auto keptAllow = PermissionsImport::apply({}, plan, "existing");
+    ASSERT_EQ(1U, keptAllow.size());
+    EXPECT_FALSE(keptAllow.front().m_deny);
+}

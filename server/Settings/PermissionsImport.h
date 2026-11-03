@@ -39,6 +39,7 @@ public:
         Rule        m_imported;
         Rule        m_existing;
         std::string m_scope;
+        bool        m_same_file {false}; ///< The two rules came from the file being imported.
     };
 
     struct Plan

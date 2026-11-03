@@ -63,6 +63,7 @@ void AclRules::reload(const shared_ptr<UserStore>& store, const UserManager& use
     m_users = &users;
     m_rules.clear();
     m_groupsByUser.clear();
+    m_defaultDeny = false;
 
     if (!store)
     {
