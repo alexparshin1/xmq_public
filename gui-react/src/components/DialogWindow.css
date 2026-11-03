@@ -157,7 +157,11 @@
 /* A list of subjects inside the add/edit dialog: the chosen users and groups on the left, the
    three actions on the right. The actions belong to the list, not to a row, so they stay put as
    the list grows. */
+/* Inline beside its label, not below it: the field is a box rather than a line of text, and the
+   label reads better at the top of the box than on a line of its own. */
 .dialogSubjects {
+    display: inline-block;
+    vertical-align: top;
     margin-bottom: 6px;
 }
 
