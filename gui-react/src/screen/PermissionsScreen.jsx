@@ -552,7 +552,7 @@ export default class PermissionsScreen extends React.Component {
                     <td className="permissionsPolicySubjectName">{this.policyTitle(policy)}</td>
                     <td>
                         <ol className="permissionsPolicyRules">
-                            {policy.rules.map(rule =>
+                            {policy.rules.slice(0, 5).map(rule =>
                                 <li key={rule.id}>
                                     <span className={rule.deny ? "permissionsDeny" : "permissionsAllow"}>
                                         {rule.deny ? "deny" : "allow"}
@@ -562,6 +562,11 @@ export default class PermissionsScreen extends React.Component {
                                     {" "}
                                     <code>{rule.filter}</code>
                                 </li>)}
+                            {policy.rules.length > 5
+                                ? <li className="permissionsPolicyMore">
+                                    ... and {policy.rules.length - 5} more
+                                  </li>
+                                : null}
                         </ol>
                     </td>
                     <td className="permissionsPolicyRowButtons">

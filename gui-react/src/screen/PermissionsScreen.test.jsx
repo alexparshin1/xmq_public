@@ -240,3 +240,15 @@ test("Removing a policy sends an empty list for its subject", async () => {
         action: "replace-policy", subject: "operators", subject_pattern: false, policy_rules: []
     });
 });
+
+test("A long policy shows five rules and how many are hidden", () => {
+    const screen = instance();
+    screen.state.rows = Array.from({length: 7}, (unused, at) => ({
+        id: at + 1, group: "operators", pattern: false, order: at, deny: false,
+        action: "subscribe", filter: "sensors/" + at
+    }));
+    const {container} = render(screen.renderPolicies());
+    const items = container.querySelectorAll(".permissionsPolicyRules li");
+    expect(items).toHaveLength(6);
+    expect(items[5].textContent).toContain("... and 2 more");
+});

@@ -72,6 +72,15 @@
     padding: 1px 0;
 }
 
+/* A policy can be longer than a row should be; five lines and a count keep the table readable,
+   and Edit still opens every rule. */
+.permissionsPolicyMore {
+    list-style: none;
+    margin-left: -16px;
+    color: gray;
+    font-style: italic;
+}
+
 .permissionsAllow {
     color: #1b5e20;
     font-weight: bold;
