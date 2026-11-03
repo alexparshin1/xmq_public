@@ -148,7 +148,20 @@ export default function PermissionsDocumentation() {
                 <code>$6$</code> is reported there. A verifier the build cannot check is listed as
                 not imported rather than stored as an account nobody can sign in to. An imported
                 verifier is replaced with this broker's own at the first successful login.
+            </p>
 
+            <p>
+                This affects only verifiers read from a Mosquitto password file; XMQ's own accounts,
+                the <code>$7$</code> import and every other authentication path are unchanged.
+                <code>$6$</code> is unavailable on Windows, which has no <code>crypt()</code>, and
+                <code>argon2id</code> is not compiled on a source build against OpenSSL older than
+                3.2 - for example Ubuntu 24.04 or older, Debian 12, RHEL 9 and FreeBSD 14. There the
+                verifier is reported as not imported and that account's password has to be set
+                again; the packaged Linux and BSD versions listed under Install all have OpenSSL 3.2
+                or newer.
+            </p>
+
+            <p>
                 Dynamic Security roles are flattened onto accounts: the rules a client gets through
                 its roles and groups become rules on <code>user:&lt;name&gt;</code>, in the order
                 Mosquitto would check them. An allowing <code>defaultACLAccess</code> becomes a

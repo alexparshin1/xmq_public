@@ -236,7 +236,10 @@ export default class MosquittoImportScreen extends React.Component {
                     <code>$7$</code> verifiers or clear-text lines. <code>$6$</code> (1.6) is
                     checked when the platform has crypt(); <code>argon2id</code> (2.1) when OpenSSL
                     is 3.2 or newer. A verifier this build cannot check is reported, and that
-                    password has to be set again.
+                    password has to be set again; only imported verifiers are affected, not XMQ's
+                    own accounts. <code>$6$</code> is unavailable on Windows, and on a source build
+                    with OpenSSL older than 3.2 (Ubuntu 24.04 or older, Debian 12, RHEL 9, FreeBSD
+                    14) <code>argon2id</code> is reported too.
                 </p>
                 <p>
                     Imported accounts can also sign in to this interface, with the rights of the
