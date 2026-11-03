@@ -58,6 +58,9 @@ export default class DialogWindow extends React.Component {
         fields: [],
         windowWidth: 500,
         windowHeight: 300,
+        // Shown beside the footer when a caller-supplied validation refuses the Ok: the dialog
+        // stays open so the value can be corrected.
+        error: "",
         // What has been typed into the Add Group / Add User boxes but not added yet.
         drafts: {},
         // Which add box is open for a subjects field, and which entry is selected for Remove.
@@ -321,6 +324,9 @@ export default class DialogWindow extends React.Component {
                     }
                 </form>
                 <div className="modalFooterSpace"/>
+                {this.state.error
+                    ? <div className="dialogError">{this.state.error}</div>
+                    : null}
                 <div className="modalFooter">
                     <button className='modalOkButton'
                             onClick={() => this.onSubmit("Ok", this.state.values)}>Ok
@@ -334,6 +340,16 @@ export default class DialogWindow extends React.Component {
     }
 
     onSubmit(result, values) {
+        // A caller that knows what a valid value looks like gets to say so before the dialog
+        // closes: a refusal here leaves the typed value in place to be corrected, which a message
+        // shown after closing cannot do.
+        if (result === "Ok" && this.props.validate) {
+            const error = this.props.validate(values);
+            if (error) {
+                this.setState({error});
+                return;
+            }
+        }
         this.props.onSubmit(result, values);
         this.props.closeModal();
     }
@@ -360,11 +376,13 @@ export default class DialogWindow extends React.Component {
             default:
                 break;
         }
-        this.setState({
+        this.setState(state => ({
             values: {
-                ...this.state.values,
+                ...state.values,
                 [field.field]: newValue
-            }
-        });
+            },
+            // The refusal was about what was just changed.
+            error: ""
+        }));
     }
 }

@@ -278,3 +278,11 @@
     margin-top: auto;
     padding: 8px;
 }
+
+/* A refusal from the caller's validation; the dialog stays open beneath it. */
+.dialogError {
+    color: crimson;
+    font-size: 0.9em;
+    padding: 0 10px 4px 10px;
+    text-align: left;
+}

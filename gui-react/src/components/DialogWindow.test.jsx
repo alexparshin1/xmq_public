@@ -85,3 +85,29 @@ test("A name that does not exist is not offered at all", () => {
     fireEvent.click(screen.getAllByText("Ok")[0]);
     expect(screen.getByText("user:alice")).toBeInTheDocument();
 });
+
+test("A refused value keeps the dialog open so it can be corrected", () => {
+    const onSubmit = jest.fn();
+    const closeModal = jest.fn();
+    render(<DialogWindow
+        windowTitle="Edit Rule"
+        fields={[{headerName: "Topic filter", field: "filter"}]}
+        values={{filter: "//s/#"}}
+        validate={values => values.filter === "//s/#" ? "Not a valid topic filter." : null}
+        onSubmit={onSubmit}
+        closeModal={closeModal}/>);
+
+    fireEvent.click(screen.getByText("Ok"));
+    expect(screen.getByText("Not a valid topic filter.")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(closeModal).not.toHaveBeenCalled();
+    const filter = screen.getByRole("textbox");
+    expect(filter).toHaveValue("//s/#");
+
+    // Correcting the value clears the refusal; the same Ok then saves and closes.
+    fireEvent.change(filter, {target: {value: "s/#"}});
+    expect(screen.queryByText("Not a valid topic filter.")).toBeNull();
+    fireEvent.click(screen.getByText("Ok"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(closeModal).toHaveBeenCalledTimes(1);
+});

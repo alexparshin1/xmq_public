@@ -164,3 +164,15 @@ test("Adding a rule with an empty topic level is refused before the server is as
     expect(call).not.toHaveBeenCalled();
     expect(MessageWindow.errorWindow).toHaveBeenCalled();
 });
+
+test("The validator names what is wrong before the dialog can close", () => {
+    const screen = new PermissionsScreen({});
+
+    expect(screen.validateRule({group: ["operators"], filter: "//s/#"}))
+        .toContain("not a valid topic filter");
+    expect(screen.validateRule({group: [], filter: "s/#"}))
+        .toContain("at least one user or group");
+    expect(screen.validateRule({group: "operators", filter: "  "}))
+        .toContain("topic filter");
+    expect(screen.validateRule({group: "operators", filter: "s/+/temp"})).toBeNull();
+});

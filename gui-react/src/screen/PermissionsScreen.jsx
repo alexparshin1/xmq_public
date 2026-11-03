@@ -183,6 +183,30 @@ export default class PermissionsScreen extends React.Component {
             });
     }
 
+    /**
+     * What stops a rule from being saved, or null when nothing does.
+     *
+     * Called by the dialog before it closes, so an invalid topic stays on screen to be corrected
+     * instead of being sent and refused after the dialog has gone. The same test runs again below,
+     * because a caller that bypasses the dialog should not be able to store what it would refuse.
+     */
+    validateRule = values => {
+        const subjects = Array.isArray(values.group)
+            ? values.group : [values.group].filter(subject => subject);
+        if (!subjects.length) {
+            return "A rule needs at least one user or group.";
+        }
+        const filter = String(values.filter || "").trim();
+        if (!filter) {
+            return "A rule needs a topic filter.";
+        }
+        if (!validTopicFilter(filter)) {
+            return "'" + filter + "' is not a valid topic filter: levels cannot be empty, "
+                + "+ and # must each be a whole level, and # must be the last.";
+        }
+        return null;
+    }
+
     onRowDataChange = (action, data) => {
         if (action === "remove") {
             ControlAPI.asyncMakeAPICall("PermissionsControl", {action: "remove", rule_id: data.id})
@@ -207,17 +231,9 @@ export default class PermissionsScreen extends React.Component {
             source_ref: data.source_ref || ""
         };
 
-        if (!subjects.length) {
-            errorWindow("A rule needs at least one user or group.");
-            return;
-        }
-        if (!rule.filter) {
-            errorWindow("A rule needs a topic filter.");
-            return;
-        }
-        if (!validTopicFilter(rule.filter)) {
-            errorWindow("'" + rule.filter + "' is not a valid topic filter: levels cannot be empty, "
-                + "+ and # must each be a whole level, and # must be the last.");
+        const problem = this.validateRule({group: subjects, filter: rule.filter});
+        if (problem) {
+            errorWindow(problem);
             return;
         }
 
@@ -436,6 +452,7 @@ export default class PermissionsScreen extends React.Component {
                        rows={this.state.rows}
                        getRowId={params => String(params.data.id)}
                        onRowDataChange={this.onRowDataChange}
+                       validate={this.validateRule}
                        editorWidth={"580px"} editorHeight={"430px"}/>
 
             <PageTitle>Test access</PageTitle>

@@ -69,6 +69,7 @@ export default class DataTable extends React.Component {
                 <DialogWindow windowTitle={this.editorTitle} fields={this.props.headers}
                               values={this.editorValues}
                               windowWidth={this.editorWidth} windowHeight={this.editorHeight}
+                              validate={this.props.validate}
                               onSubmit={(result, values) => {
                                   if (result === "Ok") this.updateSelectedRow(values);
                               }}
