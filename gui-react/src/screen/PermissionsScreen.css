@@ -1,0 +1,37 @@
+/* Tabs at the top of the Permissions page: the rule table fills a screen on its own, so the test
+   panel cannot be reached by scrolling - it has to be a place of its own. */
+.permissionsTabs {
+    display: flex;
+    gap: 4px;
+    margin: 0 0 12px 10px;
+    border-bottom: 1px solid #c8d4e8;
+}
+
+.permissionsTab {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    padding: 7px 20px;
+    font-size: 1em;
+    color: #3b5b8c;
+    cursor: pointer;
+}
+
+.permissionsTab:hover {
+    background-color: #eef3fc;
+}
+
+.permissionsTabActive {
+    background-color: white;
+    border-color: #c8d4e8;
+    color: #1f3a66;
+    font-weight: bold;
+    position: relative;
+    top: 1px;
+}
+
+.permissionsSectionTitle {
+    margin: 18px 10px 6px 10px;
+    color: #1f3a66;
+}

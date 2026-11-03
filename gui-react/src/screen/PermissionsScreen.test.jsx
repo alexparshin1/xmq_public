@@ -1,11 +1,17 @@
 import React from "react";
-import {render} from "@testing-library/react";
+import {fireEvent, render, screen} from "@testing-library/react";
 import PermissionsScreen, {validTopicFilter} from "./PermissionsScreen";
 
 jest.mock("../components/MessageWindow", () => ({
     errorWindow: jest.fn(),
     informationWindow: jest.fn()
 }));
+// The grid is a large third-party component; the tab question is about this screen's own markup.
+jest.mock("../components/DataTable", () => () => null);
+
+beforeEach(() => {
+    jest.clearAllMocks();
+});
 
 test.each([
     ["allow", "Allowed"],
@@ -175,4 +181,20 @@ test("The validator names what is wrong before the dialog can close", () => {
     expect(screen.validateRule({group: "operators", filter: "  "}))
         .toContain("topic filter");
     expect(screen.validateRule({group: "operators", filter: "s/+/temp"})).toBeNull();
+});
+
+test("Rules and Test Access are tabs, and the test panel is not below the table", () => {
+    const ControlAPI = require("../ControlAPI").default;
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: [], list: []}));
+
+    const {container} = render(<PermissionsScreen/>);
+    expect(screen.getByRole("tab", {name: "Rules"})).toHaveAttribute("aria-selected", "true");
+    expect(container.textContent).toContain("These rules decide which topics");
+    expect(container.textContent).not.toContain("Answers the question a rule is meant to answer");
+
+    fireEvent.click(screen.getByRole("tab", {name: "Test Access"}));
+    expect(screen.getByRole("tab", {name: "Test Access"})).toHaveAttribute("aria-selected", "true");
+    expect(container.textContent).toContain("Answers the question a rule is meant to answer");
+    expect(container.textContent).not.toContain("These rules decide which topics");
 });

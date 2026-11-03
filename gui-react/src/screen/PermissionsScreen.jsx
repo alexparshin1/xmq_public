@@ -6,6 +6,7 @@ import ControlAPI from "../ControlAPI";
 import FileLoad from "../components/FileLoad";
 import PageTitle from "../components/PageTitle";
 import "./InputScreen.css";
+import "./PermissionsScreen.css";
 
 /**
  * Whether a rule's topic filter is one the server accepts.
@@ -102,7 +103,9 @@ export default class PermissionsScreen extends React.Component {
         importContent: "",
         importPlan: null,
         importResolution: "reject",
-        importBusy: false
+        importBusy: false,
+
+        tab: "rules"
     }
 
     componentDidMount() {
@@ -427,9 +430,28 @@ export default class PermissionsScreen extends React.Component {
     }
 
     render() {
+        const tab = this.state.tab;
         return <div>
             <PageTitle>Permissions</PageTitle>
 
+            {/* Two parts, one screen: what the rules are, and what a rule would answer. Tabs
+                rather than one long page because the table alone fills the screen, and the test
+                panel below it was found only by scrolling to the bottom. */}
+            <div className="permissionsTabs" role="tablist">
+                <button type="button" role="tab" aria-selected={tab === "rules"}
+                        className={"permissionsTab" + (tab === "rules" ? " permissionsTabActive" : "")}
+                        onClick={() => this.setState({tab: "rules"})}>Rules</button>
+                <button type="button" role="tab" aria-selected={tab === "test"}
+                        className={"permissionsTab" + (tab === "test" ? " permissionsTabActive" : "")}
+                        onClick={() => this.setState({tab: "test"})}>Test Access</button>
+            </div>
+
+            {tab === "test" ? this.renderTestAccess() : this.renderRules()}
+        </div>;
+    }
+
+    renderRules() {
+        return <>
             <div className="inputScreenIntro">
                 <p>
                     These rules decide which topics an account may publish and subscribe to. A
@@ -455,39 +477,7 @@ export default class PermissionsScreen extends React.Component {
                        validate={this.validateRule}
                        editorWidth={"580px"} editorHeight={"430px"}/>
 
-            <PageTitle>Test access</PageTitle>
-            <div className="inputScreenIntro">
-                <p>
-                    Answers the question a rule is meant to answer, by the same rule the broker
-                    applies: may this account publish or subscribe to this topic? Leave the username
-                    empty to test an anonymous client.
-                </p>
-            </div>
-            <div className="inputScreenRow">
-                <label className="inputScreenLabel">Username:</label>
-                <input value={this.state.testUsername}
-                       onChange={e => this.setState({testUsername: e.target.value})}/>
-            </div>
-            <div className="inputScreenRow">
-                <label className="inputScreenLabel">Action:</label>
-                <select className="inputScreenSelect" value={this.state.testAction}
-                        onChange={e => this.setState({testAction: e.target.value})}>
-                    <option value="subscribe">Subscribe</option>
-                    <option value="publish">Publish</option>
-                </select>
-            </div>
-            <div className="inputScreenRow">
-                <label className="inputScreenLabel">Topic or filter:</label>
-                <input value={this.state.testTopic}
-                       onChange={e => this.setState({testTopic: e.target.value})}/>
-            </div>
-            <div className="inputScreenRow">
-                <button className="inputScreenSaveButton inputScreenActionButton"
-                        disabled={this.state.testBusy} onClick={this.runTest}>Test access</button>
-            </div>
-            {this.renderDecision()}
-
-            <PageTitle>Import</PageTitle>
+            <h3 className="permissionsSectionTitle">Import</h3>
             <div className="inputScreenIntro">
                 <p>
                     Reads a Mosquitto <code>acl_file</code> or a <code>dynamic-security.json</code>.
@@ -524,6 +514,41 @@ export default class PermissionsScreen extends React.Component {
                         disabled={this.state.importBusy} onClick={this.previewImport}>Plan import</button>
             </div>
             {this.renderImportPlan()}
-        </div>;
+        </>;
+    }
+
+    renderTestAccess() {
+        return <>
+            <div className="inputScreenIntro">
+                <p>
+                    Answers the question a rule is meant to answer, by the same rule the broker
+                    applies: may this account publish or subscribe to this topic? Leave the username
+                    empty to test an anonymous client.
+                </p>
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">Username:</label>
+                <input value={this.state.testUsername}
+                       onChange={e => this.setState({testUsername: e.target.value})}/>
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">Action:</label>
+                <select className="inputScreenSelect" value={this.state.testAction}
+                        onChange={e => this.setState({testAction: e.target.value})}>
+                    <option value="subscribe">Subscribe</option>
+                    <option value="publish">Publish</option>
+                </select>
+            </div>
+            <div className="inputScreenRow">
+                <label className="inputScreenLabel">Topic or filter:</label>
+                <input value={this.state.testTopic}
+                       onChange={e => this.setState({testTopic: e.target.value})}/>
+            </div>
+            <div className="inputScreenRow">
+                <button className="inputScreenSaveButton inputScreenActionButton"
+                        disabled={this.state.testBusy} onClick={this.runTest}>Test access</button>
+            </div>
+            {this.renderDecision()}
+        </>;
     }
 }
