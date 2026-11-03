@@ -233,9 +233,9 @@ export default class MosquittoImportScreen extends React.Component {
                     A <code>dynamic-security.json</code> can be chosen as the ACL file; a
                     <code>.json</code> name selects that format automatically. Nothing is written
                     until <b>Import</b> is pressed. The password file may use Mosquitto 2.0
-                    <code>$7$</code> verifiers or clear-text lines; <code>$6$</code> (1.6) and
-                    <code>argon2id</code> (2.1) are checked when this build provides crypt() and
-                    OpenSSL 3.2 or newer. A verifier this build cannot check is reported, and that
+                    <code>$7$</code> verifiers or clear-text lines. <code>$6$</code> (1.6) is
+                    checked when the platform has crypt(); <code>argon2id</code> (2.1) when OpenSSL
+                    is 3.2 or newer. A verifier this build cannot check is reported, and that
                     password has to be set again.
                 </p>
                 <p>
