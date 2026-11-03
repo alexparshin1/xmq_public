@@ -163,3 +163,17 @@ TEST(PermissionsImport, anUnchangedRuleTakesItsNewPositionOnReimport)
     ASSERT_EQ(1U, applied.size());
     EXPECT_EQ(2000001, applied.front().m_order) << "the file is the authority on order";
 }
+
+TEST(PermissionsImport, aFileThatContradictsItselfIsAConflict)
+{
+    const vector<PermissionsImport::Rule> imported {
+        {"user:u", "subscribe", false, "sensors/#", "mosquitto", "acl:1", 3000000},
+        {"user:u", "subscribe", true, "sensors/#", "mosquitto", "acl:2", 2000000},
+    };
+    const auto plan = PermissionsImport::plan({}, imported);
+
+    // The two rules contradict each other inside one file, not merely against something stored.
+    ASSERT_EQ(1U, plan.m_conflicts.size());
+    EXPECT_EQ("sensors/#", plan.m_conflicts.front().m_scope);
+    EXPECT_EQ("sensors/#", plan.m_conflicts.front().m_existing.m_filter);
+}

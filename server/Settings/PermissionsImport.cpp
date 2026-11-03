@@ -610,6 +610,11 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
                                                 const vector<Rule>&               imported)
 {
     Plan result;
+    // Rules already met in this file. A file can contradict itself - an allow and a deny on the
+    // same scope - and that is a conflict the operator has to answer just like one against a
+    // stored rule. Mosquitto's own file order would decide it, but silently, which is not what an
+    // import of somebody's access policy should do.
+    vector<Rule> seen;
 
     const auto sameKey = [](const UserStore::AclRule& stored, const Rule& rule)
     {
@@ -623,11 +628,13 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
         if (!validFilter(rule.m_filter))
         {
             result.m_conflicts.push_back({rule, rule, "invalid topic filter"});
+            seen.push_back(rule);
             continue;
         }
         if (ranges::any_of(existing, [&](const auto& stored) { return sameKey(stored, rule); }))
         {
             result.m_unchanged.push_back(rule);
+            seen.push_back(rule);
             continue;
         }
         if (ranges::any_of(existing, [&](const auto& stored)
@@ -640,6 +647,7 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
                            }))
         {
             result.m_redundant.push_back(rule);
+            seen.push_back(rule);
             continue;
         }
 
@@ -667,10 +675,29 @@ PermissionsImport::Plan PermissionsImport::plan(const vector<UserStore::AclRule>
                 conflicted = true;
             }
         }
+
+        if (!conflicted)
+        {
+            for (const auto& earlier: seen)
+            {
+                if (earlier.m_group != rule.m_group || earlier.m_action != rule.m_action ||
+                    earlier.m_pattern != rule.m_pattern || earlier.m_deny == rule.m_deny)
+                {
+                    continue;
+                }
+                if (const auto scope = intersection(earlier.m_filter, rule.m_filter))
+                {
+                    result.m_conflicts.push_back({rule, earlier, *scope});
+                    conflicted = true;
+                }
+            }
+        }
+
         if (!conflicted)
         {
             result.m_new.push_back(rule);
         }
+        seen.push_back(rule);
     }
     return result;
 }

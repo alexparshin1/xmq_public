@@ -494,6 +494,12 @@ bool UserManager::hasStore() const
     return m_store != nullptr;
 }
 
+std::shared_ptr<UserStore> UserManager::store() const
+{
+    const shared_lock lock(m_mutex);
+    return m_store;
+}
+
 void UserManager::reload()
 {
     const auto store = [this]

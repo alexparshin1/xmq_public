@@ -42,6 +42,7 @@ public:
     void LoggingControl(const CLoggingControl& input, CLoggingControlResponse& output, sptk::HttpAuthentication* authentication) override;
     void PersistenceControl(const CPersistenceControl& input, CPersistenceControlResponse& output, sptk::HttpAuthentication* authentication) override;
     void PermissionsControl(const CPermissionsControl& input, CPermissionsControlResponse& output, sptk::HttpAuthentication* authentication) override;
+    void MosquittoImportControl(const CMosquittoImportControl& input, CMosquittoImportControlResponse& output, sptk::HttpAuthentication* authentication) override;
     void ServiceControl(const CServiceControl& input, CServiceControlResponse& output, sptk::HttpAuthentication* auth) override;
     void InitialSetupControl(const CInitialSetupControl& input, CInitialSetupControlResponse& output, sptk::HttpAuthentication* auth) override;
     void SettingsControl(const CSettingsControl& input, CSettingsControlResponse& output, sptk::HttpAuthentication* auth) override;

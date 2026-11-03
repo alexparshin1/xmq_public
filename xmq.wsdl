@@ -858,6 +858,50 @@
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>
+            <!-- One import of a Mosquitto deployment: accounts and rules are planned together and
+                 applied in one database transaction, so a failure leaves neither half behind. -->
+            <xsd:element name="MosquittoImportControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="plan"/>
+                                    <xsd:enumeration value="apply"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="password_content" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="acl_format" type="xsd:string" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>"acl" or "dynsec"; "acl" when absent.</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                        <xsd:element name="acl_content" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="resolution" type="xsd:string" minOccurs="0">
+                            <xsd:annotation>
+                                <xsd:documentation>"reject", "existing", "imported" or "skip".</xsd:documentation>
+                            </xsd:annotation>
+                        </xsd:element>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="MosquittoImportControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="password_plan" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="acl_plan" type="xsd:string" minOccurs="0"/>
+                        <xsd:element name="new_accounts" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="existing_accounts" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="unsupported_accounts" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="invalid_accounts" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="new_rules" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="conflicts" type="xsd:int" minOccurs="0"/>
+                        <xsd:element name="default_deny" type="xsd:boolean" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
             <xsd:element name="PersistenceControl">
                 <xsd:complexType>
                     <xsd:sequence>
@@ -2007,6 +2051,12 @@
     <wsdl:message name="PermissionsControlResponse">
         <wsdl:part name="parameters" element="tns:PermissionsControlResponse"></wsdl:part>
     </wsdl:message>
+    <wsdl:message name="MosquittoImportControlRequest">
+        <wsdl:part name="parameters" element="tns:MosquittoImportControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="MosquittoImportControlResponse">
+        <wsdl:part name="parameters" element="tns:MosquittoImportControlResponse"></wsdl:part>
+    </wsdl:message>
     <wsdl:message name="PersistenceControlRequest">
         <wsdl:part name="parameters" element="tns:PersistenceControl"></wsdl:part>
     </wsdl:message>
@@ -2105,6 +2155,10 @@
         <wsdl:operation name="PermissionsControl">
             <wsdl:input message="tns:PermissionsControlRequest"></wsdl:input>
             <wsdl:output message="tns:PermissionsControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="MosquittoImportControl">
+            <wsdl:input message="tns:MosquittoImportControlRequest"></wsdl:input>
+            <wsdl:output message="tns:MosquittoImportControlResponse"></wsdl:output>
         </wsdl:operation>
         <wsdl:operation name="PersistenceControl">
             <wsdl:input message="tns:PersistenceControlRequest"></wsdl:input>
@@ -2235,6 +2289,16 @@
         <wsdl:operation name="PermissionsControl">
             <soap:operation
                     soapAction="http://www.sptk.net/xmq/PermissionsControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="MosquittoImportControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/MosquittoImportControl"/>
             <wsdl:input>
                 <soap:body use="literal"/>
             </wsdl:input>

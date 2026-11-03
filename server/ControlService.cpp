@@ -949,12 +949,12 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
         CUser caller;
         authenticate(authentication, caller);
 
-        const auto pool = getSettings()->accountsPool();
-        if (!pool)
+        const auto storePointer = getSettings()->userManager().store();
+        if (!storePointer)
         {
             throw Exception("Topic permissions need the accounts database, and it is not configured.");
         }
-        UserStore store(pool);
+        UserStore& store = *storePointer;
         store.createSchema();
 
         // A response object can be reused by a caller; the list is this call's answer, not an
@@ -1163,6 +1163,145 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
                 }
             }
         }
+        output.m_result.m_success = true;
+    }
+    catch (const Exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.message();
+    }
+    catch (const std::exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.what();
+    }
+}
+
+void ControlService::MosquittoImportControl(const CMosquittoImportControl& input,
+                                           CMosquittoImportControlResponse& output,
+                                           HttpAuthentication* authentication)
+{
+    try
+    {
+        CUser caller;
+        authenticate(authentication, caller);
+
+        const auto settings = getSettings();
+        const auto storePointer = settings->userManager().store();
+        if (!storePointer)
+        {
+            throw Exception("Importing accounts and rules needs the accounts database, and it is not configured.");
+        }
+        // The store the accounts actually live in, not merely the configured pool: the two are the
+        // same in a running broker, and using the manager's own copy keeps an import and the
+        // accounts it is checked against from ever being two different databases.
+        UserStore& store = *storePointer;
+        store.createSchema();
+
+        const auto contentOf = [](const WSString& element)
+        {
+            return element.isNull() ? string() : string(element.asString().c_str());
+        };
+        const auto passwordContent = contentOf(input.m_password_content);
+        const auto aclContent = contentOf(input.m_acl_content);
+        const auto aclFormat = input.m_acl_format.isNull() ? String("acl") : input.m_acl_format.asString();
+        if (aclFormat != "acl" && aclFormat != "dynsec")
+        {
+            throw Exception("The ACL format is 'acl' or 'dynsec'.");
+        }
+
+        const auto hasPassword = !passwordContent.empty();
+        const auto hasAcl = !aclContent.empty();
+        if (!hasPassword && !hasAcl)
+        {
+            throw Exception("Nothing to import: no password file and no ACL file.");
+        }
+
+        PasswordImport::Plan passwordPlan;
+        if (hasPassword)
+        {
+            set<std::string> existing;
+            for (const auto& account: settings->userManager().getUsers("", false))
+            {
+                existing.insert(account.m_username.asString().c_str());
+            }
+            passwordPlan = PasswordImport::plan(PasswordImport::parse(passwordContent), existing);
+        }
+        const auto passwordJson = PasswordImport::toJson(passwordPlan);
+
+        PermissionsImport::Plan aclPlan;
+        vector<PermissionsImport::Rule> importedRules;
+        if (hasAcl)
+        {
+            vector<string> skipped;
+            importedRules = aclFormat == "acl"
+                ? PermissionsImport::parseAcl(aclContent, skipped)
+                : PermissionsImport::parseDynamicSecurity(aclContent, skipped);
+            aclPlan = PermissionsImport::plan(store.aclRules(), importedRules);
+            aclPlan.m_skipped = std::move(skipped);
+        }
+        const auto aclJson = PermissionsImport::toJson(aclPlan);
+
+        output.m_password_plan = passwordJson.c_str();
+        if (hasAcl)
+        {
+            output.m_acl_plan = aclJson.c_str();
+        }
+        output.m_new_accounts = static_cast<int>(passwordPlan.m_new.size());
+        output.m_existing_accounts = static_cast<int>(passwordPlan.m_existing.size());
+        output.m_unsupported_accounts = static_cast<int>(passwordPlan.m_unsupported.size());
+        output.m_invalid_accounts = static_cast<int>(passwordPlan.m_invalid.size());
+        output.m_new_rules = static_cast<int>(aclPlan.m_new.size());
+        output.m_conflicts = static_cast<int>(aclPlan.m_conflicts.size());
+        output.m_default_deny = store.defaultDeny();
+
+        if (input.m_action.asString() == "apply")
+        {
+            const auto asked = input.m_resolution.isNull() ? String() : input.m_resolution.asString();
+            const auto resolution = asked.empty() ? String("reject") : asked;
+            if (resolution != "reject" && resolution != "existing" && resolution != "imported" &&
+                resolution != "skip")
+            {
+                throw Exception("A conflict is resolved with existing, imported, skip, or reject.");
+            }
+            if (hasAcl && !aclPlan.m_conflicts.empty() && resolution == "reject")
+            {
+                throw Exception("The import has " + std::to_string(aclPlan.m_conflicts.size()) +
+                                " conflict(s); choose existing, imported or skip.");
+            }
+
+            vector<UserStore::ImportAccount> accounts;
+            for (const auto& entry: passwordPlan.m_new)
+            {
+                accounts.push_back({.m_username = entry.m_username.c_str(),
+                                    .m_password = entry.m_plaintext
+                                        ? PasswordHash::hash(entry.m_verifier,
+                                                             settings->userManager().passwordIterations())
+                                        : String(entry.m_verifier.c_str()),
+                                    .m_enabled = true});
+            }
+
+            const auto replaceRules = hasAcl && !importedRules.empty();
+            const auto rules = replaceRules
+                ? PermissionsImport::apply(store.aclRules(), aclPlan, resolution.c_str())
+                : vector<UserStore::AclRule> {};
+
+            // One transaction: either the accounts and the rules both arrive, or neither does.
+            store.importAccountsAndRules(accounts, rules, replaceRules, replaceRules, true);
+
+            settings->userManager().reload();
+            if (const auto runningServer = server())
+            {
+                runningServer->reloadAclRules();
+                runningServer->accountsChanged();
+                if (const auto cluster = runningServer->cluster())
+                {
+                    cluster->notifyAccountsChanged();
+                }
+            }
+            output.m_default_deny = store.defaultDeny();
+        }
+
         output.m_result.m_success = true;
     }
     catch (const Exception& e)

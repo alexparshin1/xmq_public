@@ -93,7 +93,8 @@ export default function PermissionsDocumentation() {
                 The <b>Import from Mosquitto</b> page takes the password file and the ACL file as
                 file inputs, read by the browser and sent as content: the XMQ server does not open
                 <code>/etc/mosquitto</code> with its own privileges, and cannot be used to read a
-                file the administrator could not. Either file may be left empty.
+                file the administrator could not. Either file may be left empty. Accounts and rules
+                are applied in one database transaction: either both arrive or neither does.
 
                 The import reads a Mosquitto <code>acl_file</code> or a
                 <code>dynamic-security.json</code>. It is planned before it is applied: rules

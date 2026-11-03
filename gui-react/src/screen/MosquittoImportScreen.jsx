@@ -66,38 +66,30 @@ export default class MosquittoImportScreen extends React.Component {
     }
 
     preview = async () => {
-        const {passwordContent, aclContent} = this.state;
+        const {passwordContent, aclContent, aclFormat} = this.state;
         if (!passwordContent.trim() && !aclContent.trim()) {
             errorWindow("Choose a password file, an ACL file, or both.");
             return false;
         }
 
         this.setState({busy: true, passwordPlan: null, aclPlan: null, result: null});
-        let passwordPlan = null;
-        let aclPlan = null;
-        let aclDefaultDeny = false;
-
-        if (passwordContent.trim()) {
-            const data = await ControlAPI.asyncMakeAPICall("UserControl",
-                {action: "import-plan", content: passwordContent});
-            if (!MosquittoImportScreen.succeeded(data)) {
-                this.setState({busy: false});
-                return false;
-            }
-            passwordPlan = MosquittoImportScreen.parsePlan(data);
+        // One call: the server plans both halves against the same database, which is what the
+        // atomic apply will write to.
+        const data = await ControlAPI.asyncMakeAPICall("MosquittoImportControl", {
+            action: "plan",
+            password_content: passwordContent,
+            acl_format: aclFormat,
+            acl_content: aclContent
+        });
+        if (!MosquittoImportScreen.succeeded(data)) {
+            this.setState({busy: false});
+            return false;
         }
 
-        if (aclContent.trim()) {
-            const data = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "import-plan", format: this.state.aclFormat, content: aclContent});
-            if (!MosquittoImportScreen.succeeded(data)) {
-                this.setState({busy: false});
-                return false;
-            }
-            aclPlan = MosquittoImportScreen.parsePlan(data);
-            aclDefaultDeny = data.default_deny === true;
-        }
-
+        const passwordPlan = MosquittoImportScreen.parsePlan({plan: data.password_plan});
+        const aclPlan = data.acl_plan
+            ? MosquittoImportScreen.parsePlan({plan: data.acl_plan}) : null;
+        const aclDefaultDeny = data.default_deny === true;
         this.setState({busy: false, passwordPlan, aclPlan, aclDefaultDeny});
         return {passwordPlan, aclPlan, aclDefaultDeny};
     }
@@ -122,38 +114,29 @@ export default class MosquittoImportScreen extends React.Component {
         }
 
         this.setState({busy: true});
-        const result = {users: null, rules: null};
-
-        if (this.state.passwordContent.trim()) {
-            const data = await ControlAPI.asyncMakeAPICall("UserControl",
-                {action: "import-apply", content: this.state.passwordContent});
-            if (!MosquittoImportScreen.succeeded(data)) {
-                this.setState({busy: false});
-                return;
-            }
-            result.users = data;
+        // Accounts and rules are one transaction on the server: either both arrive or neither.
+        const data = await ControlAPI.asyncMakeAPICall("MosquittoImportControl", {
+            action: "apply",
+            password_content: this.state.passwordContent,
+            acl_format: this.state.aclFormat,
+            acl_content: this.state.aclContent,
+            resolution: "reject"
+        });
+        this.setState({busy: false});
+        if (!MosquittoImportScreen.succeeded(data)) {
+            return;
         }
 
-        if (this.state.aclContent.trim()) {
-            const data = await ControlAPI.asyncMakeAPICall("PermissionsControl",
-                {action: "import-apply", format: this.state.aclFormat, content: this.state.aclContent,
-                 resolution: "reject"});
-            if (!MosquittoImportScreen.succeeded(data)) {
-                this.setState({busy: false});
-                return;
-            }
-            result.rules = data;
-        }
-
-        this.setState({busy: false, result});
+        this.setState({result: data, aclDefaultDeny: data.default_deny === true});
         const parts = [];
-        if (result.users) {
-            parts.push(result.users.new_count + " account(s) added");
+        if (data.new_accounts) {
+            parts.push(data.new_accounts + " account(s) added");
         }
-        if (result.rules) {
-            parts.push(result.rules.new_count + " rule(s) added");
+        if (data.new_rules) {
+            parts.push(data.new_rules + " rule(s) added");
         }
-        informationWindow(parts.join(", ") + ".", "Import applied");
+        informationWindow(parts.length ? parts.join(", ") + "." : "Nothing new to add.",
+                          "Import applied");
     }
 
     renderPasswordPlan() {
@@ -229,8 +212,8 @@ export default class MosquittoImportScreen extends React.Component {
         }
         return <div className="inputScreenNote">
             <strong>Import finished.</strong>
-            {result.users ? " " + result.users.new_count + " account(s) added." : ""}
-            {result.rules ? " " + result.rules.new_count + " rule(s) added." : ""}
+            {" " + (result.new_accounts || 0) + " account(s) and "
+                + (result.new_rules || 0) + " rule(s) added."}
         </div>;
     }
 

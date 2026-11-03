@@ -1565,4 +1565,87 @@ TEST_F(XMQ_ControlServiceTests, permissionsPolicyAndTheImportTurnOnDefaultDeny)
     }
 }
 
+
+TEST_F(XMQ_ControlServiceTests, mosquittoImportAppliesAccountsAndRulesInOneTransaction)
+{
+    giveTheAccountsADatabase(server()->getSettings());
+
+    string token;
+    ASSERT_NO_THROW({ token = Login("admin", "admin"); });
+    HttpAuthentication authentication("bearer " + token);
+
+    const String suffix = to_string(::getpid());
+    const String hashedUser = "atomic-hashed-" + suffix;
+    const String plainUser = "atomic-plain-" + suffix;
+    const String group = "user:atomic-rules-" + suffix;
+
+    const string passwordContent =
+        string(hashedUser.c_str()) +
+        ":$7$1000$h0tqVxBwkB9rKAXukTtffzdbBQtNy1q5FBTDwSW4hucfjpqunBbxW10NVnRk7Cfh0lQndnOv2+k4wJavgz1JNw=="
+        "$02ujkUXlKkJGFzlQHNjUgXwG3XRB1mr3vs8NX5teGCJGbN4hdgSpHNHuj47j8r5SHXsO7GeHpmkpPNhLraVVcQ==\n" +
+        string(plainUser.c_str()) + ":Secret12!\n";
+    const string aclContent = "user " + string(group.c_str()) + "\ntopic read sensors/#\n";
+
+    CMosquittoImportControl         input;
+    CMosquittoImportControlResponse output;
+    input.m_action = "plan";
+    input.m_password_content = passwordContent.c_str();
+    input.m_acl_format = "acl";
+    input.m_acl_content = aclContent.c_str();
+    m_controlService->MosquittoImportControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(2, output.m_new_accounts.asInteger());
+    EXPECT_EQ(1, output.m_new_rules.asInteger());
+    EXPECT_EQ(0, output.m_conflicts.asInteger());
+    EXPECT_FALSE(output.m_default_deny.asBool());
+
+    input.m_action = "apply";
+    input.m_resolution = "reject";
+    m_controlService->MosquittoImportControl(input, output, &authentication);
+    verifyResult(output.m_result);
+    EXPECT_EQ(2, output.m_new_accounts.asInteger());
+    EXPECT_EQ(1, output.m_new_rules.asInteger());
+    EXPECT_TRUE(output.m_default_deny.asBool());
+
+    auto& users = server()->getSettings()->userManager();
+    EXPECT_TRUE(PasswordHash::verify("password", users.findUser(hashedUser.c_str()).m_password.asString()));
+    EXPECT_TRUE(PasswordHash::verify("Secret12!", users.findUser(plainUser.c_str()).m_password.asString()));
+    EXPECT_EQ(String::npos, output.m_password_plan.asString().find("$7$"));
+    EXPECT_EQ(String::npos, output.m_password_plan.asString().find("Secret12!"));
+
+    // A conflict stops the whole apply: the account proposed beside it must not appear either.
+    const String conflictUser = "atomic-conflict-" + suffix;
+    const string conflictingPassword = string(conflictUser.c_str()) + ":Secret12!\n";
+    const string conflictingAcl =
+        "user atomic-conflict\ntopic read atomic/#\ntopic deny atomic/#\n";
+    input.m_action = "apply";
+    input.m_password_content = conflictingPassword.c_str();
+    input.m_acl_content = conflictingAcl.c_str();
+    m_controlService->MosquittoImportControl(input, output, &authentication);
+    EXPECT_FALSE(output.m_result.m_success.asBool());
+    EXPECT_THROW(users.findUser(conflictUser.c_str()), Exception)
+        << "the account was written although the import was refused";
+
+    // Leave the shared accounts database as it was found.
+    for (const auto& name: {hashedUser, plainUser})
+    {
+        try
+        {
+            users.removeUser(users.findUser(name.c_str()));
+        }
+        catch (const Exception&)
+        {
+        }
+    }
+    const auto stored = server()->getSettings()->userManager().store();
+    stored->setDefaultDeny(false);
+    for (const auto& rule: stored->aclRules())
+    {
+        if (rule.m_groupName == group)
+        {
+            stored->removeAclRule(rule.m_id);
+        }
+    }
+}
+
 } // namespace xmq

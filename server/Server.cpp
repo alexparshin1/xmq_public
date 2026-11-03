@@ -2078,7 +2078,8 @@ ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, con
 void Server::reloadAclRules()
 {
     const scoped_lock lock(m_aclRulesMutex);
-    m_aclRules.reload(getSettings()->accountsPool(), getSettings()->userManager());
+    const auto       settings = getSettings();
+    m_aclRules.reload(settings->userManager().store(), settings->userManager());
     m_aclRulesLoaded.store(true, std::memory_order_release);
 }
 

@@ -528,6 +528,112 @@ std::pair<int64_t, int64_t> UserStore::createStandardGroups()
     return {ensure(String(string(defaultGroupName))), ensure(String(string(administratorsGroupName)))};
 }
 
+void UserStore::importAccountsAndRules(const vector<ImportAccount>& accounts,
+                                       const vector<AclRule>&      rules,
+                                       const bool                  replaceRules,
+                                       const bool                  setPolicy,
+                                       const bool                  defaultDeny)
+{
+    // The standard groups are created outside the transaction: they are part of the schema, not of
+    // this import, and a rollback that removed them would break the next account added by hand.
+    const auto [defaultGroup, administratorsGroup] = createStandardGroups();
+    (void)administratorsGroup;
+
+    const auto  connection = make_shared<AutoDatabaseConnection>(*m_database);
+    Transaction transaction(connection);
+    transaction.begin();
+
+    for (const auto& account: accounts)
+    {
+        Query existing(connection->connection(),
+                       "SELECT id FROM " + String(string(userTable)) + " WHERE username = :username");
+        existing.param("username") = account.m_username;
+        existing.open();
+        const bool present = !existing.eof();
+        existing.close();
+        if (present)
+        {
+            continue;
+        }
+
+        Query insert(connection->connection(),
+                     "INSERT INTO " + String(string(userTable)) +
+                     " (username, password, is_enabled, revision, updated_at, updated_by)"
+                     " VALUES (:username, :password, :is_enabled, 1, :updated_at, 'migration')");
+        insert.param("username") = account.m_username;
+        insert.param("password") = account.m_password;
+        insert.param("is_enabled") = account.m_enabled ? 1 : 0;
+        insert.param("updated_at") = nowUtc();
+        insert.exec();
+
+        Query added(connection->connection(),
+                    "SELECT id FROM " + String(string(userTable)) + " WHERE username = :username");
+        added.param("username") = account.m_username;
+        added.open();
+        const auto id = added.eof() ? int64_t {0} : added["id"].asInt64();
+        added.close();
+
+        if (id > 0)
+        {
+            Query membership(connection->connection(),
+                             "INSERT INTO " + String(string(membershipTable)) +
+                             " (user_id, user_group_id) VALUES (:user_id, :user_group_id)");
+            membership.param("user_id") = id;
+            membership.param("user_group_id") = defaultGroup;
+            membership.exec();
+        }
+    }
+
+    if (replaceRules)
+    {
+        Query clear(connection->connection(), "DELETE FROM xmq_acl_rule");
+        clear.exec();
+        for (const auto& rule: rules)
+        {
+            Query insert(connection->connection(),
+                         "INSERT INTO xmq_acl_rule (group_name, action, deny, topic_filter, source, source_ref, "
+                         "check_order, is_pattern, revision, updated_at, updated_by) "
+                         "VALUES (:group_name, :action, :deny, :topic_filter, :source, :source_ref, "
+                         ":check_order, :is_pattern, 1, :updated_at, :updated_by)");
+            insert.param("group_name") = rule.m_groupName;
+            insert.param("action") = rule.m_action;
+            insert.param("deny") = rule.m_deny ? 1 : 0;
+            insert.param("topic_filter") = rule.m_filter;
+            insert.param("source") = rule.m_source;
+            insert.param("source_ref") = rule.m_sourceRef;
+            insert.param("check_order") = rule.m_order;
+            insert.param("is_pattern") = rule.m_pattern ? 1 : 0;
+            insert.param("updated_at") = rule.m_updatedAt.empty() ? nowUtc() : rule.m_updatedAt;
+            insert.param("updated_by") = rule.m_updatedBy;
+            insert.exec();
+        }
+    }
+
+    if (setPolicy)
+    {
+        Query update(connection->connection(),
+                     "UPDATE xmq_permissions_policy SET default_deny = :default_deny WHERE id = 1");
+        update.param("default_deny") = defaultDeny ? 1 : 0;
+        update.exec();
+
+        Query exists(connection->connection(),
+                    "SELECT count(*) FROM xmq_permissions_policy WHERE id = 1");
+        exists.open();
+        const auto present = !exists.eof() && exists[uint32_t {0}].asInteger() > 0;
+        exists.close();
+        if (!present)
+        {
+            Query insert(connection->connection(),
+                         "INSERT INTO xmq_permissions_policy (id, default_deny) VALUES (1, :default_deny)");
+            insert.param("default_deny") = defaultDeny ? 1 : 0;
+            insert.exec();
+        }
+    }
+
+    raiseVersion(*connection);
+    transaction.commit();
+}
+
 bool UserStore::defaultDeny()
 {
     const AutoDatabaseConnection connection(*m_database);

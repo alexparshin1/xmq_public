@@ -46,6 +46,8 @@ SET (xmq_files
   service/CLogin.cpp service/CLogin.h
   service/CLoginResponse.cpp service/CLoginResponse.h
   service/CMessageProperty.cpp service/CMessageProperty.h
+  service/CMosquittoImportControl.cpp service/CMosquittoImportControl.h
+  service/CMosquittoImportControlResponse.cpp service/CMosquittoImportControlResponse.h
   service/CNodeSettings.cpp service/CNodeSettings.h
   service/CPeerCertificate.cpp service/CPeerCertificate.h
   service/CPermissionsControl.cpp service/CPermissionsControl.h

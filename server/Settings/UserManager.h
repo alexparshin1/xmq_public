@@ -76,6 +76,9 @@ public:
     /// Whether the accounts come from a database rather than from the file.
     [[nodiscard]] bool hasStore() const;
 
+    /// The store behind the accounts, or null when they come from the file. Borrowed, not owned.
+    [[nodiscard]] std::shared_ptr<UserStore> store() const;
+
     /// Why authentication answered as it did. Finer than what the client is told, deliberately:
     /// a client learns only that it failed, while an extension counting failures needs to tell a
     /// sweep of invented names from a password being guessed at one account.

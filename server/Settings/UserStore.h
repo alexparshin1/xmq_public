@@ -157,6 +157,27 @@ public:
     /// Every topic permission, ordered by group, action, deny, filter.
     [[nodiscard]] std::vector<AclRule> aclRules();
 
+    /// One account as an import brings it: a username and an already-computed verifier.
+    struct ImportAccount
+    {
+        sptk::String m_username;
+        sptk::String m_password;
+        bool         m_enabled {true};
+    };
+
+    /**
+     * @brief Adds accounts and replaces topic rules in one transaction.
+     *
+     * The migration from another broker comes as one act: a database that keeps the accounts but
+     * loses the rules, or the other way round, leaves a broker nobody chose. `replaceRules` false
+     * leaves the rules alone; `setPolicy` false leaves the default-deny answer alone.
+     */
+    void importAccountsAndRules(const std::vector<ImportAccount>& accounts,
+                                const std::vector<AclRule>&      rules,
+                                bool                             replaceRules,
+                                bool                             setPolicy,
+                                bool                             defaultDeny);
+
     /// Whether a client the rules know but do not cover is denied. One value for the whole broker.
     [[nodiscard]] bool defaultDeny();
 

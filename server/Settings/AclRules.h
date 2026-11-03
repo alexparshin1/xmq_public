@@ -41,6 +41,9 @@ public:
     };
 
     /// Replace the rule set. `users` is borrowed and must outlive this object.
+    void reload(const std::shared_ptr<UserStore>& store, const UserManager& users);
+
+    /// The same, for callers that hold the pool rather than the manager's store.
     void reload(const std::shared_ptr<sptk::DatabaseConnectionPool>& database, const UserManager& users);
 
     /// Drop the cached username-to-groups answers; rules stay loaded.

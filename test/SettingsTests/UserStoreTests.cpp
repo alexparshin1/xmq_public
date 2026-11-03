@@ -777,3 +777,43 @@ TEST_F(XMQ_UserStoreTests, everyChangeRaisesTheVersionOtherNodesPoll)
         EXPECT_GT(store.version(), version) << name << ": removing a group";
     }
 }
+
+/**
+ * The migration from another broker is one transaction: a database that keeps the accounts but
+ * loses the rules, or the other way round, leaves a broker nobody chose. The trigger is the failure
+ * a real database would produce halfway through, made deterministic.
+ */
+TEST(XMQ_UserStoreAtomicImport, rollsBackAccountsWhenARulesWriteFails)
+{
+    const auto file = filesystem::temp_directory_path() /
+                      ("xmq_atomic_import_" + to_string(::getpid()) + ".db");
+    filesystem::remove(file);
+    const auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
+    UserStore  store(pool);
+    store.createSchema();
+
+    {
+        const AutoDatabaseConnection connection(*pool);
+        Query trigger(connection.connection(),
+                      "CREATE TRIGGER fail_acl BEFORE INSERT ON xmq_acl_rule "
+                      "WHEN NEW.topic_filter = 'boom/#' "
+                      "BEGIN SELECT RAISE(ABORT, 'boom'); END");
+        trigger.exec();
+    }
+
+    const String username = "atomic-" + to_string(::getpid());
+    const vector<UserStore::ImportAccount> accounts {
+        {.m_username = username,
+         .m_password = PasswordHash::hash("Atomic12!", 1000),
+         .m_enabled = true}};
+    const vector<UserStore::AclRule> rules {
+        {.m_groupName = "user:" + username, .m_action = "publish", .m_deny = false,
+         .m_filter = "boom/#", .m_source = "import", .m_order = 2000000}};
+
+    EXPECT_THROW(store.importAccountsAndRules(accounts, rules, true, true, true), Exception);
+
+    EXPECT_FALSE(store.findUser(username)) << "the account outlived the failed transaction";
+    EXPECT_TRUE(store.aclRules().empty());
+    EXPECT_FALSE(store.defaultDeny());
+    filesystem::remove(file);
+}

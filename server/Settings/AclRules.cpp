@@ -56,7 +56,7 @@ optional<string> expand(const string_view filter, const string_view username, co
 
 } // namespace
 
-void AclRules::reload(const shared_ptr<DatabaseConnectionPool>& database, const UserManager& users)
+void AclRules::reload(const shared_ptr<UserStore>& store, const UserManager& users)
 {
     const unique_lock lock(m_mutex);
 
@@ -64,15 +64,19 @@ void AclRules::reload(const shared_ptr<DatabaseConnectionPool>& database, const 
     m_rules.clear();
     m_groupsByUser.clear();
 
-    if (!database)
+    if (!store)
     {
         return;
     }
 
-    UserStore store(database);
-    store.createSchema();
-    m_rules = store.aclRules();
-    m_defaultDeny = store.defaultDeny();
+    store->createSchema();
+    m_rules = store->aclRules();
+    m_defaultDeny = store->defaultDeny();
+}
+
+void AclRules::reload(const shared_ptr<DatabaseConnectionPool>& database, const UserManager& users)
+{
+    reload(database ? make_shared<UserStore>(database) : nullptr, users);
 }
 
 void AclRules::invalidateGroups()
