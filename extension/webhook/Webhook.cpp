@@ -1300,11 +1300,21 @@ private:
         bool   anyLog = false;
         size_t maxPayload = 0;
         uint32_t minLevel = XMQ_LOG_ERROR;
+        std::string messageFilter;
+        bool        oneFilter = true;
         for (const auto& destination: wanted)
         {
             if (destination->sendMessages)
             {
                 anyMessages = true;
+                if (messageFilter.empty())
+                {
+                    messageFilter = destination->topicFilter;
+                }
+                else if (messageFilter != destination->topicFilter)
+                {
+                    oneFilter = false;
+                }
                 if (destination->maxPayload == std::numeric_limits<size_t>::max())
                 {
                     maxPayload = 0;
@@ -1349,7 +1359,14 @@ private:
             stopDestinations();
             return false;
         }
-        if (anyMessages && !subscribeMessages("#", maxPayload))
+        // The narrowest filter the destinations agree on: one shared filter is what the host can
+        // take, and asking for everything when a single topic was named would copy every body in
+        // the broker through this extension for nothing.
+        if (!oneFilter)
+        {
+            messageFilter = "#";
+        }
+        if (anyMessages && !subscribeMessages(messageFilter, maxPayload))
         {
             log(XMQ_LOG_ERROR, "this broker refused the message tap");
             stopDestinations();
