@@ -2075,14 +2075,49 @@ ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, con
 
 } // namespace
 
+void Server::reloadAclRules()
+{
+    const scoped_lock lock(m_aclRulesMutex);
+    m_aclRules.reload(getSettings()->accountsPool(), getSettings()->userManager());
+    m_aclRulesLoaded.store(true, std::memory_order_release);
+}
+
+void Server::accountsChanged()
+{
+    m_extensions.accountsChanged();
+    m_aclRules.invalidateGroups();
+}
+
 ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic)
 {
     using enum ReasonCode;
+
+    if (!client->isClusterSession())
+    {
+        auto& server = client->server();
+        if (!server.m_aclRulesLoaded.load(std::memory_order_acquire))
+        {
+            server.reloadAclRules();
+        }
+        const auto native = server.m_aclRules.authorize(client->getUsername(), topic->fullName(), true);
+        if (native == AclRules::Decision::Deny)
+        {
+            return refusalFor(client);
+        }
+        if (native == AclRules::Decision::Allow)
+        {
+            // The database rules are the product's rules; an extension is not asked to second-guess
+            // them. The system/cluster checks below still apply.
+            goto systemChecks;
+        }
+    }
 
     if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_PUBLISH, topic->fullName()) != Success)
     {
         return refusalFor(client);
     }
+
+systemChecks:
 
     if (!topic->isSystem())
     {
@@ -2102,10 +2137,30 @@ ReasonCode Server::grantSubscription(const SClientSession& client, const Topic* 
 {
     using enum ReasonCode;
 
+    if (!client->isClusterSession())
+    {
+        auto& server = client->server();
+        if (!server.m_aclRulesLoaded.load(std::memory_order_acquire))
+        {
+            server.reloadAclRules();
+        }
+        const auto native = server.m_aclRules.authorize(client->getUsername(), topic->filterName(), false);
+        if (native == AclRules::Decision::Deny)
+        {
+            return refusalFor(client);
+        }
+        if (native == AclRules::Decision::Allow)
+        {
+            goto systemChecks;
+        }
+    }
+
     if (client->aclGroup() && extensionGrants(client, topic, XMQ_ACL_SUBSCRIBE, topic->filterName()) != Success)
     {
         return refusalFor(client);
     }
+
+systemChecks:
 
     if (client->isClusterSession())
     {

@@ -631,7 +631,8 @@ void ControlService::UserGroupControl(const CUserGroupControl& input, CUserGroup
         {
             if (const auto runningServer = server())
             {
-                runningServer->extensions().accountsChanged();
+                runningServer->reloadAclRules();
+                runningServer->accountsChanged();
                 if (const auto cluster = runningServer->cluster())
                 {
                     cluster->notifyAccountsChanged();
@@ -726,7 +727,7 @@ void ControlService::UserControl(const CUserControl& input, CUserControlResponse
         {
             if (const auto runningServer = server())
             {
-                runningServer->extensions().accountsChanged();
+                runningServer->accountsChanged();
                 if (const auto cluster = runningServer->cluster())
                 {
                     if (!input.m_user.isNull() && (input.m_action.asString() == "add" || input.m_action.asString() == "modify" || input.m_action.asString() == "remove"))
@@ -1041,7 +1042,7 @@ void ControlService::PermissionsControl(const CPermissionsControl& input, CPermi
         {
             if (const auto runningServer = server())
             {
-                runningServer->extensions().accountsChanged();
+                runningServer->accountsChanged();
                 if (const auto cluster = runningServer->cluster())
                 {
                     cluster->notifyAccountsChanged();

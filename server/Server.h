@@ -34,6 +34,7 @@
 #include "ControlServiceListener.h"
 #include "MessageDeliveryThreads.h"
 #include "Settings/Settings.h"
+#include "Settings/AclRules.h"
 #include "Subscription/SubscriptionManager.h"
 #include "Subscription/Subscriptions.h"
 #include "SystemStatistics.h"
@@ -79,6 +80,19 @@ public:
      * @brief Destructor.
      */
     ~Server() override;
+
+    /**
+     * @brief Reload topic permissions from the accounts database.
+     *
+     * Called when a rule changes through the Permissions API; the broker keeps the rules in
+     * memory and does not read the database on the publish path.
+     */
+    void reloadAclRules();
+
+    /**
+     * @brief Accounts or group membership changed: drop the cached groups.
+     */
+    void accountsChanged();
 
     /**
      * @brief Stop the server.
@@ -465,6 +479,9 @@ private:
     SSystemStatistics                 m_systemStatistics;                                        ///< System statistics.
     AtomicSharedPtr<cluster::Cluster> m_cluster;                                                 ///< Cluster connections.
     ExtensionHost                     m_extensions;                                              ///< Loaded extensions; see ExtensionHost.
+    AclRules                          m_aclRules;                                                ///< Topic permissions from the accounts database.
+    std::atomic<bool>                 m_aclRulesLoaded {false};
+    std::mutex                        m_aclRulesMutex;
     /// Where a CONNECT is finished once Redis has answered its session lookup: see
     /// lookUpSessionThen(). A handful is enough - the waiting is Redis's, not theirs.
     static constexpr size_t                          ConnectCompletionThreads = 4;
