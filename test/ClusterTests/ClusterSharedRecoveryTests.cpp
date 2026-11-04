@@ -326,9 +326,16 @@ TEST_F(XMQ_ClusterTests, forwardedMessagesAreCountedInSys)
     const auto kind = SystemStatistics::SysTopicKind::BrokerClusterMessagesReceived;
     const auto before0 = cluster[0]->systemStatistics()->getValue(kind);
     const auto before1 = cluster[1]->systemStatistics()->getValue(kind);
-    publishNumbered(cluster.connect(0, "recovery-counted-publisher-0"), topic, 3);
-    cluster.connect(1, "recovery-counted-publisher-1")->publish(topic, "local one", Qos::Qos1);
-    cluster.connect(1, "recovery-counted-publisher-2")->publish(topic, "local two", Qos::Qos1);
+    // The publishers stay connected until the messages have been seen. Destroying a client closes
+    // its connection, and a QoS 1 publish is only safe once the broker has acknowledged it: on
+    // FreeBSD the broker was still working through the first of three when the close arrived, the
+    // write of its acknowledgement failed, and the two publishes behind it went with the session.
+    const auto first = cluster.connect(0, "recovery-counted-publisher-0");
+    publishNumbered(first, topic, 3);
+    const auto second = cluster.connect(1, "recovery-counted-publisher-1");
+    second->publish(topic, "local one", Qos::Qos1);
+    const auto third = cluster.connect(1, "recovery-counted-publisher-2");
+    third->publish(topic, "local two", Qos::Qos1);
     ASSERT_TRUE(TestCluster::waitFor([&received] { return received.count() == 5; }));
 
     EXPECT_EQ(3U, cluster[1]->systemStatistics()->getValue(kind) - before1);
