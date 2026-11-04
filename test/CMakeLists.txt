@@ -30,12 +30,15 @@ FILE(GLOB XMQ_TEST_FILES CONFIGURE_DEPENDS
         UtilityTests/*
 )
 
-# SlowAuthorizer.cpp is an extension, built into a shared library of its own below - the glob above
-# sweeps the whole of ExtensionTests/ and picks it up as though it were a test. Compiled into this
-# binary as well it brings XMQ_DEFINE_EXTENSION with it, which is how its object came to collide
-# with the rest of the suite over inline std::string members. Every other extension source is under
-# examples/ and so out of the glob's reach; this one lives here because it must not be copied.
+# SlowAuthorizer.cpp and TapRecorder.cpp are extensions, built into shared libraries of their own
+# below - the glob above sweeps the whole of ExtensionTests/ and picks them up as though they were
+# tests. Compiled into this binary as well they bring XMQ_DEFINE_EXTENSION with them, which is how
+# their objects come to collide with the rest of the suite over inline std::string members
+# (LNK2005 on Windows, where a second definition is an error rather than a choice). Every other
+# extension source is under examples/ and so out of the glob's reach; these two live here because
+# they must not be copied.
 LIST(REMOVE_ITEM XMQ_TEST_FILES "${CMAKE_CURRENT_LIST_DIR}/ExtensionTests/SlowAuthorizer.cpp")
+LIST(REMOVE_ITEM XMQ_TEST_FILES "${CMAKE_CURRENT_LIST_DIR}/ExtensionTests/TapRecorder.cpp")
 
 INCLUDE_DIRECTORIES(.)
 
