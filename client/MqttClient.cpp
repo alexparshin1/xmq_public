@@ -640,6 +640,12 @@ MessageId MqttClient::subscribe(const Destinations& destinations, const SMessage
     return sendMessage(subscribeMessage, false);
 }
 
+bool MqttClient::waitForSubscribeAck(const chrono::milliseconds& timeout) const
+{
+    const auto session = m_session.load();
+    return session && session->isConnected() && session->waitForSubscribeAck(timeout);
+}
+
 MessageId MqttClient::unsubscribe(const Destination& destination)
 {
     const Destinations destinations {destination};

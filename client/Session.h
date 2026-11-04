@@ -197,6 +197,17 @@ public:
 
     void enableKeepAlive(bool enable);
     bool waitForDisconnectSent(const std::chrono::milliseconds& timeout);
+
+    /**
+     * @brief Wait until the server acknowledges a subscription.
+     *
+     * A SUBSCRIBE is sent and the call returns before the server has acted on it. A caller that
+     * must know the subscription is in force - a bridge, which announces itself as carrying a
+     * topic - waits for this. The count is kept rather than a flag, so several subscriptions
+     * sent before the first wait are all accounted for.
+     */
+    bool waitForSubscribeAck(const std::chrono::milliseconds& timeout);
+
     void queueReceiveMessages();
 
     [[nodiscard]] const std::string& getClientId() const override;
@@ -293,6 +304,7 @@ private:
     /// The interval, kept beside the time so the timer callback needs nothing under a lock.
     std::atomic<std::chrono::seconds>  m_keepAlivePeriod {std::chrono::seconds {0}};
     sptk::Semaphore                    m_isDisconnectSent;                                   ///< Is disconnect sent flag.
+    sptk::Semaphore                    m_subscribeAcks;                                      ///< SUBACKs received, counted so several subscriptions are waited for in turn.
     sptk::Buffer                       m_readBuffer;                                         ///< Inbound read buffer (drained in batches).
     ReadBufferSizer                    m_readBufferSizer;                                    ///< Keeps m_readBuffer about the size of what is read.
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.

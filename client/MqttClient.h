@@ -200,6 +200,19 @@ public:
     MessageId subscribe(const Destinations& destinations, const SMessageProperties& properties = {});
 
     /**
+     * @brief Wait until the server acknowledges a subscription.
+     *
+     * subscribe() returns as soon as the SUBSCRIBE has been queued; the server acts on it later.
+     * A caller that needs the subscription in force before it announces itself - a bridge that
+     * says which topics it carries - waits here. Each SUBACK is counted, so waiting once per
+     * subscribe() call is enough even when the acknowledgements arrive first.
+     *
+     * @param timeout           How long to wait.
+     * @return true if an acknowledgement arrived, false on timeout or a dropped connection.
+     */
+    bool waitForSubscribeAck(const std::chrono::milliseconds& timeout) const;
+
+    /**
      * @brief Unsubscribe from destination.
      * @param destination       Destination.
      */

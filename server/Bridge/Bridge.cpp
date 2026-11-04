@@ -38,6 +38,11 @@ constexpr auto MaxReconnectInterval = chrono::milliseconds(30000);
 
 constexpr uint16_t DefaultMqttPort = 1883;
 
+// How long to wait for the remote to confirm the bridge's inbound subscriptions. It answers at
+// once under any normal load; this is only a bound on how long a broken remote can hold up the
+// bridge's readiness.
+constexpr auto SubscribeAckTimeout = chrono::milliseconds(5000);
+
 // A topic is carried inbound when its direction says so. Absent direction means both ways, which
 // matches how the bridge's own mode is written.
 bool isInboundTopic(const CBridgeTopic& topic)
@@ -323,6 +328,24 @@ bool Bridge::connectAndSubscribe()
     }
 
     subscribeOutboundTopics();
+
+    // The remote routes matching messages here only once it has processed each SUBSCRIBE, and the
+    // SUBACK is what says it has. Announcing the bridge as connected before them was a promise it
+    // could not keep: a message published at that instant went nowhere, which the first bridge
+    // test after a fresh start occasionally saw.
+    for (size_t acknowledged = 0; acknowledged < subscribedCount; ++acknowledged)
+    {
+        if (!m_mqttClient.waitForSubscribeAck(SubscribeAckTimeout))
+        {
+            m_server->logMessage(LogSubject::ServerConnections, LogPriority::Warning,
+                                 [this, acknowledged, subscribedCount]
+                                 {
+                                     return format("Bridge to {}: {} of {} subscription(s) not acknowledged.",
+                                                   m_remoteNodeName, subscribedCount - acknowledged, subscribedCount);
+                                 });
+            break;
+        }
+    }
 
     m_server->logMessage(LogSubject::ServerConnections, LogPriority::Info,
                          [this, &remoteHost, subscribedCount]

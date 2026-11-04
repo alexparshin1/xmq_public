@@ -552,6 +552,10 @@ SendReceiveResult Session::receiveMessages()
                 {
                     queue->receiveAck(message->getId(), messageType);
                 }
+                if (messageType == SubscribeAck)
+                {
+                    m_subscribeAcks.post();
+                }
                 if (messageType == PublishRelease)
                 {
                     ++publishCounter;
@@ -887,6 +891,11 @@ void Session::enableKeepAlive(const bool enable)
 bool Session::waitForDisconnectSent(const chrono::milliseconds& timeout)
 {
     return m_isDisconnectSent.wait_for(timeout);
+}
+
+bool Session::waitForSubscribeAck(const chrono::milliseconds& timeout)
+{
+    return m_subscribeAcks.wait_for(timeout);
 }
 
 void Session::queueReceiveMessages()
