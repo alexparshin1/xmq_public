@@ -186,9 +186,11 @@ export default function DataIntegrationDocumentation() {
                     <td><code>topic_filter</code></td>
                     <td>string</td>
                     <td><code>#</code></td>
-                    <td>an MQTT filter</td>
+                    <td>an MQTT filter, or a JSON array of them</td>
                     <td>Only matching messages are sent. <code>+</code> and <code>#</code> must
-                        each be a whole level, and <code>#</code> the last one.</td>
+                        each be a whole level, and <code>#</code> the last one. With an array, a
+                        message matching any of the filters is sent; a comma cannot separate them,
+                        because a comma is a legal character in a topic.</td>
                 </tr>
                 <tr>
                     <td><code>max_payload</code></td>
@@ -288,9 +290,17 @@ export default function DataIntegrationDocumentation() {
 ]"`}</pre>
 
             <p>
-                The whole array is one setting, so its quotes are escaped in the configuration
-                file; the first destination above sends a plain-text body, the second the standard
-                JSON envelope. A messenger that wants JSON of its own - Slack's
+                One destination can also name several filters, as a JSON array inside the string:
+            </p>
+
+            <pre className="userManualCode">{`"topic_filter": "[\"sensors/#\",\"alarms/+\"]"`}</pre>
+
+            <p>
+                A message is sent when it matches any of them, so one endpoint receives two
+                unrelated subtrees without a wildcard that would also match the rest of the
+                broker's traffic. The whole array is one setting, so its quotes are escaped in the
+                configuration file; the first destination above sends a plain-text body, the second
+                the standard JSON envelope. A messenger that wants JSON of its own - Slack's
                 <code>{"{\"text\": ...}"}</code>, for instance - needs that JSON as the template,
                 which means a string inside a string.
             </p>
@@ -323,7 +333,8 @@ export default function DataIntegrationDocumentation() {
                 <tr>
                     <td><code>topic_filter</code></td>
                     <td><code>#</code></td>
-                    <td>Which messages this destination wants.</td>
+                    <td>Which messages this destination wants: one filter, or a JSON array of
+                        them.</td>
                 </tr>
                 <tr>
                     <td><code>log_min_level</code></td>
@@ -443,10 +454,11 @@ export default function DataIntegrationDocumentation() {
                     1.4 MB of JSON, and the queue counts the message once, before encoding.
                 </li>
                 <li>
-                    <b>The tap is registered once for all destinations</b>, with the widest filter
-                    any of them named. Each matching body is copied once for the extension, and the
-                    per-destination filters narrow it afterwards. That is the price of several
-                    destinations in one connector.
+                    <b>The tap is registered once for all destinations</b>, with the union of every
+                    filter they named - not with <code>#</code>. A body is copied into the extension
+                    only when it matches at least one of those filters, and the per-destination
+                    filters narrow it afterwards. Each filter costs one comparison per publication;
+                    a topic no destination wants costs nothing else.
                 </li>
                 <li>
                     <b>Delivery is at-most-once.</b> The queues are in memory and a restart loses

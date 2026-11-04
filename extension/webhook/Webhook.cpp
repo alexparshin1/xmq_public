@@ -996,6 +996,67 @@ bool topicMatches(const std::string_view filter, const std::string_view topic)
     }
 }
 
+/// Whitespace around a setting is an artefact of how the file was written, not part of its value.
+std::string trimmed(const std::string_view text)
+{
+    size_t first = 0;
+    size_t last = text.size();
+    while (first < last && std::isspace(static_cast<unsigned char>(text[first])))
+    {
+        ++first;
+    }
+    while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1])))
+    {
+        --last;
+    }
+    return std::string(text.substr(first, last - first));
+}
+
+/// One filter, or a JSON array of them.
+///
+/// The common case stays a plain string, so the file reads as it did. The array form exists
+/// because a comma cannot separate filters: it is a legal character in a topic, and "a,b" would be
+/// either one topic or two filters with nothing to say which. A value that starts with '[' says
+/// what it is.
+bool parseTopicFilters(const std::string_view text, std::vector<std::string>& filters, std::string& error)
+{
+    filters.clear();
+    const auto value = trimmed(text);
+    if (value.empty())
+    {
+        filters.emplace_back("#");
+        return true;
+    }
+    if (value.front() != '[')
+    {
+        filters.push_back(value);
+        return true;
+    }
+
+    JsonValue parsed;
+    JsonReader reader(value);
+    if (!reader.read(parsed) || parsed.kind != JsonValue::Kind::Array)
+    {
+        error = "topic_filter must be an MQTT filter or a JSON array of them";
+        return false;
+    }
+    for (const auto& element: parsed.array)
+    {
+        if (element.kind != JsonValue::Kind::String || element.text.empty())
+        {
+            error = "topic_filter must hold only non-empty strings";
+            return false;
+        }
+        filters.push_back(element.text);
+    }
+    if (filters.empty())
+    {
+        error = "topic_filter must name at least one filter";
+        return false;
+    }
+    return true;
+}
+
 /// Replaces {{name}} with the JSON-escaped value, so a template stays valid JSON whatever the text
 /// holds. An unknown name is left alone rather than silently emptied.
 std::string renderTemplate(const std::string& tmpl,
@@ -1046,7 +1107,7 @@ struct Destination
     std::string tmpl;            ///< Empty means the full JSON envelope.
     bool        sendMessages {true};
     bool        sendLog {false};
-    std::string topicFilter {"#"};
+    std::vector<std::string> topicFilters {"#"};
     size_t      maxPayload {std::numeric_limits<size_t>::max()};
     uint32_t    minLevel {XMQ_LOG_ERROR};
     std::vector<std::string> logSubjects;
@@ -1138,7 +1199,9 @@ public:
 
         for (const auto& destination: destinations)
         {
-            if (!destination->sendMessages || !topicMatches(destination->topicFilter, topic) ||
+            if (!destination->sendMessages ||
+                std::ranges::none_of(destination->topicFilters, [&topic](const std::string& filter)
+                                     { return topicMatches(filter, topic); }) ||
                 message.payload.length > destination->maxPayload)
             {
                 continue;
@@ -1422,7 +1485,10 @@ private:
         }
         destination->sendMessages = setting("send_messages", "true") == "true";
         destination->sendLog = setting("send_log", "false") == "true";
-        destination->topicFilter = setting("topic_filter", "#");
+        if (!parseTopicFilters(setting("topic_filter", "#"), destination->topicFilters, error))
+        {
+            return nullptr;
+        }
         if (!parseLevel(setting("log_min_level", "error"), destination->minLevel))
         {
             error = "log_min_level must be debug, info, warning or error";
@@ -1464,7 +1530,11 @@ private:
         }
         destination->secret = text("secret", "");
         destination->tmpl = text("template", "");
-        destination->topicFilter = text("topic_filter", "#");
+        if (!parseTopicFilters(text("topic_filter", "#"), destination->topicFilters, error))
+        {
+            error = destination->name + ": " + error;
+            return nullptr;
+        }
         try
         {
             destination->timeoutMs = std::stoi(text("timeout_ms", "5000"));
@@ -1577,27 +1647,25 @@ private:
             }
         }
 
-        // The host is asked once for the widest thing any destination wants; the narrowing is per
-        // destination, above. One filter for all of them costs every body being copied here, which
-        // is the price of several destinations in one extension and is worth saying out loud.
+        // The host is asked once, for the union of every destination's filters. A list rather than
+        // the widest single filter: with "#" the broker would copy every body here for nothing,
+        // and the list costs one comparison per filter on the publish path instead.
         bool   anyMessages = false;
         bool   anyLog = false;
         size_t maxPayload = 0;
         uint32_t minLevel = XMQ_LOG_ERROR;
-        std::string messageFilter;
-        bool        oneFilter = true;
+        std::vector<std::string> messageFilters;
         for (const auto& destination: wanted)
         {
             if (destination->sendMessages)
             {
                 anyMessages = true;
-                if (messageFilter.empty())
+                for (const auto& filter: destination->topicFilters)
                 {
-                    messageFilter = destination->topicFilter;
-                }
-                else if (messageFilter != destination->topicFilter)
-                {
-                    oneFilter = false;
+                    if (std::ranges::find(messageFilters, filter) == messageFilters.end())
+                    {
+                        messageFilters.push_back(filter);
+                    }
                 }
                 if (destination->maxPayload == std::numeric_limits<size_t>::max())
                 {
@@ -1619,9 +1687,14 @@ private:
         // one that was never configured, and the filter is the usual reason.
         for (const auto& destination: wanted)
         {
+            std::string filters;
+            for (const auto& filter: destination->topicFilters)
+            {
+                filters += (filters.empty() ? "'" : ", '") + filter + "'";
+            }
             log(XMQ_LOG_INFO, destination->name + ": " + destination->url.m_host + ":" +
                                   destination->url.m_port + destination->url.m_path +
-                                  (destination->sendMessages ? " messages '" + destination->topicFilter + "'" : "") +
+                                  (destination->sendMessages ? " messages " + filters : "") +
                                   (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
         }
 
@@ -1646,14 +1719,7 @@ private:
             stopDestinations();
             return false;
         }
-        // The narrowest filter the destinations agree on: one shared filter is what the host can
-        // take, and asking for everything when a single topic was named would copy every body in
-        // the broker through this extension for nothing.
-        if (!oneFilter)
-        {
-            messageFilter = "#";
-        }
-        if (anyMessages && !subscribeMessages(messageFilter, maxPayload))
+        if (anyMessages && !subscribeMessages(messageFilters, maxPayload))
         {
             log(XMQ_LOG_ERROR, "this broker refused the message tap");
             stopDestinations();
@@ -1685,11 +1751,11 @@ constexpr xmq_setting settings[] = {
      .type = XMQ_SETTING_SECRET,
      .default_value = ""},
     {.name = "topic_filter", .label = "Topic filter",
-     .description = "Only messages matching this MQTT filter are sent; + and # must each be a "
-                    "whole level, and # the last one",
+     .description = "One MQTT filter, or a JSON array of them; a message matching any is sent. "
+                    "+ and # must each be a whole level, and # the last one",
      .type = XMQ_SETTING_STRING,
      .default_value = "#",
-     .pattern = "(?:(?:[^+#/]*|\\+)/)*(?:[^+#/]*|\\+|#)"},
+     .pattern = R"rx((?:(?:(?:[^+#/,"]*|\+)/)*(?:[^+#/,"]*|\+|#))|\[\s*(?:"(?!")(?:(?:[^"+#/]*|\+)/)*(?:[^"+#/]*|\+|#)"\s*(?:,\s*"(?!")(?:(?:[^"+#/]*|\+)/)*(?:[^"+#/]*|\+|#)"\s*)*)?\])rx"},
     {.name = "max_payload", .label = "Max payload",
      .description = "Largest body to send, in bytes; 0 means no limit",
      .type = XMQ_SETTING_INTEGER,

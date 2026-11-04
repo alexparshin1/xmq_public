@@ -747,7 +747,10 @@ private:
         mutable std::mutex      m_tapLock;
         std::condition_variable m_tapCondition;
         std::deque<QueuedMessage> m_tapQueue;
-        std::string             m_tapFilter;
+        /// The filters this tap asked for, replaced as a whole when it registers again. Shared so
+        /// the publish path takes a reference under the lock instead of copying the list for every
+        /// message: a connector with several filters must not cost an allocation per publication.
+        std::shared_ptr<const std::vector<std::string>> m_tapFilters;
         size_t                  m_tapMaxPayload {std::numeric_limits<size_t>::max()};
         bool                    m_tapStopping {false};
         std::thread             m_tapThread;
@@ -846,7 +849,8 @@ private:
 
     static void    hostWantEventAttributes(void* context, const char* names);
     static xmq_str hostEventAttribute(void* context, const xmq_event* event, const char* name);
-    static int64_t hostTapMessages(void* context, const char* filter, size_t maxPayload);
+    static int64_t hostTapMessages(void* context, const char* const* filters, size_t filterCount,
+                                   size_t maxPayload);
     static int64_t hostRequestLogs(void* context, uint32_t minLevel);
 
     /// The bit for a name this broker publishes, or zero for one it does not.

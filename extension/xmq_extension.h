@@ -285,22 +285,26 @@ typedef struct xmq_host
     xmq_str (*event_attribute)(void* context, const xmq_event* event, const char* name);
 
     /**
-     * @brief Ask for accepted messages whose topic matches @p filter.
+     * @brief Ask for accepted messages whose topic matches any of @p filters.
      *
-     * Called from start(), and again from reload() when the filter changes. The filter is an MQTT
-     * topic filter; every later message accepted by the broker whose topic matches is delivered
-     * to the extension's message_tap callback on a thread of its own. The broker copies the body
-     * only for extensions with a matching tap.
+     * Called from start(), and again from reload() when the filters change. Each is an MQTT topic
+     * filter; every later message accepted by the broker whose topic matches at least one of them
+     * is delivered to the extension's message_tap callback on a thread of its own. The broker
+     * copies the body only for extensions with a matching tap, and a list costs one comparison per
+     * filter on the publish path rather than a wider filter that copies bodies nobody asked for.
      *
-     * @param max_payload  The largest body to deliver. A larger one is dropped and counted rather
-     *                     than cut; zero means no limit.
+     * @param filters       The filters, in a list that outlives the call only as a value.
+     * @param filter_count  How many there are; at least one, none empty.
+     * @param max_payload   The largest body to deliver. A larger one is dropped and counted rather
+     *                      than cut; zero means no limit.
      * @return 0 when the tap is accepted, -1 when it is not (no message_tap in the extension, an
-     *         empty or invalid filter, or this broker being older than the call).
+     *         empty list, an empty filter, or this broker being older than the call).
      *
      * A tap that stops reading is dropped from, not waited for: its queue is bounded and the
      * broker counts what it discarded. The publish path never blocks on a tap.
      */
-    int64_t (*tap_messages)(void* context, const char* filter, size_t max_payload);
+    int64_t (*tap_messages)(void* context, const char* const* filters, size_t filter_count,
+                            size_t max_payload);
 
     /**
      * @brief Ask for the broker's log records at @p min_level and above.

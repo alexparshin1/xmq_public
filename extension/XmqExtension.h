@@ -38,6 +38,7 @@
 #include "xmq_extension.h"
 
 #include <algorithm>
+#include <vector>
 #include <cstddef>
 #include <cstring>
 #include <exception>
@@ -132,14 +133,26 @@ public:
      * @param maxPayload  Largest body to deliver; 0 means no limit. A larger message is dropped,
      *                    not truncated.
      */
-    bool subscribeMessages(const std::string& filter, const size_t maxPayload = 0) const
+    bool subscribeMessages(const std::vector<std::string>& filters, const size_t maxPayload = 0) const
     {
         if (m_host.tap_messages == nullptr ||
             m_host.struct_size < offsetof(xmq_host, tap_messages) + sizeof(m_host.tap_messages))
         {
             return false;
         }
-        return m_host.tap_messages(m_host.context, filter.c_str(), maxPayload) == 0;
+        std::vector<const char*> pointers;
+        pointers.reserve(filters.size());
+        for (const auto& filter: filters)
+        {
+            pointers.push_back(filter.c_str());
+        }
+        return m_host.tap_messages(m_host.context, pointers.data(), pointers.size(), maxPayload) == 0;
+    }
+
+    /// The one-filter form of subscribeMessages(), for a connector that watches a single topic.
+    bool subscribeMessages(const std::string& filter, const size_t maxPayload = 0) const
+    {
+        return subscribeMessages(std::vector<std::string> {filter}, maxPayload);
     }
 
     /// One line of the broker's log, at the level asked for in requestLogs(). Called on a thread of

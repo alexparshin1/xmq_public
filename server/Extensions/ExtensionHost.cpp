@@ -428,23 +428,34 @@ xmq_str ExtensionHost::hostEventAttribute(void* context, const xmq_event* event,
     return {.data = nullptr, .length = 0};
 }
 
-int64_t ExtensionHost::hostTapMessages(void* context, const char* filter, const size_t maxPayload)
+int64_t ExtensionHost::hostTapMessages(void* context, const char* const* filters,
+                                       const size_t filterCount, const size_t maxPayload)
 {
     auto* loaded = static_cast<Loaded*>(context);
-    if (loaded == nullptr || loaded->m_host == nullptr || filter == nullptr ||
+    if (loaded == nullptr || loaded->m_host == nullptr || filters == nullptr || filterCount == 0 ||
         loaded->m_table == nullptr || messageTapOf(*loaded->m_table) == nullptr)
     {
         return -1;
     }
-    const std::string text(filter);
-    if (text.empty())
+
+    auto wanted = std::make_shared<const std::vector<std::string>>();
     {
-        return -1;
+        auto list = std::make_shared<std::vector<std::string>>();
+        list->reserve(filterCount);
+        for (size_t at = 0; at < filterCount; ++at)
+        {
+            if (filters[at] == nullptr || *filters[at] == '\0')
+            {
+                return -1;
+            }
+            list->push_back(filters[at]);
+        }
+        wanted = std::move(list);
     }
 
     {
         const std::scoped_lock lock(loaded->m_tapLock);
-        loaded->m_tapFilter = text;
+        loaded->m_tapFilters = wanted;
         loaded->m_tapMaxPayload = maxPayload == 0 ? std::numeric_limits<size_t>::max() : maxPayload;
     }
     loaded->m_host->m_tapping.store(true, std::memory_order_relaxed);
@@ -453,8 +464,13 @@ int64_t ExtensionHost::hostTapMessages(void* context, const char* filter, const 
     // Said once, at registration: a tap that never delivers is otherwise invisible - it has no
     // thread of its own to be missing from, and nothing is logged when a filter simply matches
     // nothing.
-    loaded->m_host->m_logger.info(format("{}: tapping messages matching '{}'{}", loaded->m_name,
-                                         text,
+    Strings quoted;
+    for (const auto& filter: *wanted)
+    {
+        quoted.push_back("'" + filter + "'");
+    }
+    loaded->m_host->m_logger.info(format("{}: tapping messages matching {}{}", loaded->m_name,
+                                         std::string(quoted.join(", ")),
                                          maxPayload == 0 ? std::string{}
                                                          : format(" up to {} bytes", maxPayload)));
     return 0;
@@ -546,14 +562,16 @@ void ExtensionHost::publishMessage(const std::string_view clientId, const std::s
         {
             continue;
         }
-        std::string filter;
-        size_t      maxPayload = 0;
+        std::shared_ptr<const std::vector<std::string>> filters;
+        size_t                                          maxPayload = 0;
         {
             const std::scoped_lock lock(loaded->m_tapLock);
-            filter = loaded->m_tapFilter;
+            filters = loaded->m_tapFilters;
             maxPayload = loaded->m_tapMaxPayload;
         }
-        if (filter.empty() || !RetainedMessages::matches(filter, topic))
+        if (!filters || filters->empty() ||
+            std::ranges::none_of(*filters, [topic](const std::string& filter)
+                                 { return RetainedMessages::matches(filter, topic); }))
         {
             continue;
         }

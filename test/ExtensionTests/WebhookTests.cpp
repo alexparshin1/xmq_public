@@ -514,3 +514,42 @@ TEST_F(WebhookTests, aValueThatDoesNotMatchItsDeclaredFormatIsRefused)
     error_code errorCode;
     filesystem::remove_all(directory, errorCode);
 }
+
+/// Several filters are one tap: the broker is asked for the list, and a body is copied only when
+/// it matches one of them, so a topic nobody wants costs a comparison and not a copy.
+TEST_F(WebhookTests, severalTopicFiltersShareOneTap)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({extension(receiver, R"(["sensors/#","alarms/+"])")});
+    ASSERT_TRUE(host.tapping());
+
+    const std::string payload = "value";
+    host.publishMessage("client-1", "user", "sensors/1", payload.data(), payload.size(), 1, false);
+    host.publishMessage("client-1", "user", "alarms/fire", payload.data(), payload.size(), 1, false);
+    host.publishMessage("client-1", "user", "other/1", payload.data(), payload.size(), 1, false);
+
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 2 && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(chrono::milliseconds(20));
+    }
+    this_thread::sleep_for(chrono::milliseconds(100));
+
+    const auto bodies = receiver.bodies();
+    ASSERT_EQ(2U, bodies.size()) << "the topic nobody asked for must not be posted";
+
+    // The destination has several worker threads, so the two requests may arrive in either order.
+    string posted;
+    for (const auto& body: bodies)
+    {
+        posted += body;
+    }
+    EXPECT_NE(string::npos, posted.find("\"topic\":\"sensors/1\""));
+    EXPECT_NE(string::npos, posted.find("\"topic\":\"alarms/fire\""));
+
+    host.stop();
+    receiver.stop();
+}

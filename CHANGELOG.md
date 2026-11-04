@@ -25,6 +25,11 @@ Requires SPTK 5.6.18.
   (with `log_subjects` to narrow it) add the records that explain why a message never existed:
   refused connections, denied permissions and extension faults.
 
+- **One destination can watch several topic filters.** `topic_filter` takes one MQTT filter or a
+  JSON array of them, and a message matching any is sent. The tap is registered with the union of
+  every destination's filters rather than with `#`, so a topic nobody wants costs a comparison and
+  not a copy of its body.
+
 - **Several destinations in one extension.** The `destinations` setting is a JSON array; each
   entry has its own URL, body template (`{{topic}}`, `{{message}}`, `{{level}}`, ...), sources,
   filters, headers, secret, retry policy and concurrency, and each gets its own queue and threads
