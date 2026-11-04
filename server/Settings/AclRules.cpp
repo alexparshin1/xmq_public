@@ -70,7 +70,10 @@ void AclRules::reload(const shared_ptr<UserStore>& store, const UserManager& use
         return;
     }
 
-    store->createSchema();
+    // No createSchema() here: the accounts schema is the settings' and the authenticator's work,
+    // and it has been done before anything reads permissions. Doing it again from this path put a
+    // DDL transaction in front of the first publish or subscribe, and on a cluster node that held
+    // the session long enough for a peer's lease to look expired.
     m_rules = store->aclRules();
     m_defaultDeny = store->defaultDeny();
 }

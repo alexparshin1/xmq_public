@@ -87,6 +87,9 @@ TEST_F(AclRulesTests, emptyWhenThereAreNoRules)
                       ("xmq_acl_empty_" + to_string(::getpid()) + ".db");
     filesystem::remove(file);
     auto empty = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
+    // The schema is the settings'/authenticator's work; reload only reads it. A server that has
+    // just created its accounts database reads no rules until one is added, which is this state.
+    UserStore(empty).createSchema();
     AclRules rules;
     rules.reload(empty, m_users);
     EXPECT_TRUE(rules.empty());
