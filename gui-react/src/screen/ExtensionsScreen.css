@@ -173,3 +173,17 @@
 .extensionRow input.passwordInputField {
     padding-right: 26px;
 }
+
+/* A value that does not have the shape the extension declared. The field keeps what was typed -
+   replacing it would hide the mistake - and the row says what shape was wanted. */
+.extensionValueInvalid input,
+.extensionValueInvalid select {
+    border: 1px solid crimson;
+    background-color: #fff7f7;
+}
+
+.extensionValueError {
+    color: crimson;
+    font-size: 12.5px;
+    margin-top: 3px;
+}

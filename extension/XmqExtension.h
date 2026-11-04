@@ -542,7 +542,8 @@ inline xmq_event_type eventType(const xmq_event& event)
         .setting_count = (ExtensionSettingCount),                                                   \
         .message_tap =                                                                              \
             ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr, \
-        .log_tap = ((ExtensionCapabilities) &XMQ_CAP_LOG_TAP) != 0 ? &xmqExtensionLogTap : nullptr}; \
+        .log_tap = ((ExtensionCapabilities) &XMQ_CAP_LOG_TAP) != 0 ? &xmqExtensionLogTap : nullptr, \
+        .setting_size = sizeof(xmq_setting)}; \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
     {                                                                                               \

@@ -31,6 +31,14 @@ Requires SPTK 5.6.18.
   so one slow receiver cannot delay the others. An empty `destinations` keeps the single-URL
   settings working as before.
 
+- **Extension settings can declare a format, and the interface enforces it.** A setting now carries
+  a regular expression, so a URL is a URL and a number is a number: the field refuses what does not
+  match before Apply is enabled, and the broker refuses the same value again. The shipped webhook
+  declares formats for its URL, topic filter, payload limit, timeout, retries, concurrency, log
+  level and log subjects, and `log_min_level` is a choice; the Extensions page also shows the two
+  taps' delivered and dropped counters. The extension ABI is now 1.3, so extensions built against
+  1.2 have to be rebuilt.
+
 - **The extension is built and packaged on Windows as well as Linux and FreeBSD.** The socket
   layer uses Winsock there and POSIX elsewhere; TLS and the signature are OpenSSL on both. The
   Windows MSI installs `xmq_webhook.dll` and `50-webhook.conf.template` beside the user-database

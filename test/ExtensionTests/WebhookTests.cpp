@@ -21,7 +21,9 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <ranges>
 #include <string>
 #include <thread>
 #include <vector>
@@ -29,6 +31,7 @@
 using namespace std;
 using namespace sptk;
 using namespace xmq;
+namespace ranges = std::ranges;
 
 namespace {
 
@@ -465,4 +468,49 @@ TEST_F(WebhookTests, refusesADestinationsListThatIsNotAnArray)
     EXPECT_FALSE(host.logTapping());
     host.stop();
     receiver.stop();
+}
+
+/// A setting that declares a format is refused by the broker, not only by the screen: the file
+/// keeps the value that was in force, and the answer names the setting and what it wanted.
+TEST_F(WebhookTests, aValueThatDoesNotMatchItsDeclaredFormatIsRefused)
+{
+    const auto directory = filesystem::temp_directory_path() /
+                           ("xmq_webhook_settings_" + to_string(getpid()));
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    {
+        ofstream file(extensionsFile);
+        file << R"({"extensions":[{"name":"webhook","library":")"
+             << webhookLibrary().generic_string()
+             << R"(","enabled":true,"settings":{"url":"https://collector.example/hook","timeout_ms":"5000"}}]})";
+    }
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine));
+    ASSERT_TRUE(host.tapping());
+
+    // The format reaches the interface with the setting, so the field can refuse a wrong value
+    // before the request is made.
+    const auto described = host.describe();
+    ASSERT_EQ(1U, described.size());
+    const auto timeout = ranges::find_if(described[0].m_settings, [](const auto& setting)
+                                         { return setting.m_name == "timeout_ms"; });
+    ASSERT_NE(described[0].m_settings.end(), timeout);
+    EXPECT_EQ("[1-9][0-9]{0,5}", timeout->m_pattern);
+
+    auto refused = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine).front();
+    refused.m_settings["timeout_ms"] = "five seconds";
+    const auto report = host.reloadSettings({refused});
+    ASSERT_TRUE(report.failed());
+    EXPECT_NE(string::npos, report.m_problems[0].find("timeout_ms")) << report.m_problems[0];
+
+    // Not written: what the extension is running with and what the file says must not disagree.
+    const auto onDisk = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
+    ASSERT_EQ(1U, onDisk.size());
+    EXPECT_EQ("5000", onDisk[0].m_settings.at("timeout_ms"));
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
 }

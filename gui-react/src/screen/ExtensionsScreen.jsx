@@ -96,9 +96,42 @@ export default class ExtensionsScreen extends React.Component {
         this.setState(state => ({edited: {...state.edited, [name]: value}}));
     }
 
+    /**
+     * Whether a value has the shape the extension declared, if it declared one.
+     *
+     * The pattern is anchored here as well as in the broker: a setting describes a whole value,
+     * not a fragment of one, and "digits only" must not accept "12abc". An empty value is left to
+     * the setting's default, and a pattern this browser cannot compile is the broker's to judge -
+     * the broker checks every value again, and refuses the ones that do not match.
+     */
+    static matches(setting, value) {
+        if (!setting.pattern || value === undefined || value === null || value === "") {
+            return true;
+        }
+        try {
+            return new RegExp("^(?:" + setting.pattern + ")$").test(value);
+        } catch (error) {
+            return true;
+        }
+    }
+
+    invalidSettings() {
+        const extension = this.selected();
+        return (extension && extension.settings ? extension.settings : [])
+            .filter(setting => !ExtensionsScreen.matches(setting, this.valueOf(setting)));
+    }
+
     apply = () => {
         const extension = this.selected();
         if (!extension) {
+            return;
+        }
+
+        // Checked again even though Apply is disabled while something is wrong: the value can be
+        // pasted in and the click can land before React has rendered the disabled button.
+        if (this.invalidSettings().length) {
+            errorWindow("Some settings do not have the right format. See the marked fields.",
+                        "Changes are not applied");
             return;
         }
 
@@ -244,6 +277,19 @@ export default class ExtensionsScreen extends React.Component {
                        "Times this extension answered that it could not reach what it authenticates " +
                        "against. Those connections were refused rather than admitted or passed on."]);
         }
+        if (extension.message_tap) {
+            rows.push(["Messages delivered", extension.messages_delivered, null]);
+            rows.push(["Messages dropped", extension.messages_dropped,
+                       "Messages the tap could not take because its queue was full, or because the " +
+                       "body was larger than the maximum the extension asked for. Nothing waits " +
+                       "for a tap, so a receiver that falls behind costs messages, not throughput."]);
+        }
+        if (extension.log_tap) {
+            rows.push(["Log records delivered", extension.logs_delivered, null]);
+            rows.push(["Log records dropped", extension.logs_dropped,
+                       "Log records the tap could not take because its queue was full. The two " +
+                       "taps have separate queues, so a slow log receiver does not delay messages."]);
+        }
 
         return <div className="extensionForm">
             {rows.map(([label, value, help]) => this.renderRow(label, value, help))}
@@ -270,30 +316,46 @@ export default class ExtensionsScreen extends React.Component {
                              onChange={event => this.onSettingChange(setting.name,
                                                                      event.target.checked ? "true" : "false")}/>;
         } else if (setting.type === "integer") {
-            control = <input type="number" value={value} onChange={change}/>;
+            // Text rather than number when a pattern is declared: a number field silently accepts
+            // "1e5" and "-3", and refuses to say what is wrong with them.
+            control = setting.pattern
+                ? <input type="text" inputMode="numeric" pattern={setting.pattern} value={value}
+                         onChange={change} title={"Must match " + setting.pattern}/>
+                : <input type="number" value={value} onChange={change}/>;
         } else if (setting.type === "secret") {
             // The broker never sends a secret, only whether one is set. Leaving the mask alone
             // leaves the stored value alone; typing over it replaces it.
             control = <PasswordInput value={value} onChange={change} placeholder="not set"/>;
         } else {
-            control = <input type="text" value={value} onChange={change}/>;
+            control = <input type="text" value={value} onChange={change}
+                             pattern={setting.pattern || undefined}
+                             title={setting.pattern ? "Must match " + setting.pattern : undefined}/>;
         }
 
         // An undeclared key is worth explaining rather than hiding: a misspelling is the commonest
         // reason a setting quietly does nothing.
+        const matches = ExtensionsScreen.matches(setting, value);
         const help = setting.declared === false
             ? "Set here, but this extension does not declare a setting of that name - usually a " +
               "misspelling, and then it has no effect."
             : (setting.description || "") +
               (setting.default_value ? (setting.description ? " " : "") +
-                                       "Default: " + setting.default_value + "." : "");
+                                       "Default: " + setting.default_value + "." : "") +
+              (setting.pattern ? (setting.description || setting.default_value ? " " : "") +
+                                 "Format: must match " + setting.pattern + "." : "");
 
         return <div className="extensionRow" key={setting.name}>
             <label>
                 {(setting.label || setting.name)}
                 {setting.required ? <b className="extensionRequired"> *</b> : null}:
             </label>
-            <div className="extensionValue">{control}</div>
+            <div className={matches ? "extensionValue" : "extensionValue extensionValueInvalid"}>
+                {control}
+                {matches ? null
+                    : <div className="extensionValueError">
+                        This value does not match the format: {setting.pattern}
+                      </div>}
+            </div>
             <div className="extensionHelp">
                 {help ? <HelpButton title={setting.label || setting.name} text={help}/> : null}
             </div>
@@ -315,8 +377,17 @@ export default class ExtensionsScreen extends React.Component {
                 on change moves the page under the hand, and its absence reads as a missing feature
                 rather than as "nothing to do". */}
             <button className="inputScreenSaveButton"
-                    disabled={this.state.busy || !this.hasChanges()}
+                    disabled={this.state.busy || !this.hasChanges() || this.invalidSettings().length > 0}
                     onClick={this.apply}>Apply</button>
+
+            {/* Named rather than left to the red field alone: the Apply button being disabled has
+                to say why, or the page looks broken. */}
+            {this.invalidSettings().length
+                ? <p className="extensionNote extensionValueError">
+                    Fix the settings marked in red before applying. Their format is declared by the
+                    extension, and the broker refuses values that do not match it.
+                  </p>
+                : null}
 
             {/* A required extension gets neither button: without it the broker does not serve MQTT
                 at all, so "Disable" here would be a way to stop serving that does not say so. */}

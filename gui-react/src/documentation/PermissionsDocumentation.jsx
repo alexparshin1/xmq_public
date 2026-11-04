@@ -1,4 +1,5 @@
 import React from "react";
+import {Link} from "react-router-dom";
 import DocumentationPage from "./DocumentationPage";
 
 export default function PermissionsDocumentation() {
@@ -92,6 +93,12 @@ export default function PermissionsDocumentation() {
             </p>
 
             <h4 id="permissions-import">Importing rules</h4>
+
+            <p>
+                <b>See <Link to="/xmq_doc_mosquitto_import">Importing from Mosquitto</Link> for the
+                file formats, password verifiers, conflict handling and known limitations in one
+                place.</b> This section describes how the imported rules are evaluated.
+            </p>
 
             <p>
                 The <b>Import from Mosquitto</b> page takes the password file and the ACL file as

@@ -350,6 +350,7 @@ public:
         xmq_setting_type m_type {XMQ_SETTING_STRING};
         std::string      m_defaultValue;
         std::string      m_choices;
+        std::string      m_pattern; ///< A regular expression the value must match; empty when any.
         bool             m_required {false};
         std::string      m_value;    ///< What is configured now; empty when it is not set.
         bool             m_declared {true};

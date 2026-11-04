@@ -617,6 +617,10 @@
                     <xsd:element name="type" type="xsd:string"/>
                     <xsd:element name="default_value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="choices" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- A regular expression the value must match, anchored: the whole value, not
+                         a part of it. The screen compiles the same expression and refuses what it
+                         does not match before the request is sent; the broker checks it again. -->
+                    <xsd:element name="pattern" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="required" type="xsd:boolean"/>
                     <xsd:element name="value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <!-- False for a key that is set but that the extension never declared - usually
@@ -642,6 +646,10 @@
                     <xsd:element name="observer" type="xsd:boolean"/>
                     <xsd:element name="authenticator" type="xsd:boolean"/>
                     <xsd:element name="authorizer" type="xsd:boolean"/>
+                    <!-- The two taps, so the screen knows which counters are worth a line: a row
+                         of zeroes for a capability the extension does not have reads as a fault. -->
+                    <xsd:element name="message_tap" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="log_tap" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="events_delivered" type="xsd:int"/>
                     <xsd:element name="admitted" type="xsd:int"/>
                     <xsd:element name="refused" type="xsd:int"/>

@@ -3,9 +3,10 @@ import DocumentationIndex from "./DocumentationIndex";
 import InstallDocumentation from "./InstallDocumentation";
 import SetupDocumentation from "./SetupDocumentation";
 import TestingDocumentation from "./TestingDocumentation";
-import ClusterDocumentation from "./ClusterDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
+import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
 import DataIntegrationDocumentation from "./DataIntegrationDocumentation";
+import ClusterDocumentation from "./ClusterDocumentation";
 import LoadBalancerDocumentation from "./LoadBalancerDocumentation";
 import SizingDocumentation from "./SizingDocumentation";
 
@@ -14,9 +15,10 @@ const screens = {
     install: InstallDocumentation,
     setup: SetupDocumentation,
     testing: TestingDocumentation,
-    cluster: ClusterDocumentation,
     permissions: PermissionsDocumentation,
+    "mosquitto-import": MosquittoImportDocumentation,
     "data-integration": DataIntegrationDocumentation,
+    cluster: ClusterDocumentation,
     sizing: SizingDocumentation,
     "load-balancer": LoadBalancerDocumentation
 };

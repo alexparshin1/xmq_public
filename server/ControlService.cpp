@@ -493,6 +493,8 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_observer = (from.m_capabilities & XMQ_CAP_OBSERVER) != 0;
     into.m_authenticator = (from.m_capabilities & XMQ_CAP_AUTHENTICATOR) != 0;
     into.m_authorizer = (from.m_capabilities & XMQ_CAP_AUTHORIZER) != 0;
+    into.m_message_tap = (from.m_capabilities & XMQ_CAP_MESSAGE_TAP) != 0;
+    into.m_log_tap = (from.m_capabilities & XMQ_CAP_LOG_TAP) != 0;
     into.m_events_delivered = static_cast<int>(from.m_eventsDelivered);
     into.m_admitted = static_cast<int>(from.m_admitted);
     into.m_refused = static_cast<int>(from.m_refused);
@@ -511,6 +513,7 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
         described.m_type = settingTypeName(setting.m_type);
         described.m_default_value = setting.m_defaultValue;
         described.m_choices = setting.m_choices;
+        described.m_pattern = setting.m_pattern;
         described.m_required = setting.m_required;
         described.m_declared = setting.m_declared;
 

@@ -14,6 +14,7 @@
 #include "ExtensionHost.h"
 #include "server/Subscription/RetainedMessages.h"
 
+#include <sptk5/RegularExpression.h>
 #include <sptk5/xdoc/Document.h>
 
 #include <algorithm>
@@ -1444,6 +1445,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
                 setting.m_type = static_cast<xmq_setting_type>(declared.type);
                 setting.m_defaultValue = declared.default_value == nullptr ? "" : declared.default_value;
                 setting.m_choices = declared.choices == nullptr ? "" : declared.choices;
+                setting.m_pattern = declared.pattern == nullptr ? "" : declared.pattern;
                 setting.m_required = declared.required != 0;
 
                 if (const auto held = remaining.find(setting.m_name); held != remaining.end())
@@ -1620,6 +1622,42 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                 else
                 {
                     merged.erase(incoming);
+                }
+            }
+
+            // A declared pattern is a format the extension cannot work without. Checked here as
+            // well as in the interface, because the interface is not the only way settings arrive:
+            // a value written by a script must be refused for the same reason, and named so that
+            // the person reading the answer knows which field and what shape it wanted.
+            for (size_t at = 0; at < (*loaded)->m_table->setting_count; ++at)
+            {
+                const auto& declared = (*loaded)->m_table->settings[at];
+                if (declared.name == nullptr || declared.pattern == nullptr || *declared.pattern == '\0')
+                {
+                    continue;
+                }
+                const auto incoming = merged.find(declared.name);
+                if (incoming == merged.end() || incoming->second.empty())
+                {
+                    // Not set: the extension's own default applies, which is not a value to judge.
+                    continue;
+                }
+                try
+                {
+                    // Anchored, so a pattern says what the whole value may be and not merely what
+                    // it may contain.
+                    const RegularExpression expression(string("^(?:") + declared.pattern + ")$");
+                    if (!expression.matches(incoming->second))
+                    {
+                        return refusedWrite(m_logger, name,
+                                            string(declared.name) + " must match " + declared.pattern);
+                    }
+                }
+                catch (const Exception& e)
+                {
+                    return refusedWrite(m_logger, name,
+                                        string("the pattern declared for ") + declared.name +
+                                            " is not a valid regular expression: " + e.what());
                 }
             }
         }

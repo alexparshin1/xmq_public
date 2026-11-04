@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 2
+#define XMQ_EXTENSION_ABI_MINOR 3
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -394,6 +394,20 @@ typedef struct xmq_setting
     const char*      choices;       /**< Comma-separated, for XMQ_SETTING_CHOICE; NULL otherwise. */
     uint8_t          required;      /**< Non-zero when the extension cannot start without it. */
     uint8_t          reserved[7];   /**< Zero-filled; keeps the struct's alignment explicit. */
+
+    /**
+     * @brief A regular expression the value must match, or NULL for any value of this type.
+     *
+     * Anchored by the reader: the whole value must match. Both the interface and the broker
+     * refuse a value that does not, so a wrong format is stopped before it reaches the extension
+     * rather than after it has quietly done nothing. PCRE2 syntax; keep to what JavaScript's
+     * RegExp also accepts, since the screen compiles the same expression.
+     *
+     * Meant for formats, not for policies: "digits only", "a URL", "one of these words". A range
+     * such as 1..64 is better written here as [1-9]|[1-5][0-9]|6[0-4] than checked in the
+     * extension and reported only in its log.
+     */
+    const char*      pattern;
 } xmq_setting;
 
 /** @brief What an extension implements. Declared, not inferred, so a capability cannot be
@@ -623,6 +637,15 @@ typedef struct xmq_extension
 
     /** NULL when the extension does not tap the log. */
     const xmq_log_tap* log_tap;
+
+    /**
+     * @brief sizeof(xmq_setting) as this extension compiled it.
+     *
+     * The broker walks `settings` with this stride, so a table built against an older header -
+     * whose entries were shorter - is read correctly or refused here rather than one entry past
+     * its end.
+     */
+    size_t setting_size;
 } xmq_extension;
 
 /**
