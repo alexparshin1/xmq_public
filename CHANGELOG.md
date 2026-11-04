@@ -12,6 +12,30 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.18.
 
+### Added
+
+- **The `webhook` extension posts what the broker accepts to an HTTP(S) endpoint.** It listens on
+  the message tap with a topic filter and sends JSON with the payload in base64, so a binary
+  message survives; the topic, QoS, retain flag, client id and username travel beside it. A
+  configured secret signs the exact body with HMAC-SHA256 in `X-XMQ-Signature`, and 5xx, 429,
+  timeout and connection failures are retried with backoff while any other 4xx is not. Delivery is
+  at-most-once through a bounded queue, so a slow endpoint never blocks publishing.
+
+- **The webhook can send the broker's own log as a second input.** `send_log` and `log_min_level`
+  (with `log_subjects` to narrow it) add the records that explain why a message never existed:
+  refused connections, denied permissions and extension faults.
+
+- **Several destinations in one extension.** The `destinations` setting is a JSON array; each
+  entry has its own URL, body template (`{{topic}}`, `{{message}}`, `{{level}}`, ...), sources,
+  filters, headers, secret, retry policy and concurrency, and each gets its own queue and threads
+  so one slow receiver cannot delay the others. An empty `destinations` keeps the single-URL
+  settings working as before.
+
+- **The extension is built and packaged on Windows as well as Linux and FreeBSD.** The socket
+  layer uses Winsock there and POSIX elsewhere; TLS and the signature are OpenSSL on both. The
+  Windows MSI installs `xmq_webhook.dll` and `50-webhook.conf.template` beside the user-database
+  extension, and the fragment is still off until an operator sets a URL or a destinations array.
+
 ## 1.0.2 — 2026-11-02
 
 Requires SPTK 5.6.17.

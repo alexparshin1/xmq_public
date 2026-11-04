@@ -93,8 +93,10 @@ counter and the security of the endpoint secret.
 
 ### DI-8. Build and packaging
 
-`[x]` The webhook extension is built by the normal extension machinery, installed with its
-configuration template, and is off unless enabled.
+`[x]` The webhook extension is built by the normal extension machinery on Unix and on Windows
+(Winsock for the socket layer, the same OpenSSL for TLS and the signature), installed with its
+configuration template, and is off unless enabled. The Linux, FreeBSD and Windows packages all
+carry it; the MSI names the DLL and the fragment explicitly, beside the user-database extension.
 
 ## Sequence
 

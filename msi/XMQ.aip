@@ -114,7 +114,9 @@
     <ROW Component="xmq_scn_cluster.exe" ComponentId="{A3CA6B79-E24B-4074-9241-C3382371DA4C}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_scn_cluster.exe"/>
     <ROW Component="xmq_server.conf.template" ComponentId="{06BF6951-57A3-4D39-B43C-7B45D57AF21A}" Directory_="XMQ_Dir" Attributes="0" KeyPath="xmq_server.conf.template" Type="0"/>
     <ROW Component="user_database_conf_template" ComponentId="{10546078-EF06-4EDF-A19B-96421DA3E0D8}" Directory_="xmq_extensionsd_Dir" Attributes="0" KeyPath="user_database_conf_template" Type="0"/>
+    <ROW Component="webhook_conf_template" ComponentId="{2749458D-F211-4F8D-81E1-3702ADFB2723}" Directory_="xmq_extensionsd_Dir" Attributes="0" KeyPath="webhook_conf_template" Type="0"/>
     <ROW Component="xmq_user_database_dll" ComponentId="{F058CC98-C6A4-4462-ACEA-F0F1DFE29A53}" Directory_="xmqextensions_Dir" Attributes="256" KeyPath="xmq_user_database_dll"/>
+    <ROW Component="xmq_webhook_dll" ComponentId="{DD4BEEB4-DCC2-4D96-9524-5CB6157CCBE7}" Directory_="xmqextensions_Dir" Attributes="256" KeyPath="xmq_webhook_dll"/>
     <ROW Component="xmq_server.exe" ComponentId="{6D48CF00-3518-4131-81F1-52143D651487}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_server.exe"/>
     <ROW Component="xmq_sub.exe" ComponentId="{B621A3A1-84CE-468A-AF41-9250F417B821}" Directory_="bin_Dir" Attributes="256" KeyPath="xmq_sub.exe"/>
     <ROW Component="zlib.dll" ComponentId="{802BB144-7BD5-4307-AB39-08948973CFAC}" Directory_="bin_Dir" Attributes="256" KeyPath="zlib.dll"/>
@@ -178,7 +180,9 @@
     <ROW File="TopicGuard.cpp" Component_="TopicGuard.cpp" FileName="TOPICG~1.CPP|TopicGuard.cpp" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\share\xmq\examples\extensions\topic-guard\TopicGuard.cpp" SelfReg="false"/>
     <ROW File="xmq_extensions.conf.template" Component_="xmq_server.conf.template" FileName="XMQ_EX~1.TEM|xmq_extensions.conf.template" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_extensions.conf.template" SelfReg="false"/>
     <ROW File="user_database_conf_template" Component_="user_database_conf_template" FileName="50-US~1.TEM|50-user-database.conf.template" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_extensions.d\50-user-database.conf.template" SelfReg="false"/>
+    <ROW File="webhook_conf_template" Component_="webhook_conf_template" FileName="50-WE~1.TEM|50-webhook.conf.template" Attributes="0" SourcePath="..\..\..\ProgramData\xmq\xmq_extensions.d\50-webhook.conf.template" SelfReg="false"/>
     <ROW File="xmq_user_database_dll" Component_="xmq_user_database_dll" FileName="XMQ_US~1.DLL|xmq_user_database.dll" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\lib\xmq-extensions\xmq_user_database.dll" SelfReg="false"/>
+    <ROW File="xmq_webhook_dll" Component_="xmq_webhook_dll" FileName="XMQ_WE~1.DLL|xmq_webhook.dll" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\lib\xmq-extensions\xmq_webhook.dll" SelfReg="false"/>
     <ROW File="logo192.png" Component_="assetmanifest.json" FileName="logo192.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo192.png" SelfReg="false"/>
     <ROW File="logo512.png" Component_="assetmanifest.json" FileName="logo512.png" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\react\logo512.png" SelfReg="false"/>
     <ROW File="xmq_scn_cluster.exe" Component_="xmq_scn_cluster.exe" FileName="XMQ_SC~1.EXE|xmq_scn_cluster.exe" Attributes="0" SourcePath="..\..\..\Program Files\XMQ\bin\xmq_scn_cluster.exe" SelfReg="false" DigSign="true"/>
@@ -468,7 +472,9 @@
     <ROW Feature_="XMQServer" Component_="Connections10k100.json"/>
     <ROW Feature_="XMQServer" Component_="xmq_server.conf.template"/>
     <ROW Feature_="XMQServer" Component_="user_database_conf_template"/>
+    <ROW Feature_="XMQServer" Component_="webhook_conf_template"/>
     <ROW Feature_="XMQServer" Component_="xmq_user_database_dll"/>
+    <ROW Feature_="XMQServer" Component_="xmq_webhook_dll"/>
     <ROW Feature_="XMQServer" Component_="FanOut510005250K.json"/>
     <ROW Feature_="XMQServer" Component_="AI_ExePath"/>
     <ROW Feature_="XMQServer" Component_="XMQInterface.url"/>

@@ -19,27 +19,39 @@
  * JSON with the payload in base64, so a binary message survives the trip; the request is signed
  * with HMAC-SHA256 when a secret is configured; a failed request is retried with backoff.
  *
- * POSIX sockets and OpenSSL, because this build's platforms are Linux and BSD. A Windows port
- * needs the same structure over Winsock, which is a separate piece of work rather than a hidden
- * dependency here.
+ * Sockets through the platform's own API and OpenSSL for TLS: Winsock on Windows, POSIX sockets
+ * everywhere else. The rest of the file - the queue, the retries, the templates - is the same on
+ * both.
  */
 
 #include "extension/XmqExtension.h"
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#else
+#  include <arpa/inet.h>
+#  include <fcntl.h>
+#  include <netdb.h>
+#  include <strings.h>
+#  include <sys/socket.h>
+#  include <unistd.h>
+#endif
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -59,6 +71,97 @@ namespace {
 
 constexpr int defaultTimeoutMs = 5000;
 constexpr int defaultRetries = 3;
+
+/// Winsock and POSIX sockets differ in the handle's type, in how it is closed, in how it is made
+/// non-blocking and in the name of the error that means "the connect is still running". Everything
+/// else in this file goes through one of these and a single connect/read/write path.
+#ifdef _WIN32
+using socket_t = SOCKET;
+constexpr socket_t invalidSocket = INVALID_SOCKET;
+#else
+using socket_t = int;
+constexpr socket_t invalidSocket = -1;
+#endif
+
+bool startSockets()
+{
+#ifdef _WIN32
+    // Once per process: the host loads several extensions, and a second WSAStartup without a
+    // matching WSACleanup is not an error, but there is no reason to make it one.
+    static const bool ready = []
+    {
+        WSADATA data {};
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    return ready;
+#else
+    return true;
+#endif
+}
+
+void closeSocket(const socket_t handle)
+{
+    if (handle == invalidSocket)
+    {
+        return;
+    }
+#ifdef _WIN32
+    ::closesocket(handle);
+#else
+    ::close(handle);
+#endif
+}
+
+bool setNonBlocking(const socket_t handle, const bool nonBlocking)
+{
+#ifdef _WIN32
+    u_long mode = nonBlocking ? 1 : 0;
+    return ::ioctlsocket(handle, FIONBIO, &mode) == 0;
+#else
+    const int flags = ::fcntl(handle, F_GETFL, 0);
+    if (flags < 0)
+    {
+        return false;
+    }
+    return ::fcntl(handle, F_SETFL,
+                   nonBlocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) == 0;
+#endif
+}
+
+int lastSocketError()
+{
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool connectInProgress(const int error)
+{
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
+#else
+    return error == EINPROGRESS;
+#endif
+}
+
+int compareCaseInsensitive(const char* left, const char* right, const size_t count)
+{
+#ifdef _WIN32
+    return ::_strnicmp(left, right, count);
+#else
+    return ::strncasecmp(left, right, count);
+#endif
+}
+
+/// A send to a socket the peer has closed must fail rather than raise SIGPIPE. POSIX has a flag
+/// for it; Winsock never raises the signal, so zero is what it wants.
+#ifdef MSG_NOSIGNAL
+constexpr int sendFlags = MSG_NOSIGNAL;
+#else
+constexpr int sendFlags = 0;
+#endif
 
 struct Url
 {
@@ -174,14 +277,23 @@ std::string isoTimestamp()
     const auto now = std::chrono::system_clock::now();
     const auto time = std::chrono::system_clock::to_time_t(now);
     std::tm    utc {};
+#ifdef _WIN32
+    gmtime_s(&utc, &time);
+#else
     gmtime_r(&time, &utc);
+#endif
     char buffer[32];
     strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &utc);
     return buffer;
 }
 
-int connectTcp(const Url& url, const int timeoutMs)
+socket_t connectTcp(const Url& url, const int timeoutMs)
 {
+    if (!startSockets())
+    {
+        return invalidSocket;
+    }
+
     addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -189,58 +301,93 @@ int connectTcp(const Url& url, const int timeoutMs)
     addrinfo* addresses = nullptr;
     if (getaddrinfo(url.m_host.c_str(), url.m_port.c_str(), &hints, &addresses) != 0)
     {
-        return -1;
+        return invalidSocket;
     }
 
-    int socketHandle = -1;
+    socket_t socketHandle = invalidSocket;
     for (addrinfo* address = addresses; address != nullptr; address = address->ai_next)
     {
         socketHandle = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-        if (socketHandle < 0)
+        if (socketHandle == invalidSocket)
         {
             continue;
         }
 
-        const int flags = fcntl(socketHandle, F_GETFL, 0);
-        fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK);
-        const int connected = ::connect(socketHandle, address->ai_addr, address->ai_addrlen);
+        if (!setNonBlocking(socketHandle, true))
+        {
+            closeSocket(socketHandle);
+            socketHandle = invalidSocket;
+            continue;
+        }
+        const int connected = ::connect(socketHandle, address->ai_addr,
+                                        static_cast<int>(address->ai_addrlen));
         if (connected == 0)
         {
-            fcntl(socketHandle, F_SETFL, flags);
+            setNonBlocking(socketHandle, false);
             break;
         }
-        if (errno != EINPROGRESS)
+        if (!connectInProgress(lastSocketError()))
         {
-            ::close(socketHandle);
-            socketHandle = -1;
+            closeSocket(socketHandle);
+            socketHandle = invalidSocket;
             continue;
         }
 
-        pollfd descriptor {.fd = socketHandle, .events = POLLOUT, .revents = 0};
-        if (poll(&descriptor, 1, timeoutMs) <= 0)
+        // select() is the portable way to wait for a non-blocking connect: WSAPoll has been wrong
+        // on Windows for exactly this case, and POSIX has select() everywhere.
+        fd_set writeSet;
+        FD_ZERO(&writeSet);
+        FD_SET(socketHandle, &writeSet);
+        timeval timeout {};
+        timeout.tv_sec = timeoutMs / 1000;
+        timeout.tv_usec = (timeoutMs % 1000) * 1000;
+#ifdef _WIN32
+        const int descriptorCount = 0; // ignored by Winsock
+#else
+        const int descriptorCount = socketHandle + 1;
+#endif
+        const int selected = ::select(descriptorCount, nullptr, &writeSet, nullptr, &timeout);
+        if (selected <= 0 || !FD_ISSET(socketHandle, &writeSet))
         {
-            ::close(socketHandle);
-            socketHandle = -1;
+            closeSocket(socketHandle);
+            socketHandle = invalidSocket;
             continue;
         }
-        int       error = 0;
+        int error = 0;
+#ifdef _WIN32
+        int length = sizeof(error);
+#else
         socklen_t length = sizeof(error);
-        if (getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &error, &length) != 0 || error != 0)
+#endif
+        if (getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
+                       reinterpret_cast<char*>(&error), &length) != 0 || error != 0)
         {
-            ::close(socketHandle);
-            socketHandle = -1;
+            closeSocket(socketHandle);
+            socketHandle = invalidSocket;
             continue;
         }
-        fcntl(socketHandle, F_SETFL, flags);
+        setNonBlocking(socketHandle, false);
         break;
     }
     freeaddrinfo(addresses);
 
-    if (socketHandle >= 0)
+    if (socketHandle != invalidSocket)
     {
-        timeval timeout {.tv_sec = timeoutMs / 1000, .tv_usec = (timeoutMs % 1000) * 1000};
+        // Blocking reads and writes still need a deadline: a receiver that stops reading must not
+        // hold a worker forever. Winsock takes milliseconds here, POSIX a timeval.
+#ifdef _WIN32
+        const DWORD timeout = static_cast<DWORD>(timeoutMs);
+        setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO,
+                   reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+        timeval timeout {};
+        timeout.tv_sec = timeoutMs / 1000;
+        timeout.tv_usec = (timeoutMs % 1000) * 1000;
         setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#endif
     }
     return socketHandle;
 }
@@ -251,7 +398,7 @@ size_t lowerCaseFind(const std::string& text, const char* needle)
     const size_t length = strlen(needle);
     for (size_t at = 0; at + length <= text.size(); ++at)
     {
-        if (strncasecmp(text.c_str() + at, needle, length) == 0)
+        if (compareCaseInsensitive(text.c_str() + at, needle, length) == 0)
         {
             return at;
         }
@@ -271,7 +418,7 @@ public:
     {
         m_timeout = timeoutMs;
         m_socket = connectTcp(url, timeoutMs);
-        if (m_socket < 0)
+        if (m_socket == invalidSocket)
         {
             m_error = "cannot connect to " + url.m_host + ":" + url.m_port;
             return false;
@@ -308,7 +455,7 @@ public:
             m_error = "cannot create a TLS session";
             return false;
         }
-        SSL_set_fd(m_ssl, m_socket);
+        SSL_set_fd(m_ssl, static_cast<int>(m_socket));
         SSL_set_tlsext_host_name(m_ssl, url.m_host.c_str());
         SSL_set1_host(m_ssl, url.m_host.c_str());
         if (SSL_connect(m_ssl) != 1)
@@ -326,7 +473,8 @@ public:
         {
             const int written = m_ssl != nullptr
                 ? SSL_write(m_ssl, data.data() + sent, static_cast<int>(data.size() - sent))
-                : static_cast<int>(::send(m_socket, data.data() + sent, data.size() - sent, MSG_NOSIGNAL));
+                : static_cast<int>(::send(m_socket, data.data() + sent,
+                                          static_cast<int>(data.size() - sent), sendFlags));
             if (written <= 0)
             {
                 m_error = "the endpoint stopped reading";
@@ -428,18 +576,18 @@ public:
             SSL_CTX_free(m_context);
             m_context = nullptr;
         }
-        if (m_socket >= 0)
+        if (m_socket != invalidSocket)
         {
-            ::close(m_socket);
-            m_socket = -1;
+            closeSocket(m_socket);
+            m_socket = invalidSocket;
         }
     }
 
     [[nodiscard]] const std::string& error() const { return m_error; }
-    [[nodiscard]] bool               isOpen() const { return m_socket >= 0; }
+    [[nodiscard]] bool               isOpen() const { return m_socket != invalidSocket; }
 
 private:
-    int         m_socket {-1};
+    socket_t    m_socket {invalidSocket};
     int         m_timeout {defaultTimeoutMs};
     SSL_CTX*    m_context {nullptr};
     SSL*        m_ssl {nullptr};
