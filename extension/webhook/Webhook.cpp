@@ -1750,12 +1750,12 @@ constexpr xmq_setting settings[] = {
      .description = "HMAC-SHA256 key for the X-XMQ-Signature header",
      .type = XMQ_SETTING_SECRET,
      .default_value = ""},
-    {.name = "topic_filter", .label = "Topic filter",
-     .description = "One MQTT filter, or a JSON array of them; a message matching any is sent. "
-                    "+ and # must each be a whole level, and # the last one",
-     .type = XMQ_SETTING_STRING,
+    {.name = "topic_filter", .label = "Topic filters",
+     .description = "One or more MQTT filters; a message matching any is sent. + and # must each "
+                    "be a whole level, and # the last one",
+     .type = XMQ_SETTING_LIST,
      .default_value = "#",
-     .pattern = R"rx((?:(?:(?:[^+#/,"]*|\+)/)*(?:[^+#/,"]*|\+|#))|\[\s*(?:"(?!")(?:(?:[^"+#/]*|\+)/)*(?:[^"+#/]*|\+|#)"\s*(?:,\s*"(?!")(?:(?:[^"+#/]*|\+)/)*(?:[^"+#/]*|\+|#)"\s*)*)?\])rx"},
+     .pattern = R"((?:(?:[^+#/]*|\+)/)*(?:[^+#/]*|\+|#))"},
     {.name = "max_payload", .label = "Max payload",
      .description = "Largest body to send, in bytes; 0 means no limit",
      .type = XMQ_SETTING_INTEGER,

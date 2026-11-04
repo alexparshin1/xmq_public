@@ -96,6 +96,29 @@ export default class ExtensionsScreen extends React.Component {
         this.setState(state => ({edited: {...state.edited, [name]: value}}));
     }
 
+    /// The items of the list setting, as they are shown now: what was typed, else what is stored.
+    listOf(setting) {
+        return ExtensionsScreen.listItems(this.valueOf(setting));
+    }
+
+    changeListItem = (setting, index, value) => {
+        const items = this.listOf(setting);
+        items[index] = value;
+        this.onSettingChange(setting.name, JSON.stringify(items));
+    }
+
+    addListItem = (setting) => {
+        const items = this.listOf(setting);
+        items.push("");
+        this.onSettingChange(setting.name, JSON.stringify(items));
+    }
+
+    removeListItem = (setting, index) => {
+        const items = this.listOf(setting);
+        items.splice(index, 1);
+        this.onSettingChange(setting.name, JSON.stringify(items));
+    }
+
     /**
      * Whether a value has the shape the extension declared, if it declared one.
      *
@@ -104,15 +127,45 @@ export default class ExtensionsScreen extends React.Component {
      * the setting's default, and a pattern this browser cannot compile is the broker's to judge -
      * the broker checks every value again, and refuses the ones that do not match.
      */
-    static matches(setting, value) {
-        if (!setting.pattern || value === undefined || value === null || value === "") {
+    static matchesPattern(pattern, value) {
+        if (!pattern || value === undefined || value === null || value === "") {
             return true;
         }
         try {
-            return new RegExp("^(?:" + setting.pattern + ")$").test(value);
+            return new RegExp("^(?:" + pattern + ")$").test(value);
         } catch (error) {
             return true;
         }
+    }
+
+    /// The items of a list setting. A bare value is one item, so a setting written by hand - or
+    /// one that has never been edited here - still shows as a list of one.
+    static listItems(value) {
+        const text = value === undefined || value === null ? "" : String(value).trim();
+        if (!text) {
+            return [];
+        }
+        if (text.startsWith("[")) {
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(item => String(item));
+                }
+            } catch (error) {
+                // Not JSON after all: kept as one item so it can be seen and repaired, rather
+                // than disappearing from the form.
+            }
+        }
+        return [text];
+    }
+
+    static matches(setting, value) {
+        if (setting.type === "list") {
+            // An empty list is how the form says "not set": the extension's default applies.
+            return ExtensionsScreen.listItems(value)
+                .every(item => item !== "" && ExtensionsScreen.matchesPattern(setting.pattern, item));
+        }
+        return ExtensionsScreen.matchesPattern(setting.pattern, value);
     }
 
     invalidSettings() {
@@ -315,6 +368,28 @@ export default class ExtensionsScreen extends React.Component {
             control = <input type="checkbox" checked={value === "true"}
                              onChange={event => this.onSettingChange(setting.name,
                                                                      event.target.checked ? "true" : "false")}/>;
+        } else if (setting.type === "list") {
+            const items = this.listOf(setting);
+            control = <div className="extensionListEditor">
+                {items.map((item, index) =>
+                    <div className="extensionListRow" key={index}>
+                        <input type="text" value={item}
+                               pattern={setting.pattern || undefined}
+                               title={setting.pattern ? "Must match " + setting.pattern : undefined}
+                               onChange={event => this.changeListItem(setting, index, event.target.value)}/>
+                        <button type="button" className="extensionListButton"
+                                onClick={() => this.removeListItem(setting, index)}>Remove</button>
+                    </div>)}
+                <div className="extensionListFooter">
+                    <button type="button" className="extensionListButton"
+                            onClick={() => this.addListItem(setting)}>Add</button>
+                    {items.length
+                        ? null
+                        : <span className="extensionListEmpty">
+                            No items; the extension's default applies.
+                          </span>}
+                </div>
+            </div>;
         } else if (setting.type === "integer") {
             // Text rather than number when a pattern is declared: a number field silently accepts
             // "1e5" and "-3", and refuses to say what is wrong with them.
@@ -342,7 +417,9 @@ export default class ExtensionsScreen extends React.Component {
               (setting.default_value ? (setting.description ? " " : "") +
                                        "Default: " + setting.default_value + "." : "") +
               (setting.pattern ? (setting.description || setting.default_value ? " " : "") +
-                                 "Format: must match " + setting.pattern + "." : "");
+                                 (setting.type === "list" ? "Each item must match " : "Format: must match ") +
+                                 setting.pattern + "." : "") +
+              (setting.type === "list" ? " An empty list leaves the setting at its default." : "");
 
         return <div className="extensionRow" key={setting.name}>
             <label>

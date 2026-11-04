@@ -1165,6 +1165,102 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
     return report;
 }
 
+namespace {
+
+/// The items of a JSON array of strings, or false when the value is not one.
+///
+/// A bare value is a one-item list: a list setting written by hand may hold a single item as a
+/// plain string, which is what the configuration looks like before the interface has touched it.
+bool parseStringList(const std::string& text, std::vector<std::string>& items)
+{
+    items.clear();
+    size_t at = 0;
+    const auto skipSpace = [&text, &at]
+    {
+        while (at < text.size() && std::isspace(static_cast<unsigned char>(text[at])) != 0)
+        {
+            ++at;
+        }
+    };
+
+    skipSpace();
+    if (at == text.size())
+    {
+        return true;
+    }
+    if (text[at] != '[')
+    {
+        items.push_back(text);
+        return true;
+    }
+
+    ++at;
+    skipSpace();
+    if (at < text.size() && text[at] == ']')
+    {
+        ++at;
+        skipSpace();
+        return at == text.size();
+    }
+
+    while (true)
+    {
+        skipSpace();
+        if (at >= text.size() || text[at] != '"')
+        {
+            return false;
+        }
+        ++at;
+        std::string item;
+        while (at < text.size() && text[at] != '"')
+        {
+            if (text[at] != '\\')
+            {
+                item += text[at++];
+                continue;
+            }
+            if (++at >= text.size())
+            {
+                return false;
+            }
+            switch (text[at])
+            {
+                case '"': item += '"'; break;
+                case '\\': item += '\\'; break;
+                case '/': item += '/'; break;
+                case 'b': item += '\b'; break;
+                case 'f': item += '\f'; break;
+                case 'n': item += '\n'; break;
+                case 'r': item += '\r'; break;
+                case 't': item += '\t'; break;
+                default: return false;
+            }
+            ++at;
+        }
+        if (at >= text.size())
+        {
+            return false;
+        }
+        ++at;
+        items.push_back(std::move(item));
+        skipSpace();
+        if (at < text.size() && text[at] == ',')
+        {
+            ++at;
+            continue;
+        }
+        if (at < text.size() && text[at] == ']')
+        {
+            ++at;
+            skipSpace();
+            return at == text.size();
+        }
+        return false;
+    }
+}
+
+} // namespace
+
 void ExtensionHost::start(const vector<Configured>& extensions)
 {
     if (extensions.empty())
@@ -1643,14 +1739,14 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                 }
             }
 
-            // A declared pattern is a format the extension cannot work without. Checked here as
-            // well as in the interface, because the interface is not the only way settings arrive:
-            // a value written by a script must be refused for the same reason, and named so that
-            // the person reading the answer knows which field and what shape it wanted.
+            // A declared format the extension cannot work without. Checked here as well as in the
+            // interface, because the interface is not the only way settings arrive: a value written
+            // by a script must be refused for the same reason, and named so that the person reading
+            // the answer knows which field and what shape it wanted.
             for (size_t at = 0; at < (*loaded)->m_table->setting_count; ++at)
             {
                 const auto& declared = (*loaded)->m_table->settings[at];
-                if (declared.name == nullptr || declared.pattern == nullptr || *declared.pattern == '\0')
+                if (declared.name == nullptr)
                 {
                     continue;
                 }
@@ -1660,15 +1756,58 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                     // Not set: the extension's own default applies, which is not a value to judge.
                     continue;
                 }
+
+                const bool list = declared.type == XMQ_SETTING_LIST;
+                std::vector<std::string> items;
+                if (list)
+                {
+                    if (!parseStringList(incoming->second, items))
+                    {
+                        return refusedWrite(m_logger, name,
+                                            string(declared.name) + " must be a JSON array of strings");
+                    }
+                    if (items.empty())
+                    {
+                        // An empty list is how the interface says "not set": the declared default
+                        // applies, so the key leaves the file rather than being written as [].
+                        merged.erase(incoming);
+                        continue;
+                    }
+                }
+
+                if (declared.pattern == nullptr || *declared.pattern == '\0')
+                {
+                    continue;
+                }
                 try
                 {
                     // Anchored, so a pattern says what the whole value may be and not merely what
-                    // it may contain.
+                    // it may contain. For a list it is the item that has to match, because that is
+                    // what the extension sees and what the person edits.
                     const RegularExpression expression(string("^(?:") + declared.pattern + ")$");
-                    if (!expression.matches(incoming->second))
+                    const auto check = [&](const std::string& value)
                     {
-                        return refusedWrite(m_logger, name,
-                                            string(declared.name) + " must match " + declared.pattern);
+                        if (value.empty() || !expression.matches(value))
+                        {
+                            const string what = list ? string(declared.name) + " has an item that must match "
+                                                     : string(declared.name) + " must match ";
+                            return refusedWrite(m_logger, name, what + declared.pattern);
+                        }
+                        return Report {};
+                    };
+                    if (list)
+                    {
+                        for (const auto& item: items)
+                        {
+                            if (auto refusal = check(item); refusal.failed())
+                            {
+                                return refusal;
+                            }
+                        }
+                    }
+                    else if (auto refusal = check(incoming->second); refusal.failed())
+                    {
+                        return refusal;
                     }
                 }
                 catch (const Exception& e)

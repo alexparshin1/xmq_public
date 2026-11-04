@@ -184,13 +184,15 @@ export default function DataIntegrationDocumentation() {
                 </tr>
                 <tr>
                     <td><code>topic_filter</code></td>
-                    <td>string</td>
+                    <td>list of strings</td>
                     <td><code>#</code></td>
-                    <td>an MQTT filter, or a JSON array of them</td>
-                    <td>Only matching messages are sent. <code>+</code> and <code>#</code> must
-                        each be a whole level, and <code>#</code> the last one. With an array, a
-                        message matching any of the filters is sent; a comma cannot separate them,
-                        because a comma is a legal character in a topic.</td>
+                    <td>each item is an MQTT filter</td>
+                    <td>Only matching messages are sent; a message matching any item is sent.
+                        The interface shows one field per filter, with <b>Add</b> and
+                        <b>Remove</b> beside the list - the JSON array is what it stores, not what
+                        you type. <code>+</code> and <code>#</code> must each be a whole level, and
+                        <code>#</code> the last one. An empty list leaves the setting at its
+                        default.</td>
                 </tr>
                 <tr>
                     <td><code>max_payload</code></td>
@@ -290,17 +292,20 @@ export default function DataIntegrationDocumentation() {
 ]"`}</pre>
 
             <p>
-                One destination can also name several filters, as a JSON array inside the string:
+                One destination can also name several filters. In the interface the single-URL
+                <code>topic_filter</code> is a list: press <b>Add</b> for another row and
+                <b>Remove</b> beside the one that is no longer wanted.
             </p>
 
-            <pre className="userManualCode">{`"topic_filter": "[\"sensors/#\",\"alarms/+\"]"`}</pre>
+            <pre className="userManualCode">{'"topic_filter": "[\\"sensors/#\\",\\"alarms/+\\"]"'}</pre>
 
             <p>
                 A message is sent when it matches any of them, so one endpoint receives two
                 unrelated subtrees without a wildcard that would also match the rest of the
-                broker's traffic. The whole array is one setting, so its quotes are escaped in the
-                configuration file; the first destination above sends a plain-text body, the second
-                the standard JSON envelope. A messenger that wants JSON of its own - Slack's
+                broker's traffic. In the configuration file the array is one setting, so its quotes
+                are escaped there; inside <code>destinations</code> the same field is an array
+                within the JSON document. The first destination above sends a plain-text body, the
+                second the standard JSON envelope. A messenger that wants JSON of its own - Slack's
                 <code>{"{\"text\": ...}"}</code>, for instance - needs that JSON as the template,
                 which means a string inside a string.
             </p>

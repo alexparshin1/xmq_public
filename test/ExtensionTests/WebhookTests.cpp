@@ -553,3 +553,52 @@ TEST_F(WebhookTests, severalTopicFiltersShareOneTap)
     host.stop();
     receiver.stop();
 }
+
+/// A list setting is checked item by item: the array is the screen's storage format, and each
+/// item is the value the extension sees.
+TEST_F(WebhookTests, aListSettingIsCheckedItemByItem)
+{
+    const auto directory = filesystem::temp_directory_path() /
+                           ("xmq_webhook_list_" + to_string(getpid()));
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    {
+        ofstream file(extensionsFile);
+        file << R"({"extensions":[{"name":"webhook","library":")"
+             << webhookLibrary().generic_string()
+             << R"(","enabled":true,"settings":{"url":"https://collector.example/hook",)"
+             << R"("topic_filter":"[\"sensors/#\"]"}}]})";
+    }
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine));
+    ASSERT_TRUE(host.tapping());
+
+    const auto described = host.describe();
+    ASSERT_EQ(1U, described.size());
+    const auto filter = ranges::find_if(described[0].m_settings, [](const auto& setting)
+                                        { return setting.m_name == "topic_filter"; });
+    ASSERT_NE(described[0].m_settings.end(), filter);
+    EXPECT_EQ(XMQ_SETTING_LIST, filter->m_type);
+
+    // The interface's path: writeSettings() is what the Extensions page reaches through
+    // Server::setExtensionSettings(), and it is where a script's value is judged too.
+    auto settings = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine).front().m_settings;
+
+    settings["topic_filter"] = R"(["sensors/#","bad#"])";
+    const auto refused = host.writeSettings("webhook", settings);
+    ASSERT_TRUE(refused.failed());
+    EXPECT_NE(string::npos, refused.m_problems[0].find("topic_filter")) << refused.m_problems[0];
+
+    settings["topic_filter"] = R"(["sensors/#","alarms/+"])";
+    EXPECT_FALSE(host.writeSettings("webhook", settings).failed());
+
+    const auto onDisk = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
+    ASSERT_EQ(1U, onDisk.size());
+    EXPECT_EQ(R"(["sensors/#","alarms/+"])", onDisk[0].m_settings.at("topic_filter"));
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}

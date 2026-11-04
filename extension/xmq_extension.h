@@ -376,7 +376,17 @@ typedef enum xmq_setting_type
      * from any other string on its own, and finding out the hard way is how secrets end up in
      * screenshots and bug reports.
      */
-    XMQ_SETTING_SECRET = 4
+    XMQ_SETTING_SECRET = 4,
+
+    /**
+     * @brief A list of strings, held as a JSON array.
+     *
+     * The interface shows it as a list of fields with Add and Remove beside it, rather than as one
+     * field holding JSON: a value somebody has to quote and comma by hand is a value that goes
+     * wrong. `pattern`, when declared, is applied to each item and not to the array as a whole.
+     * The extension reads it with setting(), exactly like a string.
+     */
+    XMQ_SETTING_LIST = 5
 } xmq_setting_type;
 
 /**

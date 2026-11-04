@@ -187,3 +187,42 @@
     font-size: 12.5px;
     margin-top: 3px;
 }
+
+/* A list setting: one field per item, with Remove beside each and Add below. The value is stored
+   as JSON, which is the screen's business and not the operator's. */
+.extensionListEditor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.extensionListRow {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* The row sizing rule gives every text field the full width; in a list the field shares the row
+   with its button, so it takes what is left instead. */
+.extensionListRow input[type="text"] {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+}
+
+.extensionListButton {
+    padding: 3px 10px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.extensionListFooter {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.extensionListEmpty {
+    font-size: 12.5px;
+    color: #666;
+}

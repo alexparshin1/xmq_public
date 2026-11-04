@@ -475,6 +475,8 @@ const char* settingTypeName(const xmq_setting_type type)
             return "choice";
         case XMQ_SETTING_SECRET:
             return "secret";
+        case XMQ_SETTING_LIST:
+            return "list";
         case XMQ_SETTING_STRING:
             break;
     }
