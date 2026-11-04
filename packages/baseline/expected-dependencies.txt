@@ -6,7 +6,8 @@ libspdb5.so.5.6.18
 libsputil5.so.5.6.18
 libspwsdl5.so.5.6.18
 # 1.1.0: the authenticator checks the crypt(5) verifiers an import brings, so the broker and the
-# user-database extension now link libcrypt, which on the Debian family is its own package and on
-# the RPM family is named by its SONAME, libcrypt.so.2.
+# user-database extension now link libcrypt, which on the Debian family is its own package, on the
+# RPM family is named by its SONAME libcrypt.so.2, and on FreeBSD as libcrypt.so.5.
 libcrypt1
 libcrypt.so.2
+libcrypt.so.5
