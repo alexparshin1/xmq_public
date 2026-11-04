@@ -904,11 +904,16 @@ struct Destination
     std::vector<std::string> logSubjects;
     std::vector<std::pair<std::string, std::string>> headers;
 
+    /// How many requests may be in flight at once. One connection per destination is enough on
+    /// loopback and far too few across a network: a synchronous reply per record caps a destination
+    /// at 1/RTT, which is a hundred records a second at 10 ms.
+    int                       concurrency {4};
+
     std::mutex                lock;
     std::condition_variable   condition;
     std::deque<std::pair<std::string, std::string>> queue; ///< body, what it was
     bool                      stopping {false};
-    std::thread               thread;
+    std::vector<std::thread>  threads;
     std::atomic<uint64_t>     sent {0};
     std::atomic<uint64_t>     failed {0};
     std::atomic<uint64_t>     dropped {0};
@@ -1211,10 +1216,14 @@ private:
                 destination->stopping = true;
             }
             destination->condition.notify_all();
-            if (destination->thread.joinable())
+            for (auto& thread: destination->threads)
             {
-                destination->thread.join();
+                if (thread.joinable())
+                {
+                    thread.join();
+                }
             }
+            destination->threads.clear();
         }
     }
 
@@ -1247,6 +1256,20 @@ private:
         catch (const std::exception&)
         {
             error = "timeout_ms, retries and max_payload must be numbers";
+            return nullptr;
+        }
+        try
+        {
+            destination->concurrency = std::stoi(setting("concurrency", "4"));
+        }
+        catch (const std::exception&)
+        {
+            error = "concurrency must be a number";
+            return nullptr;
+        }
+        if (destination->concurrency < 1 || destination->concurrency > 64)
+        {
+            error = "concurrency must be between 1 and 64";
             return nullptr;
         }
         destination->sendMessages = setting("send_messages", "true") == "true";
@@ -1306,6 +1329,21 @@ private:
         catch (const std::exception&)
         {
             error = destination->name + ": timeout_ms, retries and max_payload must be numbers";
+            return nullptr;
+        }
+
+        try
+        {
+            destination->concurrency = std::stoi(text("concurrency", "4"));
+        }
+        catch (const std::exception&)
+        {
+            error = destination->name + ": concurrency must be a number";
+            return nullptr;
+        }
+        if (destination->concurrency < 1 || destination->concurrency > 64)
+        {
+            error = destination->name + ": concurrency must be between 1 and 64";
             return nullptr;
         }
 
@@ -1446,7 +1484,10 @@ private:
         }
         for (const auto& destination: wanted)
         {
-            destination->thread = std::thread([destination] { run(destination); });
+            for (int at = 0; at < destination->concurrency; ++at)
+            {
+                destination->threads.emplace_back([destination] { run(destination); });
+            }
         }
 
         // Registered after the destinations are running: a body that arrived first would be queued
@@ -1506,6 +1547,8 @@ constexpr xmq_setting settings[] = {
      XMQ_SETTING_STRING, "error", nullptr, 0},
     {"log_subjects", "Log subjects", "Comma-separated broker log subjects; empty means all",
      XMQ_SETTING_STRING, "", nullptr, 0},
+    {"concurrency", "Concurrency", "How many requests may be in flight to this destination",
+     XMQ_SETTING_INTEGER, "4", nullptr, 0},
 };
 
 } // namespace
