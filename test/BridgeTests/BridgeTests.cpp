@@ -17,6 +17,7 @@
 #include "common/mqtt/PublishMessage.h"
 
 using namespace std;
+using namespace std::chrono_literals;
 using namespace sptk;
 using namespace xmq;
 
@@ -76,6 +77,11 @@ XMQ_BridgeTests::createTestSubscriberAndPublisher(const Host& publishToHost, con
     EXPECT_EQ(ReasonCode::Success, rc);
     EXPECT_TRUE(subscriber->isConnected());
     subscriber->subscribe(Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(Qos::Qos1)));
+    // Subscription is sent, not applied: the broker routes to it only after it has processed the
+    // SUBSCRIBE, and a message that crosses the bridge before that is delivered to nobody. The
+    // publisher below is on the other node, so its message arrives here on a different session and
+    // there is nothing that would order the two.
+    EXPECT_TRUE(subscriber->waitForSubscribeAck(5s)) << "the subscription was not acknowledged";
 
     ConnectCredentials credentials2{publisherClientId, "user", "secret"};
     auto               publisher = make_shared<client::MqttClient>(logEngine());
