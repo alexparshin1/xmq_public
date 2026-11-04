@@ -15,8 +15,11 @@ export default function DataIntegrationDocumentation() {
 
             <p>
                 It is an extension, not a core feature: a broker with no webhook loaded pays
-                nothing for it. The extension is POSIX only (Linux and BSD); a Windows build needs
-                a Winsock version and is not part of this one.
+                nothing for it. It is built for Linux, FreeBSD and Windows: the socket layer uses
+                Winsock on Windows and the platform's POSIX sockets elsewhere, and TLS is OpenSSL
+                on all of them. On Windows the installed fragment names
+                <code>lib\xmq-extensions\xmq_webhook.dll</code>; on the other platforms the
+                library is <code>libxmq_webhook.so</code>.
             </p>
 
             <h4 id="data-integration-enable">Enabling it</h4>
@@ -106,7 +109,8 @@ export default function DataIntegrationDocumentation() {
                 <code>sources</code> (<code>messages</code>, <code>log</code> or both),
                 <code>topic_filter</code>, <code>log_min_level</code>, <code>log_subjects</code>,
                 <code>headers</code>, <code>secret</code>, <code>retries</code>,
-                <code>timeout_ms</code>, <code>max_payload</code> and <code>allow_http</code>. With
+                <code>timeout_ms</code>, <code>max_payload</code>, <code>concurrency</code> and
+                <code>allow_http</code>. With
                 no template the body is the JSON envelope shown above; with one, the body is the
                 template with these names replaced:
                 <code>{"{{id}}"}</code>, <code>{"{{source}}"}</code>, <code>{"{{timestamp}}"}</code>,
@@ -123,9 +127,12 @@ export default function DataIntegrationDocumentation() {
             </p>
 
             <p>
-                Every destination has its own queue and its own thread: a messenger that is slow to
-                answer does not hold up the collector beside it, and a destination that falls behind
-                drops (and counts) rather than delaying the broker. The message tap is registered
+                Every destination has its own queue and its own worker threads: a messenger that is
+                slow to answer does not hold up the collector beside it, and a destination that falls
+                behind drops (and counts) rather than delaying the broker. <code>concurrency</code>
+                (1 to 64, four by default) sets how many requests may be in flight to one endpoint,
+                which is what keeps a synchronous receiver from capping it at one record per round
+                trip. The message tap is registered
                 once for all destinations, with the widest filter, so each body is copied to the
                 extension before the per-destination filters narrow it. That is the price of several
                 destinations in one extension.
