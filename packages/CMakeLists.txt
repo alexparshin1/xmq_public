@@ -45,12 +45,13 @@ IF (OS_FLAVOUR STREQUAL "ol" OR OS_FLAVOUR STREQUAL "fedora" OR OS_FLAVOUR STREQ
     SET(CPACK_RPM_PACKAGE_GENERATE_SHLIBS ON)
     SET(CPACK_RPM_PACKAGE_MAINTAINER "alexeyp@gmail.com")
     SET(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_BINARY_DIR}/postinst")
-    # Listed here so that none of these five is declared %config. CPack's RPM generator marks every
+    # Listed here so that none of these six is declared %config. CPack's RPM generator marks every
     # file installed to an absolute destination as %config on its own, and it has no setting to stop
     # that; naming a file in this list is the one thing that takes it out. They are the only absolute
-    # destinations in the tree: the three templates, whose directory is outside the prefix on a
-    # packaged Linux broker (the user-database one is written by its install script), and the two
-    # units daemon/CMakeLists.txt installs.
+    # destinations in the tree: the four templates - the broker's, the extensions' and one per
+    # installed extension, whose directory is outside the prefix on a packaged Linux broker - and the
+    # two units daemon/CMakeLists.txt installs. A new extension's template belongs here too, which is
+    # how 50-webhook.conf.template was missed until it was looked for.
     #
     # Each entry needs a directive. A bare path breaks CPackRPM itself: it strips the directive prefix
     # unquoted, and an empty prefix leaves string(STRIP) one argument short, failing the package.
@@ -63,6 +64,7 @@ IF (OS_FLAVOUR STREQUAL "ol" OR OS_FLAVOUR STREQUAL "fedora" OR OS_FLAVOUR STREQ
         "%attr(-,root,root) ${XMQ_CONF_DIRECTORY}/xmq_server.conf.template"
         "%attr(-,root,root) ${XMQ_CONF_DIRECTORY}/xmq_extensions.conf.template"
         "%attr(-,root,root) ${XMQ_CONF_DIRECTORY}/xmq_extensions.d/50-user-database.conf.template"
+        "%attr(-,root,root) ${XMQ_CONF_DIRECTORY}/xmq_extensions.d/50-webhook.conf.template"
         "%attr(-,root,root) /etc/systemd/system/xmq_server.service"
         "%attr(-,root,root) /etc/systemd/system/xmq_test_suite.service")
 ENDIF ()
