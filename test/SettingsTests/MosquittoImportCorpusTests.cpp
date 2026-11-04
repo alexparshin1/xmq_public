@@ -12,7 +12,12 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 using namespace std;
 using namespace sptk;
@@ -26,6 +31,16 @@ namespace {
 #endif
 
 const filesystem::path corpusDirectory {XMQ_TEST_MOSQUITTO_IMPORT_DIRECTORY};
+
+/// This process, so two runs at once do not share a temporary database.
+int processId()
+{
+#ifdef _WIN32
+    return _getpid();
+#else
+    return ::getpid();
+#endif
+}
 
 string readFile(const filesystem::path& path)
 {
@@ -319,7 +334,7 @@ TEST(MosquittoImportCorpus, dynamicSecurityPrioritiesProduceMosquittoOrder)
 TEST(MosquittoImportCorpus, everyFileSurvivesPlanApplyAndTheStore)
 {
     const auto file = filesystem::temp_directory_path() /
-                      ("xmq_mosquitto_corpus_" + to_string(::getpid()) + ".db");
+                      ("xmq_mosquitto_corpus_" + to_string(processId()) + ".db");
     filesystem::remove(file);
     const auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
     UserStore  store(pool);

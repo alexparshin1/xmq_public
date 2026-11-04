@@ -3,11 +3,20 @@
 #include <gtest/gtest.h>
 #include <sptk5/FileLogEngine.h>
 
-#include <arpa/inet.h>
 #include <openssl/hmac.h>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -22,6 +31,48 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+
+// The receiver is a plain TCP server, and the two families spell that differently: a Windows
+// socket is a SOCKET, closed with closesocket(), and its send() takes an int length. Kept here,
+// in the test, because the extension's own layer is inside the DLL and not on this side.
+#ifdef _WIN32
+using SocketHandle = SOCKET;
+constexpr SocketHandle invalidSocket = INVALID_SOCKET;
+using SocketLength = int;
+constexpr int sendFlags = 0;
+constexpr int shutdownBoth = SD_BOTH;
+
+bool ensureSockets()
+{
+    static const bool started = []
+    {
+        WSADATA data {};
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    return started;
+}
+
+void closeSocket(const SocketHandle socket)
+{
+    closesocket(socket);
+}
+#else
+using SocketHandle = int;
+constexpr SocketHandle invalidSocket = -1;
+using SocketLength = socklen_t;
+constexpr int sendFlags = MSG_NOSIGNAL;
+constexpr int shutdownBoth = SHUT_RDWR;
+
+constexpr bool ensureSockets()
+{
+    return true;
+}
+
+void closeSocket(const SocketHandle socket)
+{
+    ::close(socket);
+}
+#endif
 
 filesystem::path webhookLibrary()
 {
@@ -38,25 +89,37 @@ class Receiver
 public:
     bool start()
     {
+        if (!ensureSockets())
+        {
+            return false;
+        }
         m_fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (m_fd < 0)
+        if (m_fd == invalidSocket)
         {
             return false;
         }
         int one = 1;
-        setsockopt(m_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+        setsockopt(m_fd, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&one), static_cast<SocketLength>(sizeof(one)));
 
         sockaddr_in address {};
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         address.sin_port = 0;
-        if (bind(m_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+        if (::bind(m_fd, reinterpret_cast<sockaddr*>(&address), static_cast<SocketLength>(sizeof(address))) != 0 ||
             listen(m_fd, 4) != 0)
         {
+            closeSocket(m_fd);
+            m_fd = invalidSocket;
             return false;
         }
-        socklen_t length = sizeof(address);
-        getsockname(m_fd, reinterpret_cast<sockaddr*>(&address), &length);
+        SocketLength length = static_cast<SocketLength>(sizeof(address));
+        if (getsockname(m_fd, reinterpret_cast<sockaddr*>(&address), &length) != 0)
+        {
+            closeSocket(m_fd);
+            m_fd = invalidSocket;
+            return false;
+        }
         m_port = ntohs(address.sin_port);
         m_thread = std::thread([this] { loop(); });
         return true;
@@ -65,11 +128,11 @@ public:
     void stop()
     {
         m_stopping.store(true);
-        if (m_fd >= 0)
+        if (m_fd != invalidSocket)
         {
-            ::shutdown(m_fd, SHUT_RDWR);
-            ::close(m_fd);
-            m_fd = -1;
+            ::shutdown(m_fd, shutdownBoth);
+            closeSocket(m_fd);
+            m_fd = invalidSocket;
         }
         if (m_thread.joinable())
         {
@@ -105,8 +168,8 @@ private:
     {
         while (!m_stopping.load())
         {
-            const int client = ::accept(m_fd, nullptr, nullptr);
-            if (client < 0)
+            const SocketHandle client = ::accept(m_fd, nullptr, nullptr);
+            if (client == invalidSocket)
             {
                 break;
             }
@@ -116,7 +179,7 @@ private:
             size_t      contentLength = 0;
             while (true)
             {
-                const auto received = ::recv(client, buffer, sizeof(buffer), 0);
+                const auto received = ::recv(client, buffer, static_cast<SocketLength>(sizeof(buffer)), 0);
                 if (received <= 0)
                 {
                     break;
@@ -158,12 +221,12 @@ private:
             const std::string response = fail
                 ? "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 : "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            ::send(client, response.data(), response.size(), MSG_NOSIGNAL);
-            ::close(client);
+            ::send(client, response.data(), static_cast<int>(response.size()), sendFlags);
+            closeSocket(client);
         }
     }
 
-    int                 m_fd {-1};
+    SocketHandle        m_fd {invalidSocket};
     uint16_t            m_port {0};
     std::atomic<int>    m_served {0};
     int                 m_failFirst {0};
