@@ -42,7 +42,9 @@ The publication path has one transaction at a time per broker. It does not hand 
 publication off to an asynchronous fanout pool. Queue overflow rejects the publication before
 commit; a queue-limit race after commit cannot discard a delivery already accepted into storage.
 
-Persistent-session creation and subscription updates also wait for their local AOF fsync. That
+Persistent-session creation and subscription updates also wait for their local AOF fsync.
+They use the reliable store's dedicated serialized connection too: a raw WAITAOF command must
+never run on a shared pool socket concurrently with another session's commands. That
 prevents an acknowledged publication from relying on a subscription that disappears on restart.
 An AOF write error, fsync timeout or unavailable Redis withholds success; there is no memory fallback.
 If the script's response is lost, its outcome is ambiguous. The broker refuses further reliable

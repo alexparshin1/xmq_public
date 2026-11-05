@@ -181,7 +181,7 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
             throw Exception("ack_after_store currently supports standalone without bridges only");
         }
         m_reliableMessageStore = make_unique<ReliableMessageStore>(redisConfiguredUrl(settings->m_persistence.m_redis_uri.asString()));
-        logMessage(LogSubject::StorageEvents, LogPriority::Info,
+        logMessage(LogSubject::ServerEvents, LogPriority::Info,
                    "Reliable message store enabled: publication ACK waits for local Redis AOF fsync.");
     }
 

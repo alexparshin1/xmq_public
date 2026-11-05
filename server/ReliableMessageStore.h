@@ -26,6 +26,7 @@ public:
         Transaction& operator=(const Transaction&) = delete;
 
         // Each operation is validated by the script before any write is attempted.
+        void set(const std::string& key, const sptk::Buffer& value);
         void hashSet(const std::string& key, const std::string& field, const sptk::Buffer& value);
         void addMember(const std::string& key, const std::string& member);
         void hashDelete(const std::string& key, const std::string& field);

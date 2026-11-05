@@ -94,15 +94,11 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
         }
         else if (clientSession->server().reliableMessageStore())
         {
-            const auto redis = messageDelivery->getRedis();
-            if (!redis || !redis->isConnected())
-            {
-                throw Exception("Reliable delivery: Redis is unavailable");
-            }
+            ReliableMessageStore::Transaction transaction(*clientSession->server().reliableMessageStore());
             Buffer record;
             messageDelivery->pack(record);
-            redis->setHashValue(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
-            ReliableMessageStore::sync(*redis);
+            transaction.hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            transaction.commit();
             messageDelivery->m_persisted = true;
         }
         else if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)

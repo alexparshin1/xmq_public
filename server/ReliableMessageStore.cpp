@@ -16,8 +16,8 @@ local expectedTypes = {}
 for i = 1, #KEYS do
     local base = (i - 1) * 3
     local kind = ARGV[base + 1]
-    local expected = kind == 'SADD' and 'set' or 'hash'
-    if kind ~= 'HSET' and kind ~= 'HDEL' and kind ~= 'SADD' then
+    local expected = kind == 'SET' and 'string' or (kind == 'SADD' and 'set' or 'hash')
+    if kind ~= 'SET' and kind ~= 'HSET' and kind ~= 'HDEL' and kind ~= 'SADD' then
         return redis.error_reply('unsupported publication operation')
     end
     if expectedTypes[KEYS[i]] and expectedTypes[KEYS[i]] ~= expected then
@@ -25,7 +25,9 @@ for i = 1, #KEYS do
     end
     expectedTypes[KEYS[i]] = expected
     local allowed
-    if kind == 'SADD' or kind == 'HDEL' then
+    if kind == 'SET' then
+        allowed = redis.acl_check_cmd(kind, KEYS[i], ARGV[base + 3])
+    elseif kind == 'SADD' or kind == 'HDEL' then
         allowed = redis.acl_check_cmd(kind, KEYS[i], ARGV[base + 2])
     else
         allowed = redis.acl_check_cmd(kind, KEYS[i], ARGV[base + 2], ARGV[base + 3])
@@ -41,7 +43,9 @@ end
 for i = 1, #KEYS do
     local base = (i - 1) * 3
     local kind = ARGV[base + 1]
-    if kind == 'SADD' then
+    if kind == 'SET' then
+        redis.call('SET', KEYS[i], ARGV[base + 3])
+    elseif kind == 'SADD' then
         redis.call('SADD', KEYS[i], ARGV[base + 2])
     elseif kind == 'HSET' then
         redis.call('HSET', KEYS[i], ARGV[base + 2], ARGV[base + 3])
@@ -101,6 +105,11 @@ ReliableMessageStore::Transaction::~Transaction()
             action();
         }
     }
+}
+
+void ReliableMessageStore::Transaction::set(const string& key, const Buffer& value)
+{
+    m_operations.push_back({"SET", key, "", string(value.c_str(), value.bytes())});
 }
 
 void ReliableMessageStore::Transaction::hashSet(const string& key, const string& field, const Buffer& value)

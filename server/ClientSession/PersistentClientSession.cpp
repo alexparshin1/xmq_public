@@ -46,41 +46,43 @@ PersistentClientSession::PersistentClientSession(Server*                        
 
 void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreType)
 {
-    // Serialize snapshot + write, so a concurrent subscription update cannot write an older
-    // snapshot after a newer one. The ordinary asynchronous mode keeps its existing path.
-    unique_lock reliableLock(m_reliableSessionStoreMutex, defer_lock);
-    if (server().reliableMessageStore()) reliableLock.lock();
-    if (!m_redisConnection || m_released)
-    {
-        return;
-    }
-
-    const auto clientId = string(getClientId());
-    const auto sessionKey = "session_" + clientId;
-
-    Buffer sessionData;
-    pack(sessionData);
-
-    if (auto* store = server().reliableMessageStore())
+    if (m_released) return;
+    if (auto* store = server().reliableMessageStore(); store && !isCleanSession())
     {
         try
         {
-            m_redisConnection->setValue(sessionKey, sessionData);
+            // Raw Redis commands must never share the pool's synchronous socket: executeCommand
+            // has no internal lock. Stage metadata on the reliable store's serialized connection,
+            // together with retained deliveries when this is a SUBSCRIBE transaction.
+            unique_ptr<ReliableMessageStore::Transaction> own;
+            auto* transaction = ReliableMessageStore::Transaction::current();
+            if (!transaction)
+            {
+                own = make_unique<ReliableMessageStore::Transaction>(*store);
+                transaction = own.get();
+            }
+            Buffer data;
+            pack(data);
+            transaction->set("session_" + getClientId(), data);
+            transaction->onRollback([store] { store->invalidate(); });
             if (sessionStoreType == SessionStoreType::SessionDataAndNodeLink)
             {
-                m_redisConnection->addSetMembers("node_" + getNodeName() + "_sessions", {clientId});
+                transaction->addMember("node_" + server().getNodeName() + "_sessions", getClientId());
             }
-            ReliableMessageStore::sync(*m_redisConnection);
+            if (own) own->commit();
         }
         catch (...)
         {
-            // The in-memory subscription has changed; accepting publications until recovery
-            // could match a subscription that will be missing after a crash.
             store->invalidate();
             throw;
         }
         return;
     }
+    if (!m_redisConnection) return;
+    const auto clientId = string(getClientId());
+    const auto sessionKey = "session_" + clientId;
+    Buffer sessionData;
+    pack(sessionData);
     m_redisConnection->setValueAsync(sessionKey, sessionData,
                                      [this, clientId, sessionStoreType]
                                      {
@@ -231,9 +233,10 @@ PersistentClientSession::initSession(const string&                              
             pack(sessionData);
             if (server().reliableMessageStore())
             {
-                m_redisConnection->setValue(sessionKey, sessionData);
-                m_redisConnection->addSetMembers(nodeSessionsKey, {clientId});
-                ReliableMessageStore::sync(*m_redisConnection);
+                ReliableMessageStore::Transaction transaction(*server().reliableMessageStore());
+                transaction.set(sessionKey, sessionData);
+                transaction.addMember(nodeSessionsKey, clientId);
+                transaction.commit();
                 return sessionInitType;
             }
             m_redisConnection->setValueAsync(sessionKey, sessionData);
@@ -278,12 +281,14 @@ PersistentClientSession::initSession(const string&                              
         {
             if (server().reliableMessageStore())
             {
-                if (!oldNodeName.empty()) (void) m_redisConnection->deleteSetMembers(oldNodeSessionsKey, {clientId});
-                m_redisConnection->addSetMembers(nodeSessionsKey, {clientId});
+                // Standalone mode cannot transfer a session to another broker. Keep the old
+                // discovery set harmlessly present rather than race a command on a pool socket.
+                ReliableMessageStore::Transaction transaction(*server().reliableMessageStore());
                 Buffer sessionData;
                 pack(sessionData);
-                m_redisConnection->setValue(sessionKey, sessionData);
-                ReliableMessageStore::sync(*m_redisConnection);
+                transaction.set(sessionKey, sessionData);
+                transaction.addMember(nodeSessionsKey, clientId);
+                transaction.commit();
             }
             else
             {

@@ -856,6 +856,16 @@ void ClientSession::countDroppedPublish()
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
                                      const vector<weak_ptr<Subscription>>& sharedSubscriptions)
 {
+    if (auto* store = server().reliableMessageStore();
+        store && message->is(Message::Type::Publish) && !ReliableMessageStore::Transaction::current())
+    {
+        // Internal publications (e.g. retained replay and LWT) take the store lock before any
+        // recipient lock too, avoiding an inversion with publication commit callbacks.
+        ReliableMessageStore::Transaction transaction(*store);
+        const auto id = postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions);
+        transaction.commit();
+        return id;
+    }
     if (auto* transaction = ReliableMessageStore::Transaction::current())
     {
         const auto queue = inflightQueueUnlocked();

@@ -211,3 +211,49 @@ TEST_F(XMQ_ReliableStoreTests, ConflictingTypesWithinBatchCannotLeavePartialStat
     EXPECT_TRUE(redis->getHashKeys("reliable-before-conflict").empty());
     EXPECT_TRUE(redis->getValue("reliable-conflict").isNull());
 }
+
+TEST_F(XMQ_ReliableStoreTests, ConcurrentPersistentConnectionsAndSubscriptionsRemainRecoverable)
+{
+    constexpr int workers = 8;
+    constexpr int sessionsPerWorker = 20;
+    atomic_int failures {0};
+    vector<thread> threads;
+    for (int worker = 0; worker < workers; ++worker)
+    {
+        threads.emplace_back([&, worker]
+        {
+            for (int index = 0; index < sessionsPerWorker; ++index)
+            {
+                try
+                {
+                    const auto id = format("reliable-concurrent-{}-{}", worker, index);
+                    Semaphore subscribed;
+                    const auto client = connectClient(id);
+                    client->onAck([&](const SMessage& ack)
+                    {
+                        if (ack->is(Message::Type::SubscribeAck)) subscribed.post();
+                    });
+                    client->subscribe("reliable/concurrent/" + id);
+                    if (!subscribed.wait_for(5s)) ++failures;
+                    client->disconnect();
+                }
+                catch (const Exception& e)
+                {
+                    ++failures;
+                    ADD_FAILURE() << e.what();
+                }
+            }
+        });
+    }
+    for (auto& worker: threads) worker.join();
+    EXPECT_EQ(0, failures.load());
+    const auto redis = server()->getRedisStorage()->getRedis();
+    for (int worker = 0; worker < workers; ++worker)
+    {
+        for (int index = 0; index < sessionsPerWorker; ++index)
+        {
+            const auto id = format("reliable-concurrent-{}-{}", worker, index);
+            EXPECT_FALSE(redis->getValue("session_" + id).isNull()) << id;
+        }
+    }
+}
