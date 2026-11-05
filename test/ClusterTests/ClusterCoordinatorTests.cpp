@@ -7,6 +7,7 @@
 #include "test/ClusterTests/ClusterTests.h"
 #include "test/ClusterTests/TestCluster.h"
 #include "server/Cluster/NodeIdentity.h"
+#include "common/StorageIdentity.h"
 #include "test/TestServers.h"
 
 #include <sptk5/net/RedisCommand.h>
@@ -46,6 +47,80 @@ vector<string> memberNames(cluster::Coordinator& coordinator)
 }
 
 } // namespace
+
+TEST_F(XMQ_ClusterTests, storageIdentityPersistsAcrossConnections)
+{
+    RedisConnect first;
+    first.connect(URL(TestServers::redisUri()));
+    const auto storage = storageIdentity(first);
+    const auto clusterId = storageIdentity(first, true);
+    EXPECT_NE(storage, clusterId);
+    RedisConnect second;
+    second.connect(URL(TestServers::redisUri()));
+    EXPECT_EQ(storage, storageIdentity(second));
+    EXPECT_EQ(clusterId, storageIdentity(second, true));
+}
+
+TEST_F(XMQ_ClusterTests, storageIdentityInitializationIsAtomic)
+{
+    vector<string> ids(8);
+    vector<exception_ptr> errors(ids.size());
+    vector<thread> workers;
+    for (size_t i = 0; i < ids.size(); ++i)
+    {
+        workers.emplace_back([&, i] {
+            try
+            {
+                RedisConnect redis;
+                redis.connect(URL(TestServers::redisUri()));
+                ids[i] = storageIdentity(redis);
+            }
+            catch (...)
+            {
+                errors[i] = current_exception();
+            }
+        });
+    }
+    for (auto& worker: workers) worker.join();
+    for (const auto& error: errors) ASSERT_FALSE(error);
+    for (const auto& id: ids) EXPECT_EQ(ids.front(), id);
+}
+
+TEST_F(XMQ_ClusterTests, storageIdentityDoesNotDependOnEndpointSpelling)
+{
+    const URL original(TestServers::redisUri());
+    const auto& [host, port] = original.hostAndPort();
+    if (host != "127.0.0.1" && host != "localhost") GTEST_SKIP() << "Requires loopback Redis";
+    RedisConnect first;
+    first.connect(original);
+    RedisConnect alias;
+    alias.connect(host == "localhost" ? "127.0.0.1" : "localhost", port,
+                  original.username(), original.password(), original.path(), 1s);
+    EXPECT_EQ(storageIdentity(first), storageIdentity(alias));
+    EXPECT_EQ(storageIdentity(first, true), storageIdentity(alias, true));
+}
+
+TEST_F(XMQ_ClusterTests, replacementStorageAtSameEndpointHasDifferentIdentity)
+{
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    const auto original = storageIdentity(redis);
+    // This fixture owns an isolated test database; replacing it models a different Redis
+    // reached through an unchanged endpoint. No cached URI-derived identity may survive.
+    redis.flush();
+    EXPECT_NE(original, storageIdentity(redis));
+}
+
+TEST_F(XMQ_ClusterTests, invalidStoredIdentityIsRefused)
+{
+    RedisConnect redis;
+    redis.connect(URL(TestServers::redisUri()));
+    vector<Variant> ignored;
+    RedisCommand command("SET", "storage:id");
+    command.emplace_back("invalid");
+    redis.executeCommand(command, ignored);
+    EXPECT_THROW((void) storageIdentity(redis), Exception);
+}
 
 TEST_F(XMQ_ClusterTests, forceRemovalRequiresExpiredLeaseAndPreservesRecovery)
 {

@@ -6,11 +6,11 @@
   size limit and the target for cluster validation. Admission of an additional node must be rejected if it would exceed the limit; unreachable
   members still count until their removal is committed through an agreed membership change.
 
-- [ ] from the outside, cluster behaves as a very large broker. If there is an external load balancer in the front,
+- [x] from the outside, cluster behaves as a very large broker. If there is an external load balancer in the front,
   the illusion should be complete.
   Done: a client connects to any node and takes its session along, so which node answered it is invisible; see the
   load-balancer item below.
-  Left: `$SYS` is each node's own, and whether it should be a cluster-wide view is not decided.
+  Decision: `$SYS` is local to each node. A cluster-wide `$SYS` will not be implemented.
 
 - [x] client id is unique within the cluster. For sequential connections using the same Client ID, the later connection takes over the
   session and the previous connection is closed. If connections with the same Client ID arrive concurrently at different nodes,
@@ -30,10 +30,9 @@
   to the cluster and remains unchanged on coordinator succession. Access to that storage is required for client service;
   a node must not fall back to an independent Redis instance.
   Done: a node whose `persistence.redis_uri` differs is refused and one without it does not start on a cluster; a node
-  that cannot reach the storage goes cluster-offline. Left: the URIs are compared as strings, which is wrong in both
-  directions - the same storage reached at another endpoint (a failover, a proxy, a DNS name) is refused as another
-  storage, and two different storages behind the same address (`redis://127.0.0.1:6379` on every node) are accepted.
-  The comparison is to be made on what the storage itself holds, its `storage:id`; see *What lives where*.
+  that cannot reach the storage goes cluster-offline. Attach and remote join compare the persistent
+  `storage:id` and `cluster:id` held in Redis, not endpoint strings. Different endpoints for the same
+  logical database are accepted; the same URI reaching different databases is refused.
 
 - [x] all cluster nodes share one accounts database at the same PostgreSQL or MySQL endpoint. A node whose
   `authentication.database_uri` differs is refused at attach, because its users would be unknown to the rest
@@ -562,9 +561,14 @@ In this order - each step leaves the system working:
   Done: `Storage::setSessionNamespace()` prefixes every session key with the node's GUID; it is set when a node
   starts standalone on a Redis that holds a cluster (`Cluster::start()`), when it leaves the cluster
   (`ControlService` `disable`), and when it starts again after leaving. `aNodeThatLeavesCanRestartStandaloneWithoutRejoining`.
-- [ ] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.
+- [x] Add `cluster:id`, created with the cluster, and `storage:id`, written into Redis when XMQ initializes it.
   Compare a joining node's storage and cluster by those ids instead of by the URI, and keep the resolved address only
   for the error message.
+  IDs are random GUIDs initialized atomically on first use, including existing databases on upgrade.
+  They have no TTL and survive node restarts and node-local clean start. Attach/join requests without
+  matching IDs are refused; all nodes must be upgraded before reconnecting cluster links.
+  A byte-for-byte Redis clone also copies the IDs: operators must not use such a clone as independent
+  storage for another part of the same cluster.
 - [ ] Implement the state machine behind the screen: `Standalone`, `Joining` and `Failed` stored, and the
   computed `Clustered`/`Offline` from Redis. One row per node, written by the node itself on its first start.
   Done: `Standalone`, `Joining` and `Failed` are stored and shown; `Clustered`/`Offline` are computed from Redis

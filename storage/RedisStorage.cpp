@@ -13,6 +13,7 @@
 
 #include "RedisStorage.h"
 #include "common/RedisCredentials.h"
+#include "common/StorageIdentity.h"
 
 #include "MessageDeliveryPacker.h"
 #include "RedisConnection.h"
@@ -46,6 +47,8 @@ void RedisStorage::connect() const
     {
         clear();
     }
+    auto redis = makeConnection();
+    (void) storageIdentity(*redis);
 }
 
 bool RedisStorage::waitForWrites(const chrono::milliseconds timeout) const

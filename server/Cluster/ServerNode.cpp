@@ -17,6 +17,8 @@
 #include "server/Settings/Settings.h"
 #include "server/Settings/ClusterStore.h"
 #include "common/ClusterLinks.h"
+#include "common/RedisCredentials.h"
+#include "common/StorageIdentity.h"
 #include "common/mqtt/PublishMessage.h"
 
 using namespace std;
@@ -189,7 +191,12 @@ void ServerNode::sendAttachNodeRequest()
     // - out of the rejoin thread, std::terminate, a node that is gone. The copies of the settings
     // are the ones the request is built from.
     const auto cluster = m_server->getCluster();
-    publish(Command::AttachNodeRequest, cluster ? cluster->getClusterSettings() : clusterSettings);
+    auto request = cluster ? cluster->getClusterSettings() : clusterSettings;
+    RedisConnect redis;
+    redis.connect(redisConnectionUrl(m_server->getSettings()->m_persistence.m_redis_uri.asString()));
+    request.m_storage_id = storageIdentity(redis);
+    request.m_cluster_id = storageIdentity(redis, true);
+    publish(Command::AttachNodeRequest, request);
 }
 
 void ServerNode::sendDetachNodeRequest()

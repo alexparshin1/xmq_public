@@ -13,6 +13,7 @@
 
 #include "Coordinator.h"
 #include "NodeIdentity.h"
+#include "common/StorageIdentity.h"
 
 #include <sptk5/net/RedisCommand.h>
 
@@ -322,6 +323,9 @@ void Coordinator::start()
         {
             return;
         }
+        connectRedis();
+        (void) xmq::storageIdentity(m_redis);
+        (void) xmq::storageIdentity(m_redis, true);
 
         // A node that crashed and was started again finds the lease of its previous run, which
         // serves nothing but holds the lease until it expires. Any longer, and another process has

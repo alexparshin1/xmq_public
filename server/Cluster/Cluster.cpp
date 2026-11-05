@@ -16,6 +16,7 @@
 #include "NodeIdentity.h"
 #include "storage/RedisConnection.h"
 #include "common/RedisCredentials.h"
+#include "common/StorageIdentity.h"
 #include "server/Settings/UriSecret.h"
 #include "server/Settings/ClusterStore.h"
 #include "server/OSService.h"
@@ -1042,9 +1043,12 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
     }
     auto attachNodeRequest = deserializeMessage<CCluster>(message);
 
-    if (attachNodeRequest.m_redis_uri.asString() != m_settings->m_persistence.m_redis_uri.asString())
+    RedisConnect identityRedis;
+    identityRedis.connect(redisConnectionUrl(m_settings->m_persistence.m_redis_uri.asString()));
+    if (attachNodeRequest.m_storage_id.asString() != storageIdentity(identityRedis) ||
+        attachNodeRequest.m_cluster_id.asString() != storageIdentity(identityRedis, true))
     {
-        throw Exception("Cluster nodes must use the same database.");
+        throw Exception("Cluster nodes must use the same Redis storage and cluster identity.");
     }
 
     if (!attachNodeRequest.m_database_uri.isNull() && attachNodeRequest.m_database_uri.asString() != m_settings->m_authentication.m_database_uri.asString())
@@ -1817,7 +1821,7 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
                 throw Exception("This node must have a Standalone configuration before joining.");
             }
             if (!leader || !leader->m_clusterEnabled || leader->m_state == "Removed" ||
-                leader->m_state == "Retired" || redisUri.empty() || leader->m_redisUri != redisUri)
+                leader->m_state == "Retired" || redisUri.empty())
             {
                 throw Exception("The requested cluster does not match an enabled node in this shared database.");
             }
@@ -1826,6 +1830,11 @@ void Cluster::acceptSharedJoin(const shared_ptr<PublishMessage>& message)
             const auto url = redisConnectionUrl(redisUri);
             const auto& [host, port] = url.hostAndPort();
             redis.connect(host, port, url.username(), url.password(), url.path(), chrono::milliseconds(1000));
+            if (root->getString("storage_id") != storageIdentity(redis) ||
+                root->getString("cluster_id") != storageIdentity(redis, true))
+            {
+                throw Exception("The requested Redis storage or cluster identity does not match.");
+            }
             const auto snapshot = Coordinator::readSnapshot(redis);
             if (ranges::none_of(snapshot.m_members, [&](const auto& member) { return member.m_nodeId == leader->m_nodeId && member.m_alive; }))
             {
@@ -2004,6 +2013,13 @@ Cluster::NodeActionResult Cluster::sendNodeAction(const String& hostPort, const 
         request.root()->set("leader_id", leaderNodeId.empty() ? String(m_nodeId) : leaderNodeId);
         request.root()->set("xmq_version", Server::getVersion());
         request.root()->set("redis_uri", m_settings->m_persistence.m_redis_uri.asString());
+        if (nodeAction == "join")
+        {
+            RedisConnect redis;
+            redis.connect(redisConnectionUrl(m_settings->m_persistence.m_redis_uri.asString()));
+            request.root()->set("storage_id", storageIdentity(redis));
+            request.root()->set("cluster_id", storageIdentity(redis, true));
+        }
         request.root()->set("database_uri", m_settings->userDatabaseUri());
         Buffer payload;
         request.exportTo(xdoc::DataFormat::JSON, payload, false);
