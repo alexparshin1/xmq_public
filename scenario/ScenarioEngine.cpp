@@ -590,6 +590,7 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
     // from that same shared queue.
     const auto scenarioType = typeFromString(m_scenario.m_type);
 
+    auto nextSubscription = steady_clock::now();
     for (size_t clientIndex = 0; clientIndex < subscriberCount; clientIndex++)
     {
         const auto latencyIndex = scenarioType == Type::FanIn ? 0 : clientIndex;
@@ -650,6 +651,11 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
         const auto* topic = substituteTopic(subscriberTopicTemplate, indexStart(m_scenario.m_subscribers) + clientIndex, subscriber->getClientId());
 
         Destination destination(topic, SubscriptionOptions(Qos::Qos1));
+        if (m_subscriptionRate > 0)
+        {
+            this_thread::sleep_until(nextSubscription);
+            nextSubscription += microseconds(1000000 / m_subscriptionRate);
+        }
         subscriber->subscribe(destination);
 
         // What a subscriber must take with it when its node goes away and it comes back on another
@@ -672,7 +678,7 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
 
     // Wait until every subscription is acknowledged before returning, so the subsequent publish()
     // cannot outrun subscription registration.
-    if (!allSubscribed->wait_for(seconds(30)))
+    if (!allSubscribed->wait_for(m_subscriptionTimeout))
     {
         throw Exception(format("Only {} of {} subscriptions were acknowledged within the timeout",
                                subscribedCount->load(), subscriberCount));
@@ -1179,6 +1185,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             m_paceMaker->resetReBases();
         }
         stopwatch.start();
+        COUT("MEASUREMENT-START duration_seconds=" << durationSeconds);
     };
 
     auto warmupDeadline = m_warmup > seconds(0) ? std::optional {steady_clock::now() + m_warmup} : std::nullopt;

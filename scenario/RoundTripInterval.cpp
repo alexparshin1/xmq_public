@@ -315,6 +315,11 @@ void RoundTripLatency::print(const string& scenarioTitle) const
             auto       intervalAverageLatency = intervalData.m_summaryLatency / intervalData.m_count;
             COUT(format("{:<10} {:>10d} {:>10} {:>12}", duration_cast<milliseconds>(interval), intervalData.m_count, intervalAverageLatency, rate));
             intervalAverageLatencies.emplace_back(intervalAverageLatency);
+            COUT(format("INTERVAL-PERCENTILES time_ms={} p50_us={} p95_us={} p99_us={}",
+                        duration_cast<milliseconds>(interval).count(),
+                        percentileOf(intervalData.m_histogram, 50).count(),
+                        percentileOf(intervalData.m_histogram, 95).count(),
+                        percentileOf(intervalData.m_histogram, 99).count()));
         }
     }
 #ifdef _WIN32

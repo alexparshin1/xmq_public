@@ -160,6 +160,9 @@ public:
         m_connectIntervals = count > 0 ? count : 1;
     }
 
+    void subscriptionRate(size_t value) { m_subscriptionRate = value; }
+    void subscriptionTimeout(std::chrono::seconds value) { m_subscriptionTimeout = value; }
+
     void reportInterval(const std::chrono::microseconds interval)
     {
         m_reportInterval = interval;
@@ -191,6 +194,8 @@ public:
     static std::string typeToString(Type type);
 
 private:
+    std::chrono::seconds m_subscriptionTimeout {30};
+    size_t m_subscriptionRate {0};
     CTestScenario                    m_scenario;
     sptk::Strings                    m_bindAddresses;
     std::string                      m_topicNamespace;

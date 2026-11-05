@@ -65,6 +65,10 @@ ScenarioCommandLine::ScenarioCommandLine(const std::vector<std::string>& args)
                     "library's own default (32768, effectively unbounded for typical publish rates). "
                     "Lower this to have each publisher throttle against its own ack round-trip time "
                     "instead of sending at publish-rate regardless of whether the broker keeps up.");
+    defineParameter("subscribe-rate", "", "per second", R"(^\d+$)", alwaysVisible, "0",
+                    "Pace subscription setup only; 0 keeps the existing unpaced setup.");
+    defineParameter("subscribe-timeout", "", "seconds", R"(^\d+$)", alwaysVisible, "30",
+                    "Wait for SUBACKs during setup; does not change the publication measurement.");
     defineParameter("connect-intervals", "", "number", R"(^\d+$)", alwaysVisible, "10",
                     "How many rows the connect phase reports, default 10. The publish phase takes a "
                     "width instead (--result-interval); the connect phase cannot, because it ends "
