@@ -12,6 +12,16 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.19.
 
+### Added
+
+- **Experimental acknowledgement after durable storage for standalone brokers.** Set
+  `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and
+  `max_queued_writes=0`. Persistent deliveries, retained updates/clearings and incoming QoS 2
+  receive state commit together, and successful publish acknowledgements wait for local AOF
+  fsync through Redis `WAITAOF`. Redis 7.2+ with AOF is required. Storage errors withhold success;
+  an ambiguous commit requires restart and recovery. Cluster membership and bridges are rejected
+  in this mode. See [the contract and tests](doc/ReliableMessageStore.md) for its boundaries.
+
 ## 1.1.0 — 2026-11-05
 
 Requires SPTK 5.6.18.

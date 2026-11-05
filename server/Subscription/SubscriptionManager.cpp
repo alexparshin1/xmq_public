@@ -15,6 +15,7 @@
 #include "SubscriptionManager.h"
 #include "ClientSession.h"
 #include "Server.h"
+#include "ReliableMessageStore.h"
 #include "base/MessageProperties.h"
 #include "common/mqtt/PublishMessage.h"
 #include "server/Cluster/Cluster.h"
@@ -144,6 +145,25 @@ bool SubscriptionManager::matchMessage(const std::shared_ptr<PublishMessage>& me
             // $SYS is each node's own and regenerated continuously: neither shared nor persisted -
             // that would be a write per counter update, forever, of values stale once read.
             (void) m_retainedMessages.set(topicName, msg.payload(), msg.getQos());
+        }
+        else if (auto* transaction = ReliableMessageStore::Transaction::current())
+        {
+            const auto key = RetainedMessages::storageKey(m_server->getNodeName());
+            const string payload(msg.payload());
+            const auto qos = msg.getQos();
+            if (payload.empty())
+            {
+                transaction->hashDelete(key, topicName);
+            }
+            else
+            {
+                transaction->hashSet(key, topicName, RetainedMessages::packRecord({payload, qos, 0}));
+            }
+            transaction->onCommit([this, topicName, payload, qos, domain]
+            {
+                const auto change = m_retainedMessages.set(topicName, payload, qos);
+                if (domain == MessageDomain::Client) countRetainedChange(change);
+            });
         }
         else if (retainedSync != nullptr)
         {

@@ -15,6 +15,7 @@
 #include "MessageDelivery.h"
 #include "ClientSession/ClientSession.h"
 #include "Server.h"
+#include "ReliableMessageStore.h"
 #include "common/mqtt/PublishMessage.h"
 
 #include <chrono>
@@ -84,7 +85,27 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
     auto messageDelivery = make_shared<MessageDelivery>(clientSession, message, qos, deliveryId, subscriptionIds, setRetainFlag);
     if (qos != Qos::Qos0 && !clientSession->isCleanSession() && messageDeliveryRecordId == 0)
     {
-        if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)
+        if (auto* transaction = ReliableMessageStore::Transaction::current())
+        {
+            Buffer record;
+            messageDelivery->pack(record);
+            transaction->hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            transaction->onCommit([messageDelivery] { messageDelivery->m_persisted = true; });
+        }
+        else if (clientSession->server().reliableMessageStore())
+        {
+            const auto redis = messageDelivery->getRedis();
+            if (!redis || !redis->isConnected())
+            {
+                throw Exception("Reliable delivery: Redis is unavailable");
+            }
+            Buffer record;
+            messageDelivery->pack(record);
+            redis->setHashValue(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            ReliableMessageStore::sync(*redis);
+            messageDelivery->m_persisted = true;
+        }
+        else if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)
         {
             // Fully durable: the record is in Redis before the message goes anywhere. Costs a
             // full round-trip per message, and since the thread is parked for it, the writes

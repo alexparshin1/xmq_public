@@ -118,6 +118,12 @@ MessageId MessageQueue::queueMessage(const SMessageDispatch& messageDispatch)
     return queueMessageUnlocked(messageDispatch);
 }
 
+MessageId MessageQueue::queueCommittedMessage(const SMessageDispatch& messageDispatch)
+{
+    const scoped_lock lock(m_mutex);
+    return queueMessageUnlocked(messageDispatch, false);
+}
+
 MessageId MessageQueue::restoreMessage(SMessageDispatch& messageDispatch)
 {
     const scoped_lock lock(m_mutex);

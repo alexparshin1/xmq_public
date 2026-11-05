@@ -43,6 +43,7 @@
 namespace xmq {
 
 class RedisStorage;
+class ReliableMessageStore;
 
 class Bridge;
 
@@ -371,6 +372,8 @@ public:
      * @brief Get persistent storage.
      * @return Persistent storage.
      */
+    [[nodiscard]] ReliableMessageStore* reliableMessageStore() const { return m_reliableMessageStore.get(); }
+
     SStorage getStorage() const
     {
         return m_storage;
@@ -467,6 +470,7 @@ private:
 
     SStorage                          m_storage;                                                 ///< Optionally persistent storage.
     std::shared_ptr<RedisStorage>     m_redisStorage;                                            ///< Redis storage.
+    std::unique_ptr<ReliableMessageStore> m_reliableMessageStore;
     SSubscriptionManager              m_subscriptionManager;                                     ///< Subscription manager.
     ClientSessionThreadManager        m_clientSessionThreads;                                    ///< Message session threads.
     MessageDeliveryThreads            m_messageDeliveryThreads;                                  ///< Message delivery threads.

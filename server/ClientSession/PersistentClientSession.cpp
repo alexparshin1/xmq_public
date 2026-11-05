@@ -12,6 +12,7 @@
 */
 
 #include "PersistentClientSession.h"
+#include "server/ReliableMessageStore.h"
 #include "ClientSession.h"
 #include "Server.h"
 #include "storage/MessageDeliveryPacker.h"
@@ -45,6 +46,10 @@ PersistentClientSession::PersistentClientSession(Server*                        
 
 void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreType)
 {
+    // Serialize snapshot + write, so a concurrent subscription update cannot write an older
+    // snapshot after a newer one. The ordinary asynchronous mode keeps its existing path.
+    unique_lock reliableLock(m_reliableSessionStoreMutex, defer_lock);
+    if (server().reliableMessageStore()) reliableLock.lock();
     if (!m_redisConnection || m_released)
     {
         return;
@@ -56,6 +61,26 @@ void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreTyp
     Buffer sessionData;
     pack(sessionData);
 
+    if (auto* store = server().reliableMessageStore())
+    {
+        try
+        {
+            m_redisConnection->setValue(sessionKey, sessionData);
+            if (sessionStoreType == SessionStoreType::SessionDataAndNodeLink)
+            {
+                m_redisConnection->addSetMembers("node_" + getNodeName() + "_sessions", {clientId});
+            }
+            ReliableMessageStore::sync(*m_redisConnection);
+        }
+        catch (...)
+        {
+            // The in-memory subscription has changed; accepting publications until recovery
+            // could match a subscription that will be missing after a crash.
+            store->invalidate();
+            throw;
+        }
+        return;
+    }
     m_redisConnection->setValueAsync(sessionKey, sessionData,
                                      [this, clientId, sessionStoreType]
                                      {
@@ -204,6 +229,13 @@ PersistentClientSession::initSession(const string&                              
             // stored a millisecond later still lands after the session record it belongs to.
             Buffer sessionData;
             pack(sessionData);
+            if (server().reliableMessageStore())
+            {
+                m_redisConnection->setValue(sessionKey, sessionData);
+                m_redisConnection->addSetMembers(nodeSessionsKey, {clientId});
+                ReliableMessageStore::sync(*m_redisConnection);
+                return sessionInitType;
+            }
             m_redisConnection->setValueAsync(sessionKey, sessionData);
             m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
                                                   {
@@ -244,23 +276,36 @@ PersistentClientSession::initSession(const string&                              
         // and the client's answer depends on none of them.
         if (oldNodeName != serverNodeName)
         {
-            if (!oldNodeName.empty())
+            if (server().reliableMessageStore())
             {
-                m_redisConnection->deleteSetMembersAsync(oldNodeSessionsKey, {clientId}, [](size_t)
-                                                         {
-                                                         });
+                if (!oldNodeName.empty()) (void) m_redisConnection->deleteSetMembers(oldNodeSessionsKey, {clientId});
+                m_redisConnection->addSetMembers(nodeSessionsKey, {clientId});
+                Buffer sessionData;
+                pack(sessionData);
+                m_redisConnection->setValue(sessionKey, sessionData);
+                ReliableMessageStore::sync(*m_redisConnection);
             }
-            m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
-                                                  {
-                                                  });
+            else
+            {
+                if (!oldNodeName.empty())
+                {
+                    m_redisConnection->deleteSetMembersAsync(oldNodeSessionsKey, {clientId}, [](size_t)
+                                                             {
+                                                             });
+                }
+                m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
+                                                      {
+                                                      });
 
-            Buffer sessionData;
-            pack(sessionData);
-            m_redisConnection->setValueAsync(sessionKey, sessionData);
+                Buffer sessionData;
+                pack(sessionData);
+                m_redisConnection->setValueAsync(sessionKey, sessionData);
+            }
         }
     }
     catch (const RedisConnectException& e)
     {
+        if (server().reliableMessageStore()) throw;
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
     }
 
@@ -464,6 +509,7 @@ bool PersistentClientSession::initSession(const string& clientId, const bool cle
     }
     catch (const Exception& exception)
     {
+        if (server().reliableMessageStore()) throw;
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error, [message = exception.what()]
                             {
                                 return format("PersistentClientSession::getPersistentData: {}", message);

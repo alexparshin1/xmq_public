@@ -13,6 +13,7 @@
 */
 
 #include "Server.h"
+#include "ReliableMessageStore.h"
 #include "common/RedisCredentials.h"
 #include "Settings/UriSecret.h"
 
@@ -105,6 +106,12 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
 
 SStorage Server::initializeStorage(const Settings& settings, const std::optional<bool>& cleanStart)
 {
+    if (settings.m_persistence.m_ack_after_store.asBool() &&
+        (!settings.m_persistence.m_enabled.asBool() || cleanStartFor(settings, cleanStart) ||
+         settings.m_persistence.m_max_queued_writes.asInteger() != 0))
+    {
+        throw Exception("ack_after_store requires persistence.enabled=true, clean_start=false and max_queued_writes=0");
+    }
     SStorage   storage;
     const auto redisConnectString = settings.m_persistence.m_redis_uri.asString();
     if (const auto storageEnabled = settings.m_persistence.m_enabled.asBool() && !redisConnectString.empty();
@@ -122,6 +129,10 @@ SStorage Server::initializeStorage(const Settings& settings, const std::optional
         }
     }
 
+    if (settings.m_persistence.m_ack_after_store.asBool())
+    {
+        throw Exception("ack_after_store cannot fall back to memory storage");
+    }
     storage = Storage::create(this, "", false);
 
     return storage;
@@ -151,6 +162,25 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     if (const auto clusterError = settings->clusterConfigurationError(); !clusterError.empty())
     {
         throw Exception(clusterError);
+    }
+
+    if (settings->m_persistence.m_ack_after_store.asBool())
+    {
+        if (!settings->m_persistence.m_enabled.asBool() || !m_storage->isPersistent() || !m_redisStorage)
+        {
+            throw Exception("ack_after_store requires available persistent Redis storage");
+        }
+        if (cleanStartFor(*settings, cleanStart) || settings->m_persistence.m_max_queued_writes.asInteger() != 0)
+        {
+            throw Exception("ack_after_store requires clean_start=false and max_queued_writes=0");
+        }
+        if (settings->m_cluster.m_enabled.asBool() ||
+            any_of(settings->m_bridges.begin(), settings->m_bridges.end(),
+                   [](const auto& bridge) { return bridge.m_enabled.asBool(); }))
+        {
+            throw Exception("ack_after_store currently supports standalone without bridges only");
+        }
+        m_reliableMessageStore = make_unique<ReliableMessageStore>(URL(settings->m_persistence.m_redis_uri.asString()));
     }
 
     // The statistics object has no way to reach the thread pools, so the broker hands it the
@@ -377,6 +407,10 @@ void Server::startBridges()
             continue;
         }
 
+        if (reliableMessageStore())
+        {
+            throw Exception("ack_after_store does not support bridges");
+        }
         // "cluster" entries are handled by the cluster, not here. Every other configured mode is
         // started, "out" included: an outbound-only bridge subscribes locally and forwards, which
         // Bridge::subscribeOutboundTopics() implements. Leaving it out of this list made such a

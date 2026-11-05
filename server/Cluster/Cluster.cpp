@@ -314,6 +314,10 @@ DateTime Cluster::getClusterTime() const
 
 void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
 {
+    if (m_server->reliableMessageStore())
+    {
+        throw Exception("ack_after_store does not support cluster membership");
+    }
     if (!m_settings->m_cluster.m_enabled.isNull() && !m_settings->m_cluster.m_enabled.asBool())
     {
         throw Exception("Use Join cluster before attaching this node to the cluster.");

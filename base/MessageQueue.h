@@ -91,6 +91,8 @@ public:
     MessageId nextDeliveryId();
 
     MessageId queueMessage(const SMessageDispatch& messageDispatch);
+    // Already accepted by the durable publication transaction; never discard on a limit race.
+    MessageId queueCommittedMessage(const SMessageDispatch& messageDispatch);
     MessageId restoreMessage(SMessageDispatch& messageDispatch);
     void      receiveAck(MessageId messageId, Message::Type ackType);
     void      sendWaitingMessages(const ForwardMessage& forwardMessage);

@@ -77,6 +77,7 @@ public:
         // The rest of persistence. The storage URI is m_redisUri; these are the switches and the
         // pool sizes beside it.
         std::optional<bool> m_persistEnabled;
+        std::optional<bool> m_persistAckAfterStore;
         std::optional<bool> m_persistCleanStart;
         std::optional<int>  m_persistMaxRedisConnections;
         std::optional<int>  m_persistMaxQueuedWrites;

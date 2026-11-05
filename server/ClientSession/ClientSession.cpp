@@ -13,6 +13,7 @@
 */
 
 #include "ClientSession.h"
+#include "server/ReliableMessageStore.h"
 #include "Server.h"
 #include "base/LatencyTrace.h"
 #include "base/ProtocolException.h"
@@ -855,6 +856,29 @@ void ClientSession::countDroppedPublish()
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
                                      const vector<weak_ptr<Subscription>>& sharedSubscriptions)
 {
+    if (auto* transaction = ReliableMessageStore::Transaction::current())
+    {
+        const auto queue = inflightQueueUnlocked();
+        if (!queue || (qos != Qos::Qos0 && !queue->canAccept(publishedBytes(message))))
+        {
+            throw ProtocolException(getProtocolVersion(), ReasonCode::QuotaExceeded, "Reliable publication: recipient queue is full");
+        }
+        if (!isCleanSession() && qos != Qos::Qos0)
+        {
+            transaction->addMember("node_" + server().getNodeName() + "_sessions", getClientId());
+        }
+        const auto id = qos == Qos::Qos0 ? 0 : queue->nextDeliveryId();
+        const auto delivery = MessageDelivery::create(shared(), message, qos, id, subscriptionIds, retain);
+        delivery->setSharedSubscriptions(sharedSubscriptions);
+        transaction->onCommit([self = shared(), queue, delivery, isPublish = message->is(Message::Type::Publish)]
+        {
+            const unique_lock lock(self->m_mutex);
+            queue->queueCommittedMessage(delivery);
+            if (isPublish) self->incrementPublishScheduledCount();
+        });
+        return id;
+    }
+
     // Let go to another node while this was on its way: the session's queue is that node's now, and
     // a delivery put in it would be lost. The message goes after the session, by name.
     if (isReleased() && divertReleased(message))
@@ -1321,7 +1345,18 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
             break;
 
         case Subscribe:
-            handleSubscribeMessage(msg);
+            if (auto* store = server().reliableMessageStore())
+            {
+                // A publication must not match a new persistent subscription until its metadata
+                // is recoverable. The same lock serializes subscription installation and publish.
+                ReliableMessageStore::Transaction transaction(*store);
+                handleSubscribeMessage(msg);
+                transaction.commit();
+            }
+            else
+            {
+                handleSubscribeMessage(msg);
+            }
             break;
 
         case Unsubscribe:
@@ -1341,7 +1376,21 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                 const auto rc = Server::grantPublish(shared(), publishMessage->destination(), &refusal);
                 if (rc == ReasonCode::Success)
                 {
-                    handlePublishMessage(sharedMessage);
+                    if (auto* store = server().reliableMessageStore(); store && !publishMessage->destination()->isSystem())
+                    {
+                        if (!server().deliversOnReceiveThread())
+                        {
+                            throw ProtocolException(getProtocolVersion(), ReasonCode::ServerUnavailable,
+                                                    "Reliable publication requires standalone without bridges");
+                        }
+                        ReliableMessageStore::Transaction transaction(*store);
+                        handlePublishMessage(sharedMessage);
+                        transaction.commit();
+                    }
+                    else
+                    {
+                        handlePublishMessage(sharedMessage);
+                    }
                 }
                 else
                 {
@@ -1498,35 +1547,46 @@ void ClientSession::handlePublishMessage(const SMessage& message)
                             });
     }
 
-    if (server().extensions().watching())
-    {
-        // Raised where the broker accepted the message, before delivery: an observer is watching
-        // what clients did, not what subscribers received. The payload is not passed on - copying
-        // every message body through the queue would make observation cost more than delivery.
-        server().extensions().publishEvent(XMQ_EVENT_PUBLISHED, getClientId(), getUsername(),
-                                           publishMessage->destination()->fullName(),
-                                           publishMessage->payload().size(),
-                                           static_cast<uint8_t>(publishMessage->getQos()),
-                                           publishMessage->isRetain());
-    }
-
-    if (server().extensions().tapping())
-    {
-        // Only the taps that asked for this topic pay for the body; the broker copies it no
-        // further than the extensions that have a matching filter.
-        server().extensions().publishMessage(getClientId(), getUsername(),
-                                             publishMessage->destination()->fullName(),
-                                             reinterpret_cast<const char*>(publishMessage->payloadData()),
-                                             publishMessage->payloadSize(),
-                                             static_cast<uint8_t>(publishMessage->getQos()),
-                                             publishMessage->isRetain());
-    }
-
     if (publishMessage->getQos() == Qos::Qos2 && !beginQos2Receive(publishMessage->getId()))
     {
         // A repeat of a PUBLISH already delivered and still awaiting PUBREL. Delivering again would
         // break exactly-once, so only the PUBREC the caller sends is owed here.
         return;
+    }
+
+    const auto notifyExtensions = [this, publishMessage]
+    {
+        if (server().extensions().watching())
+        {
+            // Raised where the broker accepted the message, before delivery: an observer is watching
+            // what clients did, not what subscribers received. The payload is not passed on - copying
+            // every message body through the queue would make observation cost more than delivery.
+            server().extensions().publishEvent(XMQ_EVENT_PUBLISHED, getClientId(), getUsername(),
+                                               publishMessage->destination()->fullName(),
+                                               publishMessage->payload().size(),
+                                               static_cast<uint8_t>(publishMessage->getQos()),
+                                               publishMessage->isRetain());
+        }
+
+        if (server().extensions().tapping())
+        {
+            // Only the taps that asked for this topic pay for the body; the broker copies it no
+            // further than the extensions that have a matching filter.
+            server().extensions().publishMessage(getClientId(), getUsername(),
+                                                 publishMessage->destination()->fullName(),
+                                                 reinterpret_cast<const char*>(publishMessage->payloadData()),
+                                                 publishMessage->payloadSize(),
+                                                 static_cast<uint8_t>(publishMessage->getQos()),
+                                                 publishMessage->isRetain());
+        }
+    };
+    if (auto* transaction = ReliableMessageStore::Transaction::current())
+    {
+        transaction->onCommit(notifyExtensions);
+    }
+    else
+    {
+        notifyExtensions();
     }
 
     if (publishMessage->destination()->fullName() == "cluster/hello" && getUsername() == "cluster")
@@ -1651,11 +1711,25 @@ bool ClientSession::beginQos2Receive(const MessageId& messageId)
         }
     }
 
-    // Persisted outside the lock, and only after the in-memory insert has won: the record exists
-    // so that a node taking this session over can still tell a repeated PUBLISH from a new one.
-    // It is written after delivery rather than before, deliberately - an id recorded for a message
-    // that was never delivered would suppress the client's retry and lose the publish.
-    if (const auto redis = getRedisConnection())
+    // In reliable mode the ID and all delivery records commit atomically. On an aborted
+    // transaction the in-memory ID is removed too, so a retry is not mistaken for delivery.
+    // The legacy path keeps its asynchronous ID write for session takeover.
+    if (auto* transaction = ReliableMessageStore::Transaction::current())
+    {
+        Buffer value;
+        value.append('1');
+        if (!isCleanSession())
+        {
+            transaction->addMember("node_" + server().getNodeName() + "_sessions", getClientId());
+            transaction->hashSet(qos2ReceiveKey(), to_string(messageId), value);
+        }
+        transaction->onRollback([self = shared(), messageId]
+        {
+            const unique_lock lock(self->m_mutex);
+            self->m_unreleasedQos2Ids.erase(messageId);
+        });
+    }
+    else if (const auto redis = getRedisConnection())
     {
         redis->setHashValueAsync(qos2ReceiveKey(), to_string(messageId), 1);
     }
@@ -1697,7 +1771,18 @@ void ClientSession::handlePublishReleaseMessage(const Message* message)
     // PUBCOMP is owed for every PUBREL, including packet ids this node has no record of. After a
     // session moves between nodes the new owner may never have seen the PUBLISH that opened the
     // handshake; withholding PUBCOMP would stall the client on an id it can never retire.
-    endQos2Receive(message->getId());
+    if (auto* store = server().reliableMessageStore())
+    {
+        ReliableMessageStore::Transaction transaction(*store);
+        transaction.hashDelete(qos2ReceiveKey(), to_string(message->getId()));
+        transaction.commit();
+        const unique_lock lock(m_mutex);
+        m_unreleasedQos2Ids.erase(message->getId());
+    }
+    else
+    {
+        endQos2Receive(message->getId());
+    }
     autoAck(message);
 }
 

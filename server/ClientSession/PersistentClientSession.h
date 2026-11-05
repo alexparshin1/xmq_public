@@ -60,6 +60,7 @@ public:
      * @param sessionStoreType
      */
     void redisStoreSession(SessionStoreType sessionStoreType);
+    std::mutex m_reliableSessionStoreMutex;
 
     /**
      * @brief Remove session from Redis.

@@ -91,6 +91,7 @@ public:
      * @return What changed. Anything but None has to be written to the node's storage.
      */
     Change set(std::string_view topicName, std::string_view payload, Qos qos);
+    static sptk::Buffer packRecord(const Record& record) { return pack(record); }
 
     /**
      * @brief A node in a cluster: take a change published here, before the storage has committed it.
