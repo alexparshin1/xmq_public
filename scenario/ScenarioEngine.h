@@ -12,6 +12,7 @@
 */
 
 #pragma once
+#include "ConnectProgress.h"
 
 #include <set>
 
@@ -234,7 +235,7 @@ private:
     [[nodiscard]] const CHost&       groupServer(const CTestClientGroup& group) const;
 
     void                             probeConnection(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
-    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, std::atomic_size_t& connectedCount, sptk::Semaphore& allConnected, RoundTripLatency& roundTripLatency, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys, const std::shared_ptr<std::atomic_bool>& counted) const;
+    client::SMqttClient              connectClientAsync(const sptk::Host& serverHost, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, size_t clientIndex, size_t clientCount, const std::shared_ptr<ConnectProgress>& progress, const ConnectCredentials& connectCredentials, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys, const std::shared_ptr<std::atomic_bool>& counted) const;
     std::vector<client::SMqttClient> connectClientGroup(const sptk::Host& serverHost, const ConnectCredentials& serverCredentials, const client::ConnectParameters& connectParameters, ProtocolVersion protocolVersion, const CTestClientGroup& group, size_t clientCount, const std::string& clientIdPrefix, const std::string& scenarioTitle, std::string_view progressLabel, const SMessageProperties& connectProperties, const std::shared_ptr<sptk::SSLKeys>& sslKeys) const;
 
     /**

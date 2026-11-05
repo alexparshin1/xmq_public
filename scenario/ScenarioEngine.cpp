@@ -251,8 +251,8 @@ void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCreden
 
 client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, const client::ConnectParameters& connectParameters,
                                                        const ProtocolVersion protocolVersion,
-                                                       const size_t clientIndex, const size_t clientCount, atomic_size_t& connectedCount,
-                                                       Semaphore& allConnected, RoundTripLatency& roundTripLatency,
+                                                       const size_t clientIndex, const size_t clientCount,
+                                                       const shared_ptr<ConnectProgress>& progress,
                                                        const ConnectCredentials& connectCredentials,
                                                        const SMessageProperties& connectProperties,
                                                        const shared_ptr<SSLKeys>& sslKeys,
@@ -265,27 +265,11 @@ client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, c
     }
 
     auto client = make_shared<client::MqttClient>(m_logEngine, "", bindAddress);
-    roundTripLatency.sent();
-    // Once: the counters and the latency live in the caller's frame, which is gone by the time a
-    // later CONNACK arrives - a client the broker disconnected (a cluster node handing the session
-    // to another) connects again through the same callback, and crashed the run in the publish phase.
+    progress->latency.sent();
+    // Own the completion state, rather than capturing the caller's stack. Timeout cleanup and
+    // late CONNACKs may race, and reconnects can invoke this same callback again.
     const auto reasonCode = client->connectAsync(serverHost, connectCredentials, connectParameters, protocolVersion, connectProperties, sslKeys,
-                                                 [this, &connectedCount, clientCount, &allConnected, &roundTripLatency, counted](const SMessage&)
-                                                 {
-                                                     if (counted->exchange(true))
-                                                     {
-                                                         return;
-                                                     }
-                                                     if (m_paceMaker)
-                                                     {
-                                                         roundTripLatency.received();
-                                                     }
-
-                                                     if (const auto count = ++connectedCount; count == clientCount)
-                                                     {
-                                                         allConnected.post();
-                                                     }
-                                                 });
+                                                 progress->completion(clientCount, static_cast<bool>(m_paceMaker), counted));
     if (reasonCode != ReasonCode::Success)
     {
         // A synchronous failure (e.g. socket/DNS error) never calls the completion callback
@@ -363,9 +347,10 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     mutex                       amutex;
     vector<client::SMqttClient> clients(clientCount);
     vector<shared_ptr<atomic_bool>> clientCounted(clientCount);
-    atomic_size_t               connectedCount = 0;
+    const auto                  connectProgress = make_shared<ConnectProgress>();
+    auto&                       connectedCount = connectProgress->connected;
+    auto&                       allConnected = connectProgress->finished;
     atomic_size_t               failedCount = 0;
-    Semaphore                   allConnected;
 
     vector<Host> serverHosts;
     if (group.m_servers.empty()) serverHosts.push_back(serverHost);
@@ -401,7 +386,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
             clientCount * m_paceMaker->interval() / m_connectIntervals);
     }
 
-    RoundTripLatency roundTripLatency;
+    auto& roundTripLatency = connectProgress->latency;
 
     // Polls connectedCount while the worker threads below run, redrawing the bar in place. Runs on
     // a thread of its own so it doesn't perturb the connect loop's timing.
@@ -449,7 +434,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     for (size_t i = 0; i < threadCount; ++i)
     {
         threads.emplace_back([this, &group, serverHostsPtr, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
-                              clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys]
+                              clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys, connectProgress]
                              {
                                  size_t clientIndex = 0;
                                  while (!clientIndices.empty() && clientIndices.pop_front(clientIndex, 100ms))
@@ -495,7 +480,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                      {
                                          const auto counted = make_shared<atomic_bool>(false);
                                          auto       client = connectClientAsync(target, clientConnectParameters, protocolVersion, clientIndex, clientCount,
-                                                                                connectedCount, allConnected, roundTripLatency, connectCredentials,
+                                                                                connectProgress, connectCredentials,
                                                                                 connectProperties, sslKeys, counted);
 
                                          const scoped_lock lock(amutex);

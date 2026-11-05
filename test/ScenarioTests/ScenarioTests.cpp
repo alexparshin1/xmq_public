@@ -11,6 +11,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 #include "ScenarioTests.h"
+#include "scenario/ConnectProgress.h"
 
 using namespace std;
 using namespace sptk;
@@ -420,4 +421,26 @@ TEST_F(XMQ_ScenarioTests, EncryptedPointToPointScenario)
     {
         FAIL() << e.what();
     }
+}
+TEST(ScenarioConnectProgress, lateCompletionOutlivesTheGroupAndRemainsIdempotent)
+{
+    auto progress = make_shared<ConnectProgress>();
+    progress->latency.start(1s);
+    progress->latency.sent();
+    const weak_ptr<ConnectProgress> weak = progress;
+    auto completed = progress->completion(1, true, make_shared<atomic_bool>(false));
+    progress.reset(); // The connect group timed out and its stack has been unwound.
+    ASSERT_FALSE(weak.expired());
+    completed({});
+    completed({}); // A reconnect must not complete/count this client twice.
+    {
+        const auto saved = weak.lock();
+        ASSERT_TRUE(saved);
+        EXPECT_EQ(1U, saved->connected.load());
+        EXPECT_EQ(1U, saved->latency.count());
+        EXPECT_TRUE(saved->finished.wait_for(1ms));
+        EXPECT_FALSE(saved->finished.wait_for(1ms));
+    }
+    completed = {};
+    EXPECT_TRUE(weak.expired());
 }
