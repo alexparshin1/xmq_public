@@ -681,9 +681,9 @@ private:
 
 namespace {
 
-/// A JSON value as far as this connector needs one: the destinations list is an array of objects
-/// of strings, and the headers inside it are an object of strings. A full parser would be a
-/// dependency; this is the smallest thing that can read the settings without guessing.
+/// A JSON value as far as this connector needs one: the list settings are arrays of strings. A
+/// full parser would be a dependency; this is the smallest thing that can read them without
+/// guessing.
 struct JsonValue
 {
     enum class Kind
@@ -1057,6 +1057,82 @@ bool parseTopicFilters(const std::string_view text, std::vector<std::string>& fi
     return true;
 }
 
+/// Extra request headers, one "Name: value" per item; a single string is accepted too.
+///
+/// The same shape as topic_filter: the interface edits a list, the file stores a JSON array, and a
+/// value written by hand as one header still works.
+bool parseHeaders(const std::string_view text, std::vector<std::pair<std::string, std::string>>& headers,
+                  std::string& error)
+{
+    headers.clear();
+    const auto value = trimmed(text);
+    if (value.empty())
+    {
+        return true;
+    }
+
+    std::vector<std::string> items;
+    if (value.front() == '[')
+    {
+        JsonValue  parsed;
+        JsonReader reader(value);
+        if (!reader.read(parsed) || parsed.kind != JsonValue::Kind::Array)
+        {
+            error = "headers must be a header or a JSON array of them";
+            return false;
+        }
+        for (const auto& element: parsed.array)
+        {
+            if (element.kind != JsonValue::Kind::String)
+            {
+                error = "headers must hold only strings";
+                return false;
+            }
+            items.push_back(element.text);
+        }
+    }
+    else
+    {
+        items.push_back(value);
+    }
+
+    const auto isHeaderName = [](const std::string& name)
+    {
+        return !name.empty() && std::ranges::all_of(name,
+                                   [](const unsigned char ch)
+                                   {
+                                       return std::isalnum(ch) != 0 || ch == '!' || ch == '#' || ch == '$' ||
+                                              ch == '%' || ch == '&' || ch == '\'' || ch == '*' || ch == '+' ||
+                                              ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' ||
+                                              ch == '|' || ch == '~';
+                                   });
+    };
+
+    for (const auto& item: items)
+    {
+        const auto colon = item.find(':');
+        if (colon == std::string::npos)
+        {
+            error = "header '" + item + "' must be Name: value";
+            return false;
+        }
+        const auto name  = trimmed(std::string_view(item).substr(0, colon));
+        const auto field = trimmed(std::string_view(item).substr(colon + 1));
+        if (!isHeaderName(name))
+        {
+            error = "header name '" + name + "' is not an HTTP field name";
+            return false;
+        }
+        if (field.find_first_of("\r\n") != std::string::npos)
+        {
+            error = "header '" + name + "' holds a line break";
+            return false;
+        }
+        headers.emplace_back(name, field);
+    }
+    return true;
+}
+
 /// Replaces {{name}} with the JSON-escaped value, so a template stays valid JSON whatever the text
 /// holds. An unknown name is left alone rather than silently emptied.
 std::string renderTemplate(const std::string& tmpl,
@@ -1095,8 +1171,14 @@ std::string renderTemplate(const std::string& tmpl,
     return out;
 }
 
-/// One place to post to: its own URL, body template, filters, and its own queue and thread so a
-/// slow messenger cannot delay the collector beside it.
+/// What a body is when no template is set: one line per source, with the names people ask for
+/// first. A message has no level of its own, so it says "message" - which is also what tells the
+/// two sources apart at the receiver.
+constexpr const char* defaultTemplate =
+    R"({"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"})";
+
+/// The place to post to: URL, body template, filters, and its own queue and threads so a slow
+/// receiver costs deliveries and not broker throughput.
 struct Destination
 {
     std::string name;
@@ -1104,7 +1186,7 @@ struct Destination
     std::string secret;
     int         timeoutMs {defaultTimeoutMs};
     int         retries {defaultRetries};
-    std::string tmpl;            ///< Empty means the full JSON envelope.
+    std::string tmpl;            ///< Never empty; the setting falls back to defaultTemplate.
     bool        sendMessages {true};
     bool        sendLog {false};
     std::vector<std::string> topicFilters {"#"};
@@ -1194,7 +1276,6 @@ public:
         const std::string topic(xmq::view(message.topic));
         const std::string id = nextId();
         const std::string timestamp = isoTimestamp();
-        std::string       envelope;
         std::vector<std::pair<std::string, std::string>> values;
 
         for (const auto& destination: destinations)
@@ -1208,6 +1289,7 @@ public:
             }
             if (values.empty())
             {
+                const auto payload = base64(std::string(message.payload.data, message.payload.length));
                 values = {
                     {"id", id},
                     {"source", "message"},
@@ -1217,13 +1299,13 @@ public:
                     {"retain", message.retain != 0 ? "true" : "false"},
                     {"client_id", std::string(xmq::view(message.client_id))},
                     {"username", std::string(xmq::view(message.username))},
-                    {"payload_base64",
-                     base64(std::string(message.payload.data, message.payload.length))}};
-                envelope = messageEnvelope(values);
+                    {"payload_base64", payload},
+                    // For a message the body is the base64 payload, and there is no level: the
+                    // literal says which source this is.
+                    {"message", payload},
+                    {"level", "message"}};
             }
-            enqueue(*destination, destination->tmpl.empty() ? envelope
-                                                            : renderTemplate(destination->tmpl, values),
-                    "message for " + topic);
+            enqueue(*destination, renderTemplate(destination->tmpl, values), "message for " + topic);
         }
     }
 
@@ -1241,7 +1323,6 @@ public:
         const std::string message(xmq::view(record.message));
         const std::string id = nextId();
         const std::string timestamp = isoTimestamp();
-        std::string       envelope;
         std::vector<std::pair<std::string, std::string>> values;
 
         for (const auto& destination: destinations)
@@ -1263,57 +1344,17 @@ public:
                     {"id", id},
                     {"source", "log"},
                     {"timestamp", timestamp},
+                    {"topic", ""}, // a record has no topic; the default body keeps the field
                     {"level", levelName(record.level)},
                     {"subject", subject},
                     {"message", message}};
-                envelope = logEnvelope(values);
             }
-            enqueue(*destination, destination->tmpl.empty() ? envelope
-                                                            : renderTemplate(destination->tmpl, values),
+            enqueue(*destination, renderTemplate(destination->tmpl, values),
                     "log record from " + subject);
         }
     }
 
 private:
-    static std::string messageEnvelope(const std::vector<std::pair<std::string, std::string>>& values)
-    {
-        const auto value = [&values](const std::string& name)
-        {
-            const auto found = std::ranges::find_if(values,
-                                                    [&name](const auto& entry)
-                                                    { return entry.first == name; });
-            return found == values.end() ? std::string{} : found->second;
-        };
-        return "{\"id\":\"" + jsonEscape(value("id")) + "\"" +
-               ",\"source\":\"message\"" +
-               ",\"version\":1" +
-               ",\"timestamp\":\"" + jsonEscape(value("timestamp")) + "\"" +
-               ",\"topic\":\"" + jsonEscape(value("topic")) + "\"" +
-               ",\"qos\":" + value("qos") +
-               ",\"retain\":" + value("retain") +
-               ",\"client_id\":\"" + jsonEscape(value("client_id")) + "\"" +
-               ",\"username\":\"" + jsonEscape(value("username")) + "\"" +
-               ",\"payload_base64\":\"" + jsonEscape(value("payload_base64")) + "\"}";
-    }
-
-    static std::string logEnvelope(const std::vector<std::pair<std::string, std::string>>& values)
-    {
-        const auto value = [&values](const std::string& name)
-        {
-            const auto found = std::ranges::find_if(values,
-                                                    [&name](const auto& entry)
-                                                    { return entry.first == name; });
-            return found == values.end() ? std::string{} : found->second;
-        };
-        return "{\"id\":\"" + jsonEscape(value("id")) + "\"" +
-               ",\"source\":\"log\"" +
-               ",\"version\":1" +
-               ",\"timestamp\":\"" + jsonEscape(value("timestamp")) + "\"" +
-               ",\"level\":\"" + jsonEscape(value("level")) + "\"" +
-               ",\"subject\":\"" + jsonEscape(value("subject")) + "\"" +
-               ",\"message\":\"" + jsonEscape(value("message")) + "\"}";
-    }
-
     static std::string levelName(const uint32_t level)
     {
         switch (level)
@@ -1438,9 +1479,16 @@ private:
         }
     }
 
-    /// The flat settings build one destination, the way this connector was configured before
-    /// several of them existed. A destinations array replaces that entirely.
-    std::shared_ptr<Destination> legacyDestination(std::string& error) const
+    /// A field that was cleared in the interface is not a value: the declared default applies.
+    /// Apply writes every field it shows, so an unset number would otherwise reach stoi as "".
+    std::string settingOr(const char* name, const char* fallback) const
+    {
+        const auto value = setting(name, fallback);
+        return value.empty() ? std::string(fallback) : value;
+    }
+
+    /// The settings build the one endpoint this connector posts to.
+    std::shared_ptr<Destination> configuredDestination(std::string& error) const
     {
         auto destination = std::make_shared<Destination>();
         destination->name = "destination 1";
@@ -1455,11 +1503,16 @@ private:
             return nullptr;
         }
         destination->secret = setting("secret");
+        destination->tmpl   = settingOr("template", defaultTemplate);
+        if (!parseHeaders(setting("headers"), destination->headers, error))
+        {
+            return nullptr;
+        }
         try
         {
-            destination->timeoutMs = std::stoi(setting("timeout_ms", "5000"));
-            destination->retries = std::stoi(setting("retries", "3"));
-            const auto maxPayload = setting("max_payload", "1048576");
+            destination->timeoutMs = std::stoi(settingOr("timeout_ms", "5000"));
+            destination->retries = std::stoi(settingOr("retries", "3"));
+            const auto maxPayload = settingOr("max_payload", "1048576");
             destination->maxPayload = std::stoull(maxPayload) == 0
                                           ? std::numeric_limits<size_t>::max()
                                           : static_cast<size_t>(std::stoull(maxPayload));
@@ -1471,7 +1524,7 @@ private:
         }
         try
         {
-            destination->concurrency = std::stoi(setting("concurrency", "4"));
+            destination->concurrency = std::stoi(settingOr("concurrency", "4"));
         }
         catch (const std::exception&)
         {
@@ -1483,13 +1536,30 @@ private:
             error = "concurrency must be between 1 and 64";
             return nullptr;
         }
-        destination->sendMessages = setting("send_messages", "true") == "true";
-        destination->sendLog = setting("send_log", "false") == "true";
+        const auto sources = trimmed(settingOr("sources", "Send messages"));
+        if (sources == "Send messages")
+        {
+            destination->sendMessages = true;
+        }
+        else if (sources == "Send log")
+        {
+            destination->sendLog = true;
+        }
+        else if (sources == "Send log and messages")
+        {
+            destination->sendMessages = true;
+            destination->sendLog = true;
+        }
+        else
+        {
+            error = "sources must be Send log, Send messages or Send log and messages";
+            return nullptr;
+        }
         if (!parseTopicFilters(setting("topic_filter", "#"), destination->topicFilters, error))
         {
             return nullptr;
         }
-        if (!parseLevel(setting("log_min_level", "error"), destination->minLevel))
+        if (!parseLevel(settingOr("log_min_level", "error"), destination->minLevel))
         {
             error = "log_min_level must be debug, info, warning or error";
             return nullptr;
@@ -1498,158 +1568,20 @@ private:
         return destination;
     }
 
-    std::shared_ptr<Destination> parsedDestination(const JsonValue& object, const size_t index,
-                                                   std::string& error) const
-    {
-        auto destination = std::make_shared<Destination>();
-        destination->name = "destination " + std::to_string(index + 1);
-
-        const auto member = [&object](const std::string& name) -> const JsonValue*
-        {
-            const auto found = std::ranges::find_if(object.object,
-                                                    [&name](const auto& entry)
-                                                    { return entry.first == name; });
-            return found == object.object.end() ? nullptr : &found->second;
-        };
-        const auto text = [&member](const std::string& name, const std::string& fallback)
-        {
-            const auto* value = member(name);
-            return value == nullptr ? fallback : value->text;
-        };
-
-        const auto* url = member("url");
-        if (url == nullptr || !parseUrl(url->text, destination->url))
-        {
-            error = destination->name + ": url must be an http:// or https:// address";
-            return nullptr;
-        }
-        if (!destination->url.m_tls && text("allow_http", "false") != "true")
-        {
-            error = destination->name + ": plain HTTP is refused unless allow_http is true";
-            return nullptr;
-        }
-        destination->secret = text("secret", "");
-        destination->tmpl = text("template", "");
-        if (!parseTopicFilters(text("topic_filter", "#"), destination->topicFilters, error))
-        {
-            error = destination->name + ": " + error;
-            return nullptr;
-        }
-        try
-        {
-            destination->timeoutMs = std::stoi(text("timeout_ms", "5000"));
-            destination->retries = std::stoi(text("retries", "3"));
-            const auto maxPayload = std::stoull(text("max_payload", "0"));
-            destination->maxPayload = maxPayload == 0
-                                          ? std::numeric_limits<size_t>::max()
-                                          : static_cast<size_t>(maxPayload);
-        }
-        catch (const std::exception&)
-        {
-            error = destination->name + ": timeout_ms, retries and max_payload must be numbers";
-            return nullptr;
-        }
-
-        try
-        {
-            destination->concurrency = std::stoi(text("concurrency", "4"));
-        }
-        catch (const std::exception&)
-        {
-            error = destination->name + ": concurrency must be a number";
-            return nullptr;
-        }
-        if (destination->concurrency < 1 || destination->concurrency > 64)
-        {
-            error = destination->name + ": concurrency must be between 1 and 64";
-            return nullptr;
-        }
-
-        const auto sources = splitList(text("sources", "messages"), ',');
-        destination->sendMessages = std::ranges::find(sources, "messages") != sources.end();
-        destination->sendLog = std::ranges::find(sources, "log") != sources.end();
-        if (!destination->sendMessages && !destination->sendLog)
-        {
-            error = destination->name + ": sources must name messages, log or both";
-            return nullptr;
-        }
-        if (!parseLevel(text("log_min_level", "error"), destination->minLevel))
-        {
-            error = destination->name + ": log_min_level must be debug, info, warning or error";
-            return nullptr;
-        }
-        destination->logSubjects = splitList(text("log_subjects", ""), ',');
-
-        if (const auto* headers = member("headers"); headers != nullptr)
-        {
-            if (headers->kind != JsonValue::Kind::Object)
-            {
-                error = destination->name + ": headers must be an object of strings";
-                return nullptr;
-            }
-            for (const auto& [name, value]: headers->object)
-            {
-                destination->headers.emplace_back(name, value.text);
-            }
-        }
-        return destination;
-    }
-
     bool configure()
     {
-        std::vector<std::shared_ptr<Destination>> wanted;
-        const auto                                list = setting("destinations");
-
-        if (list.empty())
+        std::string error;
+        auto        destination = configuredDestination(error);
+        if (destination == nullptr)
         {
-            std::string error;
-            if (auto destination = legacyDestination(error); destination != nullptr)
-            {
-                wanted.push_back(std::move(destination));
-            }
-            else
-            {
-                log(XMQ_LOG_ERROR, error);
-                return false;
-            }
+            log(XMQ_LOG_ERROR, error);
+            return false;
         }
-        else
-        {
-            JsonValue   parsed;
-            JsonReader  reader(list);
-            if (!reader.read(parsed) || parsed.kind != JsonValue::Kind::Array)
-            {
-                log(XMQ_LOG_ERROR, "destinations must be a JSON array: " +
-                                       (reader.error().empty() ? std::string("not an array")
-                                                               : reader.error()));
-                return false;
-            }
-            for (size_t index = 0; index < parsed.array.size(); ++index)
-            {
-                std::string error;
-                if (parsed.array[index].kind != JsonValue::Kind::Object)
-                {
-                    log(XMQ_LOG_ERROR, "destination " + std::to_string(index + 1) + " must be an object");
-                    return false;
-                }
-                auto destination = parsedDestination(parsed.array[index], index, error);
-                if (destination == nullptr)
-                {
-                    log(XMQ_LOG_ERROR, error);
-                    return false;
-                }
-                wanted.push_back(std::move(destination));
-            }
-            if (wanted.empty())
-            {
-                log(XMQ_LOG_ERROR, "destinations is empty, so nothing would be sent");
-                return false;
-            }
-        }
+        std::vector<std::shared_ptr<Destination>> wanted {std::move(destination)};
 
-        // The host is asked once, for the union of every destination's filters. A list rather than
-        // the widest single filter: with "#" the broker would copy every body here for nothing,
-        // and the list costs one comparison per filter on the publish path instead.
+        // The host is asked once, with the filters this destination names. A list rather than the
+        // widest single filter: with "#" the broker would copy every body here for nothing, and
+        // the list costs one comparison per filter on the publish path instead.
         bool   anyMessages = false;
         bool   anyLog = false;
         size_t maxPayload = 0;
@@ -1735,17 +1667,22 @@ private:
 };
 
 constexpr xmq_setting settings[] = {
-    {.name = "destinations", .label = "Destinations",
-     .description = "A JSON array of {url, template, sources, topic_filter, log_min_level, "
-                    "log_subjects, headers, secret, retries, timeout_ms, max_payload, allow_http, "
-                    "concurrency}. When set, it replaces the single-URL settings below.",
-     .type = XMQ_SETTING_STRING,
-     .default_value = ""},
     {.name = "url", .label = "URL",
-     .description = "One destination: where accepted messages are posted, http:// or https://",
+     .description = "Where accepted messages are posted, http:// or https://",
      .type = XMQ_SETTING_STRING,
      .default_value = "",
      .pattern = "https?://\\S+"},
+    {.name = "template", .label = "Body template",
+     .description = "Body to post: {{topic}}, {{message}}, {{level}} and the other names are "
+                    "substituted and JSON-escaped. For a message {{message}} is the base64 "
+                    "payload and {{level}} is \"message\"; for a log record {{topic}} is empty",
+     .type = XMQ_SETTING_STRING,
+     .default_value = defaultTemplate},
+    {.name = "headers", .label = "Headers",
+     .description = "Extra request headers, one Name: value per item; empty means none",
+     .type = XMQ_SETTING_LIST,
+     .default_value = "",
+     .pattern = "[-A-Za-z0-9!#$%&'*+.^_`|~]+: *\\S.*"},
     {.name = "secret", .label = "Secret",
      .description = "HMAC-SHA256 key for the X-XMQ-Signature header",
      .type = XMQ_SETTING_SECRET,
@@ -1775,14 +1712,12 @@ constexpr xmq_setting settings[] = {
      .description = "Permit a plain HTTP URL (for a local receiver)",
      .type = XMQ_SETTING_BOOLEAN,
      .default_value = "false"},
-    {.name = "send_messages", .label = "Send messages",
-     .description = "Post the messages the broker accepts",
-     .type = XMQ_SETTING_BOOLEAN,
-     .default_value = "true"},
-    {.name = "send_log", .label = "Send log",
-     .description = "Post the broker's own log records as well",
-     .type = XMQ_SETTING_BOOLEAN,
-     .default_value = "false"},
+    {.name = "sources", .label = "Sources",
+     .description = "What is posted: the messages the broker accepts, its own log records, or "
+                    "both. To send neither, disable the extension",
+     .type = XMQ_SETTING_CHOICE,
+     .default_value = "Send messages",
+     .choices = "Send log,Send messages,Send log and messages"},
     {.name = "log_min_level", .label = "Log level",
      .description = "Lowest log level to send",
      .type = XMQ_SETTING_CHOICE,

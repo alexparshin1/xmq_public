@@ -18,8 +18,8 @@ path, and the foundation both a rule engine and a connector would need.
 
 ## What it does not deliver
 
-- No rule language, no JSONPath/templates, no transformations. The payload arrives as it was
-  published.
+- No rule language, no JSONPath, no transformations. The payload arrives as it was published; a
+  body template substitutes fields into a fixed body but does not reshape the payload.
 - No Kafka, database, S3 or other connectors. Those are extensions of the same tap later.
 - No replay, no exactly-once, no durable queue across a restart. Delivery is at-most-once through a
   bounded in-memory queue, and the drop count says what was lost.
@@ -53,22 +53,17 @@ receives a view over the payload. The existing authenticator, authorizer and obs
 
 ### DI-4. Reference webhook extension
 
-`[x]` `extension/webhook`: settings `url`, `secret`, `topic_filter`, `max_payload`, `timeout_ms`.
-POSTs JSON:
+`[x]` `extension/webhook`: settings `url`, `secret`, `topic_filter`, `max_payload`, `timeout_ms`,
+`template`, `headers`. POSTs the template body; with no template, one line per source:
 
 ```json
-{
-  "id": "node-timestamp-sequence",
-  "version": 1,
-  "timestamp": "2026-11-03T19:45:00.123Z",
-  "topic": "sensors/water/1",
-  "qos": 1,
-  "retain": false,
-  "client_id": "device-1",
-  "username": "user7",
-  "payload_base64": "..."
-}
+{"topic": "sensors/water/1", "message": "<payload in base64>", "level": "message"}
 ```
+
+A log record arrives in the same three fields, with `topic` empty, `message` the log text and
+`level` its severity. The other names (`id`, `timestamp`, `qos`, `retain`, `client_id`,
+`username`, `payload_base64`, `subject`, `source`) are available to a template of the operator's
+own.
 
 HTTPS with certificate verification; `X-XMQ-Signature: sha256=<hmac>` over the body; retries with
 backoff on 5xx, timeout and connection failure; no retry on 4xx except 429. At most one request in
@@ -123,28 +118,21 @@ broker again.
 
 `[x]`
 
-The webhook carries the broker's log as well as accepted messages, with `send_messages` and
-`send_log` independent and one endpoint for both. Records come from the single logging funnel
+The webhook carries the broker's log as well as accepted messages, with one `sources` choice
+(messages, log or both) and one endpoint for both. Records come from the single logging funnel
 (`ServerData::logMessage`), so they include refusals from the account database, the permission
 evaluator and the extension host - the faults that stop messages from existing at all.
 
-### DI-10. Several destinations with their own templates (prototype)
+### DI-10. Body templates and headers; several destinations - decided against
 
 `[x]`
 
-`destinations` is a JSON array in one setting: each entry has its own URL, body template
-(`{{topic}}`, `{{message}}`, `{{level}}`, ...), sources (messages, log or both), filters, headers,
-secret and retry policy. Each destination gets its own queue and thread, so a slow messenger
-cannot delay the collector beside it. Substituted values are JSON-escaped, which keeps a template
-valid whatever the message holds.
+A prototype posted to several endpoints, each with its own template, filters and headers, described
+by a JSON array in one `destinations` setting. It is removed: a JSON document typed by hand in a
+string setting is not an interface, its `secret` was not masked, and an operator who wants several
+receivers can put a web server in front of this one and fan the stream out there. The settings
+screen and the broker stay one extension, one endpoint.
 
-Known costs, recorded rather than hidden: the host registers one message tap with the widest
-filter for all destinations, so every body is copied to the extension before the per-destination
-filters narrow it; a `secret` inside the JSON is not masked by the settings screen; and the
-settings field is a JSON document typed by hand.
-
-Prototype, on purpose: ABI 1.2 adds `XMQ_CAP_LOG_TAP`, `xmq_log_record` and `request_logs`, and
-the level scale, the subject filter and per-instance settings are open questions. The next
-decision is whether an operator needs several connectors (different endpoints) or whether one
-endpoint that distinguishes `source` is enough; the current extension loader allows one instance
-per extension name.
+What the prototype proved is kept as ordinary settings: `template` (a body with `{{topic}}`,
+`{{message}}`, `{{level}}`, ... substituted and JSON-escaped) and `headers` (a list of
+`Name: value` items), beside the `sources` choice for what is posted.

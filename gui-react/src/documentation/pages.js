@@ -30,7 +30,7 @@ export const documentationPages = [
         description: "Posting accepted MQTT messages and broker log records to HTTP(S) endpoints: sources, settings, and what it costs.",
         anchors: ["data-integration", "data-integration-enable", "data-integration-sources",
                   "data-integration-payload", "data-integration-settings",
-                  "data-integration-destinations", "data-integration-performance",
+                  "data-integration-template", "data-integration-performance",
                   "data-integration-security", "data-integration-delivery"]},
     {id: "cluster", label: "Cluster", path: "/xmq_doc_cluster",
         title: "Setting up a Cluster",

@@ -1,0 +1,59 @@
+<!--
+  Draft news item for the website. The body below is what goes in the "News" field; the title and
+  release date are the other two fields on the form. Fill in the date when 1.1.0 is released.
+
+  Title: XMQ 1.1.0: webhooks, templates, and settings that check themselves
+  Date:  TBD
+
+  Kept here as the draft announcement, not the changelog: CHANGELOG.md is written for someone
+  upgrading and lists every change; this is written for readers who are not upgrading anything.
+-->
+
+<p>
+    XMQ 1.1.0 is out. It opens the broker outwards: what it accepts, and what it could not do, can
+    now reach an HTTP(S) endpoint - as a body you choose, with a signature the receiver can verify.
+    You can download it <a href='/downloads'>here</a>.
+</p>
+
+<ul>
+    <li>
+        <b>A webhook extension posts accepted messages to HTTP(S).</b> It listens on the message tap
+        with a topic filter and sends JSON with the payload in base64, so a binary message survives
+        the trip. A configured secret signs the exact body with HMAC-SHA256 in
+        <code>X-XMQ-Signature</code>, failed requests are retried with backoff, and a bounded queue
+        means a slow endpoint costs deliveries, never publishing throughput.
+    </li>
+    <li>
+        <b>The broker's own log is a second input.</b> <code>sources</code> picks messages, log
+        records, or both, and <code>log_min_level</code> with <code>log_subjects</code> narrows the
+        log. These are the records that explain why a message never existed at all: refused
+        connections, denied permissions and extension faults.
+    </li>
+    <li>
+        <b>Your body, your headers.</b> The default body is three fields -
+        <code>{"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"}</code> - and
+        <code>template</code> replaces it with any JSON, substituting
+        <code>{{topic}}</code>, <code>{{message}}</code>, <code>{{level}}</code> and the other
+        names with JSON-escaped values. <code>headers</code> adds request headers such as an
+        authorization token, one <code>Name: value</code> per item; where several receivers are
+        wanted, a web server in front of one endpoint fans the stream out.
+    </li>
+    <li>
+        <b>One endpoint can watch several topic filters.</b> <code>topic_filter</code> is a list:
+        the Extensions page shows one field per filter with Add and Remove, and a message matching
+        any of them is sent. The broker registers the tap with those filters rather than with
+        <code>#</code>, so a topic nobody wants costs one comparison and not a copy of its body.
+    </li>
+    <li>
+        <b>Settings declare their format, and the interface enforces it.</b> An extension setting
+        now carries a regular expression, a list of choices or a list editor, so a URL is a URL and a
+        number is a number before Apply is pressed - and the broker refuses the same wrong value
+        written by a script. The extension is built and packaged on Windows as well as Linux and
+        FreeBSD; the extension ABI is now 1.3, so extensions built against 1.2 have to be rebuilt.
+    </li>
+</ul>
+
+<p>
+    The <a href='/xmq_doc_data_integration'>Data Integration page</a> has the settings, the request
+    format, the signature and what the connector costs a busy broker.
+</p>

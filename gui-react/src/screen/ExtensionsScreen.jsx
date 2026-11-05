@@ -85,7 +85,16 @@ export default class ExtensionsScreen extends React.Component {
     /// What a setting holds right now: what the operator typed, or what the broker reported.
     valueOf(setting) {
         const edited = this.state.edited[setting.name];
-        return edited === undefined ? (setting.value === undefined ? "" : setting.value) : edited;
+        if (edited !== undefined) {
+            return edited;
+        }
+        const value = setting.value === undefined ? "" : setting.value;
+        if (value !== "") {
+            return value;
+        }
+        // An unset setting starts at the value the extension would use anyway, rather than as an
+        // empty field that Apply would write back as an empty string.
+        return setting.default_value === undefined ? "" : setting.default_value;
     }
 
     hasChanges() {
@@ -410,16 +419,28 @@ export default class ExtensionsScreen extends React.Component {
         // An undeclared key is worth explaining rather than hiding: a misspelling is the commonest
         // reason a setting quietly does nothing.
         const matches = ExtensionsScreen.matches(setting, value);
+        // Each part is a sentence: the descriptions are written without a trailing full stop, so
+        // one is added here rather than in every extension's declaration. A choice always has one
+        // of its options selected, so "Default:" would suggest an unset state that does not exist.
+        const sentence = (text) =>
+        {
+            const trimmed = (text || "").trim();
+            if (!trimmed) {
+                return "";
+            }
+            return /[.!?]$/.test(trimmed) ? trimmed + " " : trimmed + ". ";
+        };
         const help = setting.declared === false
             ? "Set here, but this extension does not declare a setting of that name - usually a " +
               "misspelling, and then it has no effect."
-            : (setting.description || "") +
-              (setting.default_value ? (setting.description ? " " : "") +
-                                       "Default: " + setting.default_value + "." : "") +
-              (setting.pattern ? (setting.description || setting.default_value ? " " : "") +
-                                 (setting.type === "list" ? "Each item must match " : "Format: must match ") +
-                                 setting.pattern + "." : "") +
-              (setting.type === "list" ? " An empty list leaves the setting at its default." : "");
+            : (sentence(setting.description) +
+               (setting.type !== "choice" && setting.default_value
+                   ? "Default: " + setting.default_value + ". " : "") +
+               (setting.pattern
+                   ? (setting.type === "list" ? "Each item must match " : "Format: must match ") +
+                     setting.pattern + ". " : "") +
+               (setting.type === "list" ? "An empty list leaves the setting at its default." : ""))
+                  .trim();
 
         return <div className="extensionRow" key={setting.name}>
             <label>

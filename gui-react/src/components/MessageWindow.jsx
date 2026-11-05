@@ -1,33 +1,8 @@
 import React from "react";
 import {createRoot} from "react-dom/client";
+import MessageSign from "./MessageSign";
 import "./DialogWindow.css";
 import "./MessageWindow.css";
-
-/**
- * The signs, drawn rather than loaded.
- *
- * Inline SVG so that a message can be shown before anything else has finished loading - which is
- * exactly when things go wrong - and so that the drawing scales with the box rather than blurring.
- */
-const signs = {
-    error: <svg viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Error">
-        <polygon points="20,2 44,2 62,20 62,44 44,62 20,62 2,44 2,20"
-                 fill="#c62828" stroke="#8e0000" strokeWidth="2"/>
-        <rect x="14" y="28" width="36" height="8" rx="2" fill="white"/>
-    </svg>,
-
-    question: <svg viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Question">
-        <circle cx="32" cy="32" r="30" fill="#1565c0" stroke="#0d47a1" strokeWidth="2"/>
-        <text x="32" y="46" textAnchor="middle" fontSize="42" fontWeight="bold"
-              fontFamily="serif" fill="white">?</text>
-    </svg>,
-
-    information: <svg viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Information">
-        <circle cx="32" cy="32" r="30" fill="#2e7d32" stroke="#1b5e20" strokeWidth="2"/>
-        <text x="32" y="47" textAnchor="middle" fontSize="42" fontWeight="bold"
-              fontFamily="serif" fill="white">i</text>
-    </svg>
-};
 
 /**
  * A message with a sign beside it and a button under it.
@@ -67,7 +42,9 @@ export class MessageWindow extends React.Component {
                 <div className="title">{this.props.title}</div>
 
                 <div className="messageWindowBody">
-                    <div className="messageWindowSign">{signs[this.props.sign]}</div>
+                    <div className="messageWindowSign">
+                        <MessageSign kind={this.props.sign}/>
+                    </div>
                     {/* The message keeps its line breaks: a server can answer with more than one
                         sentence, and running them together loses the shape it was given. */}
                     <div className="messageWindowText">{this.props.message}</div>
@@ -119,7 +96,9 @@ class ServiceWindow extends React.Component {
                 <div className="title">{this.props.title}</div>
 
                 <div className="messageWindowBody">
-                    <div className="messageWindowSign">{signs.question}</div>
+                    <div className="messageWindowSign">
+                        <MessageSign kind="question"/>
+                    </div>
                     <div className="messageWindowText">
                         {this.props.message}
                         <label className="messageWindowChoice">
@@ -206,6 +185,11 @@ export function serviceWindow(options = {}) {
 /** Something failed. */
 export function errorWindow(message, title = "Error") {
     return show({sign: "error", title, message, buttons: [{label: "Close", answer: false}]});
+}
+
+/** Something is worth stopping for, though nothing has failed yet. */
+export function warningWindow(message, title = "Warning") {
+    return show({sign: "warning", title, message, buttons: [{label: "Close", answer: false}]});
 }
 
 /** Something worth saying that did not fail. */

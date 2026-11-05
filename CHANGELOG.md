@@ -21,20 +21,27 @@ Requires SPTK 5.6.18.
   timeout and connection failures are retried with backoff while any other 4xx is not. Delivery is
   at-most-once through a bounded queue, so a slow endpoint never blocks publishing.
 
-- **The webhook can send the broker's own log as a second input.** `send_log` and `log_min_level`
-  (with `log_subjects` to narrow it) add the records that explain why a message never existed:
-  refused connections, denied permissions and extension faults.
+- **The webhook can send the broker's own log as a second input.** The `sources` choice picks
+  messages, log records or both; `log_min_level` and `log_subjects` narrow the log. The records
+  explain why a message never existed: refused connections, denied permissions and extension
+  faults. Sending neither is done by disabling the extension, not by a pair of switches.
 
 - **One destination can watch several topic filters.** `topic_filter` is a list: the Extensions
   page shows one field per filter with Add and Remove, and stores it as a JSON array. A message
-  matching any item is sent. The tap is registered with the union of every destination's filters
-  rather than with `#`, so a topic nobody wants costs a comparison and not a copy of its body.
+  matching any item is sent. The tap is registered with those filters rather than with `#`, so a
+  topic nobody wants costs a comparison and not a copy of its body.
 
-- **Several destinations in one extension.** The `destinations` setting is a JSON array; each
-  entry has its own URL, body template (`{{topic}}`, `{{message}}`, `{{level}}`, ...), sources,
-  filters, headers, secret, retry policy and concurrency, and each gets its own queue and threads
-  so one slow receiver cannot delay the others. An empty `destinations` keeps the single-URL
-  settings working as before.
+- **The webhook body is a template, and headers are yours to set.** The default body is
+  `{"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"}`: for a message `message`
+  is the base64 payload and `level` says `message`, for a log record `topic` is empty and
+  `message` is the log text. A template of your own can name `{{id}}`, `{{source}}`,
+  `{{timestamp}}`, `{{qos}}`, `{{retain}}`, `{{client_id}}`, `{{username}}`,
+  `{{payload_base64}}` and `{{subject}}` as well; every substituted value is JSON-escaped, so a
+  quote in a message cannot break the body. `headers` adds request headers such as an
+  authorization token, one `Name: value` per item, edited as a list. An early prototype that put
+  several destinations in one JSON `destinations` setting is removed: one endpoint per extension
+  is the supported shape, and a web server in front of it fans out when several receivers are
+  wanted.
 
 - **Extension settings can declare a format, and the interface enforces it.** A setting now carries
   a regular expression, so a URL is a URL and a number is a number: the field refuses what does not
@@ -47,7 +54,7 @@ Requires SPTK 5.6.18.
 - **The extension is built and packaged on Windows as well as Linux and FreeBSD.** The socket
   layer uses Winsock there and POSIX elsewhere; TLS and the signature are OpenSSL on both. The
   Windows MSI installs `xmq_webhook.dll` and `50-webhook.conf.template` beside the user-database
-  extension, and the fragment is still off until an operator sets a URL or a destinations array.
+  extension, and the fragment is still off until an operator sets a URL.
 
 ## 1.0.2 — 2026-11-02
 

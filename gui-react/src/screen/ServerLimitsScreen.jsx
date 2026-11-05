@@ -3,7 +3,7 @@ import "./InputScreen.css"
 import ControlAPI from "../ControlAPI";
 import BasicScreen from "./BasicScreen";
 import PageTitle from "../components/PageTitle";
-import {errorWindow, informationWindow} from "../components/MessageWindow";
+import {errorWindow, warningWindow} from "../components/MessageWindow";
 
 /**
  * Server and queue limits screen.
@@ -121,7 +121,7 @@ export default class ServerLimitsScreen extends BasicScreen {
                 errorWindow("Can't change the server limits: " + error);
                 return false;
             }
-            informationWindow("Server limits changed, please restart XMQ to take effect");
+            warningWindow("Server limits changed, please restart XMQ to take effect");
             return true;
         });
     }

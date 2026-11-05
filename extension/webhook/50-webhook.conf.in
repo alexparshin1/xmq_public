@@ -1,15 +1,15 @@
 {
   "extensions": [
     {
-      "_comment": "Posts accepted MQTT messages, and optionally the broker's own log, to an HTTP(S) endpoint. Disabled until a URL or a destinations array is set. The payload is base64 in JSON; the request is signed with HMAC-SHA256 when a secret is configured.",
+      "_comment": "Posts accepted MQTT messages, and optionally the broker's own log, to an HTTP(S) endpoint. Disabled until a URL is set. The payload is base64 in JSON; the request is signed with HMAC-SHA256 when a secret is configured.",
       "name": "webhook",
       "library": "@XMQ_WEBHOOK_LIBRARY@",
       "enabled": false,
       "required": false,
       "settings": {
-        "_comment_destinations": "A JSON array replaces everything below it: one entry per endpoint, each with its own url, template, sources, filters and retries.",
-        "destinations": "",
         "url": "",
+        "template": "",
+        "headers": "",
         "secret": "",
         "topic_filter": "#",
         "max_payload": "1048576",
@@ -17,8 +17,7 @@
         "retries": "3",
         "concurrency": "4",
         "allow_http": "false",
-        "send_messages": "true",
-        "send_log": "false",
+        "sources": "Send messages",
         "log_min_level": "error",
         "log_subjects": ""
       }
