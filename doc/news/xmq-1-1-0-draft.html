@@ -11,7 +11,7 @@
 
 <p>
     XMQ 1.1.0 is out. It opens the broker outwards: what it accepts, and what it could not do, can
-    now reach an HTTP(S) endpoint - as a body you choose, with a signature the receiver can verify.
+    now reach an HTTP(S) endpoint - with a payload you choose, with a signature the receiver can verify.
     You can download it <a href='/downloads'>here</a>.
 </p>
 
@@ -30,7 +30,7 @@
         connections, denied permissions and extension faults.
     </li>
     <li>
-        <b>Your body, your headers.</b> The default body is three fields -
+        <b>Your payload, your headers.</b> The default payload is three fields -
         <code>{"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"}</code> - and
         <code>template</code> replaces it with any JSON, substituting
         <code>{{topic}}</code>, <code>{{message}}</code>, <code>{{level}}</code> and the other
@@ -43,13 +43,6 @@
         the Extensions page shows one field per filter with Add and Remove, and a message matching
         any of them is sent. The broker registers the tap with those filters rather than with
         <code>#</code>, so a topic nobody wants costs one comparison and not a copy of its body.
-    </li>
-    <li>
-        <b>Settings declare their format, and the interface enforces it.</b> An extension setting
-        now carries a regular expression, a list of choices or a list editor, so a URL is a URL and a
-        number is a number before Apply is pressed - and the broker refuses the same wrong value
-        written by a script. The extension is built and packaged on Windows as well as Linux and
-        FreeBSD; the extension ABI is now 1.3, so extensions built against 1.2 have to be rebuilt.
     </li>
 </ul>
 
