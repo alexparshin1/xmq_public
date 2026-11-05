@@ -11,8 +11,10 @@ results/
 (`FlashMQ-1.27.1`). `<test>` is the scenario name. Each file holds the run's header - broker,
 version, host, client, date, notes - and that test's table, or the line saying it failed.
 
-**Every XMQ version has both an AWS and a Bench set before it is released.** `release.sh` on the
-build farm refuses a version without them.
+**AWS results are required when a release changes the major or minor version, or when it moves the
+measured path.** A patch release that leaves the path alone is published without them; `release.sh`
+on the build farm decides by version number and takes `--hotpath` for a patch that does move it.
+The bench results are our own baseline on our own hardware, never part of a release.
 
 A change is checked for regressions against the previous version's `Bench/<version>/` files.
 A later run of the same version replaces its files.
