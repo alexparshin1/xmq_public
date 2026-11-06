@@ -35,8 +35,8 @@ Linux, C++20 с `-O3 -DNDEBUG`, SPTK 5.6.19, Redis 8.0.6.
 
 ## Регрессионные тесты
 
-**209 тестов, 14 наборов, 0 ошибок, 0 пропусков; 70,862 с.**
-Все 25 тестов надёжного хранилища выполнены без пропусков.
+**210 тестов, 14 наборов, 0 ошибок, 0 пропусков; 73,917 с.**
+Все 26 тестов надёжного хранилища выполнены без пропусков.
 В набор также входят проверки persistence, storage, retained, очередей,
 расширения и настройки. SQL-проверки выполнились на PostgreSQL и MySQL, включая
 сохранение нового переключателя и обновление существующей схемы.
@@ -76,7 +76,7 @@ XMQ_ReliableStoreTests.*:XMQ_PersistenceTests.*:XMQ_StorageTests.*:XMQ_RetainedM
 ошибка завершения запрещает поздние положительные ACK даже уже записанного пакета.
 Лимит включает записанные, но ещё не завершённые запросы; drain/shutdown ждут оба этапа.
 
-Очистка подтверждённых исходящих QoS 1 доставок объединяется по получателю: до двух
+Очистка подтверждённых исходящих QoS 1 доставок объединяется по получателю: до четырёх
 секунд накопления или 64 ACK, после чего группа попадает в тот же FIFO-журнал.
 QoS 2 и первичная запись публикаций не задерживаются. При аварии возможны дополнительные
 повторы уже подтверждённых QoS 1 доставок; положительный PUBACK публикации по-прежнему
@@ -89,7 +89,9 @@ QoS 2 и первичная запись публикаций не задерж�
 сохраняются. Восстановление возвращает доставку прямо в очередь уже выбранного
 получателя. Новый тест проверяет topic/payload/source node/packet ID и неизменность
 живого sender, который нужен для No Local и порядка публикаций. Обычный режим
-сохраняет sender как прежде.
+сохраняет sender как прежде. Отдельно исправлен разбор RecordId: вместо 32-битного stoi
+используется stoll, соответствующий int64_t. Тест создаёт реальную бинарную запись с ID
+выше INT32_MAX и проверяет её восстановление из Redis.
 
 ## Аварийные проверки
 
@@ -123,15 +125,15 @@ python3 test/integration/reliable_store_crash.py --broker /absolute/path/to/xmq_
 ## Материалы для принятия
 
 Материалы групповой фиксации сохранены в
-`build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/`.
+`build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/`.
 Предыдущие результаты до оптимизации сохранены отдельно в родительском каталоге.
 
-- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/manifest.json) — параметры, результаты и SHA-256 бинарников;
-- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/unit.xml) — результаты GTest;
-- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/unit.log),
-  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/build.log);
-- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/crash/results.json),
-  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/crash.log),
+- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/manifest.json) — параметры, результаты и SHA-256 бинарников;
+- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/unit.xml) — результаты GTest;
+- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/unit.log),
+  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/build.log);
+- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/crash/results.json),
+  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v6/crash.log),
   логи временных брокера и Redis.
 
 Артефакты в `build/` остаются локальными и не включены в git.

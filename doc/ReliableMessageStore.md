@@ -59,9 +59,9 @@ The string field stays in its legacy position, so records with a sender remain r
 record layout is unchanged. The ordinary asynchronous mode still persists the original sender.
 
 For outgoing QoS 1 only, cleanup of ACKed delivery records coalesces by recipient for up to
-2 seconds, or 64 ACKs for that recipient. A group becomes one multi-field HDEL in the same
+4 seconds, or 64 ACKs for that recipient. A group becomes one multi-field HDEL in the same
 validated script; the account must permit HDEL. Deferred and already-submitted cleanup share
-an additional budget of 131072 record identifiers and 64 MiB of conservative accounting.
+an additional budget of 262144 record identifiers and 128 MiB of conservative accounting.
 When that budget fills, cleanup falls back to the ordinary bounded journal and requests an
 early flush. `drain()` and shutdown flush deferred cleanup immediately.
 This delays only removal of records whose subscriber has ACKed them. Every new publication

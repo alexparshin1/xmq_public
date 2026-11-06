@@ -2,6 +2,7 @@
 #include "server/ReliableMessageStore.h"
 #include "test/PersistenceTests/PersistenceTests.h"
 #include "common/RedisCredentials.h"
+#include <limits>
 
 using namespace std;
 using namespace sptk;
@@ -585,7 +586,7 @@ TEST_F(XMQ_ReliableStoreTests, IdleQos1CleanupFlushesWithoutAnotherPublicationOr
     atomic_int failed {0};
     store.eraseDelivery("reliable-idle-cleanup", "1", [&] { complete.post(); },
         [&](exception_ptr) { ++failed; complete.post(); }, true);
-    EXPECT_TRUE(complete.wait_for(4s));
+    EXPECT_TRUE(complete.wait_for(6s));
     store.drain();
     EXPECT_EQ(0, failed.load());
     EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-idle-cleanup").empty());
@@ -613,4 +614,40 @@ TEST_F(XMQ_ReliableStoreTests, CompactDeliveryKeepsWireFieldsAndDoesNotChangeLiv
     EXPECT_EQ("payload", string(reinterpret_cast<const char*>(restoredMessage->payloadData()), restoredMessage->payloadSize()));
     EXPECT_EQ("original-node", restoredMessage->getSourceNode());
     EXPECT_EQ(123, restored->deliveryId());
+}
+
+TEST_F(XMQ_ReliableStoreTests, RestoresDeliveryRecordIdsBeyondInt32)
+{
+    const string id = "reliable-large-record";
+    subscribeAndDisconnect(id, "reliable/large-record");
+    const auto recipient = server()->getClientSession(id);
+    const auto message = make_shared<mqtt::PublishMessage>(server()->getTopic("reliable/large-record"), "large-id");
+    const auto original = make_shared<MessageDelivery>(recipient, message, Qos::Qos1, 321, SubscriptionIdSet{}, false);
+    Buffer packed;
+    original->pack(packed);
+    const RecordId largeId = static_cast<RecordId>(numeric_limits<int32_t>::max()) + 123;
+    // Keep the real record codec for every field, replacing only its first typed int64 id.
+    struct PrefixWriter : PersistentObjectPacker
+    {
+        void prefix(Buffer& buffer, const RecordId value) { startPacking(buffer); write(value); }
+    } writer;
+    Buffer largeRecord;
+    writer.prefix(largeRecord, largeId);
+    const auto prefixBytes = largeRecord.bytes();
+    ASSERT_GT(packed.bytes(), prefixBytes);
+    largeRecord.append(packed.data() + prefixBytes, packed.bytes() - prefixBytes);
+    {
+        ReliableMessageStore::Transaction transaction(*server()->reliableMessageStore());
+        transaction.hashSet("session_" + id + "_messages", to_string(largeId), largeRecord);
+        transaction.commit();
+    }
+    int restored = 0;
+    EXPECT_NO_THROW(recipient->PersistentClientSession::initSession(server()->getNodeName(), id, false,
+        [&](const SMessageDelivery& delivery)
+        {
+            ++restored;
+            EXPECT_EQ(321, delivery->deliveryId());
+            delivery->keepRecord();
+        }));
+    EXPECT_EQ(1, restored);
 }

@@ -274,7 +274,7 @@ void ReliableMessageStore::eraseDelivery(string key, string field, function<void
     // Numeric record ids can share one HDEL; QoS 2 and general hash deletes stay immediate.
     if (coalesceQos1 && !field.empty() && field.find_first_not_of("0123456789") == string::npos)
     {
-        constexpr size_t MaxFields = 131072, MaxBytes = 64 * 1024 * 1024;
+        constexpr size_t MaxFields = 262144, MaxBytes = 128 * 1024 * 1024;
         const auto bytes = sizeof(Pending) + sizeof(Operation) + sizeof(CleanupEntry) + key.size() + field.size();
         {
             lock_guard lock(m_queueMutex);
@@ -282,7 +282,7 @@ void ReliableMessageStore::eraseDelivery(string key, string field, function<void
             if (m_indeterminate) throw Exception("Reliable message store requires restart");
             if (m_cleanupCount < MaxFields && bytes <= MaxBytes - m_cleanupBytes)
             {
-                if (m_cleanup.empty()) m_cleanupDue = chrono::steady_clock::now() + chrono::seconds(2);
+                if (m_cleanup.empty()) m_cleanupDue = chrono::steady_clock::now() + chrono::seconds(4);
                 auto& entries = m_cleanup[key];
                 entries.push_back({move(field), move(success), move(failure), bytes});
                 // A busy recipient must not retain an entire packet-id cycle of ACKed records.

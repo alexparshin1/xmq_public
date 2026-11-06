@@ -347,7 +347,7 @@ PersistentClientSession::initSession(const string&                              
     ranges::transform(sessionMessageMap | views::keys, recordIds.begin(),
                       [](const string& recordId)
                       {
-                          return std::stoi(recordId);
+                          return std::stoll(recordId);
                       });
     ranges::sort(recordIds);
 
