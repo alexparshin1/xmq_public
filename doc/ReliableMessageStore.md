@@ -15,7 +15,10 @@ This is the first implementation of acknowledgement after storage, not a replace
 ```
 
 Use Redis with AOF enabled and the `WAITAOF` command (Redis 7.2 or newer). The Redis account needs
-permission for that command and the existing session commands, including EVAL. XMQ never changes
+permission for that command, `SCRIPT LOAD`, `EVALSHA`, and the existing session commands. The
+publication script is loaded before startup and invoked by SHA thereafter. A `NOSCRIPT` response
+reloads it and retries once on the same connection; other errors are never retried. `WAITAOF`
+still follows successful execution before any durable acknowledgement. XMQ never changes
 Redis configuration. Enabling/disabling this mode, changing its storage endpoint or resetting its
 state requires a stopped broker and configuration edit; live persistence changes are rejected.
 When the node configuration lives in SQL, the switch is stored in `xmq_node.persist_ack_after_store`;

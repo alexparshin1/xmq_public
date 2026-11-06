@@ -8,6 +8,34 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
+namespace {
+// Only the private test Redis is modified; always restore permissions on assertion failures.
+class DeniedRedisCommand
+{
+public:
+    explicit DeniedRedisCommand(string rule): m_rule(move(rule))
+    {
+        m_probe.connect(redisConnectionUrl(TestServers::redisUri()));
+        vector<Variant> result;
+        m_probe.executeCommand(RedisCommand("ACL", "WHOAMI"), result);
+        m_account = result.at(0).asString();
+        change("-");
+    }
+    ~DeniedRedisCommand() { try { change("+"); } catch (...) {} }
+private:
+    void change(const string& prefix)
+    {
+        RedisCommand command("ACL", "SETUSER");
+        command.emplace_back(m_account);
+        command.emplace_back(prefix + m_rule);
+        vector<Variant> result;
+        m_probe.executeCommand(command, result);
+    }
+    RedisConnect m_probe;
+    string m_account, m_rule;
+};
+}
+
 class XMQ_ReliableStoreTests : public XMQ_PersistenceTests
 {
 public:
@@ -62,6 +90,82 @@ public:
         publisher->disconnect();
     }
 };
+
+TEST_F(XMQ_ReliableStoreTests, ScriptCacheFlushReloadsAndCommitsExactlyOnce)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    RedisConnect probe;
+    probe.connect(redisConnectionUrl(TestServers::redisUri()));
+    DeniedRedisCommand noEval("eval");
+    int installed = 0, acknowledged = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        // Repeated misses exercise recovery, followed by a warm-cache transaction.
+        if (i != 2)
+        {
+            vector<Variant> result;
+            probe.executeCommand(RedisCommand("SCRIPT", "FLUSH"), result);
+        }
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-script-cache", to_string(i), Buffer("payload"));
+        transaction.onCommit([&] { ++installed; });
+        transaction.onDurable([&] { ++acknowledged; });
+        ASSERT_NO_THROW(transaction.commit());
+        EXPECT_EQ(i + 1, installed);
+        EXPECT_EQ(i + 1, acknowledged);
+    }
+    EXPECT_EQ(3U, probe.getHashValues("reliable-script-cache").size());
+}
+
+TEST_F(XMQ_ReliableStoreTests, DeniedScriptLoadPreventsStoreStartup)
+{
+    DeniedRedisCommand denied("script|load");
+    EXPECT_THROW(ReliableMessageStore{redisConnectionUrl(TestServers::redisUri())}, RedisConnectException);
+}
+
+TEST_F(XMQ_ReliableStoreTests, DeniedEvalShaDoesNotFallbackOrAcknowledge)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    DeniedRedisCommand denied("evalsha");
+    bool installed = false, acknowledged = false;
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-denied-evalsha", "1", Buffer("payload"));
+        transaction.onCommit([&] { installed = true; });
+        transaction.onDurable([&] { acknowledged = true; });
+        EXPECT_THROW(transaction.commit(), RedisConnectException);
+    }
+    EXPECT_FALSE(installed);
+    EXPECT_FALSE(acknowledged);
+    EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashKeys("reliable-denied-evalsha").empty());
+    EXPECT_THROW((ReliableMessageStore::Transaction(store)), Exception);
+}
+
+TEST_F(XMQ_ReliableStoreTests, WarmCacheNeedsNoLoadButDeniedReloadFailsClosed)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    DeniedRedisCommand denied("script|load");
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-reload-denied", "warm", Buffer("payload"));
+        ASSERT_NO_THROW(transaction.commit());
+    }
+    RedisConnect probe;
+    probe.connect(redisConnectionUrl(TestServers::redisUri()));
+    vector<Variant> result;
+    probe.executeCommand(RedisCommand("SCRIPT", "FLUSH"), result);
+    bool acknowledged = false;
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-reload-denied", "cold", Buffer("payload"));
+        transaction.onDurable([&] { acknowledged = true; });
+        EXPECT_THROW(transaction.commit(), RedisConnectException);
+    }
+    EXPECT_FALSE(acknowledged);
+    EXPECT_TRUE(probe.getHashValue("reliable-reload-denied", "cold").isNull());
+    EXPECT_EQ(1U, probe.getHashValues("reliable-reload-denied").size());
+    EXPECT_THROW((ReliableMessageStore::Transaction(store)), Exception);
+}
 
 // No sleep or wait-for-storage after ACK: the contract is that storage is already complete.
 TEST_F(XMQ_ReliableStoreTests, AckImpliesOfflineDeliveryAndRetainedAlreadyStored)

@@ -113,7 +113,9 @@ private:
     };
     void run();
     void complete();
+    void loadCommitScript();
     sptk::RedisConnect m_redis;
+    std::string m_commitSha;
     // Protects staging/visibility order, never held while awaiting disk I/O.
     std::mutex m_mutex;
     std::atomic_bool m_indeterminate {false};

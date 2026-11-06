@@ -84,6 +84,7 @@ ReliableMessageStore::ReliableMessageStore(const URL& url)
     m_redis.connect(redisConnectionUrl(url));
     // WAITAOF fails when AOF is disabled or the command is unavailable. Fail before listening.
     sync(m_redis);
+    loadCommitScript(); // Fail before starting workers if SCRIPT LOAD is not permitted.
     m_worker = thread([this] { run(); });
     try { m_completer = thread([this] { complete(); }); }
     catch (...)
@@ -93,6 +94,21 @@ ReliableMessageStore::ReliableMessageStore(const URL& url)
         m_worker.join();
         throw;
     }
+}
+
+void ReliableMessageStore::loadCommitScript()
+{
+    vector<Variant> result;
+    RedisCommand command("SCRIPT", "LOAD");
+    command.emplace_back(Commit);
+    m_redis.executeCommand(command, result);
+    if (result.size() != 1)
+        throw Exception("Reliable message store: invalid SCRIPT LOAD response");
+    const string sha = result[0].asString();
+    if (sha.size() != 40 || sha.find_first_not_of("0123456789abcdef") != string::npos ||
+        (!m_commitSha.empty() && sha != m_commitSha))
+        throw Exception("Reliable message store: invalid commit script SHA");
+    m_commitSha = sha;
 }
 
 void ReliableMessageStore::sync(RedisConnect& redis)
@@ -428,7 +444,7 @@ void ReliableMessageStore::run()
                 for (const auto& op: request->operations)
                     profile = profile || op.kind == "HSET" || op.kind == "HDEL" || op.kind == "HDELS";
             }
-            RedisCommand command("EVAL", Commit);
+            RedisCommand command("EVALSHA", m_commitSha);
             command.emplace_back(to_string(operations));
             for (const auto& request: batch)
                 for (const auto& op: request->operations) command.emplace_back(op.key);
@@ -442,7 +458,17 @@ void ReliableMessageStore::run()
             vector<Variant> result;
             const auto serialized = chrono::steady_clock::now();
             phases[0] = ns(serialized - started);
-            m_redis.executeCommand(command, result);
+            try { m_redis.executeCommand(command, result); }
+            catch (const RedisConnectException& e)
+            {
+                // NOSCRIPT guarantees that this invocation made no writes. Never retry
+                // network failures or other script errors whose effects may be ambiguous.
+                const string message = e.message();
+                if (message.compare(0, 9, "NOSCRIPT ") != 0) throw;
+                loadCommitScript();
+                result.clear();
+                m_redis.executeCommand(command, result); // One retry; a second miss fails closed.
+            }
             const auto evaluated = chrono::steady_clock::now();
             phases[1] = ns(evaluated - serialized);
             if (result.size() != 1 || result[0].asInt64() != 1)
