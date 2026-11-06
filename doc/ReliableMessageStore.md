@@ -38,14 +38,28 @@ requires confirmation that the local AOF has been fsynced. PUBREL deletes the in
 and confirms fsync before PUBCOMP; a subsequent publication may then reuse that identifier.
 A repeated QoS 2 PUBLISH uses the existing identifier and does not create another delivery.
 
-The publication path has one transaction at a time per broker. It does not hand an acknowledged
-publication off to an asynchronous fanout pool. Queue overflow rejects the publication before
-commit; a queue-limit race after commit cannot discard a delivery already accepted into storage.
+Publication staging is ordered per broker, but does not hold that lock while waiting for disk.
+A dedicated writer combines up to 1024 requests (4 MiB normally) into one validated Lua operation
+and one `WAITAOF` barrier. QoS 1 receive handlers submit their work and remain available for other
+clients and keep-alives. Their successful PUBACK is queued only after the batch is confirmed durable.
+Delivery updates and ACK cleanup use that same ordered journal, avoiding competing AOF flushes
+through separate pool sockets. This is not ACK-before-store write-behind.
+
+The pending journal is bounded to 16384 requests and 64 MiB. Recipient queue limits reserve space
+for uncommitted deliveries too; rollback releases it and commit converts it into a queued record.
+A queue-limit race cannot discard a delivery already accepted into storage. A failed script rejects
+the whole batch. After an ambiguous response or a failed durability barrier the store fails closed
+until restart. Applied records are installed even after a fence failure, but durable-only responses
+(including SUBACK) are withheld.
 
 Persistent-session creation and subscription updates also wait for their local AOF fsync.
 They use the reliable store's dedicated serialized connection too: a raw WAITAOF command must
 never run on a shared pool socket concurrently with another session's commands. That
 prevents an acknowledged publication from relying on a subscription that disappears on restart.
+Session discovery membership is confirmed before CONNACK, so publications do not repeat SADD for
+every recipient. Startup replays already-durable subscription records without rewriting partial
+prefixes of them. A live restored CONNECT confirms discovery and stores the complete restored state
+before CONNACK. A SUBSCRIBE fences pending retained changes before reading the retained view.
 An AOF write error, fsync timeout or unavailable Redis withholds success; there is no memory fallback.
 If the script's response is lost, its outcome is ambiguous. The broker refuses further reliable
 publication transactions until restart, when persistent sessions and packet IDs are reloaded.
@@ -69,7 +83,7 @@ older configuration that might disable the guarantee. The management interface c
   do not establish full MQTT conformance or transactional behavior of downstream applications.
 - fsync is on the critical path. With Redis `appendfsync everysec`, a single publication can wait for
   the next fsync cycle. Evaluate `appendfsync always` and measure latency/throughput on the target disk.
-  Transactions are serialized; batching and a replicated message journal are future work.
+  Group commit amortizes this cost under load; a replicated message journal remains future work.
 - An abrupt host/power failure is not simulated by killing processes. The storage and filesystem must
   honor fsync, and their actual failure model needs independent acceptance testing.
 

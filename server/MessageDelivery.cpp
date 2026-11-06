@@ -92,9 +92,9 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
             transaction->hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
             transaction->onCommit([messageDelivery] { messageDelivery->m_persisted = true; });
         }
-        else if (clientSession->server().reliableMessageStore())
+        else if (clientSession->reliableStore())
         {
-            ReliableMessageStore::Transaction transaction(*clientSession->server().reliableMessageStore());
+            ReliableMessageStore::Transaction transaction(*clientSession->reliableStore());
             Buffer record;
             messageDelivery->pack(record);
             transaction.hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
@@ -500,6 +500,26 @@ void MessageDelivery::storeRecordAsync(const function<void()>& callback)
     m_persisted = true;
     ++m_queuedOperations;
     ++m_queuedWrites;
+    if (auto* store = m_clientSession->reliableStore())
+    {
+        const auto completed = [callback]
+        {
+            --m_queuedOperations;
+            --m_queuedWrites;
+            releaseWriteCapacity();
+            if (callback) callback();
+        };
+        const auto failed = [store](std::exception_ptr)
+        {
+            --m_queuedOperations;
+            --m_queuedWrites;
+            releaseWriteCapacity();
+            store->invalidate();
+        };
+        try { store->writeDelivery(m_sessionMessagesKey, to_string(m_recordId), record, completed, failed); }
+        catch (...) { failed(std::current_exception()); }
+        return;
+    }
     redis->setHashValueAsync(m_sessionMessagesKey, to_string(m_recordId), record,
                              [callback]
                              {
@@ -528,6 +548,34 @@ void MessageDelivery::removeRecordAsync(const std::function<void(const size_t&)>
         return;
     }
     ++m_queuedOperations;
+    if (auto* store = m_clientSession->reliableStore())
+    {
+        // The recipient holds locks here. Enqueue directly without the publication staging
+        // mutex, and let these deletes share the next durable batch instead of competing
+        // through 32 independent pool sockets and forcing additional AOF flushes.
+        try
+        {
+            store->eraseDelivery(m_sessionMessagesKey, to_string(m_recordId),
+                [callback]
+                {
+                    --m_queuedOperations;
+                    if (callback) callback(1);
+                },
+                [store, callback](std::exception_ptr)
+                {
+                    --m_queuedOperations;
+                    store->invalidate();
+                    if (callback) callback(0);
+                });
+        }
+        catch (...)
+        {
+            --m_queuedOperations;
+            store->invalidate();
+            if (callback) callback(0);
+        }
+        return;
+    }
     redis->deleteHashKeysAsync(m_sessionMessagesKey, {to_string(m_recordId)},
                                [callback]
                                {

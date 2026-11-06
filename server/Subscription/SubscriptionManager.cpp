@@ -148,6 +148,7 @@ bool SubscriptionManager::matchMessage(const std::shared_ptr<PublishMessage>& me
         }
         else if (auto* transaction = ReliableMessageStore::Transaction::current())
         {
+            transaction->changesRetained();
             const auto key = RetainedMessages::storageKey(m_server->getNodeName());
             const string payload(msg.payload());
             const auto qos = msg.getQos();

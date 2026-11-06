@@ -266,6 +266,78 @@ class Campaign:
         redis.close()
         self.check("Retained clearing survives double crash immediately after PUBACK")
 
+        # Pipeline publications without waiting for individual fsyncs. Every successful ACK
+        # must survive killing both processes, including records committed in the same batch.
+        self.offline("offline-batch", "crash/batch")
+        publisher = MQTT(self.mqtt_port, "publisher-batch")
+        batch_count = 64
+        for packet_id in range(1, batch_count + 1):
+            publisher.send(0x32, text("crash/batch") + struct.pack("!H", packet_id)
+                           + f"batch-{packet_id}".encode())
+        acknowledgements = set()
+        for _ in range(batch_count):
+            header, body = publisher.read()
+            assert header == 0x40 and len(body) == 2, (header, body)
+            acknowledgements.add(struct.unpack("!H", body)[0])
+        assert acknowledgements == set(range(1, batch_count + 1))
+        self.crash()
+        publisher.sock.close()
+        self.restart()
+        redis = self.redis()
+        assert redis.command("HLEN", "session_offline-batch_messages") == batch_count
+        redis.close()
+        subscriber = MQTT(self.mqtt_port, "offline-batch")
+        received = set()
+        for _ in range(batch_count):
+            header, body = subscriber.read()
+            assert header >> 4 == 3 and (header >> 1) & 3 == 1, (header, body)
+            topic_length = struct.unpack("!H", body[:2])[0]
+            offset = 2 + topic_length
+            packet_id = body[offset:offset + 2]
+            received.add(body[offset + 2:].decode())
+            subscriber.send(0x40, packet_id)
+        assert received == {f"batch-{i}" for i in range(1, batch_count + 1)}
+        subscriber.close()
+        self.check("64 pipelined QoS1 ACKs survive double crash and recover every offline delivery")
+
+        # A commit completion must never acknowledge a packet on a replacement connection.
+        self.offline("offline-takeover", "crash/takeover")
+        old = MQTT(self.mqtt_port, "publisher-takeover")
+        redis = self.redis()
+        redis.command("CLIENT", "PAUSE", 100, "WRITE")
+        redis.close()
+        old.send(0x32, text("crash/takeover") + struct.pack("!H", 77) + b"old")
+        replacement = MQTT(self.mqtt_port, "publisher-takeover")
+        replacement.send(0xC0, b"")
+        assert replacement.read() == (0xD0, b""), "Late PUBACK leaked to replacement connection"
+        replacement.publish("crash/takeover", "new", packet_id=77)
+        redis = self.redis()
+        assert redis.command("HLEN", "session_offline-takeover_messages") == 2
+        redis.close()
+        old.sock.close()
+        replacement.close()
+        self.check("Delayed QoS1 commit cannot send an old PUBACK to a replacement connection")
+
+        # The script can succeed while the fsync barrier is denied. SUBACK belongs to
+        # the durable-only completion path, not to the applied-state installation path.
+        subscriber = MQTT(self.mqtt_port, "subscriber-fence-fault")
+        redis = self.redis()
+        redis.command("ACL", "SETUSER", "default", "-waitaof")
+        redis.close()
+        subscriber.send(0x82, b"\x00\x01" + text("crash/fence") + b"\x01")
+        try:
+            reply = subscriber.read()
+        except (EOFError, ConnectionError, socket.timeout):
+            reply = None
+        assert reply is None or reply[0] != 0x90, reply
+        redis = self.redis()
+        redis.command("ACL", "SETUSER", "default", "+waitaof")
+        redis.close()
+        subscriber.sock.close()
+        self.check("Applied subscription without confirmed fsync cannot send successful SUBACK")
+        self.crash()
+        self.restart()
+
         # An ACL denial inside a Lua script must be found before any write. This Redis belongs
         # exclusively to this campaign; no shared service or account is changed.
         self.offline("offline-acl", "crash/acl")

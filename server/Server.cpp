@@ -779,6 +779,9 @@ Server::~Server()
         logMessage(LogSubject::ServerEvents, LogPriority::Error,
                    std::string("Server::stopServer() failed: ") + e.what());
     }
+    // Join before member destruction: callbacks can refer to the subscription manager,
+    // which would otherwise be destroyed before the journal member.
+    if (m_reliableMessageStore) m_reliableMessageStore->shutdown();
 }
 
 void Server::clearStoredState()
@@ -869,12 +872,21 @@ void Server::stopServer()
 
         FastTCPServer::stop();
 
+        // No new receive/authentication work can submit records after this fence. Complete
+        // durable callbacks while sessions, subscriptions and extension handlers still exist.
+        stopConnectCompletions();
+        if (m_reliableMessageStore)
+        {
+            m_reliableMessageStore->drain();
+            const auto stats = m_reliableMessageStore->statistics();
+            logMessage(LogSubject::ServerEvents, LogPriority::Info,
+                       format("Reliable message store: {} transactions in {} durable batches (largest {}).",
+                              stats.transactions, stats.batches, stats.largestBatch));
+        }
+
         // After the listeners, so nothing is still raising events into a host that is unloading
         // the libraries the handlers live in.
         m_extensions.stop();
-
-        // Before storage goes: a CONNECT being finished may still be reading from Redis.
-        stopConnectCompletions();
 
         // Records still waiting out the write-behind delay go to Redis while it is connected.
         MessageDelivery::flushPendingWrites();
@@ -887,6 +899,8 @@ void Server::stopServer()
         closeConnections();
 
         clear();
+
+        if (m_reliableMessageStore) m_reliableMessageStore->drain();
 
         if (m_systemStatistics)
         {

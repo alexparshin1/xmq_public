@@ -257,3 +257,153 @@ TEST_F(XMQ_ReliableStoreTests, ConcurrentPersistentConnectionsAndSubscriptionsRe
         }
     }
 }
+
+TEST_F(XMQ_ReliableStoreTests, ConcurrentCommitsShareDurableBatches)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    atomic_int accepted {0}, failed {0};
+    constexpr int count = 512;
+    for (int i = 0; i < count; ++i)
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-batch", to_string(i), Buffer("payload"));
+        transaction.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    store.drain();
+    EXPECT_EQ(count, accepted.load());
+    EXPECT_EQ(0, failed.load());
+    EXPECT_EQ(count, server()->getRedisStorage()->getRedis()->getHashValues("reliable-batch").size());
+    const auto stats = store.statistics();
+    EXPECT_EQ(count, stats.transactions);
+    EXPECT_LT(stats.batches, stats.transactions);
+    EXPECT_GT(stats.largestBatch, 1U);
+}
+
+TEST_F(XMQ_ReliableStoreTests, FailedBatchNeverCompletesSuccessfullyOrWritesPartialState)
+{
+    server()->getRedisStorage()->getRedis()->setValue("reliable-batch-wrong-type", "string");
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    atomic_int accepted {0}, failed {0};
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-batch-before-error", "field", Buffer("payload"));
+        transaction.hashSet("reliable-batch-wrong-type", "field", Buffer("payload"));
+        transaction.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    store.drain();
+    EXPECT_EQ(0, accepted.load());
+    EXPECT_EQ(1, failed.load());
+    EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-batch-before-error").empty());
+    EXPECT_THROW(ReliableMessageStore::Transaction transaction(store), Exception);
+}
+
+TEST_F(XMQ_ReliableStoreTests, RetainedReaderWaitsForPendingPublicationVisibility)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    atomic_bool visible {false};
+    {
+        ReliableMessageStore::Transaction publication(store);
+        publication.changesRetained();
+        publication.hashSet("reliable-pending-retained", "topic", Buffer("new value"));
+        publication.onCommit([&] { visible = true; });
+        publication.commitAsync({}, [](exception_ptr) {});
+    }
+    ReliableMessageStore::Transaction subscription(store, true);
+    EXPECT_TRUE(visible.load());
+    subscription.commit();
+}
+
+TEST_F(XMQ_ReliableStoreTests, DeliveryCleanupSharesJournalAndCannotOvertakePublication)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    atomic_int completed {0}, failed {0};
+    constexpr int count = 256;
+    for (int i = 0; i < count; ++i)
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-pending-deliveries", to_string(i), Buffer("payload"));
+        transaction.commitAsync([&] { ++completed; }, [&](exception_ptr) { ++failed; });
+        store.writeDelivery("reliable-pending-deliveries", to_string(i), Buffer("updated"),
+                            [&] { ++completed; }, [&](exception_ptr) { ++failed; });
+        store.eraseDelivery("reliable-pending-deliveries", to_string(i),
+                            [&] { ++completed; }, [&](exception_ptr) { ++failed; });
+    }
+    store.drain();
+    EXPECT_EQ(count * 3, completed.load());
+    EXPECT_EQ(0, failed.load());
+    EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-pending-deliveries").empty());
+    const auto stats = store.statistics();
+    EXPECT_EQ(count * 3, stats.transactions);
+    EXPECT_LT(stats.batches, stats.transactions);
+}
+
+TEST_F(XMQ_ReliableStoreTests, RestoredConnectionRepairsDiscoveryBeforeConnack)
+{
+    const string id = "reliable-repair-discovery";
+    subscribeAndDisconnect(id, "reliable/repair");
+    const auto key = "node_" + server()->getNodeName() + "_sessions";
+    server()->getRedisStorage()->getRedis()->deleteSetMembers(key, {id});
+    stopServers();
+    createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, false,
+                 "primary", "user", "secret", LogPriority::Error, true, false,
+                 [](Settings& settings) { settings.m_persistence.m_ack_after_store = true; });
+    const auto client = connectClient(id);
+    const auto members = server()->getRedisStorage()->getRedis()->getSetMembers(key);
+    EXPECT_EQ(1U, members.size());
+    client->disconnect();
+}
+
+TEST_F(XMQ_ReliableStoreTests, StartupReplayKeepsCompleteDurableSubscriptionRecord)
+{
+    const string id = "reliable-startup-replay";
+    subscribeAndDisconnect(id, "reliable/replay");
+    stopServers();
+    RedisConnect probe;
+    probe.connect(redisConnectionUrl(TestServers::redisUri()));
+    const auto before = probe.getValue("session_" + id).asBuffer();
+    createServer(TestTcpPortNumber, TestSslPortNumber, TestServicePortNumber, false,
+                 "primary", "user", "secret", LogPriority::Error, true, false,
+                 [](Settings& settings) { settings.m_persistence.m_ack_after_store = true; });
+    const auto after = probe.getValue("session_" + id).asBuffer();
+    EXPECT_EQ(string(before.c_str(), before.bytes()), string(after.c_str(), after.bytes()));
+    publishAndWait("reliable/replay", "restored", false);
+    EXPECT_EQ(1U, probe.getHashValues("session_" + id + "_messages").size());
+}
+
+TEST_F(XMQ_ReliableStoreTests, AppliedScriptWithoutConfirmedFenceCannotRunDurableAck)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    RedisConnect probe;
+    probe.connect(redisConnectionUrl(TestServers::redisUri()));
+    vector<Variant> result;
+    string account;
+    const auto change = [&](const string& rule)
+    {
+        RedisCommand command("ACL", "SETUSER");
+        command.emplace_back(account);
+        command.emplace_back(rule);
+        vector<Variant> ignored;
+        probe.executeCommand(command, ignored);
+    };
+    try
+    {
+        probe.executeCommand(RedisCommand("ACL", "WHOAMI"), result);
+        account = result.at(0).asString();
+        change("-waitaof");
+    }
+    catch (const Exception& e) { GTEST_SKIP() << "Private Redis ACL control required: " << e.what(); }
+    struct RestoreAcl
+    {
+        function<void()> restore;
+        ~RestoreAcl() { try { restore(); } catch (...) {} }
+    } restore {[&] { change("+waitaof"); }};
+    atomic_bool installed {false}, acknowledged {false};
+    ReliableMessageStore::Transaction transaction(store);
+    transaction.hashSet("reliable-failed-fence", "field", Buffer("committed"));
+    transaction.onCommit([&] { installed = true; });
+    transaction.onDurable([&] { acknowledged = true; });
+    EXPECT_THROW(transaction.commit(), Exception);
+    EXPECT_TRUE(installed.load());
+    EXPECT_FALSE(acknowledged.load());
+    EXPECT_FALSE(probe.getHashValue("reliable-failed-fence", "field").isNull());
+}

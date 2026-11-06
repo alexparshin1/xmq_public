@@ -22,12 +22,16 @@ namespace xmq {
 
 class ClientSession;
 class Server;
+class ReliableMessageStore;
 
 class PersistentClientSession
     : public ClientSessionData
     , public PersistentObject
 {
 public:
+    // The owning server is immutable. Delivery destruction can call this while holding
+    // the session lock, so it must not reacquire that lock through server().
+    [[nodiscard]] ReliableMessageStore* reliableStore() const noexcept;
     /**
      * @brief Session initialization type.
      */
@@ -192,6 +196,7 @@ private:
     std::optional<sptk::Variant>        m_prefetchedSession; ///< See setPrefetchedSession(); consumed by the next lookup.
     std::optional<sptk::RedisConnect::KeysAndValues> m_prefetchedMessages;
     std::optional<std::vector<std::string>>           m_prefetchedQos2Keys;
+    bool m_restoringSubscriptions {false}; ///< Replay already-durable metadata without rewriting partial state.
     std::atomic_bool                    m_released {false};  ///< See markReleased().
     std::atomic_bool                    m_claimedForCluster {false}; ///< See setClaimedForCluster().
 };

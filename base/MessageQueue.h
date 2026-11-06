@@ -74,6 +74,10 @@ public:
      * the session, and a message in the window is held by this session exactly as one behind it is.
      */
     [[nodiscard]] bool canAccept(uint64_t messageBytes) const;
+    // Count records waiting for a durable batch against the same queue limits.
+    bool reserve(uint64_t messageBytes);
+    void cancelReservation(uint64_t messageBytes);
+    MessageId queueReservedMessage(const SMessageDispatch& messageDispatch);
 
     /// Messages dropped by the queue limits since the session started.
     [[nodiscard]] uint64_t droppedMessages() const;
@@ -140,6 +144,8 @@ private:
     std::atomic_uint32_t             m_maxQueuedMessages {0};
     std::atomic_uint64_t             m_maxQueuedBytes {0};
     uint64_t                         m_queuedBytes {0};         ///< Sum of what this queue holds, in flight and waiting, under m_mutex.
+    size_t                           m_reservedMessages {0};
+    uint64_t                         m_reservedBytes {0};
     std::atomic_uint64_t             m_droppedMessages {0};
     MessageId                        m_nextMessageId {0};
     MessageDispatchMap               m_inflightMessages;

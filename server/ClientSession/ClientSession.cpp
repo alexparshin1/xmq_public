@@ -869,23 +869,27 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     if (auto* transaction = ReliableMessageStore::Transaction::current())
     {
         const auto queue = inflightQueueUnlocked();
-        if (!queue || (qos != Qos::Qos0 && !queue->canAccept(publishedBytes(message))))
+        const auto bytes = publishedBytes(message);
+        if (!queue || (qos != Qos::Qos0 && !queue->reserve(bytes)))
         {
             throw ProtocolException(getProtocolVersion(), ReasonCode::QuotaExceeded, "Reliable publication: recipient queue is full");
         }
-        if (!isCleanSession() && qos != Qos::Qos0)
-        {
-            transaction->addMember("node_" + server().getNodeName() + "_sessions", getClientId());
-        }
+        if (qos != Qos::Qos0)
+            transaction->onRollback([queue, bytes] { queue->cancelReservation(bytes); });
+        // Discovery membership was fenced before this persistent session's CONNACK.
+        // Repeating SADD for every publication only adds work to the durable journal.
         const auto id = qos == Qos::Qos0 ? 0 : queue->nextDeliveryId();
         const auto delivery = MessageDelivery::create(shared(), message, qos, id, subscriptionIds, retain);
         delivery->setSharedSubscriptions(sharedSubscriptions);
-        transaction->onCommit([self = shared(), queue, delivery, isPublish = message->is(Message::Type::Publish)]
+        const auto install = [self = shared(), queue, delivery, qos, isPublish = message->is(Message::Type::Publish)]
         {
             const unique_lock lock(self->m_mutex);
-            queue->queueCommittedMessage(delivery);
+            if (qos == Qos::Qos0) queue->queueCommittedMessage(delivery);
+            else queue->queueReservedMessage(delivery);
             if (isPublish) self->incrementPublishScheduledCount();
-        });
+        };
+        if (message->is(Message::Type::Publish)) transaction->onCommit(install);
+        else transaction->onDurable(install); // SUBACK must never escape after a failed fence.
         return id;
     }
 
@@ -1357,9 +1361,9 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
         case Subscribe:
             if (auto* store = server().reliableMessageStore())
             {
-                // A publication must not match a new persistent subscription until its metadata
-                // is recoverable. The same lock serializes subscription installation and publish.
-                ReliableMessageStore::Transaction transaction(*store);
+                // Fence pending retained updates before replay. Subsequent publications are
+                // staged after this metadata on the same journal and cannot outrun its fsync.
+                ReliableMessageStore::Transaction transaction(*store, true);
                 handleSubscribeMessage(msg);
                 transaction.commit();
             }
@@ -1395,6 +1399,33 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                         }
                         ReliableMessageStore::Transaction transaction(*store);
                         handlePublishMessage(sharedMessage);
+                        if (publishMessage->getQos() == Qos::Qos1)
+                        {
+                            // Keep receive workers free for other clients and keep-alives while
+                            // the journal groups publications behind one durable barrier.
+                            const auto self = shared();
+                            const auto connection = m_readConnection ? m_readConnection : getConnection();
+                            const auto buffer = socketWriteBuffer();
+                            transaction.commitAsync(
+                                [self, connection, buffer, sharedMessage]
+                                {
+                                    self->incrementPublishReceiveCount();
+                                    // A late commit belongs to its original connection, never a
+                                    // replacement that has already reused this packet identifier.
+                                    if (self->getConnection() == connection)
+                                        buffer->appendAckToBuffer(sharedMessage.get(), ReasonCode::Success);
+                                },
+                                [self, connection](exception_ptr failure)
+                                {
+                                    try { rethrow_exception(failure); }
+                                    catch (const exception& e)
+                                    {
+                                        self->server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+                                    }
+                                    self->closeSession(connection);
+                                });
+                            return;
+                        }
                         transaction.commit();
                     }
                     else
@@ -1564,25 +1595,25 @@ void ClientSession::handlePublishMessage(const SMessage& message)
         return;
     }
 
-    const auto notifyExtensions = [this, publishMessage]
+    const auto notifyExtensions = [self = shared(), publishMessage]
     {
-        if (server().extensions().watching())
+        if (self->server().extensions().watching())
         {
             // Raised where the broker accepted the message, before delivery: an observer is watching
             // what clients did, not what subscribers received. The payload is not passed on - copying
             // every message body through the queue would make observation cost more than delivery.
-            server().extensions().publishEvent(XMQ_EVENT_PUBLISHED, getClientId(), getUsername(),
+            self->server().extensions().publishEvent(XMQ_EVENT_PUBLISHED, self->getClientId(), self->getUsername(),
                                                publishMessage->destination()->fullName(),
                                                publishMessage->payload().size(),
                                                static_cast<uint8_t>(publishMessage->getQos()),
                                                publishMessage->isRetain());
         }
 
-        if (server().extensions().tapping())
+        if (self->server().extensions().tapping())
         {
             // Only the taps that asked for this topic pay for the body; the broker copies it no
             // further than the extensions that have a matching filter.
-            server().extensions().publishMessage(getClientId(), getUsername(),
+            self->server().extensions().publishMessage(self->getClientId(), self->getUsername(),
                                                  publishMessage->destination()->fullName(),
                                                  reinterpret_cast<const char*>(publishMessage->payloadData()),
                                                  publishMessage->payloadSize(),
