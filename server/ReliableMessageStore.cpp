@@ -111,7 +111,7 @@ void ReliableMessageStore::shutdown()
 ReliableMessageStore::Statistics ReliableMessageStore::statistics() const
 {
     lock_guard lock(m_queueMutex);
-    return {m_transactions, m_batches, m_largestBatch};
+    return {m_transactions, m_batches, m_largestBatch, m_profiledBatches, m_profiledRequests, m_phaseNs};
 }
 
 ReliableMessageStore::Transaction::Transaction(ReliableMessageStore& store, const bool readsRetained)
@@ -222,8 +222,8 @@ void ReliableMessageStore::Transaction::commitAsync(function<void()> success, fu
 
 void ReliableMessageStore::enqueue(const shared_ptr<Pending>& pending)
 {
-    constexpr size_t MaxPending = 16384;
-    constexpr size_t MaxBytes = 64 * 1024 * 1024;
+    constexpr size_t MaxPending = 131072;
+    constexpr size_t MaxBytes = 128 * 1024 * 1024;
     {
         lock_guard lock(m_queueMutex);
         if (m_stopping) throw Exception("Reliable message store is stopping");
@@ -263,7 +263,7 @@ void ReliableMessageStore::queueDeliveryOperation(Operation operation, function<
 
 void ReliableMessageStore::run()
 {
-    constexpr size_t MaxBatch = 1024;
+    constexpr size_t MaxBatch = 4096;
     constexpr size_t BatchBytes = 4 * 1024 * 1024;
     while (true)
     {
@@ -286,11 +286,20 @@ void ReliableMessageStore::run()
         exception_ptr failure;
         bool applied = false;
         bool durable = false;
+        bool profile = false;
+        array<uint64_t, 6> phases {};
+        const auto ns = [](const auto elapsed) { return chrono::duration_cast<chrono::nanoseconds>(elapsed).count(); };
+        const auto started = chrono::steady_clock::now();
         try
         {
             if (m_indeterminate) throw Exception("Reliable message store requires restart");
             size_t operations = 0;
-            for (const auto& request: batch) operations += request->operations.size();
+            for (const auto& request: batch)
+            {
+                operations += request->operations.size();
+                for (const auto& op: request->operations)
+                    profile = profile || op.kind == "HSET" || op.kind == "HDEL";
+            }
             RedisCommand command("EVAL", Commit);
             command.emplace_back(to_string(operations));
             for (const auto& request: batch)
@@ -303,17 +312,23 @@ void ReliableMessageStore::run()
                     command.emplace_back(op.value);
                 }
             vector<Variant> result;
+            const auto serialized = chrono::steady_clock::now();
+            phases[0] = ns(serialized - started);
             m_redis.executeCommand(command, result);
+            const auto evaluated = chrono::steady_clock::now();
+            phases[1] = ns(evaluated - serialized);
             if (result.size() != 1 || result[0].asInt64() != 1)
                 throw Exception("Reliable publication batch failed");
             applied = true;
             sync(m_redis); // Same connection, one durable barrier for every record in the batch.
+            phases[2] = ns(chrono::steady_clock::now() - evaluated);
             durable = true;
         }
         catch (...) { failure = current_exception(); m_indeterminate = true; }
 
         // A successful script cannot be undone after a fence timeout. Install those records,
         // but never send success ACKs. Pre-write failures instead cancel staged reservations.
+        const auto applying = chrono::steady_clock::now();
         const auto invoke = [&](const function<void()>& action)
         {
             try { action(); }
@@ -328,6 +343,9 @@ void ReliableMessageStore::run()
             }
             else for (const auto& action: request->rollback) invoke(action);
         }
+
+        const auto completing = chrono::steady_clock::now();
+        phases[3] = ns(completing - applying);
 
         for (const auto& request: batch)
         {
@@ -350,6 +368,9 @@ void ReliableMessageStore::run()
                 try { request->completed.set_exception(current_exception()); } catch (...) {}
             }
         }
+        const auto recycling = chrono::steady_clock::now();
+        phases[4] = ns(recycling - completing);
+        const auto batchSize = batch.size();
         {
             lock_guard lock(m_queueMutex);
             if (durable)
@@ -367,5 +388,14 @@ void ReliableMessageStore::run()
             m_finished += batch.size();
         }
         m_changed.notify_all();
+        batch.clear();
+        phases[5] = ns(chrono::steady_clock::now() - recycling);
+        if (profile && durable)
+        {
+            lock_guard lock(m_queueMutex);
+            ++m_profiledBatches;
+            m_profiledRequests += batchSize;
+            for (size_t i = 0; i < phases.size(); ++i) m_phaseNs[i] += phases[i];
+        }
     }
 }

@@ -318,6 +318,20 @@ class Campaign:
         replacement.close()
         self.check("Delayed QoS1 commit cannot send an old PUBACK to a replacement connection")
 
+        # SUBSCRIBE also returns to its receive worker before the disk finishes. Its late
+        # SUBACK must stay with the original connection, including a takeover during the fence.
+        old = MQTT(self.mqtt_port, "subscriber-takeover")
+        redis = self.redis()
+        redis.command("CLIENT", "PAUSE", 100, "WRITE")
+        redis.close()
+        old.send(0x82, b"\x00\x01" + text("crash/subscriber-takeover") + b"\x01")
+        replacement = MQTT(self.mqtt_port, "subscriber-takeover")
+        replacement.send(0xC0, b"")
+        assert replacement.read() == (0xD0, b""), "Late SUBACK leaked to replacement connection"
+        old.sock.close()
+        replacement.close()
+        self.check("Delayed SUBSCRIBE commit cannot send an old SUBACK to a replacement connection")
+
         # The script can succeed while the fsync barrier is denied. SUBACK belongs to
         # the durable-only completion path, not to the applied-state installation path.
         subscriber = MQTT(self.mqtt_port, "subscriber-fence-fault")

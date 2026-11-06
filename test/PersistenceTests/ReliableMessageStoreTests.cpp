@@ -407,3 +407,37 @@ TEST_F(XMQ_ReliableStoreTests, AppliedScriptWithoutConfirmedFenceCannotRunDurabl
     EXPECT_FALSE(acknowledged.load());
     EXPECT_FALSE(probe.getHashValue("reliable-failed-fence", "field").isNull());
 }
+
+TEST_F(XMQ_ReliableStoreTests, QueuedPayloadsSurviveMultipleBoundedBatches)
+{
+    Semaphore entered, release;
+    atomic_int accepted {0}, failed {0};
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    {
+        ReliableMessageStore::Transaction gate(store);
+        gate.hashSet("reliable-many-batches", "gate", Buffer("gate"));
+        gate.onCommit([&]
+        {
+            entered.post();
+            if (!release.wait_for(5s)) ++failed;
+        });
+        gate.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    const bool ready = entered.wait_for(5s);
+    EXPECT_TRUE(ready);
+    if (!ready) { release.post(); store.drain(); return; }
+    constexpr int count = 4320;
+    const string payload(1024, 'x');
+    for (int i = 0; i < count; ++i)
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-many-batches", to_string(i), Buffer(payload));
+        transaction.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    release.post();
+    store.drain();
+    EXPECT_EQ(count + 1, accepted.load());
+    EXPECT_EQ(0, failed.load());
+    EXPECT_EQ(count + 1, server()->getRedisStorage()->getRedis()->getHashValues("reliable-many-batches").size());
+    EXPECT_GT(store.statistics().batches, 1U);
+}

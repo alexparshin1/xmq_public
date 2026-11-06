@@ -10,6 +10,7 @@
 #include <deque>
 #include <future>
 #include <thread>
+#include <array>
 
 namespace xmq {
 
@@ -33,7 +34,13 @@ public:
     void writeDelivery(std::string key, std::string field, const sptk::Buffer& value,
                        std::function<void()> success, std::function<void(std::exception_ptr)> failure);
 
-    struct Statistics { uint64_t transactions, batches, largestBatch; };
+    struct Statistics
+    {
+        uint64_t transactions, batches, largestBatch;
+        uint64_t profiledBatches, profiledRequests;
+        // Serialization, EVAL, WAITAOF, installation, completion, recycling (nanoseconds).
+        std::array<uint64_t, 6> phaseNs;
+    };
     Statistics statistics() const;
 
     class Transaction
@@ -99,5 +106,7 @@ private:
     std::thread m_worker;
     uint64_t m_transactions {0}, m_batches {0}, m_largestBatch {0};
     uint64_t m_finished {0};
+    uint64_t m_profiledBatches {0}, m_profiledRequests {0};
+    std::array<uint64_t, 6> m_phaseNs {};
 };
 } // namespace xmq

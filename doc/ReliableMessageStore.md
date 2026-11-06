@@ -39,13 +39,14 @@ and confirms fsync before PUBCOMP; a subsequent publication may then reuse that 
 A repeated QoS 2 PUBLISH uses the existing identifier and does not create another delivery.
 
 Publication staging is ordered per broker, but does not hold that lock while waiting for disk.
-A dedicated writer combines up to 1024 requests (4 MiB normally) into one validated Lua operation
+A dedicated writer combines up to 4096 requests (4 MiB normally) into one validated Lua operation
 and one `WAITAOF` barrier. QoS 1 receive handlers submit their work and remain available for other
-clients and keep-alives. Their successful PUBACK is queued only after the batch is confirmed durable.
+clients and keep-alives. SUBSCRIBE also returns without occupying a receive worker; SUBACK
+remains behind the durable barrier and is bound to its original connection. The successful PUBACK is queued only after the batch is confirmed durable.
 Delivery updates and ACK cleanup use that same ordered journal, avoiding competing AOF flushes
 through separate pool sockets. This is not ACK-before-store write-behind.
 
-The pending journal is bounded to 16384 requests and 64 MiB. Recipient queue limits reserve space
+The pending journal is bounded to 131072 requests and 128 MiB. Recipient queue limits reserve space
 for uncommitted deliveries too; rollback releases it and commit converts it into a queued record.
 A queue-limit race cannot discard a delivery already accepted into storage. A failed script rejects
 the whole batch. After an ambiguous response or a failed durability barrier the store fails closed

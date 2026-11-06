@@ -882,6 +882,11 @@ void Server::stopServer()
             logMessage(LogSubject::ServerEvents, LogPriority::Info,
                        format("Reliable message store: {} transactions in {} durable batches (largest {}).",
                               stats.transactions, stats.batches, stats.largestBatch));
+            logMessage(LogSubject::ServerEvents, LogPriority::Info,
+                       format("Reliable data profile: {} requests / {} batches; ms serialize={} eval={} fence={} install={} complete={} recycle={}.",
+                              stats.profiledRequests, stats.profiledBatches, stats.phaseNs[0] / 1000000,
+                              stats.phaseNs[1] / 1000000, stats.phaseNs[2] / 1000000, stats.phaseNs[3] / 1000000,
+                              stats.phaseNs[4] / 1000000, stats.phaseNs[5] / 1000000));
         }
 
         // After the listeners, so nothing is still raising events into a host that is unloading

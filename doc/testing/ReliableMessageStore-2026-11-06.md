@@ -35,11 +35,9 @@ Linux, C++20 с `-O3 -DNDEBUG`, SPTK 5.6.19, Redis 8.0.6.
 
 ## Регрессионные тесты
 
-**202 теста, 14 наборов, 0 ошибок; 201 пройден, 1 условный пропуск; 62,374 с.**
-Пропущенный `XMQ_ExtensionHostTests.aGroupDoesNotInheritTheDecisionsOfOneThatHeldItsAddress`
-зависит от повторного использования адреса аллокатором. Он отдельно прошёл без пропуска
-(1 тест, 0 ошибок, 0,005 с). Все 18 тестов надёжного хранилища выполнены без пропусков.
-В набор входят 18 тестов надёжного режима, а также проверки persistence, storage, retained, очередей,
+**203 теста, 14 наборов, 0 ошибок, 0 пропусков; 62,709 с.**
+Все 19 тестов надёжного хранилища выполнены без пропусков.
+В набор входят 19 тестов надёжного режима, а также проверки persistence, storage, retained, очередей,
 расширения и настройки. SQL-проверки выполнились на PostgreSQL и MySQL, включая
 сохранение нового переключателя и обновление существующей схемы.
 
@@ -74,7 +72,7 @@ XMQ_ReliableStoreTests.*:XMQ_PersistenceTests.*:XMQ_StorageTests.*:XMQ_RetainedM
 
 ## Аварийные проверки
 
-**11 из 11 сценариев прошли.** Использовались отдельные процессы брокера и Redis,
+**12 из 12 сценариев прошли.** Использовались отдельные процессы брокера и Redis,
 сырые пакеты MQTT 3.1.1 и фактически полученные подтверждения. Оба процесса
 останавливались через SIGKILL сразу после подтверждения, без graceful shutdown.
 
@@ -90,6 +88,7 @@ XMQ_ReliableStoreTests.*:XMQ_PersistenceTests.*:XMQ_StorageTests.*:XMQ_RetainedM
    аварийную остановку обоих процессов; все 64 offline-доставки восстановлены и получены.
 10. Задержанный commit старого подключения не отправил PUBACK в заменившее его подключение.
 11. Успешный Lua при запрещённом WAITAOF не дал успешного SUBACK.
+12. Задержанный SUBSCRIBE не отправил свой SUBACK в заменившее подключение.
 
 Воспроизведение:
 
@@ -103,15 +102,15 @@ python3 test/integration/reliable_store_crash.py --broker /absolute/path/to/xmq_
 ## Материалы для принятия
 
 Материалы групповой фиксации сохранены в
-`build/reliable-message-store-acceptance-2026-11-06/group-commit/`.
+`build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/`.
 Предыдущие результаты до оптимизации сохранены отдельно в родительском каталоге.
 
-- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/manifest.json) — параметры, результаты и SHA-256 бинарников;
-- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/unit.xml) — результаты GTest;
-- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/unit.log),
-  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/build.log);
-- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/crash-results.json),
-  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit/crash.log),
+- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/manifest.json) — параметры, результаты и SHA-256 бинарников;
+- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/unit.xml) — результаты GTest;
+- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/unit.log),
+  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/build.log);
+- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/crash-results.json),
+  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/crash.log),
   логи временных брокера и Redis.
 
 Артефакты в `build/` остаются локальными и не включены в git.

@@ -49,6 +49,17 @@ uint64_t publishedBytes(const SMessage& message)
     }
     return bytes;
 }
+
+void failReliableCommit(const SClientSession& session, const shared_ptr<ServerConnectionExt>& connection,
+                         const exception_ptr& failure)
+{
+    try { rethrow_exception(failure); }
+    catch (const exception& e)
+    {
+        session->server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+    }
+    session->closeSession(connection);
+}
 } // namespace
 
 
@@ -881,9 +892,12 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         const auto id = qos == Qos::Qos0 ? 0 : queue->nextDeliveryId();
         const auto delivery = MessageDelivery::create(shared(), message, qos, id, subscriptionIds, retain);
         delivery->setSharedSubscriptions(sharedSubscriptions);
-        const auto install = [self = shared(), queue, delivery, qos, isPublish = message->is(Message::Type::Publish)]
+        const bool isPublish = message->is(Message::Type::Publish);
+        const auto replyConnection = isPublish ? nullptr : (m_readConnection ? m_readConnection : getConnection());
+        const auto install = [self = shared(), queue, delivery, qos, isPublish, replyConnection]
         {
             const unique_lock lock(self->m_mutex);
+            if (!isPublish && self->getConnection() != replyConnection) return;
             if (qos == Qos::Qos0) queue->queueCommittedMessage(delivery);
             else queue->queueReservedMessage(delivery);
             if (isPublish) self->incrementPublishScheduledCount();
@@ -1365,7 +1379,12 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                 // staged after this metadata on the same journal and cannot outrun its fsync.
                 ReliableMessageStore::Transaction transaction(*store, true);
                 handleSubscribeMessage(msg);
-                transaction.commit();
+                const auto self = shared();
+                const auto connection = m_readConnection ? m_readConnection : getConnection();
+                transaction.commitAsync({}, [self, connection](exception_ptr failure)
+                {
+                    failReliableCommit(self, connection, failure);
+                });
             }
             else
             {
@@ -1417,12 +1436,7 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                                 },
                                 [self, connection](exception_ptr failure)
                                 {
-                                    try { rethrow_exception(failure); }
-                                    catch (const exception& e)
-                                    {
-                                        self->server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
-                                    }
-                                    self->closeSession(connection);
+                                    failReliableCommit(self, connection, failure);
                                 });
                             return;
                         }
