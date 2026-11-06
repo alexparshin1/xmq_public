@@ -320,58 +320,76 @@ void ReliableMessageStore::eraseDelivery(string key, string field, function<void
     queueDeliveryOperation({"HDEL", move(key), move(field), ""}, move(success), move(failure));
 }
 
+void ReliableMessageStore::enqueueCleanupLocked(const string& key, vector<CleanupEntry>& entries)
+{
+    for (size_t offset = 0; offset < entries.size(); offset += 64)
+    {
+        auto pending = make_shared<Pending>();
+        auto callbacks = make_shared<vector<CleanupEntry>>();
+        const auto end = min(entries.size(), offset + 64);
+        callbacks->reserve(end - offset);
+        string fields;
+        for (size_t i = offset; i < end; ++i)
+        {
+            if (!fields.empty()) fields += ',';
+            fields += entries[i].field;
+            pending->cleanupBytes += entries[i].bytes;
+            callbacks->push_back(move(entries[i]));
+        }
+        pending->operations.push_back({"HDELS", key, move(fields), ""});
+        pending->cleanupCount = callbacks->size();
+        pending->bytes = pending->cleanupBytes; // Conservative bound also used for batching.
+        pending->success = [callbacks]
+        {
+            exception_ptr error;
+            for (const auto& entry: *callbacks)
+                try { if (entry.success) entry.success(); }
+                catch (...) { if (!error) error = current_exception(); }
+            if (error) rethrow_exception(error);
+        };
+        pending->failure = [callbacks](exception_ptr failure)
+        {
+            exception_ptr error;
+            for (const auto& entry: *callbacks)
+                try { if (entry.failure) entry.failure(failure); }
+                catch (...) { if (!error) error = current_exception(); }
+            if (error) rethrow_exception(error);
+        };
+        m_pending.push_back(move(pending));
+        ++m_outstanding;
+    }
+}
+
 void ReliableMessageStore::flushCleanupLocked(const string& onlyKey)
 {
-    const auto flush = [this](const string& key, vector<CleanupEntry>& entries)
+    // Explicit fences flush both cohorts, including entries not yet counted as outstanding.
+    // A hot recipient also flushes its older ready group before its newer active group.
+    for (auto* cohort: {&m_readyCleanup, &m_cleanup})
     {
-        for (size_t offset = 0; offset < entries.size(); offset += 64)
+        if (onlyKey.empty())
         {
-            auto pending = make_shared<Pending>();
-            auto callbacks = make_shared<vector<CleanupEntry>>();
-            const auto end = min(entries.size(), offset + 64);
-            callbacks->reserve(end - offset);
-            string fields;
-            for (size_t i = offset; i < end; ++i)
-            {
-                if (!fields.empty()) fields += ',';
-                fields += entries[i].field;
-                pending->cleanupBytes += entries[i].bytes;
-                callbacks->push_back(move(entries[i]));
-            }
-            pending->operations.push_back({"HDELS", key, move(fields), ""});
-            pending->cleanupCount = callbacks->size();
-            pending->bytes = pending->cleanupBytes; // Conservative bound also used for batching.
-            pending->success = [callbacks]
-            {
-                exception_ptr error;
-                for (const auto& entry: *callbacks)
-                    try { if (entry.success) entry.success(); }
-                    catch (...) { if (!error) error = current_exception(); }
-                if (error) rethrow_exception(error);
-            };
-            pending->failure = [callbacks](exception_ptr failure)
-            {
-                exception_ptr error;
-                for (const auto& entry: *callbacks)
-                    try { if (entry.failure) entry.failure(failure); }
-                    catch (...) { if (!error) error = current_exception(); }
-                if (error) rethrow_exception(error);
-            };
-            m_pending.push_back(move(pending));
-            ++m_outstanding;
+            for (auto& [key, entries]: *cohort) enqueueCleanupLocked(key, entries);
+            cohort->clear();
         }
-    };
-    if (onlyKey.empty())
-    {
-        for (auto& [key, entries]: m_cleanup) flush(key, entries);
-        m_cleanup.clear();
-        m_flushCleanup = false;
+        else if (const auto it = cohort->find(onlyKey); it != cohort->end())
+        {
+            enqueueCleanupLocked(it->first, it->second);
+            cohort->erase(it);
+        }
     }
-    else if (const auto it = m_cleanup.find(onlyKey); it != m_cleanup.end())
+    if (m_cleanup.empty()) m_flushCleanup = false;
+}
+
+void ReliableMessageStore::flushReadyCleanupLocked()
+{
+    // Bound work under the queue mutex. New ACKs collect separately, so they cannot
+    // replace old groups or reset their deadline while this cohort is being drained.
+    constexpr size_t MaxGroups = 1024;
+    for (size_t count = 0; count < MaxGroups && !m_readyCleanup.empty(); ++count)
     {
-        flush(it->first, it->second);
-        m_cleanup.erase(it);
-        if (m_cleanup.empty()) m_flushCleanup = false;
+        const auto it = m_readyCleanup.begin();
+        enqueueCleanupLocked(it->first, it->second);
+        m_readyCleanup.erase(it);
     }
 }
 
@@ -403,13 +421,22 @@ void ReliableMessageStore::run()
         {
             unique_lock lock(m_queueMutex);
             const bool wasIdle = m_pending.empty();
-            while (m_pending.empty() && !m_stopping && !m_flushCleanup)
+            while (m_pending.empty() && m_readyCleanup.empty() && !m_stopping && !m_flushCleanup)
             {
                 if (m_cleanup.empty()) m_changed.wait(lock);
                 else if (m_changed.wait_until(lock, m_cleanupDue) == cv_status::timeout) break;
             }
-            if (!m_cleanup.empty() && (m_stopping || m_flushCleanup || chrono::steady_clock::now() >= m_cleanupDue))
-                flushCleanupLocked();
+            if (m_stopping) flushCleanupLocked();
+            else
+            {
+                if (m_readyCleanup.empty() && !m_cleanup.empty() &&
+                    (m_flushCleanup || chrono::steady_clock::now() >= m_cleanupDue))
+                {
+                    m_readyCleanup.swap(m_cleanup);
+                    m_flushCleanup = false;
+                }
+                flushReadyCleanupLocked();
+            }
             if (m_cleanup.empty()) m_flushCleanup = false;
             if (m_pending.empty() && !m_stopping) continue;
             if (m_pending.empty() && m_stopping)

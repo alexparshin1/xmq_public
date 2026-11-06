@@ -67,6 +67,9 @@ validated script; the account must permit HDEL. Deferred and already-submitted c
 an additional budget of 262144 record identifiers and 128 MiB of conservative accounting.
 When that budget fills, cleanup falls back to the ordinary bounded journal and requests an
 early flush. `drain()` and shutdown flush deferred cleanup immediately.
+At a buffering deadline the current group of recipients is frozen; new ACKs collect separately.
+The writer enqueues at most 1024 frozen recipient groups per pass, avoiding one large queue-lock
+hold. Older groups cannot be extended by new ACKs, and an explicit drain includes both groups.
 This delays only removal of records whose subscriber has ACKed them. Every new publication
 still crosses its fsync barrier before a PUBACK or delivery. A process crash can replay more
 already-ACKed QoS 1 deliveries during this cleanup window; storage completion can lag the

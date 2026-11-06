@@ -103,6 +103,8 @@ private:
         size_t bytes;
     };
     void flushCleanupLocked(const std::string& onlyKey = {});
+    void enqueueCleanupLocked(const std::string& key, std::vector<CleanupEntry>& entries);
+    void flushReadyCleanupLocked();
     void enqueue(const std::shared_ptr<Pending>& pending);
     void queueDeliveryOperation(Operation operation, std::function<void()> success,
                                 std::function<void(std::exception_ptr)> failure);
@@ -125,7 +127,7 @@ private:
     std::condition_variable m_changed, m_readyChanged;
     std::deque<std::shared_ptr<Pending>> m_pending;
     std::deque<CommittedBatch> m_ready;
-    std::unordered_map<std::string, std::vector<CleanupEntry>> m_cleanup;
+    std::unordered_map<std::string, std::vector<CleanupEntry>> m_cleanup, m_readyCleanup;
     std::chrono::steady_clock::time_point m_cleanupDue;
     size_t m_cleanupCount {0}, m_cleanupBytes {0}, m_ordinaryOutstanding {0};
     bool m_flushCleanup {false};

@@ -696,6 +696,37 @@ TEST_F(XMQ_ReliableStoreTests, IdleQos1CleanupFlushesWithoutAnotherPublicationOr
     EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-idle-cleanup").empty());
 }
 
+TEST_F(XMQ_ReliableStoreTests, CleanupAcrossManyRecipientsAndNewAcksDrainsCompletely)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    constexpr int count = 2048;
+    const auto key = [](int i) { return "reliable-cleanup-cohort-" + to_string(i); };
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        for (int i = 0; i < count; ++i) transaction.hashSet(key(i), "1", Buffer("old"));
+        transaction.commit();
+    }
+    Semaphore firstCompleted;
+    atomic_int accepted {0}, failed {0};
+    const auto success = [&] { if (++accepted == 1) firstCompleted.post(); };
+    const auto failure = [&](exception_ptr) { ++failed; firstCompleted.post(); };
+    for (int i = 0; i < count; ++i) store.eraseDelivery(key(i), "1", success, failure, true);
+    // Time-based cleanup must make progress without a caller forcing drain.
+    const bool started = firstCompleted.wait_for(8s);
+    EXPECT_TRUE(started);
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        for (int i = 0; i < count; ++i) transaction.hashSet(key(i), "2", Buffer("new"));
+        transaction.commit();
+    }
+    for (int i = 0; i < count; ++i) store.eraseDelivery(key(i), "2", success, failure, true);
+    store.drain();
+    EXPECT_EQ(count * 2, accepted.load());
+    EXPECT_EQ(0, failed.load());
+    const auto redis = server()->getRedisStorage()->getRedis();
+    for (int i = 0; i < count; ++i) EXPECT_TRUE(redis->getHashValues(key(i)).empty()) << i;
+}
+
 TEST_F(XMQ_ReliableStoreTests, CompactDeliveryKeepsWireFieldsAndDoesNotChangeLivePublisher)
 {
     subscribeAndDisconnect("reliable-compact", "reliable/compact");
