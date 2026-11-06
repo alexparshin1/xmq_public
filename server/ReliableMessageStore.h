@@ -13,6 +13,7 @@
 #include <array>
 #include <unordered_map>
 #include <chrono>
+#include <optional>
 
 namespace xmq {
 
@@ -76,7 +77,8 @@ public:
         bool m_submitted {false};
         bool m_changesRetained {false};
         std::shared_ptr<Pending> submit(std::function<void()> success = {},
-                                        std::function<void(std::exception_ptr)> failure = {});
+                                        std::function<void(std::exception_ptr)> failure = {},
+                                        bool waitForCompletion = false);
         static thread_local Transaction* s_current;
     };
 
@@ -88,7 +90,7 @@ private:
         std::vector<std::function<void()>> rollback;
         std::function<void()> success;
         std::function<void(std::exception_ptr)> failure;
-        std::promise<void> completed;
+        std::optional<std::promise<void>> completed;
         size_t bytes {0};
         bool changesRetained {false};
         size_t cleanupCount {0}, cleanupBytes {0};

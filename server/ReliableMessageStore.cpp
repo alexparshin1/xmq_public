@@ -226,11 +226,14 @@ void ReliableMessageStore::Transaction::onRollback(function<void()> action)
 }
 
 std::shared_ptr<ReliableMessageStore::Pending> ReliableMessageStore::Transaction::submit(
-    function<void()> success, function<void(exception_ptr)> failure)
+    function<void()> success, function<void(exception_ptr)> failure, const bool waitForCompletion)
 {
     if (m_submitted || s_current != this)
         throw Exception("Reliable publication transaction is no longer active");
     auto pending = make_shared<Pending>();
+    // Asynchronous requests have callbacks, but no future consumer. Avoid allocating a
+    // shared future state and invoking its once/futex machinery for every publication.
+    if (waitForCompletion) pending->completed.emplace();
     pending->operations = move(m_operations);
     pending->commit = move(m_commit);
     pending->rollback = move(m_rollback);
@@ -256,7 +259,7 @@ std::shared_ptr<ReliableMessageStore::Pending> ReliableMessageStore::Transaction
 
 void ReliableMessageStore::Transaction::commit()
 {
-    submit()->completed.get_future().get();
+    submit({}, {}, true)->completed->get_future().get();
 }
 
 void ReliableMessageStore::Transaction::commitAsync(function<void()> success, function<void(exception_ptr)> failure)
@@ -539,18 +542,18 @@ void ReliableMessageStore::complete()
                 if (failure)
                 {
                     if (request->failure) request->failure(failure);
-                    request->completed.set_exception(failure);
+                    if (request->completed) request->completed->set_exception(failure);
                 }
                 else
                 {
                     if (request->success) request->success();
-                    request->completed.set_value();
+                    if (request->completed) request->completed->set_value();
                 }
             }
             catch (...)
             {
                 // A completion callback must not terminate the journal writer or strand waiters.
-                try { request->completed.set_exception(current_exception()); } catch (...) {}
+                try { if (request->completed) request->completed->set_exception(current_exception()); } catch (...) {}
             }
         }
         const auto recycling = chrono::steady_clock::now();
