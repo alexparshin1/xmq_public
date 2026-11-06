@@ -387,13 +387,19 @@ void MessageDelivery::pack(Buffer& record)
 
     startPacking(record);
 
+    // Reliable mode is standalone and restores directly into this recipient's queue. Routing
+    // and No Local have already been decided; the publisher id is not part of outgoing MQTT.
+    // Keep the legacy string field (empty) so old records/readers remain format compatible.
+    const string emptySender;
+    const auto& storedSender = m_clientSession->reliableStore() ? emptySender : publishMessage->getSender();
+
     const auto expectedSizeWithoutProperties =
         sizeof(m_recordId) + 1                                                                      // recordId
         + sizeof(uint8_t) + 1                                                                       // flags
         + sizeof(uint16_t) + 1 + sizeof(uint32_t) * m_subscriptionIds.size() + 1 + sizeof(uint32_t) // subscriptionIds
         + sizeof(uint32_t) + 1 + publishMessage->destination()->fullName().length()                 // topicName
         + sizeof(uint32_t) + 1 + publishMessage->payloadSize()                                      // payload
-        + sizeof(uint32_t) + 1 + publishMessage->getSender().size()                                 // sender
+        + sizeof(uint32_t) + 1 + storedSender.size()                                               // sender
         + sizeof(uint32_t) + 1 + publishMessage->getSourceNode().size()                             // sourceNode
         + sizeof(m_deliveryId) + 1                                                                  // deliveryId
         + 64;                                                                                       // minimal reserve for properties
@@ -409,7 +415,7 @@ void MessageDelivery::pack(Buffer& record)
 
     write(publishMessage->destination()->fullName());
     write(publishMessage->payloadData(), publishMessage->payloadSize());
-    write(publishMessage->getSender());
+    write(storedSender);
     write(publishMessage->getSourceNode());
 
     const uint8_t hasProperties = publishMessage->getProperties() != nullptr;

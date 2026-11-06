@@ -590,3 +590,27 @@ TEST_F(XMQ_ReliableStoreTests, IdleQos1CleanupFlushesWithoutAnotherPublicationOr
     EXPECT_EQ(0, failed.load());
     EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-idle-cleanup").empty());
 }
+
+TEST_F(XMQ_ReliableStoreTests, CompactDeliveryKeepsWireFieldsAndDoesNotChangeLivePublisher)
+{
+    subscribeAndDisconnect("reliable-compact", "reliable/compact");
+    const auto recipient = server()->getClientSession("reliable-compact");
+    const auto message = make_shared<mqtt::PublishMessage>(server()->getTopic("reliable/compact"), "payload");
+    const string sender(1024, 's');
+    message->setSender(sender);
+    message->setSourceNode("original-node");
+    const SubscriptionIdSet ids {17, 23};
+    const auto original = make_shared<MessageDelivery>(recipient, message, Qos::Qos1, 123, ids, true);
+    Buffer packed;
+    original->pack(packed);
+    EXPECT_LT(packed.bytes(), sender.size());
+    EXPECT_EQ(sender, message->getSender()); // Live No Local and publisher ordering still see the id.
+    const auto restored = make_shared<MessageDelivery>(recipient, packed);
+    const auto restoredMessage = dynamic_pointer_cast<mqtt::PublishMessage>(restored->message());
+    ASSERT_NE(nullptr, restoredMessage);
+    EXPECT_TRUE(restoredMessage->getSender().empty());
+    EXPECT_EQ("reliable/compact", restoredMessage->destination()->fullName());
+    EXPECT_EQ("payload", string(reinterpret_cast<const char*>(restoredMessage->payloadData()), restoredMessage->payloadSize()));
+    EXPECT_EQ("original-node", restoredMessage->getSourceNode());
+    EXPECT_EQ(123, restored->deliveryId());
+}

@@ -35,8 +35,8 @@ Linux, C++20 с `-O3 -DNDEBUG`, SPTK 5.6.19, Redis 8.0.6.
 
 ## Регрессионные тесты
 
-**208 тестов, 14 наборов, 0 ошибок, 0 пропусков; 70,620 с.**
-Все 24 теста надёжного хранилища выполнены без пропусков.
+**209 тестов, 14 наборов, 0 ошибок, 0 пропусков; 70,862 с.**
+Все 25 тестов надёжного хранилища выполнены без пропусков.
 В набор также входят проверки persistence, storage, retained, очередей,
 расширения и настройки. SQL-проверки выполнились на PostgreSQL и MySQL, включая
 сохранение нового переключателя и обновление существующей схемы.
@@ -84,6 +84,13 @@ QoS 2 и первичная запись публикаций не задерж�
 сброс по drain, несколько получателей, разбиение на группы и валидация всех ключей
 до первого удаления. Буфер очистки ограничен независимо от обычной очереди.
 
+В durable-записи доставки больше не дублируется длинный client ID издателя.
+Само поле строки остаётся пустым, поэтому структура записи и чтение прежних записей
+сохраняются. Восстановление возвращает доставку прямо в очередь уже выбранного
+получателя. Новый тест проверяет topic/payload/source node/packet ID и неизменность
+живого sender, который нужен для No Local и порядка публикаций. Обычный режим
+сохраняет sender как прежде.
+
 ## Аварийные проверки
 
 **12 из 12 сценариев прошли.** Использовались отдельные процессы брокера и Redis,
@@ -116,15 +123,15 @@ python3 test/integration/reliable_store_crash.py --broker /absolute/path/to/xmq_
 ## Материалы для принятия
 
 Материалы групповой фиксации сохранены в
-`build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/`.
+`build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/`.
 Предыдущие результаты до оптимизации сохранены отдельно в родительском каталоге.
 
-- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/manifest.json) — параметры, результаты и SHA-256 бинарников;
-- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/unit.xml) — результаты GTest;
-- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/unit.log),
-  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/build.log);
-- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/crash/results.json),
-  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v4/crash.log),
+- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/manifest.json) — параметры, результаты и SHA-256 бинарников;
+- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/unit.xml) — результаты GTest;
+- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/unit.log),
+  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/build.log);
+- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/crash/results.json),
+  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v5/crash.log),
   логи временных брокера и Redis.
 
 Артефакты в `build/` остаются локальными и не включены в git.

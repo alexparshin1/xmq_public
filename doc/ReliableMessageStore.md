@@ -51,6 +51,13 @@ unwritten and written-but-incomplete work. A completion failure withholds later 
 This is not ACK-before-store write-behind.
 
 The ordinary pending journal is bounded to 131072 requests and 128 MiB.
+In this standalone mode, a persisted delivery omits the publisher client id from the internal
+sender string. Subscription matching (including No Local) already selected the recipient, and
+recovery queues that delivery directly without matching again. Live messages keep their sender;
+outgoing topic, payload, properties, flags, subscription ids, source node and packet id are retained.
+The string field stays in its legacy position, so records with a sender remain readable and the
+record layout is unchanged. The ordinary asynchronous mode still persists the original sender.
+
 For outgoing QoS 1 only, cleanup of ACKed delivery records coalesces by recipient for up to
 2 seconds, or 64 ACKs for that recipient. A group becomes one multi-field HDEL in the same
 validated script; the account must permit HDEL. Deferred and already-submitted cleanup share
