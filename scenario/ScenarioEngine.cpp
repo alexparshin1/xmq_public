@@ -20,6 +20,7 @@
 #include <sptk5/threads/JoiningThread.h>
 
 #include <cstdlib>
+#include <exception>
 
 #ifndef _WIN32
 #include <sys/resource.h>
@@ -1165,8 +1166,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
+    bool measurementStarted = false;
     const auto beginMeasurement = [&]
     {
+        measurementStarted = true;
         publishStartTime = steady_clock::now();
         publishDeadline = durationSeconds > 0
                               ? std::optional {publishStartTime + seconds(durationSeconds)}
@@ -1195,159 +1198,181 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         beginMeasurement();
     }
 
-    while (true)
+    exception_ptr publishFailure;
+    try
     {
-        const auto now = steady_clock::now();
-
-        if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)
+        while (true)
         {
-            m_warmingUp = false;
-            warmupDeadline.reset();
-            beginMeasurement();
-        }
+            const auto now = steady_clock::now();
 
-        if (!m_warmingUp.load())
-        {
-            if ((publishMessageCount && sendMessageCount == publishMessageCount) || m_scenarioCompleted.load())
+            if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)
             {
-                break;
+                m_warmingUp = false;
+                warmupDeadline.reset();
+                beginMeasurement();
             }
 
-            if (publishDeadline && now > *publishDeadline)
-            {
-                break;
-            }
-        }
-
-        const auto  publisherIndex = messageIndex % publisherCount;
-        const auto  publisher = m_publishers[publisherIndex];
-        const auto* topic = topics[messageIndex % topicCount];
-        ++messageIndex;
-
-        // Nothing from a client the broker never answered, nor to one: its turn is skipped, and
-        // the pace stays that of the others.
-        if (!m_unanswered.empty() &&
-            (!answered(publisher) ||
-             (testType == Type::PointToPoint && static_cast<size_t>(publisherIndex) < m_subscribers.size() &&
-              !answered(m_subscribers[publisherIndex]))))
-        {
             if (!m_warmingUp.load())
             {
-                ++sendMessageCount;
-            }
-            continue;
-        }
-
-        if (m_paceMaker)
-        {
-            m_paceMaker->next();
-        }
-
-        // A reconnecting client is not there to publish: its turn goes by at the pace the others
-        // keep, rather than the loop spinning through every turn of the outage, and the next client
-        // takes the next message.
-        if (publishersReconnect && !publisher->isConnected())
-        {
-            if (!m_warmingUp.load())
-            {
-                ++sendMessageCount;
-            }
-            continue;
-        }
-
-        const auto sequence = sequenceCounter++ | (m_warmingUp.load() ? warmupSequenceBit : 0);
-
-        if (!m_warmingUp.load())
-        {
-            switch (testType)
-            {
-                using enum Type;
-                case FanIn:
-                    // Shared subscription: each message is delivered to exactly one subscriber,
-                    // so record the send once in the shared latency object.
-                    clientPublishLatencies[0].sent(sequence);
+                if ((publishMessageCount && sendMessageCount == publishMessageCount) || m_scenarioCompleted.load())
+                {
                     break;
-                case FanOut:
+                }
+
+                if (publishDeadline && now > *publishDeadline)
+                {
+                    break;
+                }
+            }
+
+            const auto  publisherIndex = messageIndex % publisherCount;
+            const auto  publisher = m_publishers[publisherIndex];
+            const auto* topic = topics[messageIndex % topicCount];
+            ++messageIndex;
+
+            // Nothing from a client the broker never answered, nor to one: its turn is skipped, and
+            // the pace stays that of the others.
+            if (!m_unanswered.empty() &&
+                (!answered(publisher) ||
+                 (testType == Type::PointToPoint && static_cast<size_t>(publisherIndex) < m_subscribers.size() &&
+                  !answered(m_subscribers[publisherIndex]))))
+            {
+                if (!m_warmingUp.load())
+                {
+                    ++sendMessageCount;
+                }
+                continue;
+            }
+
+            if (m_paceMaker)
+            {
+                m_paceMaker->next();
+            }
+
+            // A reconnecting client is not there to publish: its turn goes by at the pace the others
+            // keep, rather than the loop spinning through every turn of the outage, and the next client
+            // takes the next message.
+            if (publishersReconnect && !publisher->isConnected())
+            {
+                if (!m_warmingUp.load())
+                {
+                    ++sendMessageCount;
+                }
+                continue;
+            }
+
+            const auto sequence = sequenceCounter++ | (m_warmingUp.load() ? warmupSequenceBit : 0);
+
+            if (!m_warmingUp.load())
+            {
+                switch (testType)
+                {
+                    using enum Type;
+                    case FanIn:
+                        // Shared subscription: each message is delivered to exactly one subscriber,
+                        // so record the send once in the shared latency object.
+                        clientPublishLatencies[0].sent(sequence);
+                        break;
+                    case FanOut:
+                        for (auto& clientPublishLatency: clientPublishLatencies)
+                        {
+                            clientPublishLatency.sent(sequence);
+                        }
+                        break;
+                    case PointToPoint:
+                        clientPublishLatencies[publisherIndex].sent(sequence);
+                        break;
+                    default:
+                        throw Exception("Unknown test type");
+                }
+            }
+
+            Buffer messagePayload(payload);
+            writeMessageSequence(messagePayload, sequence);
+
+            try
+            {
+                if (latencyTraceEnabled || publishProperties)
+                {
+                    // A fresh properties object per message, not one reused across the loop: MqttClient's
+                    // publish() stores the shared_ptr as-is (Message::setProperties() is an alias, not a
+                    // copy), so a shared instance here would let every in-flight message's send thread
+                    // mutate the same LatencyTrace concurrently. Whatever "-D publish ..." asked for is
+                    // copied into that fresh object, which is also what a real client would pay.
+                    auto messageProperties = publishProperties ? make_shared<MessageProperties>(*publishProperties)
+                                                               : make_shared<MessageProperties>();
+                    if (latencyTraceEnabled)
+                    {
+                        messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
+                    }
+                    publisher->publish(topic, messagePayload, qos, messageProperties);
+                }
+                else
+                {
+                    publisher->publish(topic, messagePayload, qos);
+                }
+            }
+            catch (const exception& e)
+            {
+                if (!m_warmingUp.load())
+                {
                     for (auto& clientPublishLatency: clientPublishLatencies)
                     {
-                        clientPublishLatency.sent(sequence);
+                        clientPublishLatency.cancel(sequence);
                     }
-                    break;
-                case PointToPoint:
-                    clientPublishLatencies[publisherIndex].sent(sequence);
-                    break;
-                default:
-                    throw Exception("Unknown test type");
-            }
-        }
-
-        Buffer messagePayload(payload);
-        writeMessageSequence(messagePayload, sequence);
-
-        try
-        {
-            if (latencyTraceEnabled || publishProperties)
-            {
-                // A fresh properties object per message, not one reused across the loop: MqttClient's
-                // publish() stores the shared_ptr as-is (Message::setProperties() is an alias, not a
-                // copy), so a shared instance here would let every in-flight message's send thread
-                // mutate the same LatencyTrace concurrently. Whatever "-D publish ..." asked for is
-                // copied into that fresh object, which is also what a real client would pay.
-                auto messageProperties = publishProperties ? make_shared<MessageProperties>(*publishProperties)
-                                                           : make_shared<MessageProperties>();
-                if (latencyTraceEnabled)
-                {
-                    messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
                 }
-                publisher->publish(topic, messagePayload, qos, messageProperties);
+                // The connection can go between the check above and the send: a node taken away under the
+                // load is exactly that race. The client is reconnecting, so the message is lost, not the
+                // run; any other error, and a client that cannot come back, still ends it.
+                if (!publishersReconnect || !string_view(e.what()).starts_with("Not connected"))
+                {
+                    throw;
+                }
             }
-            else
-            {
-                publisher->publish(topic, messagePayload, qos);
-            }
-        }
-        catch (const exception& e)
-        {
             if (!m_warmingUp.load())
             {
-                for (auto& clientPublishLatency: clientPublishLatencies)
-                {
-                    clientPublishLatency.cancel(sequence);
-                }
+                ++sendMessageCount;
             }
-            // The connection can go between the check above and the send: a node taken away under the
-            // load is exactly that race. The client is reconnecting, so the message is lost, not the
-            // run; any other error, and a client that cannot come back, still ends it.
-            if (!publishersReconnect || !string_view(e.what()).starts_with("Not connected"))
-            {
-                throw;
-            }
-        }
-        if (!m_warmingUp.load())
-        {
-            ++sendMessageCount;
-        }
 
-        if (m_showProgress && static_cast<size_t>(sendMessageCount) % progressStep == 0)
-        {
-            const auto progressCurrent = publishMessageCount > 0
-                                             ? static_cast<size_t>(sendMessageCount)
-                                             : static_cast<size_t>(duration_cast<milliseconds>(steady_clock::now() - publishStartTime).count());
-            progressBar.update(progressCurrent, progressTotal);
+            if (m_showProgress && static_cast<size_t>(sendMessageCount) % progressStep == 0)
+            {
+                const auto progressCurrent = publishMessageCount > 0
+                                                 ? static_cast<size_t>(sendMessageCount)
+                                                 : static_cast<size_t>(duration_cast<milliseconds>(steady_clock::now() - publishStartTime).count());
+                progressBar.update(progressCurrent, progressTotal);
+            }
         }
     }
+    catch (...) { publishFailure = current_exception(); }
 
     m_warmingUp = false;
 
-    // Never block indefinitely waiting for the receiving side to signal completion. If delivery stalls
-    // (or a duration-based run publishes its whole window without a message arriving past testEndTime),
-    // fall back to a bounded grace period so the test returns and reports what it received instead of
-    // hanging. A duration-based run has already spent its window publishing, so its grace is short.
-    const auto deliveryGrace = publishDeadline ? seconds(5) : seconds(30);
-    m_allMessagesReceived.wait_for(deliveryGrace);
+    if (publishFailure)
+    {
+        m_scenarioCompleted = true;
+        if (!measurementStarted) rethrow_exception(publishFailure);
+        // Stop and drain callbacks before combining the partial histogram. Do not count the
+        // disconnect/cleanup grace as more measurement, or turn the failed run into success.
+        for (const auto& subscriber: m_subscribers) subscriber->onMessage({});
+        const auto elapsedMs = duration_cast<milliseconds>(steady_clock::now() - publishStartTime).count();
+        COUT("MEASUREMENT-PARTIAL elapsed_ms=" << elapsedMs
+             << " target_duration_seconds=" << durationSeconds << " sent=" << sendMessageCount);
+        const auto current = publishMessageCount > 0 ? sendMessageCount : static_cast<size_t>(elapsedMs);
+        progressBar.update(current, progressTotal);
+        progressBar.finish();
+    }
+    else
+    {
+        // Never block indefinitely waiting for the receiving side to signal completion. If delivery stalls
+        // (or a duration-based run publishes its whole window without a message arriving past testEndTime),
+        // fall back to a bounded grace period so the test returns and reports what it received instead of
+        // hanging. A duration-based run has already spent its window publishing, so its grace is short.
+        const auto deliveryGrace = publishDeadline ? seconds(5) : seconds(30);
+        m_allMessagesReceived.wait_for(deliveryGrace);
 
-    progressBar.update(progressTotal, progressTotal);
-    progressBar.finish();
+        progressBar.update(progressTotal, progressTotal);
+        progressBar.finish();
+    }
 
     stopwatch.stop();
     for (auto& clientPublishLatency: clientPublishLatencies)
@@ -1357,7 +1382,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
 
     auto summaryPublishLatency = RoundTripLatency::combine(clientPublishLatencies);
 
-    summaryPublishLatency.print(scenarioTitle);
+    summaryPublishLatency.print(scenarioTitle + (publishFailure ? " [PARTIAL]" : ""));
 
     if (m_paceMaker)
     {
@@ -1369,4 +1394,6 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     {
         m_latencyTraceTotal.print(scenarioTitle);
     }
+    if (publishFailure) rethrow_exception(publishFailure);
+
 }

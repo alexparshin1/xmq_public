@@ -444,3 +444,46 @@ TEST(ScenarioConnectProgress, lateCompletionOutlivesTheGroupAndRemainsIdempotent
     completed = {};
     EXPECT_TRUE(weak.expired());
 }
+
+TEST_F(XMQ_ScenarioTests, PublishFailureKeepsPartialMeasuredIntervalsAndStillThrows)
+{
+    ScenarioEngine engine;
+    engine.load(path(XMQ_TEST_SCENARIO_DIRECTORY) / "Basic" / "Point-To-Point-1K-1K-1K-1K.json");
+    auto& scenario = engine.scenario();
+    scenario.m_publishers.m_client_count = 1;
+    scenario.m_subscribers.m_client_count = 1;
+    scenario.m_publishers.m_id_prefix = "partial-publisher-";
+    scenario.m_subscribers.m_id_prefix = "partial-subscriber-";
+    scenario.m_publishers.m_client_index_start = 0;
+    scenario.m_subscribers.m_client_index_start = 0;
+    scenario.m_publishers.m_auto_reconnect = false;
+    scenario.m_parameters.m_message_count = 0;
+    scenario.m_parameters.m_duration_sec = 3;
+    scenario.m_parameters.m_publish_rate = 20;
+    engine.reportInterval(1s);
+    vector<RoundTripLatency> latencies;
+    engine.connectClients(latencies, engine.name());
+    const auto publisher = server()->getClientSession("partial-publisher-0");
+    ASSERT_NE(nullptr, publisher);
+    atomic_bool hadSample {false};
+    jthread disruptor([&]
+    {
+        const auto deadline = chrono::steady_clock::now() + 2s;
+        while (latencies[0].count() == 0 && chrono::steady_clock::now() < deadline)
+            this_thread::sleep_for(5ms);
+        hadSample = latencies[0].count() > 0;
+        publisher->closeSession();
+    });
+    testing::internal::CaptureStdout();
+    bool failed = false;
+    try { engine.publish(latencies, engine.name()); }
+    catch (...) { failed = true; }
+    disruptor.join();
+    const auto output = testing::internal::GetCapturedStdout();
+    engine.disconnectClients();
+    EXPECT_TRUE(hadSample.load());
+    EXPECT_TRUE(failed);
+    EXPECT_NE(string::npos, output.find("MEASUREMENT-PARTIAL elapsed_ms="));
+    EXPECT_NE(string::npos, output.find("[PARTIAL]"));
+    EXPECT_NE(string::npos, output.find("INTERVAL-PERCENTILES"));
+}
