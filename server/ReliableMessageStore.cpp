@@ -276,7 +276,12 @@ void ReliableMessageStore::enqueue(const shared_ptr<Pending>& pending)
         if (m_stopping) throw Exception("Reliable message store is stopping");
         if (m_indeterminate) throw Exception("Reliable message store requires restart");
         if (m_ordinaryOutstanding >= MaxPending || pending->bytes > MaxBytes - m_pendingBytes)
-            throw Exception("Reliable message store commit queue is full");
+            throw Exception("Reliable message store commit queue is full: ordinary=" +
+                            to_string(m_ordinaryOutstanding) + "/" + to_string(MaxPending) +
+                            ", bytes=" + to_string(m_pendingBytes) + "/" + to_string(MaxBytes) +
+                            ", queued=" + to_string(m_pending.size()) +
+                            ", committed_batches=" + to_string(m_ready.size()) +
+                            ", cleanup_ids=" + to_string(m_cleanupCount));
         m_pending.push_back(pending);
         ++m_outstanding;
         ++m_ordinaryOutstanding;
