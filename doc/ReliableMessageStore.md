@@ -44,7 +44,11 @@ and one `WAITAOF` barrier. QoS 1 receive handlers submit their work and remain a
 clients and keep-alives. SUBSCRIBE also returns without occupying a receive worker; SUBACK
 remains behind the durable barrier and is bound to its original connection. The successful PUBACK is queued only after the batch is confirmed durable.
 Delivery updates and ACK cleanup use that same ordered journal, avoiding competing AOF flushes
-through separate pool sockets. This is not ACK-before-store write-behind.
+through separate pool sockets. After each barrier, a separate FIFO completion worker installs the
+results and sends responses while the writer persists the next batch. Pending limits include both
+unwritten and written-but-incomplete work. A completion failure withholds later success responses;
+`drain()` waits for installation and completion, and shutdown joins both workers.
+This is not ACK-before-store write-behind.
 
 The pending journal is bounded to 131072 requests and 128 MiB. Recipient queue limits reserve space
 for uncommitted deliveries too; rollback releases it and commit converts it into a queued record.

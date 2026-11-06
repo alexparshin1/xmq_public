@@ -441,3 +441,92 @@ TEST_F(XMQ_ReliableStoreTests, QueuedPayloadsSurviveMultipleBoundedBatches)
     EXPECT_EQ(count + 1, server()->getRedisStorage()->getRedis()->getHashValues("reliable-many-batches").size());
     EXPECT_GT(store.statistics().batches, 1U);
 }
+
+// The next durable write can overlap a stalled installation, but its ACK cannot overtake it.
+TEST_F(XMQ_ReliableStoreTests, JournalIoOverlapsFifoCompletion)
+{
+    Semaphore entered, release;
+    atomic_int accepted {0}, failed {0};
+    vector<int> order;
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    {
+        ReliableMessageStore::Transaction first(store);
+        first.hashSet("reliable-pipeline", "first", Buffer("one"));
+        first.onCommit([&]
+        {
+            entered.post();
+            if (!release.wait_for(5s)) ++failed;
+            order.push_back(1);
+        });
+        first.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    const bool ready = entered.wait_for(5s);
+    EXPECT_TRUE(ready);
+    if (!ready) { release.post(); store.drain(); return; }
+    {
+        ReliableMessageStore::Transaction second(store);
+        second.hashSet("reliable-pipeline", "second", Buffer("two"));
+        second.onCommit([&] { order.push_back(2); });
+        second.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    const auto redis = server()->getRedisStorage()->getRedis();
+    bool written = false;
+    const auto deadline = chrono::steady_clock::now() + 2s;
+    while (chrono::steady_clock::now() < deadline)
+    {
+        if (!redis->getHashValue("reliable-pipeline", "second").isNull()) { written = true; break; }
+        this_thread::sleep_for(5ms);
+    }
+    EXPECT_TRUE(written) << "The writer waited for a completion callback";
+    EXPECT_EQ(0, accepted.load()) << "A later ACK overtook the blocked first installation";
+    release.post();
+    store.drain();
+    EXPECT_EQ(2, accepted.load());
+    EXPECT_EQ(0, failed.load());
+    EXPECT_EQ((vector<int>{1, 2}), order);
+}
+
+TEST_F(XMQ_ReliableStoreTests, CompletionFailureWithholdsLaterDurableAcks)
+{
+    Semaphore entered, release;
+    atomic_int accepted {0}, failed {0};
+    atomic_bool installed {false}, controlAck {false};
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    {
+        ReliableMessageStore::Transaction first(store);
+        first.hashSet("reliable-pipeline-failure", "first", Buffer("one"));
+        first.onCommit([&]
+        {
+            entered.post();
+            release.wait_for(5s);
+            throw Exception("Injected completion failure");
+        });
+        first.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    const bool ready = entered.wait_for(5s);
+    EXPECT_TRUE(ready);
+    if (!ready) { release.post(); store.drain(); return; }
+    {
+        ReliableMessageStore::Transaction second(store);
+        second.hashSet("reliable-pipeline-failure", "second", Buffer("two"));
+        second.onCommit([&] { installed = true; });
+        second.onDurable([&] { controlAck = true; });
+        second.commitAsync([&] { ++accepted; }, [&](exception_ptr) { ++failed; });
+    }
+    const auto redis = server()->getRedisStorage()->getRedis();
+    bool written = false;
+    const auto deadline = chrono::steady_clock::now() + 2s;
+    while (chrono::steady_clock::now() < deadline)
+    {
+        if (!redis->getHashValue("reliable-pipeline-failure", "second").isNull()) { written = true; break; }
+        this_thread::sleep_for(5ms);
+    }
+    EXPECT_TRUE(written);
+    release.post();
+    store.drain();
+    EXPECT_TRUE(installed.load());
+    EXPECT_FALSE(controlAck.load());
+    EXPECT_EQ(0, accepted.load());
+    EXPECT_EQ(2, failed.load());
+    EXPECT_THROW((ReliableMessageStore::Transaction(store)), Exception);
+}

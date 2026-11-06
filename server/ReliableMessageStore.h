@@ -93,17 +93,27 @@ private:
     void enqueue(const std::shared_ptr<Pending>& pending);
     void queueDeliveryOperation(Operation operation, std::function<void()> success,
                                 std::function<void(std::exception_ptr)> failure);
+    struct CommittedBatch
+    {
+        std::vector<std::shared_ptr<Pending>> requests;
+        std::exception_ptr failure;
+        bool applied {false}, durable {false}, profile {false};
+        std::array<uint64_t, 6> phases {};
+    };
     void run();
+    void complete();
     sptk::RedisConnect m_redis;
     // Protects staging/visibility order, never held while awaiting disk I/O.
     std::mutex m_mutex;
     std::atomic_bool m_indeterminate {false};
     mutable std::mutex m_queueMutex;
-    std::condition_variable m_changed;
+    std::condition_variable m_changed, m_readyChanged;
     std::deque<std::shared_ptr<Pending>> m_pending;
+    std::deque<CommittedBatch> m_ready;
     size_t m_outstanding {0}, m_pendingBytes {0}, m_pendingRetained {0};
     bool m_stopping {false};
-    std::thread m_worker;
+    bool m_writerDone {false};
+    std::thread m_worker, m_completer;
     uint64_t m_transactions {0}, m_batches {0}, m_largestBatch {0};
     uint64_t m_finished {0};
     uint64_t m_profiledBatches {0}, m_profiledRequests {0};

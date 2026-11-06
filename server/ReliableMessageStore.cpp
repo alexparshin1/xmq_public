@@ -69,6 +69,14 @@ ReliableMessageStore::ReliableMessageStore(const URL& url)
     // WAITAOF fails when AOF is disabled or the command is unavailable. Fail before listening.
     sync(m_redis);
     m_worker = thread([this] { run(); });
+    try { m_completer = thread([this] { complete(); }); }
+    catch (...)
+    {
+        { lock_guard lock(m_queueMutex); m_stopping = true; }
+        m_changed.notify_all();
+        m_worker.join();
+        throw;
+    }
 }
 
 void ReliableMessageStore::sync(RedisConnect& redis)
@@ -91,7 +99,7 @@ ReliableMessageStore::~ReliableMessageStore()
 
 void ReliableMessageStore::drain()
 {
-    if (this_thread::get_id() == m_worker.get_id())
+    if (this_thread::get_id() == m_worker.get_id() || this_thread::get_id() == m_completer.get_id())
         throw Exception("Reentrant reliable journal fence");
     unique_lock lock(m_queueMutex);
     const auto target = m_finished + m_outstanding;
@@ -106,6 +114,7 @@ void ReliableMessageStore::shutdown()
     }
     m_changed.notify_all();
     if (m_worker.joinable()) m_worker.join();
+    if (m_completer.joinable()) m_completer.join();
 }
 
 ReliableMessageStore::Statistics ReliableMessageStore::statistics() const
@@ -117,7 +126,8 @@ ReliableMessageStore::Statistics ReliableMessageStore::statistics() const
 ReliableMessageStore::Transaction::Transaction(ReliableMessageStore& store, const bool readsRetained)
     : m_store(store), m_lock(store.m_mutex, defer_lock)
 {
-    if (s_current || this_thread::get_id() == store.m_worker.get_id())
+    if (s_current || this_thread::get_id() == store.m_worker.get_id() ||
+        this_thread::get_id() == store.m_completer.get_id())
         throw Exception("Nested reliable publication transaction");
     m_lock.lock();
     // A SUBSCRIBE after an accepted retained publication must replay its latest value.
@@ -235,7 +245,7 @@ void ReliableMessageStore::enqueue(const shared_ptr<Pending>& pending)
         m_pendingBytes += pending->bytes;
         if (pending->changesRetained) ++m_pendingRetained;
     }
-    m_changed.notify_one();
+    m_changed.notify_all();
 }
 
 void ReliableMessageStore::eraseDelivery(string key, string field, function<void()> success,
@@ -267,13 +277,21 @@ void ReliableMessageStore::run()
     constexpr size_t BatchBytes = 4 * 1024 * 1024;
     while (true)
     {
-        vector<shared_ptr<Pending>> batch;
+        CommittedBatch committed;
+        auto& batch = committed.requests;
         {
             unique_lock lock(m_queueMutex);
+            const bool wasIdle = m_pending.empty();
             m_changed.wait(lock, [this] { return m_stopping || !m_pending.empty(); });
-            if (m_pending.empty() && m_stopping) return;
+            if (m_pending.empty() && m_stopping)
+            {
+                m_writerDone = true;
+                lock.unlock();
+                m_readyChanged.notify_one();
+                return;
+            }
             // At idle, collect a short burst. Under load the previous fsync already collected it.
-            if (m_pending.size() < MaxBatch && !m_stopping)
+            if (wasIdle && m_pending.size() < MaxBatch && !m_stopping)
                 m_changed.wait_for(lock, chrono::microseconds(200), [this] { return m_stopping || m_pending.size() >= MaxBatch; });
             size_t bytes = 0;
             while (!m_pending.empty() && batch.size() < MaxBatch && (batch.empty() || bytes + m_pending.front()->bytes <= BatchBytes))
@@ -283,11 +301,11 @@ void ReliableMessageStore::run()
                 m_pending.pop_front();
             }
         }
-        exception_ptr failure;
-        bool applied = false;
-        bool durable = false;
-        bool profile = false;
-        array<uint64_t, 6> phases {};
+        auto& failure = committed.failure;
+        auto& applied = committed.applied;
+        auto& durable = committed.durable;
+        auto& profile = committed.profile;
+        auto& phases = committed.phases;
         const auto ns = [](const auto elapsed) { return chrono::duration_cast<chrono::nanoseconds>(elapsed).count(); };
         const auto started = chrono::steady_clock::now();
         try
@@ -326,6 +344,37 @@ void ReliableMessageStore::run()
         }
         catch (...) { failure = current_exception(); m_indeterminate = true; }
 
+        {
+            lock_guard lock(m_queueMutex);
+            m_ready.push_back(move(committed));
+        }
+        m_readyChanged.notify_one();
+    }
+}
+
+void ReliableMessageStore::complete()
+{
+    const auto ns = [](const auto elapsed) { return chrono::duration_cast<chrono::nanoseconds>(elapsed).count(); };
+    while (true)
+    {
+        CommittedBatch committed;
+        {
+            unique_lock lock(m_queueMutex);
+            m_readyChanged.wait(lock, [this] { return m_writerDone || !m_ready.empty(); });
+            if (m_ready.empty() && m_writerDone) return;
+            committed = move(m_ready.front());
+            m_ready.pop_front();
+        }
+        auto& batch = committed.requests;
+        auto& failure = committed.failure;
+        auto& phases = committed.phases;
+        const bool applied = committed.applied;
+        const bool durable = committed.durable;
+        // Earlier completion errors can race later I/O. Install every applied batch in FIFO
+        // order, but fail closed instead of ACKing work whose preceding actions failed.
+        if (!failure && m_indeterminate)
+            failure = make_exception_ptr(Exception("Reliable message store requires restart"));
+
         // A successful script cannot be undone after a fence timeout. Install those records,
         // but never send success ACKs. Pre-write failures instead cancel staged reservations.
         const auto applying = chrono::steady_clock::now();
@@ -339,7 +388,7 @@ void ReliableMessageStore::run()
             if (applied)
             {
                 for (const auto& action: request->commit)
-                    if (!action.durableOnly || durable) invoke(action.run);
+                    if (!action.durableOnly || (durable && !failure)) invoke(action.run);
             }
             else for (const auto& action: request->rollback) invoke(action);
         }
@@ -390,7 +439,7 @@ void ReliableMessageStore::run()
         m_changed.notify_all();
         batch.clear();
         phases[5] = ns(chrono::steady_clock::now() - recycling);
-        if (profile && durable)
+        if (committed.profile && durable)
         {
             lock_guard lock(m_queueMutex);
             ++m_profiledBatches;

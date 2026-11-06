@@ -20,10 +20,10 @@
 
 ## Сборка и среда
 
-Чистая пересборка завершилась успешно:
+Изолированная Release-сборка GCC завершилась успешно:
 
 ```sh
-cmake --build . --clean-first --target xmq_unit_tests xmq_server -j 8
+cmake --build <isolated-build> --target xmq_unit_tests xmq_server -j 8
 ```
 
 Linux, C++20 с `-O3 -DNDEBUG`, SPTK 5.6.19, Redis 8.0.6.
@@ -35,9 +35,11 @@ Linux, C++20 с `-O3 -DNDEBUG`, SPTK 5.6.19, Redis 8.0.6.
 
 ## Регрессионные тесты
 
-**203 теста, 14 наборов, 0 ошибок, 0 пропусков; 62,709 с.**
-Все 19 тестов надёжного хранилища выполнены без пропусков.
-В набор входят 19 тестов надёжного режима, а также проверки persistence, storage, retained, очередей,
+**204 теста в полном наборе, 14 наборов, 0 ошибок, 0 пропусков; 66,610 с.**
+Дополнительно после добавления ещё одного теста выполнен
+`CompletionFailureWithholdsLaterDurableAcks`: 1 тест, 0 ошибок/пропусков, 0,835 с.
+Всего проверены 205 различных тестов, включая 21 тест надёжного режима.
+В набор также входят проверки persistence, storage, retained, очередей,
 расширения и настройки. SQL-проверки выполнились на PostgreSQL и MySQL, включая
 сохранение нового переключателя и обновление существующей схемы.
 
@@ -69,6 +71,12 @@ XMQ_ReliableStoreTests.*:XMQ_PersistenceTests.*:XMQ_StorageTests.*:XMQ_RetainedM
 с учётом резервов, порядок update/delete, видимость retained, восстановление node membership
 и запрет положительного ответа после успешного Lua, но неуспешного WAITAOF.
 Восстановление подписок при старте не перезаписывает полную запись её промежуточным префиксом.
+
+Установка в память и завершение вынесены в отдельный FIFO-поток, чтобы запись следующего
+пакета перекрывалась с завершением предыдущего. Проверено, что при заблокированной
+установке следующий пакет записывается, но ACK не обгоняет предыдущую установку;
+ошибка завершения запрещает поздние положительные ACK даже уже записанного пакета.
+Лимит включает записанные, но ещё не завершённые запросы; drain/shutdown ждут оба этапа.
 
 ## Аварийные проверки
 
@@ -102,16 +110,18 @@ python3 test/integration/reliable_store_crash.py --broker /absolute/path/to/xmq_
 ## Материалы для принятия
 
 Материалы групповой фиксации сохранены в
-`build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/`.
+`build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/`.
 Предыдущие результаты до оптимизации сохранены отдельно в родительском каталоге.
 
-- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/manifest.json) — параметры, результаты и SHA-256 бинарников;
-- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/unit.xml) — результаты GTest;
-- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/unit.log),
-  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/build.log);
-- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/crash-results.json),
-  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v2/crash.log),
+- [manifest.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/manifest.json) — параметры, результаты и SHA-256 бинарников;
+- [unit.xml](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/full-unit.xml) — результаты GTest;
+- [unit.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/full-unit.log),
+  [build.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/build.log);
+- [crash-results.json](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/crash/results.json),
+  [crash.log](../../build/reliable-message-store-acceptance-2026-11-06/group-commit-v3/crash.log),
   логи временных брокера и Redis.
+
+Результат дополнительного теста: `group-commit-v3/extra-unit.xml` и `extra-unit.log`.
 
 Артефакты в `build/` остаются локальными и не включены в git.
 Сборка и `make install` на thinker11 выполнены из checkout экспериментальной ветки.
