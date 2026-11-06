@@ -566,7 +566,7 @@ void MessageDelivery::removeRecordAsync(const std::function<void(const size_t&)>
                     --m_queuedOperations;
                     store->invalidate();
                     if (callback) callback(0);
-                });
+                }, m_flags.getQos() == Qos::Qos1);
         }
         catch (...)
         {

@@ -13,11 +13,12 @@ constexpr auto Timeout = chrono::seconds(5);
 // The command set is deliberately closed: no unvalidated command can be submitted here.
 constexpr auto Commit = R"(
 local expectedTypes = {}
+local deleteFields = {}
 for i = 1, #KEYS do
     local base = (i - 1) * 3
     local kind = ARGV[base + 1]
     local expected = kind == 'SET' and 'string' or (kind == 'SADD' and 'set' or 'hash')
-    if kind ~= 'SET' and kind ~= 'HSET' and kind ~= 'HDEL' and kind ~= 'SADD' then
+    if kind ~= 'SET' and kind ~= 'HSET' and kind ~= 'HDEL' and kind ~= 'HDELS' and kind ~= 'SADD' then
         return redis.error_reply('unsupported publication operation')
     end
     if expectedTypes[KEYS[i]] and expectedTypes[KEYS[i]] ~= expected then
@@ -28,6 +29,19 @@ for i = 1, #KEYS do
     local allowed
     if kind == 'SET' then
         allowed = redis.acl_check_cmd(kind, KEYS[i], ARGV[base + 3])
+    elseif kind == 'HDELS' then
+        local fields = {}
+        for field in string.gmatch(ARGV[base + 2], '[^,]+') do
+            if not string.match(field, '^%d+$') then
+                return redis.error_reply('invalid delivery cleanup field')
+            end
+            fields[#fields + 1] = field
+        end
+        if #fields == 0 or #fields > 64 or table.concat(fields, ',') ~= ARGV[base + 2] then
+            return redis.error_reply('invalid delivery cleanup batch')
+        end
+        deleteFields[i] = fields
+        allowed = redis.acl_check_cmd('HDEL', KEYS[i], unpack(fields))
     elseif kind == 'SADD' or kind == 'HDEL' then
         allowed = redis.acl_check_cmd(kind, KEYS[i], ARGV[base + 2])
     else
@@ -52,6 +66,8 @@ for i = 1, #KEYS do
         redis.call('SADD', KEYS[i], ARGV[base + 2])
     elseif kind == 'HSET' then
         redis.call('HSET', KEYS[i], ARGV[base + 2], ARGV[base + 3])
+    elseif kind == 'HDELS' then
+        redis.call('HDEL', KEYS[i], unpack(deleteFields[i]))
     else
         redis.call('HDEL', KEYS[i], ARGV[base + 2])
     end
@@ -102,6 +118,8 @@ void ReliableMessageStore::drain()
     if (this_thread::get_id() == m_worker.get_id() || this_thread::get_id() == m_completer.get_id())
         throw Exception("Reentrant reliable journal fence");
     unique_lock lock(m_queueMutex);
+    flushCleanupLocked();
+    m_changed.notify_all();
     const auto target = m_finished + m_outstanding;
     m_changed.wait(lock, [this, target] { return m_finished >= target; });
 }
@@ -238,10 +256,11 @@ void ReliableMessageStore::enqueue(const shared_ptr<Pending>& pending)
         lock_guard lock(m_queueMutex);
         if (m_stopping) throw Exception("Reliable message store is stopping");
         if (m_indeterminate) throw Exception("Reliable message store requires restart");
-        if (m_outstanding >= MaxPending || pending->bytes > MaxBytes - m_pendingBytes)
+        if (m_ordinaryOutstanding >= MaxPending || pending->bytes > MaxBytes - m_pendingBytes)
             throw Exception("Reliable message store commit queue is full");
         m_pending.push_back(pending);
         ++m_outstanding;
+        ++m_ordinaryOutstanding;
         m_pendingBytes += pending->bytes;
         if (pending->changesRetained) ++m_pendingRetained;
     }
@@ -249,9 +268,92 @@ void ReliableMessageStore::enqueue(const shared_ptr<Pending>& pending)
 }
 
 void ReliableMessageStore::eraseDelivery(string key, string field, function<void()> success,
-                                          function<void(exception_ptr)> failure)
+                                          function<void(exception_ptr)> failure, const bool coalesceQos1)
 {
+    // QoS 1 permits replay after an ACK: defer only deletion, never the publication's write.
+    // Numeric record ids can share one HDEL; QoS 2 and general hash deletes stay immediate.
+    if (coalesceQos1 && !field.empty() && field.find_first_not_of("0123456789") == string::npos)
+    {
+        constexpr size_t MaxFields = 131072, MaxBytes = 64 * 1024 * 1024;
+        const auto bytes = sizeof(Pending) + sizeof(Operation) + sizeof(CleanupEntry) + key.size() + field.size();
+        {
+            lock_guard lock(m_queueMutex);
+            if (m_stopping) throw Exception("Reliable message store is stopping");
+            if (m_indeterminate) throw Exception("Reliable message store requires restart");
+            if (m_cleanupCount < MaxFields && bytes <= MaxBytes - m_cleanupBytes)
+            {
+                if (m_cleanup.empty()) m_cleanupDue = chrono::steady_clock::now() + chrono::seconds(2);
+                auto& entries = m_cleanup[key];
+                entries.push_back({move(field), move(success), move(failure), bytes});
+                // A busy recipient must not retain an entire packet-id cycle of ACKed records.
+                // Put each group into FIFO storage order after at most 64 ACKs, not just on time.
+                if (entries.size() >= 64) flushCleanupLocked(key);
+                ++m_cleanupCount;
+                m_cleanupBytes += bytes;
+                m_changed.notify_all();
+                return;
+            }
+            // Bounded even if storage stalls. Flush early, then use the ordinary journal budget.
+            m_flushCleanup = true;
+        }
+        m_changed.notify_all();
+    }
     queueDeliveryOperation({"HDEL", move(key), move(field), ""}, move(success), move(failure));
+}
+
+void ReliableMessageStore::flushCleanupLocked(const string& onlyKey)
+{
+    const auto flush = [this](const string& key, vector<CleanupEntry>& entries)
+    {
+        for (size_t offset = 0; offset < entries.size(); offset += 64)
+        {
+            auto pending = make_shared<Pending>();
+            auto callbacks = make_shared<vector<CleanupEntry>>();
+            const auto end = min(entries.size(), offset + 64);
+            callbacks->reserve(end - offset);
+            string fields;
+            for (size_t i = offset; i < end; ++i)
+            {
+                if (!fields.empty()) fields += ',';
+                fields += entries[i].field;
+                pending->cleanupBytes += entries[i].bytes;
+                callbacks->push_back(move(entries[i]));
+            }
+            pending->operations.push_back({"HDELS", key, move(fields), ""});
+            pending->cleanupCount = callbacks->size();
+            pending->bytes = pending->cleanupBytes; // Conservative bound also used for batching.
+            pending->success = [callbacks]
+            {
+                exception_ptr error;
+                for (const auto& entry: *callbacks)
+                    try { if (entry.success) entry.success(); }
+                    catch (...) { if (!error) error = current_exception(); }
+                if (error) rethrow_exception(error);
+            };
+            pending->failure = [callbacks](exception_ptr failure)
+            {
+                exception_ptr error;
+                for (const auto& entry: *callbacks)
+                    try { if (entry.failure) entry.failure(failure); }
+                    catch (...) { if (!error) error = current_exception(); }
+                if (error) rethrow_exception(error);
+            };
+            m_pending.push_back(move(pending));
+            ++m_outstanding;
+        }
+    };
+    if (onlyKey.empty())
+    {
+        for (auto& [key, entries]: m_cleanup) flush(key, entries);
+        m_cleanup.clear();
+        m_flushCleanup = false;
+    }
+    else if (const auto it = m_cleanup.find(onlyKey); it != m_cleanup.end())
+    {
+        flush(it->first, it->second);
+        m_cleanup.erase(it);
+        if (m_cleanup.empty()) m_flushCleanup = false;
+    }
 }
 
 void ReliableMessageStore::writeDelivery(string key, string field, const Buffer& value,
@@ -282,7 +384,15 @@ void ReliableMessageStore::run()
         {
             unique_lock lock(m_queueMutex);
             const bool wasIdle = m_pending.empty();
-            m_changed.wait(lock, [this] { return m_stopping || !m_pending.empty(); });
+            while (m_pending.empty() && !m_stopping && !m_flushCleanup)
+            {
+                if (m_cleanup.empty()) m_changed.wait(lock);
+                else if (m_changed.wait_until(lock, m_cleanupDue) == cv_status::timeout) break;
+            }
+            if (!m_cleanup.empty() && (m_stopping || m_flushCleanup || chrono::steady_clock::now() >= m_cleanupDue))
+                flushCleanupLocked();
+            if (m_cleanup.empty()) m_flushCleanup = false;
+            if (m_pending.empty() && !m_stopping) continue;
             if (m_pending.empty() && m_stopping)
             {
                 m_writerDone = true;
@@ -316,7 +426,7 @@ void ReliableMessageStore::run()
             {
                 operations += request->operations.size();
                 for (const auto& op: request->operations)
-                    profile = profile || op.kind == "HSET" || op.kind == "HDEL";
+                    profile = profile || op.kind == "HSET" || op.kind == "HDEL" || op.kind == "HDELS";
             }
             RedisCommand command("EVAL", Commit);
             command.emplace_back(to_string(operations));
@@ -431,7 +541,16 @@ void ReliableMessageStore::complete()
             for (const auto& request: batch)
             {
                 --m_outstanding;
-                m_pendingBytes -= request->bytes;
+                if (request->cleanupCount)
+                {
+                    m_cleanupCount -= request->cleanupCount;
+                    m_cleanupBytes -= request->cleanupBytes;
+                }
+                else
+                {
+                    --m_ordinaryOutstanding;
+                    m_pendingBytes -= request->bytes;
+                }
                 if (request->changesRetained) --m_pendingRetained;
             }
             m_finished += batch.size();

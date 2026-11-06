@@ -50,7 +50,18 @@ unwritten and written-but-incomplete work. A completion failure withholds later 
 `drain()` waits for installation and completion, and shutdown joins both workers.
 This is not ACK-before-store write-behind.
 
-The pending journal is bounded to 131072 requests and 128 MiB. Recipient queue limits reserve space
+The ordinary pending journal is bounded to 131072 requests and 128 MiB.
+For outgoing QoS 1 only, cleanup of ACKed delivery records coalesces by recipient for up to
+2 seconds, or 64 ACKs for that recipient. A group becomes one multi-field HDEL in the same
+validated script; the account must permit HDEL. Deferred and already-submitted cleanup share
+an additional budget of 131072 record identifiers and 64 MiB of conservative accounting.
+When that budget fills, cleanup falls back to the ordinary bounded journal and requests an
+early flush. `drain()` and shutdown flush deferred cleanup immediately.
+This delays only removal of records whose subscriber has ACKed them. Every new publication
+still crosses its fsync barrier before a PUBACK or delivery. A process crash can replay more
+already-ACKed QoS 1 deliveries during this cleanup window; storage completion can lag the
+buffering deadline if the backend is slow. QoS 2 cleanup is not deferred.
+ Recipient queue limits reserve space
 for uncommitted deliveries too; rollback releases it and commit converts it into a queued record.
 A queue-limit race cannot discard a delivery already accepted into storage. A failed script rejects
 the whole batch. After an ambiguous response or a failed durability barrier the store fails closed

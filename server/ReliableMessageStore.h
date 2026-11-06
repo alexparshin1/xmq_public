@@ -11,6 +11,8 @@
 #include <future>
 #include <thread>
 #include <array>
+#include <unordered_map>
+#include <chrono>
 
 namespace xmq {
 
@@ -30,7 +32,7 @@ public:
     // Delivery ACK cleanup is already ordered after its durable publication. It must not
     // take the staging lock: its caller can hold the recipient's queue/session lock.
     void eraseDelivery(std::string key, std::string field, std::function<void()> success,
-                       std::function<void(std::exception_ptr)> failure);
+                       std::function<void(std::exception_ptr)> failure, bool coalesceQos1 = false);
     void writeDelivery(std::string key, std::string field, const sptk::Buffer& value,
                        std::function<void()> success, std::function<void(std::exception_ptr)> failure);
 
@@ -89,7 +91,16 @@ private:
         std::promise<void> completed;
         size_t bytes {0};
         bool changesRetained {false};
+        size_t cleanupCount {0}, cleanupBytes {0};
     };
+    struct CleanupEntry
+    {
+        std::string field;
+        std::function<void()> success;
+        std::function<void(std::exception_ptr)> failure;
+        size_t bytes;
+    };
+    void flushCleanupLocked(const std::string& onlyKey = {});
     void enqueue(const std::shared_ptr<Pending>& pending);
     void queueDeliveryOperation(Operation operation, std::function<void()> success,
                                 std::function<void(std::exception_ptr)> failure);
@@ -110,6 +121,10 @@ private:
     std::condition_variable m_changed, m_readyChanged;
     std::deque<std::shared_ptr<Pending>> m_pending;
     std::deque<CommittedBatch> m_ready;
+    std::unordered_map<std::string, std::vector<CleanupEntry>> m_cleanup;
+    std::chrono::steady_clock::time_point m_cleanupDue;
+    size_t m_cleanupCount {0}, m_cleanupBytes {0}, m_ordinaryOutstanding {0};
+    bool m_flushCleanup {false};
     size_t m_outstanding {0}, m_pendingBytes {0}, m_pendingRetained {0};
     bool m_stopping {false};
     bool m_writerDone {false};

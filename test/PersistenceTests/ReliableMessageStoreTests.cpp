@@ -530,3 +530,63 @@ TEST_F(XMQ_ReliableStoreTests, CompletionFailureWithholdsLaterDurableAcks)
     EXPECT_EQ(2, failed.load());
     EXPECT_THROW((ReliableMessageStore::Transaction(store)), Exception);
 }
+
+TEST_F(XMQ_ReliableStoreTests, Qos1CleanupSharesCommandsAndDrainFlushesIt)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    constexpr int count = 150;
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        for (int i = 1; i <= count; ++i) transaction.hashSet("reliable-cleanup", to_string(i), Buffer("message"));
+        transaction.hashSet("reliable-cleanup-other", "1", Buffer("other"));
+        transaction.commit();
+    }
+    const auto before = store.statistics().transactions;
+    atomic_int accepted {0}, failed {0};
+    for (int i = 1; i <= count; ++i)
+        store.eraseDelivery("reliable-cleanup", to_string(i), [&] { ++accepted; }, [&](exception_ptr) { ++failed; }, true);
+    store.eraseDelivery("reliable-cleanup-other", "1", [&] { ++accepted; }, [&](exception_ptr) { ++failed; }, true);
+    store.drain();
+    EXPECT_EQ(count + 1, accepted.load());
+    EXPECT_EQ(0, failed.load());
+    const auto cleanupCommands = store.statistics().transactions - before;
+    EXPECT_GE(cleanupCommands, 4U); // Groups contain at most 64 fields.
+    EXPECT_LE(cleanupCommands, 8U); // Early writer wakeups may split a boundary group.
+    const auto redis = server()->getRedisStorage()->getRedis();
+    EXPECT_TRUE(redis->getHashValues("reliable-cleanup").empty());
+    EXPECT_TRUE(redis->getHashValues("reliable-cleanup-other").empty());
+}
+
+TEST_F(XMQ_ReliableStoreTests, CoalescedCleanupValidatesEveryKeyBeforeDeleting)
+{
+    const auto redis = server()->getRedisStorage()->getRedis();
+    redis->setHashValue("reliable-cleanup-valid", "1", "must remain");
+    redis->setValue("reliable-cleanup-wrong-type", "string");
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    atomic_int accepted {0}, failed {0};
+    store.eraseDelivery("reliable-cleanup-valid", "1", [&] { ++accepted; }, [&](exception_ptr) { ++failed; }, true);
+    store.eraseDelivery("reliable-cleanup-wrong-type", "2", [&] { ++accepted; }, [&](exception_ptr) { ++failed; }, true);
+    store.drain();
+    EXPECT_EQ(0, accepted.load());
+    EXPECT_EQ(2, failed.load());
+    EXPECT_FALSE(redis->getHashValue("reliable-cleanup-valid", "1").isNull());
+    EXPECT_THROW((ReliableMessageStore::Transaction(store)), Exception);
+}
+
+TEST_F(XMQ_ReliableStoreTests, IdleQos1CleanupFlushesWithoutAnotherPublicationOrDrain)
+{
+    ReliableMessageStore store(redisConnectionUrl(TestServers::redisUri()));
+    {
+        ReliableMessageStore::Transaction transaction(store);
+        transaction.hashSet("reliable-idle-cleanup", "1", Buffer("message"));
+        transaction.commit();
+    }
+    Semaphore complete;
+    atomic_int failed {0};
+    store.eraseDelivery("reliable-idle-cleanup", "1", [&] { complete.post(); },
+        [&](exception_ptr) { ++failed; complete.post(); }, true);
+    EXPECT_TRUE(complete.wait_for(4s));
+    store.drain();
+    EXPECT_EQ(0, failed.load());
+    EXPECT_TRUE(server()->getRedisStorage()->getRedis()->getHashValues("reliable-idle-cleanup").empty());
+}
