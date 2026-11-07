@@ -351,6 +351,12 @@ bool ServerController::startServing(string& reason, const std::optional<bool> cl
     // A server that threw partway through construction owns nothing that should linger.
     m_xmqServer.reset();
 
+    if (m_settings->m_persistence.m_ack_after_store.asBool())
+    {
+        reason += " Reliable storage mode forbids fallback to a previous MQTT configuration.";
+        return false;
+    }
+
     // Recover within this process: the web listener and administrator session stay available.
     // Try the last-good role once; a failed recovery leaves MQTT stopped and reports both errors.
     try

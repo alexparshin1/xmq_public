@@ -270,10 +270,13 @@
                     </xsd:element>
                     <xsd:element name="max_redis_connections" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
                     <!-- Messages whose Redis record may still be in flight while they are delivered.
-                         0 waits for every record to be durable before its message is sent. Above 0,
+                         0 waits for every Redis record response before its message is sent.
+                         ack_after_store additionally requires a local AOF fsync before publish ACK. Above 0,
                          record writes pipeline instead, which roughly doubles throughput, and this
                          is the number of messages that would be lost if the server were killed. -->
                     <xsd:element name="max_queued_writes" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
+                    <!-- Experimental standalone durable publication transaction; requires Redis AOF and WAITAOF. -->
+                    <xsd:element name="ack_after_store" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                 </xsd:sequence>
             </xsd:complexType>
 
@@ -930,6 +933,7 @@
                                 <xsd:restriction base="xsd:string">
                                     <xsd:enumeration value="get"></xsd:enumeration>
                                     <xsd:enumeration value="set"></xsd:enumeration>
+                                    <xsd:enumeration value="apply"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -946,6 +950,8 @@
                         <xsd:element name="persistence"
                                      type="tns:Persistence" maxOccurs="1" minOccurs="0">
                         </xsd:element>
+                        <xsd:element name="pending" type="xsd:boolean" minOccurs="0"></xsd:element>
+                        <xsd:element name="message" type="xsd:string" minOccurs="0"></xsd:element>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

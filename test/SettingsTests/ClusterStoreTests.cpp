@@ -132,6 +132,7 @@ ClusterStore::Node sampleNode(const String& nodeId)
     node.m_redisUri = "redis://localhost:6379";
     node.m_databaseUri = "postgresql://db/xmq";
     node.m_clusterEnabled = true;
+    node.m_persistAckAfterStore = true;
     node.m_leaseSeconds = 2;
     node.m_links = 4;
     node.m_queueMaxSize = 1024;
@@ -180,6 +181,8 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_EQ(String("redis://localhost:6379"), stored->m_redisUri) << name;
         EXPECT_EQ(String("postgresql://db/xmq"), stored->m_databaseUri) << name;
         EXPECT_TRUE(stored->m_clusterEnabled) << name;
+        ASSERT_TRUE(stored->m_persistAckAfterStore.has_value()) << name;
+        EXPECT_TRUE(*stored->m_persistAckAfterStore) << name;
         EXPECT_EQ(2, stored->m_leaseSeconds) << name;
         EXPECT_EQ(4, stored->m_links) << name;
         ASSERT_TRUE(stored->m_queueMaxSize.has_value()) << name;
@@ -196,6 +199,7 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         changed.m_name = "node-1-renamed";
         changed.m_state = "Joining";
         changed.m_clusterEnabled = false;
+        changed.m_persistAckAfterStore = false;
         changed.m_queueMaxSize = 64;
         store.updateNode(changed);
 
@@ -204,6 +208,8 @@ TEST_F(XMQ_ClusterStoreTests, aNodeRowKeepsEverySetting)
         EXPECT_EQ(String("node-1-renamed"), reread->m_name) << name;
         EXPECT_EQ(String("Joining"), reread->m_state) << name;
         EXPECT_FALSE(reread->m_clusterEnabled) << name;
+        ASSERT_TRUE(reread->m_persistAckAfterStore.has_value()) << name;
+        EXPECT_FALSE(*reread->m_persistAckAfterStore) << name;
         ASSERT_TRUE(reread->m_queueMaxSize.has_value()) << name;
         EXPECT_EQ(64, *reread->m_queueMaxSize) << name << ": the edited limit was not written back";
         // A column left alone keeps what it had, which is what makes a partial update by an older

@@ -34,9 +34,11 @@
 
 #include <array>
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <ctime>
 #include <regex>
+#include <thread>
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -1424,13 +1426,171 @@ void ControlService::MosquittoImportControl(const CMosquittoImportControl& input
     }
 }
 
+namespace {
+struct RedisAofSettings
+{
+    string appendOnly;
+    string appendFsync;
+};
+
+RedisAofSettings readRedisAofSettings(const string& uri);
+void validateRedisConfigWritable(const string& uri, const RedisAofSettings& current);
+RedisAofSettings configureRedisAof(const string& uri, bool durable);
+void restoreRedisAof(const string& uri, const RedisAofSettings& settings);
+}
+
 void ControlService::PersistenceControl(const CPersistenceControl& input, CPersistenceControlResponse& output, HttpAuthentication* authentication)
 {
     try
     {
         CUser user;
         authenticate(authentication, user);
-        output.m_persistence = getSettings()->persistenceControl(input.m_action, input.m_persistence);
+        const auto settings = getSettings();
+        const auto action = input.m_action.asString();
+        const auto [pending, statusMessage] = settings->nodeSettingsStatus();
+        if (action == "apply")
+        {
+            if (pending) throw Exception("Another configuration update is already pending.");
+            CPersistence desired(input.m_persistence);
+            desired.m_redis_uri = UriSecret::restored(desired.m_redis_uri.asString(),
+                                                      settings->m_persistence.m_redis_uri.asString());
+            if (desired.m_enabled.asBool())
+            {
+                const auto currentRedis = readRedisAofSettings(desired.m_redis_uri.asString());
+                validateRedisConfigWritable(desired.m_redis_uri.asString(), currentRedis);
+                if (!desired.m_ack_after_store.asBool() && desired.m_max_queued_writes.asInteger() <= 0)
+                    throw Exception("Persistent mode requires max_queued_writes above zero for the 10 ms write-behind path.");
+                if (desired.m_ack_after_store.asBool() &&
+                    (desired.m_clean_start.asBool() || desired.m_max_queued_writes.asInteger() != 0))
+                    throw Exception("Durable mode requires clean_start=false and max_queued_writes=0.");
+            }
+            if (desired.m_ack_after_store.asBool())
+            {
+                if (settings->m_cluster.m_enabled.asBool())
+                    throw Exception("Durable mode is available only on a standalone broker.");
+                if (ranges::any_of(settings->m_bridges, [](const auto& bridge) { return bridge.m_enabled.asBool(); }))
+                    throw Exception("Durable mode does not support enabled bridges.");
+            }
+
+            if (m_controller->isServing())
+            {
+                const CPersistence previous(settings->m_persistence);
+                settings->nodeSettingsStatus(true, "Persistence update queued; MQTT will restart.");
+                try
+                {
+                    OSService::queueNodeTask(settings->nodeIdentity(), settings->userDatabaseUri(),
+                        [settings, desired, previous](IServerController& controller)
+                        {
+                            RedisAofSettings previousRedis;
+                            bool redisModeChanged = false;
+                            try
+                            {
+                                controller.stopServing();
+                                if (desired.m_enabled.asBool())
+                                {
+                                    previousRedis = configureRedisAof(desired.m_redis_uri.asString(), desired.m_ack_after_store.asBool());
+                                    redisModeChanged = true;
+                                }
+                                settings->persistenceControl("set", desired);
+                                settings->loadConfiguration(settings->configurationPath());
+                                string reason;
+                                if (!controller.startServing(reason, false)) throw Exception(reason);
+                                settings->nodeSettingsStatus(false, "Persistence mode applied. MQTT restarted; stored sessions were preserved.");
+                            }
+                            catch (const std::exception& error)
+                            {
+                                controller.stopServing();
+                                string message = "Persistence mode was not applied: " + string(error.what());
+                                bool recoveryReady = true;
+                                if (redisModeChanged)
+                                {
+                                    try { restoreRedisAof(desired.m_redis_uri.asString(), previousRedis); }
+                                    catch (const std::exception& recovery)
+                                    {
+                                        recoveryReady = false;
+                                        message += " Redis AOF rollback failed: ";
+                                        message += recovery.what();
+                                    }
+                                }
+                                try
+                                {
+                                    settings->persistenceControl("set", previous);
+                                    settings->loadConfiguration(settings->configurationPath());
+                                    if (recoveryReady)
+                                    {
+                                        string reason;
+                                        if (controller.startServing(reason, false))
+                                            message += " Previous persistence settings were restored and MQTT restarted.";
+                                        else
+                                            message += " Previous settings were restored, but MQTT could not restart: " + reason;
+                                    }
+                                    else
+                                        message += " Previous XMQ settings were restored; MQTT remains stopped because Redis mode could not be restored safely.";
+                                }
+                                catch (const std::exception& recovery)
+                                {
+                                    message += " Recovery failed: ";
+                                    message += recovery.what();
+                                }
+                                settings->nodeSettingsStatus(false, message);
+                            }
+                        });
+                }
+                catch (...)
+                {
+                    settings->nodeSettingsStatus(false, "Persistence update could not be queued.");
+                    throw;
+                }
+                output.m_persistence = settings->persistenceControl("get", CPersistence{});
+                output.m_pending = true;
+                output.m_message = "Persistence update queued; MQTT will restart.";
+            }
+            else
+            {
+                const CPersistence previous(settings->m_persistence);
+                RedisAofSettings previousRedis;
+                bool redisModeChanged = false;
+                try
+                {
+                    if (desired.m_enabled.asBool())
+                    {
+                        previousRedis = configureRedisAof(desired.m_redis_uri.asString(), desired.m_ack_after_store.asBool());
+                        redisModeChanged = true;
+                    }
+                    settings->persistenceControl("set", desired);
+                }
+                catch (const std::exception& error)
+                {
+                    string message = error.what();
+                    if (redisModeChanged)
+                    {
+                        try { restoreRedisAof(desired.m_redis_uri.asString(), previousRedis); }
+                        catch (const std::exception& recovery) { message += "; Redis rollback failed: "; message += recovery.what(); }
+                    }
+                    try
+                    {
+                        settings->persistenceControl("set", previous);
+                        settings->loadConfiguration(settings->configurationPath());
+                    }
+                    catch (const std::exception& recovery) { message += "; XMQ settings rollback failed: "; message += recovery.what(); }
+                    throw Exception(message);
+                }
+                output.m_persistence = settings->persistenceControl("get", CPersistence{});
+                output.m_pending = false;
+                output.m_message = "Persistence settings and Redis mode saved; start MQTT to apply them.";
+            }
+        }
+        else if (action == "set" && m_controller->isServing() &&
+                 (settings->m_persistence.m_ack_after_store.asBool() || input.m_persistence.m_ack_after_store.asBool()))
+        {
+            throw Exception("Use the apply action to change durable mode; it stops and restarts MQTT safely.");
+        }
+        else
+        {
+            output.m_persistence = settings->persistenceControl(action, input.m_persistence);
+            output.m_pending = pending;
+            output.m_message = statusMessage;
+        }
         output.m_result.m_success = true;
     }
     catch (const Exception& e)
@@ -2603,6 +2763,129 @@ string redisDataDirectory(const SRedisConnect& connection)
         return {};
     }
     return {};
+}
+
+string redisConfigValue(const SRedisConnect& connection, const string& name)
+{
+    RedisCommand command("CONFIG", "GET");
+    command.emplace_back(name);
+    vector<Variant> results;
+    connection->executeCommand(command, results);
+    for (size_t index = 0; index + 1 < results.size(); index += 2)
+    {
+        if (results[index].asString() == name)
+        {
+            return results[index + 1].asString().c_str();
+        }
+    }
+    throw Exception("Redis did not return CONFIG GET " + name + ".");
+}
+
+RedisAofSettings readRedisAofSettings(const string& uri)
+{
+    if (uri.empty()) throw Exception("Redis address is required while persistence is enabled.");
+    auto redis = make_shared<RedisConnect>();
+    redis->connect(redisConnectionUrl(uri));
+    RedisCommand replicationInfo("INFO", "replication");
+    vector<Variant> info;
+    redis->executeCommand(replicationInfo, info);
+    if (info.size() != 1 || string(info[0].asString().c_str()).find("role:master") == string::npos)
+        throw Exception("Redis endpoint is not a writable primary.");
+    return {redisConfigValue(redis, "appendonly"), redisConfigValue(redis, "appendfsync")};
+}
+
+void setRedisConfigValue(const SRedisConnect& redis, const string& name, const string& value)
+{
+    RedisCommand command("CONFIG", "SET");
+    command.emplace_back(name);
+    command.emplace_back(value);
+    vector<Variant> result;
+    redis->executeCommand(command, result);
+    if (result.size() != 1 || result[0].asString() != "OK")
+        throw Exception("Redis refused CONFIG SET " + name + ".");
+}
+
+void rewriteRedisConfig(const SRedisConnect& redis)
+{
+    vector<Variant> result;
+    redis->executeCommand(RedisCommand("CONFIG", "REWRITE"), result);
+    if (result.size() != 1 || result[0].asString() != "OK")
+        throw Exception("Redis refused CONFIG REWRITE; it must run with a writable configuration file.");
+}
+
+void validateRedisConfigWritable(const string& uri, const RedisAofSettings& current)
+{
+    auto redis = make_shared<RedisConnect>();
+    redis->connect(redisConnectionUrl(uri));
+    // Re-applying the live value changes no behavior. It proves CONFIG SET access before MQTT is stopped.
+    setRedisConfigValue(redis, "appendfsync", current.appendFsync);
+    rewriteRedisConfig(redis);
+}
+
+void waitForRedisAof(const SRedisConnect& redis)
+{
+    const auto deadline = chrono::steady_clock::now() + chrono::minutes(10);
+    while (chrono::steady_clock::now() < deadline)
+    {
+        RedisCommand wait("WAITAOF", "1");
+        wait.emplace_back("0");
+        wait.emplace_back("5000");
+        vector<Variant> result;
+        try { redis->executeCommand(wait, result); }
+        catch (const RedisConnectException& error)
+        {
+            // Enabling AOF builds the initial file in the background. Redis can briefly reject
+            // commands while it loads/replaces that file; continue waiting for a real fsync reply.
+            if (error.message().compare(0, 8, "LOADING ") != 0) throw;
+            this_thread::sleep_for(chrono::milliseconds(100));
+            continue;
+        }
+        if (result.size() == 2 && result[0].asInt64() == 1) return;
+        this_thread::sleep_for(chrono::milliseconds(100));
+    }
+    throw Exception("Redis did not confirm local AOF fsync with WAITAOF within 10 minutes.");
+}
+
+void restoreRedisAof(const string& uri, const RedisAofSettings& settings)
+{
+    auto redis = make_shared<RedisConnect>();
+    redis->connect(redisConnectionUrl(uri));
+    setRedisConfigValue(redis, "appendfsync", settings.appendFsync);
+    setRedisConfigValue(redis, "appendonly", settings.appendOnly);
+    rewriteRedisConfig(redis);
+    const auto actual = RedisAofSettings{redisConfigValue(redis, "appendonly"), redisConfigValue(redis, "appendfsync")};
+    if (actual.appendOnly != settings.appendOnly || actual.appendFsync != settings.appendFsync)
+        throw Exception("Redis did not restore its previous AOF settings.");
+}
+
+RedisAofSettings configureRedisAof(const string& uri, const bool durable)
+{
+    const auto previous = readRedisAofSettings(uri);
+    auto redis = make_shared<RedisConnect>();
+    redis->connect(redisConnectionUrl(uri));
+    const string appendOnly = durable ? "yes" : "no";
+    const string appendFsync = durable ? "always" : "everysec";
+    try
+    {
+        // Set fsync policy before enabling AOF, so the initial AOF build uses the target policy.
+        setRedisConfigValue(redis, "appendfsync", appendFsync);
+        setRedisConfigValue(redis, "appendonly", appendOnly);
+        rewriteRedisConfig(redis);
+        const auto actual = RedisAofSettings{redisConfigValue(redis, "appendonly"), redisConfigValue(redis, "appendfsync")};
+        if (actual.appendOnly != appendOnly || actual.appendFsync != appendFsync)
+            throw Exception("Redis AOF settings do not match the selected XMQ persistence mode.");
+        if (durable) waitForRedisAof(redis);
+    }
+    catch (const std::exception& error)
+    {
+        try { restoreRedisAof(uri, previous); }
+        catch (const std::exception& rollback)
+        {
+            throw Exception(string(error.what()) + "; Redis AOF rollback failed: " + rollback.what());
+        }
+        throw;
+    }
+    return previous;
 }
 
 } // namespace

@@ -1271,16 +1271,18 @@ void Settings::applyClusterConfigurationUnlocked()
             // row written before this migrates from the file once. has_value() rather than truth,
             // because 0 is a value - a pool size of zero means the default, not "not stored".
             if (row->m_persistEnabled.has_value()) m_persistence.m_enabled = *row->m_persistEnabled;
+            if (row->m_persistAckAfterStore.has_value()) m_persistence.m_ack_after_store = *row->m_persistAckAfterStore;
             if (row->m_persistCleanStart.has_value()) m_persistence.m_clean_start = *row->m_persistCleanStart;
             if (row->m_persistMaxRedisConnections.has_value()) m_persistence.m_max_redis_connections = *row->m_persistMaxRedisConnections;
             if (row->m_persistMaxQueuedWrites.has_value()) m_persistence.m_max_queued_writes = *row->m_persistMaxQueuedWrites;
             if (row->m_bridges) applyBridgesJson(*row->m_bridges, m_bridges);
-            if (!row->m_persistEnabled.has_value() || !row->m_persistCleanStart.has_value() ||
+            if (!row->m_persistEnabled.has_value() || !row->m_persistAckAfterStore.has_value() || !row->m_persistCleanStart.has_value() ||
                 !row->m_persistMaxRedisConnections.has_value() || !row->m_persistMaxQueuedWrites.has_value() ||
                 !row->m_bridges)
             {
                 auto updated = *row;
                 if (!updated.m_persistEnabled.has_value()) updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+                if (!updated.m_persistAckAfterStore.has_value()) updated.m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
                 if (!updated.m_persistCleanStart.has_value()) updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
                 if (!updated.m_persistMaxRedisConnections.has_value()) updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
                 if (!updated.m_persistMaxQueuedWrites.has_value()) updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
@@ -1400,6 +1402,7 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
         row.m_webWhitelist = m_web_service.m_whitelist.asString();
         row.m_persistEnabled = m_persistence.m_enabled.asBool();
+        row.m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
         row.m_persistCleanStart = m_persistence.m_clean_start.asBool();
         row.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
         row.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
@@ -1494,6 +1497,10 @@ void Settings::refreshPeerCertificates()
 
 String Settings::applyClusterJoin(const String& redisUri, const String& databaseUri)
 {
+    if (m_persistence.m_ack_after_store.asBool())
+    {
+        return "ack_after_store does not support cluster membership";
+    }
     // The target applies admission to its own configuration in the shared database.
     try
     {
@@ -2032,6 +2039,7 @@ void Settings::savePersistenceToNodeRow()
 
     auto updated = *row;
     updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+    updated.m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
     updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
     updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
     updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
@@ -2084,6 +2092,10 @@ void Settings::setListenerPort(const String& protocol, const int port)
 uint64_t Settings::bridgeControl(const string& action, const CBridge& bridge)
 {
     const WriteLock lock(m_mutex);
+    if (m_persistence.m_ack_after_store.asBool() && action != "get")
+    {
+        throw Exception("ack_after_store does not support bridge reconfiguration");
+    }
 
     const auto id = m_bridgeManager.control(action, bridge);
     saveBridgesToNodeRow();
@@ -3209,6 +3221,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
                 row->m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
                 row->m_webWhitelist = m_web_service.m_whitelist.asString();
                 row->m_persistEnabled = m_persistence.m_enabled.asBool();
+                row->m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
                 row->m_persistCleanStart = m_persistence.m_clean_start.asBool();
                 row->m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
                 row->m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());
@@ -3362,6 +3375,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
             updated.m_webEncrypted = m_web_service.m_encrypted.isNull() || m_web_service.m_encrypted.asBool();
             updated.m_webWhitelist = m_web_service.m_whitelist.asString();
             updated.m_persistEnabled = m_persistence.m_enabled.asBool();
+            updated.m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
             updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
             updated.m_persistMaxRedisConnections = static_cast<int>(m_persistence.m_max_redis_connections.asInteger());
             updated.m_persistMaxQueuedWrites = static_cast<int>(m_persistence.m_max_queued_writes.asInteger());

@@ -2,6 +2,7 @@ import React from "react";
 import DocumentationIndex from "./DocumentationIndex";
 import InstallDocumentation from "./InstallDocumentation";
 import SetupDocumentation from "./SetupDocumentation";
+import PersistenceDocumentation from "./PersistenceDocumentation";
 import TestingDocumentation from "./TestingDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
 import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
@@ -14,6 +15,7 @@ const screens = {
     index: DocumentationIndex,
     install: InstallDocumentation,
     setup: SetupDocumentation,
+    persistence: PersistenceDocumentation,
     testing: TestingDocumentation,
     permissions: PermissionsDocumentation,
     "mosquitto-import": MosquittoImportDocumentation,

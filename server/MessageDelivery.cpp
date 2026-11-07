@@ -15,6 +15,7 @@
 #include "MessageDelivery.h"
 #include "ClientSession/ClientSession.h"
 #include "Server.h"
+#include "ReliableMessageStore.h"
 #include "common/mqtt/PublishMessage.h"
 
 #include <chrono>
@@ -84,7 +85,23 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
     auto messageDelivery = make_shared<MessageDelivery>(clientSession, message, qos, deliveryId, subscriptionIds, setRetainFlag);
     if (qos != Qos::Qos0 && !clientSession->isCleanSession() && messageDeliveryRecordId == 0)
     {
-        if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)
+        if (auto* transaction = ReliableMessageStore::Transaction::current())
+        {
+            Buffer record;
+            messageDelivery->pack(record);
+            transaction->hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            transaction->onCommit([messageDelivery] { messageDelivery->m_persisted = true; });
+        }
+        else if (clientSession->reliableStore())
+        {
+            ReliableMessageStore::Transaction transaction(*clientSession->reliableStore());
+            Buffer record;
+            messageDelivery->pack(record);
+            transaction.hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            transaction.commit();
+            messageDelivery->m_persisted = true;
+        }
+        else if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)
         {
             // Fully durable: the record is in Redis before the message goes anywhere. Costs a
             // full round-trip per message, and since the thread is parked for it, the writes
@@ -370,13 +387,19 @@ void MessageDelivery::pack(Buffer& record)
 
     startPacking(record);
 
+    // Reliable mode is standalone and restores directly into this recipient's queue. Routing
+    // and No Local have already been decided; the publisher id is not part of outgoing MQTT.
+    // Keep the legacy string field (empty) so old records/readers remain format compatible.
+    const string emptySender;
+    const auto& storedSender = m_clientSession->reliableStore() ? emptySender : publishMessage->getSender();
+
     const auto expectedSizeWithoutProperties =
         sizeof(m_recordId) + 1                                                                      // recordId
         + sizeof(uint8_t) + 1                                                                       // flags
         + sizeof(uint16_t) + 1 + sizeof(uint32_t) * m_subscriptionIds.size() + 1 + sizeof(uint32_t) // subscriptionIds
         + sizeof(uint32_t) + 1 + publishMessage->destination()->fullName().length()                 // topicName
         + sizeof(uint32_t) + 1 + publishMessage->payloadSize()                                      // payload
-        + sizeof(uint32_t) + 1 + publishMessage->getSender().size()                                 // sender
+        + sizeof(uint32_t) + 1 + storedSender.size()                                               // sender
         + sizeof(uint32_t) + 1 + publishMessage->getSourceNode().size()                             // sourceNode
         + sizeof(m_deliveryId) + 1                                                                  // deliveryId
         + 64;                                                                                       // minimal reserve for properties
@@ -392,7 +415,7 @@ void MessageDelivery::pack(Buffer& record)
 
     write(publishMessage->destination()->fullName());
     write(publishMessage->payloadData(), publishMessage->payloadSize());
-    write(publishMessage->getSender());
+    write(storedSender);
     write(publishMessage->getSourceNode());
 
     const uint8_t hasProperties = publishMessage->getProperties() != nullptr;
@@ -483,6 +506,26 @@ void MessageDelivery::storeRecordAsync(const function<void()>& callback)
     m_persisted = true;
     ++m_queuedOperations;
     ++m_queuedWrites;
+    if (auto* store = m_clientSession->reliableStore())
+    {
+        const auto completed = [callback]
+        {
+            --m_queuedOperations;
+            --m_queuedWrites;
+            releaseWriteCapacity();
+            if (callback) callback();
+        };
+        const auto failed = [store](std::exception_ptr)
+        {
+            --m_queuedOperations;
+            --m_queuedWrites;
+            releaseWriteCapacity();
+            store->invalidate();
+        };
+        try { store->writeDelivery(m_sessionMessagesKey, to_string(m_recordId), record, completed, failed); }
+        catch (...) { failed(std::current_exception()); }
+        return;
+    }
     redis->setHashValueAsync(m_sessionMessagesKey, to_string(m_recordId), record,
                              [callback]
                              {
@@ -511,6 +554,34 @@ void MessageDelivery::removeRecordAsync(const std::function<void(const size_t&)>
         return;
     }
     ++m_queuedOperations;
+    if (auto* store = m_clientSession->reliableStore())
+    {
+        // The recipient holds locks here. Enqueue directly without the publication staging
+        // mutex, and let these deletes share the next durable batch instead of competing
+        // through 32 independent pool sockets and forcing additional AOF flushes.
+        try
+        {
+            store->eraseDelivery(m_sessionMessagesKey, to_string(m_recordId),
+                [callback]
+                {
+                    --m_queuedOperations;
+                    if (callback) callback(1);
+                },
+                [store, callback](std::exception_ptr)
+                {
+                    --m_queuedOperations;
+                    store->invalidate();
+                    if (callback) callback(0);
+                }, m_flags.getQos() == Qos::Qos1);
+        }
+        catch (...)
+        {
+            --m_queuedOperations;
+            store->invalidate();
+            if (callback) callback(0);
+        }
+        return;
+    }
     redis->deleteHashKeysAsync(m_sessionMessagesKey, {to_string(m_recordId)},
                                [callback]
                                {

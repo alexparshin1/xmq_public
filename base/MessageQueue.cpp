@@ -94,7 +94,7 @@ bool MessageQueue::exceedsLimitsUnlocked(const uint64_t messageBytes) const
 {
     // In flight and waiting alike: a message the client has not acknowledged is held by this
     // session just as one behind the window is, and the memory it costs is the same.
-    const auto held = m_inflightMessages.size() + waitingCount();
+    const auto held = m_inflightMessages.size() + waitingCount() + m_reservedMessages;
 
     if (const auto maxMessages = m_maxQueuedMessages.load(std::memory_order_relaxed);
         maxMessages > 0 && held >= maxMessages)
@@ -103,7 +103,7 @@ bool MessageQueue::exceedsLimitsUnlocked(const uint64_t messageBytes) const
     }
 
     const auto maxBytes = m_maxQueuedBytes.load(std::memory_order_relaxed);
-    return maxBytes > 0 && messageBytes != 0 && m_queuedBytes + messageBytes > maxBytes;
+    return maxBytes > 0 && messageBytes != 0 && m_queuedBytes + m_reservedBytes + messageBytes > maxBytes;
 }
 
 bool MessageQueue::canAccept(const uint64_t bytes) const
@@ -112,10 +112,45 @@ bool MessageQueue::canAccept(const uint64_t bytes) const
     return !exceedsLimitsUnlocked(bytes);
 }
 
+bool MessageQueue::reserve(const uint64_t bytes)
+{
+    const scoped_lock lock(m_mutex);
+    if (exceedsLimitsUnlocked(bytes)) return false;
+    ++m_reservedMessages;
+    m_reservedBytes += bytes;
+    return true;
+}
+
+void MessageQueue::cancelReservation(const uint64_t bytes)
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_reservedMessages || m_reservedBytes < bytes)
+        throw Exception("Invalid durable queue reservation");
+    --m_reservedMessages;
+    m_reservedBytes -= bytes;
+}
+
+MessageId MessageQueue::queueReservedMessage(const SMessageDispatch& messageDispatch)
+{
+    const scoped_lock lock(m_mutex);
+    const auto bytes = messageBytes(messageDispatch);
+    if (!m_reservedMessages || m_reservedBytes < bytes)
+        throw Exception("Invalid durable queue reservation");
+    --m_reservedMessages;
+    m_reservedBytes -= bytes;
+    return queueMessageUnlocked(messageDispatch, false);
+}
+
 MessageId MessageQueue::queueMessage(const SMessageDispatch& messageDispatch)
 {
     const scoped_lock lock(m_mutex);
     return queueMessageUnlocked(messageDispatch);
+}
+
+MessageId MessageQueue::queueCommittedMessage(const SMessageDispatch& messageDispatch)
+{
+    const scoped_lock lock(m_mutex);
+    return queueMessageUnlocked(messageDispatch, false);
 }
 
 MessageId MessageQueue::restoreMessage(SMessageDispatch& messageDispatch)

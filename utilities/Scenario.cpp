@@ -448,6 +448,8 @@ void Scenario::executeScenario() const
     engine.warmup(chrono::seconds(commandLine().getOptionValue("warmup").toInt()));
     // Null unless --encrypted, --cafile or --cert/--key were given; see RunDefinition::load().
     engine.sslKeys(runDefinition().m_sslKeys);
+    engine.subscriptionRate(static_cast<size_t>(commandLine().getOptionValue("subscribe-rate").toInt()));
+    engine.subscriptionTimeout(chrono::seconds(commandLine().getOptionValue("subscribe-timeout").toInt()));
 
     // Whatever "-D connect ..." and "-D publish ..." asked for. Scenarios carry no properties of
     // their own, so this is the only way to measure what MQTT5 properties cost in a load test -

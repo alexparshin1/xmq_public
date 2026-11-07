@@ -1,0 +1,45 @@
+<!--
+  News item for the website. The body below is what goes in the "News" field; the title and date
+  are the other two fields on the form.
+
+  Title: XMQ persistence: choose Persistent or Durable
+  Date:  2026-11-07
+
+  Kept here as the record of what was published, and when. It is not the changelog: CHANGELOG.md is
+  written for someone upgrading and lists every change with its measurement, while this is written
+  for a reader who is not upgrading anything.
+-->
+
+<p>
+    XMQ now lets you choose the persistence behavior from the management interface. Both modes
+    store persistent sessions, subscriptions, retained messages and undelivered QoS&nbsp;1 and
+    QoS&nbsp;2 messages in Redis. They differ in when a publish is acknowledged and how Redis
+    writes reach disk. See the new <a href='/xmq_persistence'>Persistence guide</a> for the
+    guarantees and failure boundaries.
+</p>
+
+<h3>Persistent: keep the write-behind path</h3>
+<p>
+    Persistent mode keeps the 10&nbsp;ms write-behind behavior and disables Redis AOF to avoid
+    its additional write latency. <code>Max queued writes</code> defaults to 1000; when that
+    queue fills, publishers pause until Redis catches up. A publisher may be acknowledged before
+    Redis stores the record, and recovery after a Redis restart depends on RDB snapshots.
+</p>
+
+<h3>Durable: wait for Redis to sync each write batch</h3>
+<p>
+    Durable mode enables Redis AOF with <code>appendfsync always</code>. XMQ waits for Redis to
+    confirm a local AOF fsync before sending successful publish acknowledgements. This protects
+    acknowledged writes against an ordinary Redis process restart while its disk remains intact;
+    loss of the Redis host or disk is outside this guarantee.
+</p>
+
+<h3>Switch from the interface</h3>
+<p>
+    Choose Persistent or Durable on the Persistence screen and apply the change. XMQ checks and
+    updates Redis configuration, saves it, then restarts the MQTT service; Redis itself does not
+    restart. The configuration change affects the entire Redis server and every database and
+    application using it, so a dedicated Redis instance is recommended when other workloads need
+    different settings. The accepted Point-To-Point-60K-persistence performance test found no
+    performance regression in the tested configuration.
+</p>

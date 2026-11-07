@@ -34,7 +34,7 @@ constexpr string_view nodeColumns =
     " limits_send_threads, limits_receive_threads, limits_delivery_threads,"
     " limits_max_topic_alias, limits_max_packet_size, listeners_json,"
     " web_listener_port, web_encrypted, web_whitelist,"
-    " persist_enabled, persist_clean_start, persist_max_redis_connections, persist_max_queued_writes,"
+    " persist_enabled, persist_ack_after_store, persist_clean_start, persist_max_redis_connections, persist_max_queued_writes,"
     " bridges_json";
 
 String nowUtc()
@@ -70,6 +70,7 @@ ClusterStore::Node readNode(Query& query)
     if (!query["web_encrypted"].isNull()) node.m_webEncrypted = query["web_encrypted"].asInteger() != 0;
     if (!query["web_whitelist"].isNull()) node.m_webWhitelist = query["web_whitelist"].asString();
     if (!query["persist_enabled"].isNull()) node.m_persistEnabled = query["persist_enabled"].asInteger() != 0;
+    if (!query["persist_ack_after_store"].isNull()) node.m_persistAckAfterStore = query["persist_ack_after_store"].asInteger() != 0;
     if (!query["persist_clean_start"].isNull()) node.m_persistCleanStart = query["persist_clean_start"].asInteger() != 0;
     if (!query["persist_max_redis_connections"].isNull()) node.m_persistMaxRedisConnections = static_cast<int>(query["persist_max_redis_connections"].asInteger());
     if (!query["persist_max_queued_writes"].isNull()) node.m_persistMaxQueuedWrites = static_cast<int>(query["persist_max_queued_writes"].asInteger());
@@ -136,6 +137,7 @@ void bindQueueLimits(Query& query, const ClusterStore::Node& node)
         else parameter.setNull(VariantDataType::VAR_INT);
     };
     bindBool("persist_enabled", node.m_persistEnabled);
+    bindBool("persist_ack_after_store", node.m_persistAckAfterStore);
     bindBool("persist_clean_start", node.m_persistCleanStart);
 
     bindInt("persist_max_redis_connections", node.m_persistMaxRedisConnections);
@@ -257,6 +259,7 @@ void ClusterStore::createSchema()
             "  web_encrypted         int,"
             "  web_whitelist         TEXT,"
             "  persist_enabled       int,"
+            "  persist_ack_after_store int,"
             "  persist_clean_start   int,"
             "  persist_max_redis_connections int,"
             "  persist_max_queued_writes int,"
@@ -287,7 +290,7 @@ void ClusterStore::createSchema()
                                     "limits_max_packet_size bigint",
                                     "listeners_json text",
                                     "web_listener_port int", "web_encrypted int", "web_whitelist text",
-                                    "persist_enabled int", "persist_clean_start int",
+                                    "persist_enabled int", "persist_ack_after_store int", "persist_clean_start int",
                                     "persist_max_redis_connections int", "persist_max_queued_writes int",
                                     "bridges_json text"})
     {
@@ -371,7 +374,7 @@ void ClusterStore::insertNode(const Node& node)
                  "  limits_send_threads, limits_receive_threads, limits_delivery_threads,"
                  "  limits_max_topic_alias, limits_max_packet_size, listeners_json,"
                  "  web_listener_port, web_encrypted, web_whitelist,"
-                 "  persist_enabled, persist_clean_start, persist_max_redis_connections,"
+                 "  persist_enabled, persist_ack_after_store, persist_clean_start, persist_max_redis_connections,"
                  "  persist_max_queued_writes, bridges_json, updated_at)"
                  " VALUES (:node_id, :name, :host_port, :state, :last_error, :redis_uri, :database_uri,"
                  "  :cluster_enabled, :cluster_lease_seconds, :cluster_links, :certificate,"
@@ -379,7 +382,7 @@ void ClusterStore::insertNode(const Node& node)
                  "  :limits_send_threads, :limits_receive_threads, :limits_delivery_threads,"
                  "  :limits_max_topic_alias, :limits_max_packet_size, :listeners_json,"
                  "  :web_listener_port, :web_encrypted, :web_whitelist,"
-                 "  :persist_enabled, :persist_clean_start, :persist_max_redis_connections,"
+                 "  :persist_enabled, :persist_ack_after_store, :persist_clean_start, :persist_max_redis_connections,"
                  "  :persist_max_queued_writes, :bridges_json, :updated_at)");
 
     insert.param("node_id") = node.m_nodeId;
@@ -422,6 +425,7 @@ void ClusterStore::updateNode(const Node& node)
                  "  web_encrypted = :web_encrypted,"
                  "  web_whitelist = :web_whitelist,"
                  "  persist_enabled = :persist_enabled,"
+                 "  persist_ack_after_store = :persist_ack_after_store,"
                  "  persist_clean_start = :persist_clean_start,"
                  "  persist_max_redis_connections = :persist_max_redis_connections,"
                  "  persist_max_queued_writes = :persist_max_queued_writes,"

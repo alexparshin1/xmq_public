@@ -13,6 +13,7 @@
 */
 
 #include "MessageDeliveryThreads.h"
+#include "ReliableMessageStore.h"
 
 #include "base/LatencyTrace.h"
 
@@ -148,7 +149,7 @@ void MessageDeliveryThreads::fanOutMessage(const SPublishMessage& message, const
     }
 
     if (const auto shardCount = m_shardCount;
-        sessions.size() < MinSessionsForSharding || shardCount < 2)
+        ReliableMessageStore::Transaction::current() || sessions.size() < MinSessionsForSharding || shardCount < 2)
     {
         SubscriptionManager::deliverShard(message, sessions, 0, 1);
     }

@@ -12,6 +12,7 @@
 */
 
 #include "PersistentClientSession.h"
+#include "server/ReliableMessageStore.h"
 #include "ClientSession.h"
 #include "Server.h"
 #include "storage/MessageDeliveryPacker.h"
@@ -35,6 +36,11 @@ SRedisConnect redisConnection(const Server* server)
 
 } // namespace
 
+ReliableMessageStore* PersistentClientSession::reliableStore() const noexcept
+{
+    return serverUnlocked().reliableMessageStore();
+}
+
 PersistentClientSession::PersistentClientSession(Server*                          server,
                                                  const SConnectMessageParameters& connectMessageParameters,
                                                  const SMessageProperties&        connectMessageProperties)
@@ -45,17 +51,43 @@ PersistentClientSession::PersistentClientSession(Server*                        
 
 void PersistentClientSession::redisStoreSession(SessionStoreType sessionStoreType)
 {
-    if (!m_redisConnection || m_released)
+    if (m_released || m_restoringSubscriptions) return;
+    if (auto* store = server().reliableMessageStore(); store && !isCleanSession())
     {
+        try
+        {
+            // Raw Redis commands must never share the pool's synchronous socket: executeCommand
+            // has no internal lock. Stage metadata on the reliable store's serialized connection,
+            // together with retained deliveries when this is a SUBSCRIBE transaction.
+            unique_ptr<ReliableMessageStore::Transaction> own;
+            auto* transaction = ReliableMessageStore::Transaction::current();
+            if (!transaction)
+            {
+                own = make_unique<ReliableMessageStore::Transaction>(*store);
+                transaction = own.get();
+            }
+            Buffer data;
+            pack(data);
+            transaction->set("session_" + getClientId(), data);
+            transaction->onRollback([store] { store->invalidate(); });
+            if (sessionStoreType == SessionStoreType::SessionDataAndNodeLink)
+            {
+                transaction->addMember("node_" + server().getNodeName() + "_sessions", getClientId());
+            }
+            if (own) own->commit();
+        }
+        catch (...)
+        {
+            store->invalidate();
+            throw;
+        }
         return;
     }
-
+    if (!m_redisConnection) return;
     const auto clientId = string(getClientId());
     const auto sessionKey = "session_" + clientId;
-
     Buffer sessionData;
     pack(sessionData);
-
     m_redisConnection->setValueAsync(sessionKey, sessionData,
                                      [this, clientId, sessionStoreType]
                                      {
@@ -204,6 +236,14 @@ PersistentClientSession::initSession(const string&                              
             // stored a millisecond later still lands after the session record it belongs to.
             Buffer sessionData;
             pack(sessionData);
+            if (server().reliableMessageStore())
+            {
+                ReliableMessageStore::Transaction transaction(*server().reliableMessageStore());
+                transaction.set(sessionKey, sessionData);
+                transaction.addMember(nodeSessionsKey, clientId);
+                transaction.commit();
+                return sessionInitType;
+            }
             m_redisConnection->setValueAsync(sessionKey, sessionData);
             m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
                                                   {
@@ -237,23 +277,26 @@ PersistentClientSession::initSession(const string&                              
         return SessionInitType::New;
     }
 
+    auto* store = server().reliableMessageStore();
+    const bool restoredFromNodeSet = m_prefetchedMessages.has_value();
     try
     {
-        // Register session with this server node, if necessary. Queued rather than waited for,
-        // for the reason given above: three more blocking round trips on an authentication thread,
-        // and the client's answer depends on none of them.
-        if (oldNodeName != serverNodeName)
+        if (store)
+        {
+            // Startup prefetch came from the recovered discovery set itself. A live CONNECT
+            // instead repairs/confirms membership before any restored subscription is visible.
+            if (!restoredFromNodeSet)
+            {
+                ReliableMessageStore::Transaction transaction(*store);
+                transaction.addMember(nodeSessionsKey, clientId);
+                transaction.commit();
+            }
+        }
+        else if (oldNodeName != serverNodeName)
         {
             if (!oldNodeName.empty())
-            {
-                m_redisConnection->deleteSetMembersAsync(oldNodeSessionsKey, {clientId}, [](size_t)
-                                                         {
-                                                         });
-            }
-            m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t)
-                                                  {
-                                                  });
-
+                m_redisConnection->deleteSetMembersAsync(oldNodeSessionsKey, {clientId}, [](size_t) {});
+            m_redisConnection->addSetMembersAsync(nodeSessionsKey, {clientId}, [](size_t) {});
             Buffer sessionData;
             pack(sessionData);
             m_redisConnection->setValueAsync(sessionKey, sessionData);
@@ -261,13 +304,28 @@ PersistentClientSession::initSession(const string&                              
     }
     catch (const RedisConnectException& e)
     {
+        if (store) throw;
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
     }
 
     const auto self = dynamic_pointer_cast<ClientSession>(shared_from_this());
-    for (const auto& destination: destinations)
     {
-        (void) server().subscribeClient(self, destination);
+        // These subscriptions are already in the durable record. Rewriting it during replay
+        // would both fsync once per topic and temporarily replace the full record with a prefix.
+        m_restoringSubscriptions = store != nullptr;
+        struct ResetFlag { bool& value; ~ResetFlag() { value = false; } } reset {m_restoringSubscriptions};
+        for (const auto& destination: destinations)
+            (void) server().subscribeClient(self, destination);
+    }
+    if (store && (!restoredFromNodeSet || oldNodeName != serverNodeName))
+    {
+        // Only pack after the entire subscription set has been installed. CONNECT may change
+        // protocol/session options, but a crash during replay must retain the old full record.
+        Buffer sessionData;
+        pack(sessionData);
+        ReliableMessageStore::Transaction transaction(*store);
+        transaction.set(sessionKey, sessionData);
+        transaction.commit();
     }
 
     // Load session message records - all of this session's messages. The startup restore has
@@ -289,7 +347,7 @@ PersistentClientSession::initSession(const string&                              
     ranges::transform(sessionMessageMap | views::keys, recordIds.begin(),
                       [](const string& recordId)
                       {
-                          return std::stoi(recordId);
+                          return std::stoll(recordId);
                       });
     ranges::sort(recordIds);
 
@@ -464,6 +522,7 @@ bool PersistentClientSession::initSession(const string& clientId, const bool cle
     }
     catch (const Exception& exception)
     {
+        if (server().reliableMessageStore()) throw;
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error, [message = exception.what()]
                             {
                                 return format("PersistentClientSession::getPersistentData: {}", message);

@@ -270,3 +270,37 @@ TEST(XMQ_InflightQueue, byteLimitDropsWhatDoesNotFit)
         << "the message limit was not applied to what the session holds";
     EXPECT_EQ(1U, countLimited.droppedMessages());
 }
+
+TEST(XMQ_InflightQueue, durableReservationsCountBeforeRecordsAreCommitted)
+{
+    MessageQueue queue(4, [](const SMessageDispatch&) {});
+    queue.setQueueLimits(2, 1000);
+    ASSERT_TRUE(queue.reserve(13));
+    ASSERT_TRUE(queue.reserve(13));
+    EXPECT_EQ(0U, queue.size());
+    EXPECT_FALSE(queue.canAccept(1));
+    EXPECT_FALSE(queue.reserve(1));
+    queue.cancelReservation(13);
+    EXPECT_TRUE(queue.canAccept(13));
+
+    const auto topics = make_shared<TopicManager>();
+    auto message = make_shared<mqtt::PublishMessage>(topics->getTopic("topic1"), string_view("payload"));
+    const auto id = queue.queueReservedMessage(make_shared<MessageDispatch>(message, Qos::Qos1));
+    EXPECT_EQ(1U, queue.size());
+    ASSERT_TRUE(queue.reserve(13));
+    EXPECT_FALSE(queue.canAccept(1));
+    queue.cancelReservation(13);
+    queue.receiveAck(id, Message::Type::PublishAck);
+    EXPECT_TRUE(queue.canAccept(13));
+}
+
+TEST(XMQ_InflightQueue, durableReservationBytesAreReleasedOnRollback)
+{
+    MessageQueue queue(4, [](const SMessageDispatch&) {});
+    queue.setQueueLimits(0, 20);
+    ASSERT_TRUE(queue.reserve(13));
+    EXPECT_FALSE(queue.canAccept(8));
+    EXPECT_FALSE(queue.reserve(8));
+    queue.cancelReservation(13);
+    EXPECT_TRUE(queue.canAccept(20));
+}
