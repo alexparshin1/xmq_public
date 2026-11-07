@@ -22,6 +22,17 @@ Requires SPTK 5.6.19.
   an ambiguous commit requires restart and recovery. Cluster membership and bridges are rejected
   in this mode. See [the contract and tests](doc/ReliableMessageStore.md) for its boundaries.
 
+### Fixed
+
+- **A large fan-out is actually split across the delivery threads again.** The session-to-shard
+  mapping folded the session's address directly, and client sessions come from one allocator size
+  class whose stride is a multiple of the shard counts: `address % shardCount` was the same value
+  for every subscriber, so the whole fan-out ran on one thread however many delivery threads were
+  configured. On the stand's Fan-Out scenario (1000 subscribers, 250 publications/s) the broker's
+  own share of the latency, from the reactor wake to the delivery being written, fell from 1.45 ms
+  to 0.95 ms at the default two delivery threads and to 0.76 ms at four. The measured
+  end-to-end figure did not move, because on that rig the load client owns the other 1.4 ms.
+
 ## 1.1.0 — 2026-11-05
 
 Requires SPTK 5.6.18.

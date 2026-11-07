@@ -17,6 +17,7 @@
 #include "Subscriptions.h"
 
 #include <atomic>
+#include <cstdint>
 
 namespace xmq {
 
@@ -84,10 +85,22 @@ public:
 
     /**
      * @brief Stable session-to-shard mapping used by deliverShard().
+     *
+     * The address is mixed before it is folded. Folding it directly was measured to put every
+     * subscriber of a fan-out in one shard: sessions come from one allocator size class, their
+     * addresses differ by a stride that is a multiple of the page and of the alignments the shard
+     * counts divide, and so all of them gave the same remainder. The whole fan-out then ran on
+     * one thread however many delivery threads existed - a hundredth of the point of sharding it.
      */
     static size_t shardOf(const ISubscriptionClient* session, const size_t shardCount)
     {
-        return std::hash<const ISubscriptionClient*> {}(session) % shardCount;
+        auto value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(session));
+        value ^= value >> 33;
+        value *= 0xff51afd7ed558ccdULL;
+        value ^= value >> 33;
+        value *= 0xc4ceb9fe1a85ec53ULL;
+        value ^= value >> 33;
+        return static_cast<size_t>(value % shardCount);
     }
     std::shared_ptr<Subscription> subscribe(const Topic* topic, const std::shared_ptr<ISubscriptionClient>& clientSession, Qos qos, uint32_t subscriptionId, SubscriptionOptions options);
 
