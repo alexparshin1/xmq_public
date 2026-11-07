@@ -28,8 +28,9 @@ public:
      * @param server            Server.
      * @param topicManager      Topic manager.
      * @param logEngine         Log engine.
+     * @param topicShardCount   Number of independent exact-topic subscription trees.
      */
-    explicit SubscriptionManager(Server* server, STopicManager topicManager, sptk::LogEngine& logEngine);
+    explicit SubscriptionManager(Server* server, STopicManager topicManager, sptk::LogEngine& logEngine, size_t topicShardCount = 1);
 
     SubscriptionManager(const SubscriptionManager&) = delete;
     SubscriptionManager(SubscriptionManager&&) = delete;
@@ -138,10 +139,14 @@ public:
     std::map<const Topic*, std::weak_ptr<Subscription>, std::less<>> getSubscriptions(const std::string& topicName);
 
 private:
+    Subscriptions& topicSubscriptions(const Topic* topic);
+
     mutable std::mutex                    m_mutex;
     STopicManager                         m_topicManager;
     sptk::Logger                          m_logger;
-    Subscriptions                         m_topics;
+    // Exact-topic readers contend only with publishers whose topics hash to the same shard.
+    // Wildcards stay in one tree because a filter such as '#' matches topics in every shard.
+    std::vector<USubscriptions>           m_topicShards;
     Subscriptions                         m_wildcards;
     XMQ_MAP_TYPE<RecordId, SSubscription> m_subscriptionIndex;
     RetainedMessages                      m_retainedMessages;

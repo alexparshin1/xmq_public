@@ -71,15 +71,57 @@ TEST_F(XMQ_ServerTests, Subscription_Subscribe)
     }
 }
 
+TEST_F(XMQ_ServerTests, Subscription_Shards)
+{
+    const auto          topicManager = server()->getTopicManager();
+    SubscriptionManager subscriptionManager(server().get(), topicManager, *logEngine(), 16);
+    vector<const Topic*> topicList;
+
+    for (size_t index = 0; index < 128; ++index)
+    {
+        auto topic = topicManager->getTopic("test" + to_string(index) + "/module/device");
+        topicList.push_back(topic);
+        subscriptionManager.subscribe(topic, nullptr, Qos::Qos1, 1, SubscriptionOptions());
+    }
+
+    const auto wildcard = topicManager->getTopic("+/module/device");
+    subscriptionManager.subscribe(wildcard, nullptr, Qos::Qos1, 1, SubscriptionOptions());
+    const auto shared = topicManager->getTopic("$share/group/test0/module/device");
+    subscriptionManager.subscribe(shared, nullptr, Qos::Qos1, 1, SubscriptionOptions());
+
+    for (const auto& topic: topicList)
+    {
+        size_t matches = 0;
+        subscriptionManager.find(topic,
+                                 [&matches](const SubscriptionGroup&)
+                                 {
+                                     ++matches;
+                                     return Subscriptions::ActionType::Continue;
+                                 });
+        EXPECT_EQ(2, matches);
+        EXPECT_EQ(topic == topicList.front() ? 3 : 2, subscriptionManager.getSubscriptions(string(topic->fullName())).size());
+    }
+
+    EXPECT_EQ(130, subscriptionManager.getSubscriptions("#").size());
+
+    for (const auto& topic: topicList)
+    {
+        subscriptionManager.unsubscribe(topic, nullptr);
+    }
+    subscriptionManager.unsubscribe(wildcard, nullptr);
+    subscriptionManager.unsubscribe(shared, nullptr);
+    EXPECT_TRUE(subscriptionManager.getSubscriptions("#").empty());
+}
+
 TEST_F(XMQ_ServerTests, Subscription_Performance)
 {
     const auto           storage = server()->getStorage();
     const auto           topicManager = server()->getTopicManager();
-    SubscriptionManager  subscriptionManager(server().get(), topicManager, *logEngine());
+    SubscriptionManager  subscriptionManager(server().get(), topicManager, *logEngine(), 16);
     vector<const Topic*> topicList;
 
     constexpr int    Size = 50;
-    constexpr size_t TaskCount = 10;
+    constexpr size_t TaskCount = 8;
 
     // Create subscriptions
     Stopwatch stopwatch;

@@ -85,13 +85,30 @@ SMessage withClusterShares(const xmq::PublishMessage& message, const vector<stri
 
 } // namespace
 
-SubscriptionManager::SubscriptionManager(Server* server, STopicManager topicManager, LogEngine& logEngine)
+SubscriptionManager::SubscriptionManager(Server* server, STopicManager topicManager, LogEngine& logEngine, size_t topicShardCount)
     : m_topicManager(std::move(topicManager))
     , m_logger(logEngine, "SubscriptionManager ")
-    , m_topics(server)
     , m_wildcards(server)
     , m_server(server)
 {
+    const auto shardCount = max<size_t>(1, topicShardCount);
+    m_topicShards.reserve(shardCount);
+    for (size_t index = 0; index < shardCount; ++index)
+    {
+        m_topicShards.push_back(make_unique<Subscriptions>(server));
+    }
+    if (shardCount > 1)
+    {
+        m_logger.info(format("Exact-topic subscriptions split into {} shards", shardCount));
+    }
+}
+
+Subscriptions& SubscriptionManager::topicSubscriptions(const Topic* topic)
+{
+    // All shared groups of a filter live beside its regular subscription in one group,
+    // so they must use the same shard as publications to the filter's destination.
+    const auto shardIndex = hash<string_view> {}(topic->filterName()) % m_topicShards.size();
+    return *m_topicShards[shardIndex];
 }
 
 size_t SubscriptionManager::publishMessage(const shared_ptr<PublishMessage>& message, const MessageDomain domain)
@@ -189,7 +206,7 @@ bool SubscriptionManager::matchMessage(const std::shared_ptr<PublishMessage>& me
     }
 
     auto dynamicRoute = false;
-    m_topics.matchSessionsForDelivery(destination, msg, false, deliverToSessions, deliverToBridges, dynamicRoute, domain);
+    topicSubscriptions(destination).matchSessionsForDelivery(destination, msg, false, deliverToSessions, deliverToBridges, dynamicRoute, domain);
     m_wildcards.matchSessionsForDelivery(destination, msg, true, deliverToSessions, deliverToBridges, dynamicRoute, domain);
 
     if (!destination->isSystem())
@@ -369,7 +386,7 @@ shared_ptr<Subscription> SubscriptionManager::subscribe(const Topic*            
     }
     else
     {
-        subscription = m_topics.subscribe(topic, clientSession, qos, subscriptionId, options);
+        subscription = topicSubscriptions(topic).subscribe(topic, clientSession, qos, subscriptionId, options);
     }
 
     if (m_server && m_server->systemStatistics())
@@ -389,7 +406,7 @@ void SubscriptionManager::unsubscribe(const Topic* topic, ClientSession* clientS
     }
     else
     {
-        m_topics.unsubscribe(topic, clientSession, destroyed);
+        topicSubscriptions(topic).unsubscribe(topic, clientSession, destroyed);
     }
 
     if (auto* statistics = m_server ? m_server->systemStatistics() : nullptr)
@@ -400,7 +417,10 @@ void SubscriptionManager::unsubscribe(const Topic* topic, ClientSession* clientS
 
 void SubscriptionManager::clear()
 {
-    m_topics.clear();
+    for (const auto& shard: m_topicShards)
+    {
+        shard->clear();
+    }
     m_wildcards.clear();
 }
 
@@ -410,13 +430,16 @@ void SubscriptionManager::find(const Topic* topic, const Subscriptions::Action& 
     {
         if (!exactMatch)
         {
-            m_topics.find(topic, action);
+            for (const auto& shard: m_topicShards)
+            {
+                shard->find(topic, action);
+            }
         }
         m_wildcards.find(topic, action);
     }
     else
     {
-        m_topics.find(topic, action, autoCreate);
+        topicSubscriptions(topic).find(topic, action, autoCreate);
         if (!exactMatch)
         {
             m_wildcards.findWildcardsMatchingTopic(&m_wildcards, topic->path(), 0, action);

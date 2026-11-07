@@ -144,7 +144,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     , m_sessionTimer(make_shared<Timer>())
     , m_storage(initializeStorage(*settings, cleanStart))
     , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
-    , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))
+    , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine,
+                                                             2 * max(resolveReceiveThreadCount(settings->m_server_limits.m_receive_threads.asString()),
+                                                                     resolveDeliveryThreadCount(settings->m_server_limits.m_delivery_threads.asString()))))
     , m_clientSessionThreads(this,
                              resolveThreadCount(settings->m_server_limits.m_send_threads.asString()),
                              resolveReceiveThreadCount(settings->m_server_limits.m_receive_threads.asString()),
