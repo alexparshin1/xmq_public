@@ -266,11 +266,16 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             </p>
 
             <p>
-                What survives a failure is decided in two places: <b>Max queued writes</b> on that
-                page bounds what the server can lose, and Redis's own <code>appendfsync</code>{" "}
-                setting decides what Redis loses when its machine goes down. Redis's defaults keep
-                only periodic snapshots, so turn on <code>appendonly yes</code>. The two modes worth
-                using - Durable and Super-Durable - and what each can lose are described on{" "}
+                The Persistence page offers <b>Persistent</b> and <b>Durable</b> modes. Persistent
+                uses a 10&nbsp;ms write-behind window, disables Redis AOF, and defaults
+                <code>Max queued writes</code> to 1000; writes can be lost before Redis stores
+                them, and Redis restart recovery depends on RDB snapshots. Durable enables Redis
+                AOF with <code>appendfsync always</code> and waits for local fsync before
+                acknowledging successful publishes. This protects against a Redis process restart
+                while its disk remains intact, but not loss of the Redis host or disk. Switching
+                modes updates configuration for the <b>entire Redis server</b> and restarts the
+                XMQ MQTT service; Redis itself does not restart. See the mode details and failure
+                boundaries on{" "}
                 <a href="https://xmq.sptk.net/xmq_persistence" target="_blank"
                    rel="noopener noreferrer">xmq.sptk.net/xmq_persistence</a>.
             </p>
