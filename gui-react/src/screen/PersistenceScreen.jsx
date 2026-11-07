@@ -5,6 +5,7 @@ import "./InputScreen.css"
 import BasicScreen from "./BasicScreen";
 import PageTitle from "../components/PageTitle";
 import PasswordInput from "../components/PasswordInput";
+import {confirmationWindow, errorWindow, informationWindow} from "../components/MessageWindow";
 
 /**
  * Persistence settings screen.
@@ -18,6 +19,10 @@ export default class PersistenceScreen extends BasicScreen
         clean_start: false,
         max_redis_connections: 2,
         max_queued_writes: 1000,
+        mode: "persistent",
+        loaded: false,
+        busy: false,
+        statusMessage: "",
         // redis_uri, presented as separate fields
         redis_host: "localhost",
         redis_port: 6379,
@@ -131,15 +136,83 @@ export default class PersistenceScreen extends BasicScreen
     /**
      * Saves the persistence settings, sending the fields defined by the Persistence type.
      */
-    savePersistence()
+    async savePersistence()
     {
-        ControlAPI.setPersistence({
+        const durable = this.state.enabled && this.state.mode === "durable";
+        const persistence = {
             redis_uri: this.makeRedisUri(),
             enabled: this.state.enabled,
             clean_start: this.state.clean_start,
             max_redis_connections: parseInt(this.state.max_redis_connections),
-            max_queued_writes: parseInt(this.state.max_queued_writes)
-        });
+            max_queued_writes: durable ? 0 : Math.max(1, parseInt(this.state.max_queued_writes) || 1024),
+            ack_after_store: durable
+        };
+        const explanation = !this.state.enabled
+            ? "MQTT clients will disconnect while XMQ restarts with Redis persistence disabled. The configured " +
+              "Redis data will be left untouched; sessions in it will not be used until persistence is enabled again."
+            : durable
+            ? "This changes the Redis configuration for the entire Redis server, affecting every database and " +
+              "application using that server. MQTT clients will disconnect while XMQ restarts. Each publish acknowledgement will wait " +
+              "for Redis to confirm a local AOF fsync. XMQ will enable Redis appendonly and set " +
+              "appendfsync=always. Redis accepts the change without a Redis restart; its config file must " +
+              "be writable so XMQ can save the setting. Stored sessions and queued messages will be kept."
+            : "This changes the Redis configuration for the entire Redis server, affecting every database and " +
+              "application using that server. MQTT clients will disconnect while XMQ restarts. XMQ will write persistent delivery records " +
+              "asynchronously with a 10 ms write-behind window. A publisher may receive its acknowledgement " +
+              "before Redis stores a record; the queued-write limit bounds that broker-side window. XMQ will " +
+              "disable Redis appendonly so AOF does not add write latency, and save the setting in Redis " +
+              "configuration. Recovery after a Redis restart then depends on its RDB snapshots; without RDB, " +
+              "Redis restart loses its data. Stored sessions and queued messages survive an XMQ restart while Redis remains up.";
+        if (!await confirmationWindow(explanation, "Apply persistence mode and restart MQTT")) return;
+
+        this.setState({busy: true, statusMessage: "Checking Redis and restarting MQTT…"});
+        try
+        {
+            let response = await ControlAPI.asyncMakeAPICall("PersistenceControl", {action: "apply", persistence});
+            if (!response)
+            {
+                await errorWindow("The XMQ interface did not answer the persistence request.");
+                return;
+            }
+            const requestError = ControlAPI.apiError(response);
+            if (requestError)
+            {
+                await errorWindow("Persistence mode was not changed: " + requestError);
+                return;
+            }
+            for (let attempt = 0; response.pending === true && attempt < 600; ++attempt)
+            {
+                await new Promise(resolve => window.setTimeout(resolve, 1000));
+                const latest = await ControlAPI.asyncMakeAPICall("PersistenceControl", {action: "get"}, true);
+                if (!latest) continue;
+                response = latest;
+                const error = ControlAPI.apiError(latest);
+                if (error) throw new Error(error);
+            }
+            if (response.pending === true)
+                throw new Error("The restart is still in progress. Check the Dashboard before trying again.");
+            const message = response.message || "Persistence settings saved.";
+            this.setState({statusMessage: message});
+            if (message.startsWith("Persistence mode was not applied"))
+                await errorWindow(message);
+            else
+            {
+                if (response.persistence)
+                    this.setState({
+                        ...response.persistence,
+                        mode: response.persistence.ack_after_store === true ? "durable" : "persistent"
+                    });
+                await informationWindow(message);
+            }
+        }
+        catch (error)
+        {
+            await errorWindow("Persistence mode could not be applied: " + error.message);
+        }
+        finally
+        {
+            this.setState({busy: false});
+        }
     }
 
     componentDidMount()
@@ -149,6 +222,7 @@ export default class PersistenceScreen extends BasicScreen
             {
                 if (!data || !data.persistence)
                 {
+                    this.setState({loaded: true});
                     return;
                 }
                 const persistence = data.persistence;
@@ -156,6 +230,8 @@ export default class PersistenceScreen extends BasicScreen
                 this.setState({
                     ...persistence,
                     ...parsedURI,
+                    mode: persistence.ack_after_store === true ? "durable" : "persistent",
+                    loaded: true,
                     redis_uri_initial: parsedURI,
                     redis_uri_is_custom: parsedURI === null
                 });
@@ -244,20 +320,43 @@ export default class PersistenceScreen extends BasicScreen
                     </fieldset>
 
                     <fieldset>
-                        <legend>Persistence Behaviour</legend>
+                        <legend>Persistence mode</legend>
+                        <div className="inputScreenRow">
+                            <label className="inputScreenLabel" htmlFor="persistence_mode">Mode:</label>
+                            <select id="persistence_mode" value={this.state.mode} disabled={this.state.busy}
+                                    onChange={event => this.setState({
+                                        mode: event.target.value,
+                                        max_queued_writes: event.target.value === "persistent" &&
+                                            (!Number.isFinite(parseInt(this.state.max_queued_writes)) ||
+                                             parseInt(this.state.max_queued_writes) <= 0) ? 1000 : this.state.max_queued_writes
+                                    })}>
+                                <option value="persistent">Persistent — 10 ms write-behind, AOF off</option>
+                                <option value="durable">Durable — wait for Redis AOF fsync</option>
+                            </select>
+                        </div>
+                        {this.state.mode === "persistent" && <>
+                            <p className="inputScreenHint">Mode changes reconfigure the entire Redis server, affecting every database and application that uses it. XMQ disables Redis AOF for this mode. Redis must permit CONFIG SET and CONFIG REWRITE. A full queued-write window pauses publishers. After a Redis restart, recovery depends on Redis RDB snapshots; with RDB disabled, Redis loses its data.</p>
+                            {this.renderInput("Max queued writes", "max_queued_writes",
+                                              "persistence.max_queued_writes", "90px")}
+                        </>}
+                        {this.state.mode === "durable" &&
+                            <p className="inputScreenHint">XMQ enables Redis AOF with appendfsync=always, then verifies WAITAOF. Redis must permit CONFIG SET and CONFIG REWRITE; Redis itself does not restart. Durable mode is standalone only.</p>}
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Other persistence settings</legend>
                         {this.renderCheckBox("Clean start", "clean_start", "persistence.clean_start")}
-                        {this.renderInput("Max queued writes", "max_queued_writes",
-                                          "persistence.max_queued_writes", "90px")}
                     </fieldset>
                 </div>
 
                 <div className="inputScreenRow">
                     <label className="inputScreenLabel"/>
-                    <button className="inputScreenSaveButton"
+                    <button className="inputScreenSaveButton" disabled={this.state.busy || !this.state.loaded}
                             onClick={() => this.savePersistence()}>
-                        Save
+                        {this.state.busy ? "Applying…" : !this.state.loaded ? "Loading…" : "Apply mode and restart MQTT"}
                     </button>
                 </div>
+                {this.state.statusMessage && <p role="status">{this.state.statusMessage}</p>}
             </div>
         );
     }

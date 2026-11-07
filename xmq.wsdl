@@ -933,6 +933,7 @@
                                 <xsd:restriction base="xsd:string">
                                     <xsd:enumeration value="get"></xsd:enumeration>
                                     <xsd:enumeration value="set"></xsd:enumeration>
+                                    <xsd:enumeration value="apply"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -949,6 +950,8 @@
                         <xsd:element name="persistence"
                                      type="tns:Persistence" maxOccurs="1" minOccurs="0">
                         </xsd:element>
+                        <xsd:element name="pending" type="xsd:boolean" minOccurs="0"></xsd:element>
+                        <xsd:element name="message" type="xsd:string" minOccurs="0"></xsd:element>
                     </xsd:sequence>
                 </xsd:complexType>
             </xsd:element>

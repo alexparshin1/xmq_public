@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "base/xmq.h"
 #include "../Cluster/ServerNode.h"
 #include "SessionSubscription.h"
 #include "SessionSubscriptions.h"

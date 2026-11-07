@@ -2108,10 +2108,6 @@ CPersistence Settings::persistenceControl(const string& action, const CPersisten
 
     if (action == "set")
     {
-        if (m_persistence.m_ack_after_store.asBool() || persistence.m_ack_after_store.asBool())
-        {
-            throw Exception("ack_after_store persistence settings require a stopped broker and restart");
-        }
         // Read before anything is assigned. What came back may still carry the mask this method
         // sent out, meaning "the password is unchanged", and the password to put back is the one
         // on record - which the assignment below is about to overwrite.
