@@ -24,6 +24,15 @@ Requires SPTK 5.6.19.
 
 ### Fixed
 
+- **A broker refuses to start when another process already holds one of its listener ports.**
+  The listening sockets are opened with `SO_REUSEPORT`, so a second broker with the same
+  configuration used to bind the same MQTT, MQTT+SSL and web/control ports successfully and the
+  kernel split clients between the two: messages were lost and measurements mixed two processes
+  while every log looked healthy. Every enabled listener is now checked before any socket opens,
+  on its configured bind address and port, and the start fails naming the listener and address.
+  The check is portable: on Windows, where `SO_REUSEPORT` does not exist, the probe uses
+  `SO_EXCLUSIVEADDRUSE` so an existing listener still makes the start fail.
+
 - **A large fan-out is actually split across the delivery threads again.** The session-to-shard
   mapping folded the session's address directly, and client sessions come from one allocator size
   class whose stride is a multiple of the shard counts: `address % shardCount` was the same value

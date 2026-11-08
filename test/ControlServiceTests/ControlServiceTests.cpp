@@ -75,6 +75,34 @@ TEST_F(XMQ_ControlServiceTests, login)
     EXPECT_ANY_THROW({ token = Login("user", "secret"); });
 }
 
+TEST_F(XMQ_ControlServiceTests, startServiceRefusesListenerHeldByAnotherBroker)
+{
+    const auto running = server();
+    ASSERT_NE(nullptr, running);
+
+    // Another broker, differing only in its node name, and pointing at the listeners the running
+    // one already holds. It used to bind them too: the listener sockets are SO_REUSEPORT, so the
+    // kernel accepted the second bind and split the clients between the two processes.
+    auto settings = make_shared<Settings>();
+    settings->loadConfiguration(running->getSettings()->configurationPath());
+    settings->m_cluster.m_this_node.m_node_name = "second";
+    settings->m_connections = running->getSettings()->m_connections;
+    settings->m_web_service = running->getSettings()->m_web_service;
+
+    ServerController second(settings);
+    try
+    {
+        second.startService();
+        FAIL() << "A second broker started on the first broker's listener ports.";
+    }
+    catch (const Exception& exception)
+    {
+        const string message = exception.message().c_str();
+        EXPECT_NE(string::npos, message.find("already in use")) << message;
+        EXPECT_NE(string::npos, message.find(to_string(TestTcpPortNumber))) << message;
+    }
+}
+
 TEST_F(XMQ_ControlServiceTests, settingsTestsConnectionsWithoutSavingAndMasksPasswords)
 {
     HttpAuthentication authentication("bearer " + Login("admin", "admin"));

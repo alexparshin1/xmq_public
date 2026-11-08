@@ -15,6 +15,7 @@
 
 #include "SelfSignedCertificate.h"
 #include "common/DirectoryNames.h"
+#include "common/ListenerPort.h"
 
 using namespace std;
 using namespace sptk;
@@ -156,6 +157,31 @@ void ServerController::scheduleLogRotation()
 
 void ServerController::startService()
 {
+    // Nothing may open a port until every configured one has been checked. The listeners are
+    // created with SO_REUSEPORT, so a second broker otherwise binds the same ports successfully
+    // and the kernel splits its clients between the two; the check has to happen while none of
+    // this process's sockets exists, or its own listener would make the answer pass.
+    for (const auto& listener: m_settings->m_connections.m_listener)
+    {
+        if (listener.m_protocol.asString().empty() || listener.m_port.asInteger() <= 0 ||
+            (!listener.m_enable.isNull() && !listener.m_enable.asBool()))
+        {
+            continue;
+        }
+
+        const auto bindIP = listener.m_bind_ip.asString().empty()
+                                ? String("0.0.0.0")
+                                : listener.m_bind_ip.asString();
+        checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
+                                       listener.m_protocol.asString().toUpperCase() + ")",
+                                   static_cast<uint16_t>(listener.m_port.asInteger()));
+    }
+
+    if (const auto servicePort = m_settings->m_web_service.m_listener_port.asInteger(); servicePort > 0)
+    {
+        checkListenerPortAvailable("Configuration interface", static_cast<uint16_t>(servicePort));
+    }
+
     // Nothing else trims the log: it is opened for appending, so that restarting the broker does
     // not destroy the record of why it was restarted, and without this it would grow for as long
     // as the service runs.

@@ -27,6 +27,7 @@
 #include "base/ThreadCount.h"
 #include "base/xmq-config.h"
 #include "common/ConnectMessage.h"
+#include "common/ListenerPort.h"
 #include "common/SocketFactory.h"
 #include "storage/RedisStorage.h"
 
@@ -632,6 +633,38 @@ constexpr string_view receiveSteeringDocumentation = "https://xmq.sptk.net/xmq_d
 
 void Server::createMqttListeners(const shared_ptr<Settings>& settings, const bool sslKeysLoaded, LogPriority startupMessagesLogPriority)
 {
+    // Every port first, before one socket opens. A listener is created with SO_REUSEPORT, so once
+    // the first one is up it can be shared by a second broker without an error - and a broker that
+    // shares its listeners with another loses messages while both logs look healthy. Checking the
+    // whole set up front also means a refusal leaves nothing of this broker listening.
+    for (const auto& listener: settings->m_connections.m_listener)
+    {
+        if (listener.m_protocol.asString().empty() || listener.m_port.asInteger() <= 0)
+        {
+            continue;
+        }
+        if (!listener.m_enable.isNull() && !listener.m_enable.asBool())
+        {
+            continue;
+        }
+
+        const auto connectionType = listener.m_protocol.asString().toUpperCase() == "MQTT"
+                                        ? ServerConnection::Type::TCP
+                                        : ServerConnection::Type::SSL;
+        if (!sslKeysLoaded && connectionType == ServerConnection::Type::SSL)
+        {
+            // This listener will not be opened, so its port is not required for this start.
+            continue;
+        }
+
+        const auto bindIP = listener.m_bind_ip.asString().empty()
+                                ? String("0.0.0.0")
+                                : listener.m_bind_ip.asString();
+        checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
+                                       listener.m_protocol.asString().toUpperCase() + ")",
+                                   static_cast<uint16_t>(listener.m_port.asInteger()));
+    }
+
     // Once, before any port opens, and only when the kernel is the one imposing the smaller number.
     if (const auto limit = listenBacklogLimit();
         limit.has_value() && *limit < DEFAULT_LISTEN_BACKLOG)

@@ -15,6 +15,7 @@
 #include "Server.h"
 
 #include "common/DirectoryNames.h"
+#include "common/ListenerPort.h"
 
 #ifndef _WIN32
 #include <poll.h>
@@ -560,6 +561,7 @@ shared_ptr<ControlServiceListener> ControlServiceListener::factory(IServerContro
 
     // Start Web Service listener
     auto connectionType = encrypted ? ServerConnection::Type::SSL : ServerConnection::Type::TCP;
+    checkListenerPortAvailable("Configuration interface", serviceListener->m_servicePort);
     serviceListener->addListener(connectionType, {serviceListener->m_bindAddress, serviceListener->m_servicePort},
                                  controlListenerThreads);
 
