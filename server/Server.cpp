@@ -152,9 +152,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
                              *logEngine)
     , m_messageDeliveryThreads(*m_subscriptionManager,
                                resolveDeliveryThreadCount(settings->m_server_limits.m_delivery_threads.asString()))
-    , m_systemStatistics(make_shared<SystemStatistics>(Version, getTopicManager(), m_subscriptionManager))
     , m_cluster(make_shared<cluster::Cluster>(this))
     , m_extensions(*logEngine, getVersion())
+    , m_systemStatistics(make_shared<SystemStatistics>(Version, getTopicManager(), m_subscriptionManager))
 {
     // Before anything serves: a node that could not read the cluster's configuration does not know
     // whether it belongs to a cluster, and serving on a guess risks writing over the sessions of a
