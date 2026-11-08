@@ -353,6 +353,8 @@ public:
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain) override;
     MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
                           const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions) override;
+    MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
+                          const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions, bool inlineSend) override;
 
     /**
      * @return The QoS 1 messages shared subscriptions chose this session for that it has not

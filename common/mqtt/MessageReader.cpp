@@ -221,7 +221,8 @@ SMessage MessageReader::readPublish(Packet&& packet, const FixedHeader& messageH
         throw ProtocolException(getProtocolVersion(), ReasonCode::MalformedPacket, "Invalid QOS");
     }
 
-    auto publishMessage = make_shared<PublishMessage>(m_topicManager, messageHeader, std::move(packet), getProtocolVersion());
+    auto publishMessage = make_shared<PublishMessage>(m_topicManager, clientSession.publishTopicCache(), messageHeader,
+                                                      std::move(packet), getProtocolVersion());
     publishMessage->setSender(clientSession.getClientIdUnlocked());
 
     if (publishMessage->getProperties())

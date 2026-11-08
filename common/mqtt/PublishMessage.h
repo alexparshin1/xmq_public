@@ -38,14 +38,30 @@ public:
     PublishMessage(const Topic* destination, std::string_view data, MessageId messageId = 0, bool retain = false);
 
     /**
+     * @brief The last topic name a session resolved for its publishes.
+     *
+     * A publisher sends every message to the same topic, so the name in a session's next PUBLISH
+     * is almost always the one before it. Keeping the resolved pointer beside the name turns the
+     * shared-lock-and-hash lookup into one string comparison; the session owns the cache, and a
+     * stale entry only misses.
+     */
+    struct TopicCache
+    {
+        std::string m_name;
+        const Topic* m_topic {nullptr};
+    };
+
+    /**
      * @brief Constructor.
      * Constructs the Publish message from MQTT Publish message binary presentation (after fixed header).
      * @param topicManager      TopicManager.
+     * @param topicCache        The destination session's last resolved topic, updated here.
      * @param fixedHeader       Fixed header.
      * @param messageData       Message data.
      * @param protocolVersion   MQTT protocol version.
      */
-    PublishMessage(const STopicManager& topicManager, const FixedHeader& fixedHeader, Packet&& messageData, ProtocolVersion protocolVersion);
+    PublishMessage(const STopicManager& topicManager, TopicCache& topicCache, const FixedHeader& fixedHeader, Packet&& messageData,
+                   ProtocolVersion protocolVersion);
 
     /**
      * @brief Copy constructor.

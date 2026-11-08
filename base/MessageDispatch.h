@@ -25,6 +25,14 @@ public:
     MessageId         m_deliveryId {0};  ///< Message id.
     MessageFlags      m_flags;           ///< Delivery message flags: isRetain, duplicated, getQos.
     SubscriptionIdSet m_subscriptionIds; ///< Subscription ids.
+    /**
+     * @brief Say the sender already wrote this send straight to the socket.
+     *
+     * Only the delivery of a small publication turns it on, and only the session's forward path
+     * reads it, to pick between handing the bytes to a send worker and writing the socket here.
+     * The queue knows nothing of it.
+     */
+    bool m_inlineSend {false};
 
     /**
      * @brief Default constructor.
