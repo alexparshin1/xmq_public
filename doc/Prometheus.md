@@ -61,6 +61,34 @@ A request without credentials, or with the wrong ones, is answered with `401 Una
 `WWW-Authenticate: Basic` challenge. The password is checked against the stored verifier, so a
 copy of the configuration file does not yield the scrape password.
 
+A ready Prometheus and Grafana stack, with a provisioned dashboard and alert rules, is in
+[`docker/observability`](../docker/observability/). It needs an image with this endpoint (1.1.1 or
+later).
+
+## Health probes
+
+The same listener answers two endpoints that need no credentials, for a load balancer or a
+Kubernetes probe:
+
+```text
+GET /healthz   200 {"status":"ok"} while the process is alive
+GET /readyz    200 {"status":"ready"}, or 503 with a reason
+```
+
+`/healthz` says only that the process is alive. `/readyz` is `503` while MQTT is stopped or
+starting, and on a cluster node that does not hold its lease - the same condition under which the
+node refuses clients. Neither probe reveals configuration or counters, which is why they are not
+behind the Basic authentication that protects `/metrics`.
+
+```yaml
+livenessProbe:
+  httpGet: {path: /healthz, port: 9184}
+  periodSeconds: 10
+readinessProbe:
+  httpGet: {path: /readyz, port: 9184}
+  periodSeconds: 5
+```
+
 The endpoint is per node. A cluster of three nodes answers three series sets, each labelled by
 `node` in `xmq_build_info`; aggregate in the query, not in the broker.
 

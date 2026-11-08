@@ -354,6 +354,15 @@ private:
     [[nodiscard]] std::optional<BrokerMetrics> brokerMetrics() const;
 
     /**
+     * @brief Whether this broker can serve clients, for /readyz.
+     *
+     * Under the same lock as brokerMetrics(): a probe must not name a server that is being
+     * destroyed. Not ready while MQTT is stopped or while a cluster node does not hold its
+     * lease - a node in that state refuses clients, so a load balancer should stop sending them.
+     */
+    [[nodiscard]] Readiness readiness() const;
+
+    /**
      * @brief The address the configuration interface accepts connections on.
      *
      * The loopback address until the administrator has a password, and every address afterwards.

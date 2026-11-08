@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/xmq-alerts.yml
+
+scrape_configs:
+  - job_name: xmq
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["xmq:9184"]
+    # When the endpoint has a username and password (Prometheus page of the interface):
+    # basic_auth:
+    #   username: metrics
+    #   password: "the same secret entered there"

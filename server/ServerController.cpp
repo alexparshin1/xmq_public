@@ -364,7 +364,11 @@ bool ServerController::applyPrometheusSettings(std::string& reason)
                 return brokerMetrics();
             },
             m_settings->m_cluster.m_this_node.m_node_name.asString(), m_logEngine, bindAddress, port,
-            username.c_str(), passwordHash.c_str());
+            username.c_str(), passwordHash.c_str(),
+            [this]
+            {
+                return readiness();
+            });
         exporter->start();
         m_prometheusExporter = std::move(exporter);
 
@@ -388,6 +392,23 @@ bool ServerController::prometheusListening() const
 {
     const scoped_lock lock(m_prometheusMutex);
     return m_prometheusExporter != nullptr;
+}
+
+Readiness ServerController::readiness() const
+{
+    const scoped_lock lock(m_mutex);
+
+    if (!m_xmqServer)
+    {
+        return {false, "MQTT is not running"};
+    }
+
+    if (const auto cluster = m_xmqServer->cluster(); cluster && !cluster->isOnline())
+    {
+        return {false, "the cluster lease is not held"};
+    }
+
+    return {true, {}};
 }
 
 std::optional<BrokerMetrics> ServerController::brokerMetrics() const

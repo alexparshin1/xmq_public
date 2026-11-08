@@ -1,0 +1,56 @@
+groups:
+  - name: xmq
+    rules:
+      - alert: XMQTargetDown
+        expr: up{job="xmq"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "XMQ metrics target is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}. The process may be down, or the network to it broken."
+
+      - alert: XMQBrokerDown
+        expr: up{job="xmq"} == 1 and xmq_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "XMQ process is up but MQTT is not serving"
+          description: "The exporter answers on {{ $labels.instance }}, but xmq_up is 0: MQTT is stopped, starting, or failed to start. Check the log and the configuration interface."
+
+      - alert: XMQPublishDrops
+        expr: sum by (instance) (rate(xmq_broker_publish_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ is dropping publications"
+          description: "A session queue is full: queue_limits are being reached on {{ $labels.instance }}. The drop rate is {{ $value | printf \"%.2f\" }} per second."
+
+      - alert: XMQDeliveryBacklog
+        expr: xmq_broker_queue_delivery > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ delivery queue is backing up"
+          description: "{{ $value }} messages are waiting for delivery on {{ $labels.instance }}."
+
+      - alert: XMQHighProcessCpu
+        expr: xmq_process_cpu_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ process is CPU-bound"
+          description: "The broker process uses {{ $value | printf \"%.1f\" }}% of one core on {{ $labels.instance }}."
+
+      - alert: XMQHighMemoryUse
+        expr: xmq_process_resident_memory_bytes / xmq_host_memory_total_bytes > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ process is using most of the host memory"
+          description: "Resident memory is {{ $value | humanizePercentage }} of the host's physical memory on {{ $labels.instance }}."

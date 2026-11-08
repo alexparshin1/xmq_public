@@ -68,8 +68,14 @@ Anything not listed here is edited in the file itself, or through the web interf
 | `XMQ_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `XMQ_CERT_CN` | `xmq` | Common name for the generated certificate |
 | `XMQ_LOG_FILE` | `discard` | `keep` also writes the log to a file, as a package install does |
+| `XMQ_PROMETHEUS` | `false` | Serve `GET /metrics` on the Prometheus endpoint |
+| `XMQ_PROMETHEUS_BIND` | `0.0.0.0` | Address the endpoint accepts scrapes on |
+| `XMQ_PROMETHEUS_PORT` | `9184` | Port the endpoint accepts scrapes on |
 
-Ports: **1883** MQTT, **8883** MQTT over TLS, **18883** the web interface.
+Ports: **1883** MQTT, **8883** MQTT over TLS, **18883** the web interface, **9184** Prometheus
+when `XMQ_PROMETHEUS=true`. A username and password for the endpoint are set on its page in the
+interface, not through these variables; see [the Prometheus guide](../doc/Prometheus.md) and
+[`observability/`](observability/) for a Prometheus and Grafana stack that scrapes it.
 
 ## Things worth knowing
 

@@ -25,6 +25,17 @@ Requires SPTK 5.6.19.
   for the lifetime of the process, so a scrape reports `xmq_up 0` while MQTT is stopped. See
   [doc/Prometheus.md](doc/Prometheus.md).
 
+- **The Prometheus endpoint answers health probes too.** `GET /healthz` reports that the
+  process is alive; `GET /readyz` reports whether MQTT can serve clients, with a `503` and a short
+  reason while MQTT is stopped, starting, or while a cluster node does not hold its lease. Both are
+  unauthenticated, because a kubelet probe cannot present the metrics password, and neither reveals
+  counters or configuration.
+
+- **A ready Prometheus and Grafana stack.** `docker/observability/` starts XMQ, Prometheus and
+  Grafana together, with a provisioned dashboard, alert rules, and the `XMQ_PROMETHEUS`,
+  `XMQ_PROMETHEUS_BIND` and `XMQ_PROMETHEUS_PORT` settings for the Docker image. See
+  [its README](docker/observability/README.md).
+
 - **Experimental acknowledgement after durable storage for standalone brokers.** Set
   `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and
   `max_queued_writes=0`. Persistent deliveries, retained updates/clearings and incoming QoS 2

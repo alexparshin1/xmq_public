@@ -44,11 +44,17 @@ jq --argjson anon "${XMQ_ALLOW_ANONYMOUS:-true}" \
    --argjson clean "${XMQ_CLEAN_START:-false}" \
    --arg redis "${XMQ_REDIS_URI:-redis://redis_server:6379}" \
    --arg level "${XMQ_LOG_LEVEL:-INFO}" \
+   --argjson prometheus "${XMQ_PROMETHEUS:-false}" \
+   --arg prometheus_bind "${XMQ_PROMETHEUS_BIND:-0.0.0.0}" \
+   --argjson prometheus_port "${XMQ_PROMETHEUS_PORT:-9184}" \
    '.authentication.allow_anonymous = $anon
     | .persistence.enabled = $persistence
     | .persistence.clean_start = $clean
     | .persistence.redis_uri = $redis
-    | .logging.min_log_level = $level' \
+    | .logging.min_log_level = $level
+    | .prometheus.enabled = $prometheus
+    | .prometheus.bind_ip = $prometheus_bind
+    | .prometheus.port = $prometheus_port' \
    "$CONF" > "$TMP"
 mv "$TMP" "$CONF"
 

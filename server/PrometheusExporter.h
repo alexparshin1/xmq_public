@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <string>
 #include <thread>
 
@@ -37,6 +38,18 @@ namespace xmq {
  * thread, and stopping the broker destroys the object the pointer would name. The controller
  * fills this while it holds the lock that guards that object.
  */
+/**
+ * @brief Whether this broker can serve clients, for /readyz.
+ *
+ * Separate from the counters: readiness is a yes or no with a reason, and a probe should not
+ * have to read a metric to find out. Filled under the same lock that guards the server object.
+ */
+struct Readiness
+{
+    bool        ready {false};
+    std::string reason; ///< Why it is not ready, when it is not.
+};
+
 struct BrokerMetrics
 {
     uint64_t clientsConnected {0};
@@ -87,6 +100,9 @@ public:
     /// Returns the broker counters, or nothing while MQTT is stopped.
     using BrokerMetricsProvider = std::function<std::optional<BrokerMetrics>()>;
 
+    /// Returns whether MQTT can serve clients, and why not when it cannot.
+    using ReadinessProvider = std::function<Readiness()>;
+
     /**
      * @brief Constructor.
      * @param brokerMetrics     Returns the counters of the running broker, when there is one.
@@ -103,7 +119,8 @@ public:
                        std::string                         bindAddress,
                        uint16_t                            port,
                        std::string                         username = {},
-                       std::string                         passwordHash = {});
+                       std::string                         passwordHash = {},
+                       ReadinessProvider                   readiness = {});
 
     ~PrometheusExporter();
 
@@ -139,6 +156,7 @@ private:
     uint16_t                         m_port;
     std::string                      m_username;     ///< Empty means the endpoint is open.
     std::string                      m_passwordHash; ///< Verifier of the password, never the password.
+    ReadinessProvider                m_readiness;    ///< Answers /readyz; falls back to the counters.
 
     sptk::TCPSocket   m_listener;   ///< Accepts scrapes.
     std::thread       m_thread;     ///< The accept loop.
@@ -148,6 +166,12 @@ private:
 
     void serve();
     void serveClient(SocketType socket);
+
+    /**
+     * @brief The body and status of /readyz.
+     * @return ready flag and the JSON body.
+     */
+    [[nodiscard]] std::pair<bool, std::string> readiness() const;
 
     /**
      * @brief Whether the request carries acceptable HTTP Basic credentials.

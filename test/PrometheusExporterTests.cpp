@@ -157,3 +157,35 @@ TEST(PrometheusExporterTests, RequiresBasicAuthenticationWhenAUsernameIsSet)
 
     exporter.stop();
 }
+
+TEST(PrometheusExporterTests, HealthProbesIgnoreTheMetricsAuthenticationAndSayWhyNotReady)
+{
+    const auto port = freePort();
+    bool       ready = false;
+    PrometheusExporter exporter([] { return optional<BrokerMetrics> {}; }, "node-a", nullptr, "127.0.0.1", port,
+                                "metrics", PasswordHash::hash("Secret1!"),
+                                [&ready]
+                                {
+                                    return ready ? Readiness {true, {}} : Readiness {false, "MQTT is not running"};
+                                });
+    exporter.start();
+
+    const auto health = request(port, "/healthz");
+    EXPECT_NE(string::npos, health.find("HTTP/1.1 200 OK")) << health;
+    EXPECT_NE(string::npos, health.find("{\"status\":\"ok\"}")) << health;
+
+    const auto notReady = request(port, "/readyz");
+    EXPECT_NE(string::npos, notReady.find("HTTP/1.1 503 Service Unavailable")) << notReady;
+    EXPECT_NE(string::npos, notReady.find("MQTT is not running")) << notReady;
+
+    // The probes do not need credentials, but the counters still do.
+    const auto metrics = request(port, "/metrics");
+    EXPECT_NE(string::npos, metrics.find("HTTP/1.1 401 Unauthorized")) << metrics;
+
+    ready = true;
+    const auto nowReady = request(port, "/readyz");
+    EXPECT_NE(string::npos, nowReady.find("HTTP/1.1 200 OK")) << nowReady;
+    EXPECT_NE(string::npos, nowReady.find("{\"status\":\"ready\"}")) << nowReady;
+
+    exporter.stop();
+}

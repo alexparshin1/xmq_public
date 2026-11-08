@@ -75,6 +75,31 @@ export default function PrometheusDocumentation() {
                 and the broker counters are absent rather than stale.
             </p>
 
+            <p>
+                A ready Prometheus and Grafana stack, with a dashboard and alert rules, is in
+                <code>docker/observability</code> of the XMQ repository. It needs an XMQ image with
+                this endpoint (1.1.1 or later).
+            </p>
+
+            <h4 id="prometheus-health">Health probes</h4>
+
+            <p>
+                The same listener answers two endpoints that need no credentials, for a load
+                balancer or a Kubernetes probe:
+            </p>
+
+            <pre className="userManualCode">{`curl -i http://broker-1:9184/healthz   # 200 {"status":"ok"} while the process is alive
+curl -i http://broker-1:9184/readyz    # 200 ready, 503 not ready with a reason`}</pre>
+
+            <p>
+                <code>/healthz</code> says only that the process is alive. <code>/readyz</code> is
+                <code>503</code> while MQTT is stopped or starting, and on a cluster node that does
+                not hold its lease - the same condition under which the node refuses clients. The
+                body carries a short reason. Neither probe reveals configuration or counters, which
+                is why they are not behind the Basic authentication that protects
+                <code>/metrics</code>.
+            </p>
+
             <h4 id="prometheus-auth">Authentication and exposure</h4>
 
             <p>

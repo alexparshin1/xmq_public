@@ -97,7 +97,8 @@ PrometheusExporter::PrometheusExporter(BrokerMetricsProvider            brokerMe
                                        string                           bindAddress,
                                        const uint16_t                   port,
                                        string                           username,
-                                       string                           passwordHash)
+                                       string                           passwordHash,
+                                       ReadinessProvider                readiness)
     : m_brokerMetrics(std::move(brokerMetrics))
     , m_nodeName(std::move(nodeName))
     , m_logEngine(std::move(logEngine))
@@ -105,6 +106,7 @@ PrometheusExporter::PrometheusExporter(BrokerMetricsProvider            brokerMe
     , m_port(port)
     , m_username(std::move(username))
     , m_passwordHash(std::move(passwordHash))
+    , m_readiness(std::move(readiness))
 {
 }
 
@@ -214,44 +216,80 @@ void PrometheusExporter::serveClient(const SocketType socket)
     HttpReader reader(client, content, HttpReader::ReadMode::REQUEST);
     reader.readHttpHeaders();
 
-    if (!authorized(reader.getHttpHeaders()))
-    {
-        client->write(String("HTTP/1.1 401 Unauthorized\r\n"
-                             "WWW-Authenticate: Basic realm=\"XMQ metrics\", charset=\"UTF-8\"\r\n"
-                             "Content-Length: 0\r\n"
-                             "Connection: close\r\n"
-                             "\r\n"));
-        return;
-    }
-
     const auto method = reader.getRequestType();
     const auto url = URL(reader.getRequestURL());
+    const auto path = url.path();
+    const bool head = method == "HEAD";
 
-    String response;
-    if ((method == "GET" || method == "HEAD") && url.path() == "/metrics")
+    const auto respond = [&](const int status, const char* reason, const char* contentType,
+                             const string& body, const char* extraHeaders = "")
     {
-        const auto body = render();
-        response = "HTTP/1.1 200 OK\r\n"
-                   "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-                   "Content-Length: " + to_string(body.size()) + "\r\n"
-                   "Connection: close\r\n"
-                   "\r\n";
-        if (method == "GET")
+        String response = "HTTP/1.1 " + to_string(status) + " " + reason +
+                          "\r\nContent-Type: " + contentType + "\r\n" + extraHeaders +
+                          "Content-Length: " + to_string(body.size()) +
+                          "\r\nConnection: close\r\n\r\n";
+        if (!head)
         {
             response += body.c_str();
         }
-    }
-    else
+        client->write(response);
+    };
+
+    // The probes are deliberately outside the Basic authentication below. A Kubernetes
+    // kubelet cannot present a password, and a liveness probe that fails for lack of one
+    // restarts a healthy broker. They say no more than whether it can serve.
+    if (method == "GET" || method == "HEAD")
     {
-        const String body = "Not Found\n";
-        response = "HTTP/1.1 404 Not Found\r\n"
-                   "Content-Type: text/plain; charset=utf-8\r\n"
-                   "Content-Length: " + to_string(body.length()) + "\r\n"
-                   "Connection: close\r\n"
-                   "\r\n" + body;
+        if (path == "/healthz")
+        {
+            respond(200, "OK", "application/json; charset=utf-8", "{\"status\":\"ok\"}");
+            return;
+        }
+
+        if (path == "/readyz")
+        {
+            const auto [ready, body] = readiness();
+            respond(ready ? 200 : 503, ready ? "OK" : "Service Unavailable",
+                    "application/json; charset=utf-8", body);
+            return;
+        }
+
+        if (path == "/metrics")
+        {
+            if (!authorized(reader.getHttpHeaders()))
+            {
+                respond(401, "Unauthorized", "text/plain; charset=utf-8", "",
+                        "WWW-Authenticate: Basic realm=\"XMQ metrics\", charset=\"UTF-8\"\r\n");
+                return;
+            }
+
+            respond(200, "OK", "text/plain; version=0.0.4; charset=utf-8", render());
+            return;
+        }
     }
 
-    client->write(response);
+    respond(404, "Not Found", "text/plain; charset=utf-8", "Not Found\n");
+}
+
+pair<bool, string> PrometheusExporter::readiness() const
+{
+    if (m_readiness)
+    {
+        const auto status = m_readiness();
+        if (status.ready)
+        {
+            return {true, "{\"status\":\"ready\"}"};
+        }
+        return {false, "{\"status\":\"not ready\",\"reason\":\"" + escapeLabel(status.reason) + "\"}"};
+    }
+
+    // No provider (a test, or an exporter built without a controller): the counters are the
+    // only thing that knows whether MQTT is up.
+    if (m_brokerMetrics && m_brokerMetrics().has_value())
+    {
+        return {true, "{\"status\":\"ready\"}"};
+    }
+    return {false, "{\"status\":\"not ready\",\"reason\":\"MQTT is not running\"}"};
 }
 
 bool PrometheusExporter::authorized(const HttpHeaders& headers) const
