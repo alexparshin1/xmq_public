@@ -220,6 +220,11 @@ const char* defaultConfigurationText()
     "listener_port": 18883,
     "encrypted": true
   },
+  "prometheus": {
+    "enabled": false,
+    "bind_ip": "0.0.0.0",
+    "port": 9184
+  },
   "bridges": [],
   "cluster": {
     "this_node": {
@@ -412,6 +417,12 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     target.m_authentication = startup.m_authentication;
     target.m_web_service.m_certfile = startup.m_web_service.m_certfile;
     target.m_web_service.m_keyfile = startup.m_web_service.m_keyfile;
+    // The exporter's address and port are kept in the file, so a trimmed configuration must
+    // carry them over rather than fall back to the built-in defaults.
+    if (!startup.m_prometheus.isNull())
+    {
+        target.m_prometheus = startup.m_prometheus;
+    }
     if (!startup.m_database_uri.isNull())
     {
         target.m_cluster.m_database_uri = startup.m_database_uri;
@@ -641,6 +652,7 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     startup.m_authentication = m_authentication;
     startup.m_web_service.m_certfile = m_web_service.m_certfile;
     startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
+    startup.m_prometheus = m_prometheus;
     // The cluster account's secret is kept in the accounts database; a copy beside it would be
     // the one readable place it had been moved out of.
     startup.unload(document.root());
@@ -925,6 +937,11 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
     }
 
     checkPort(configuration.m_web_service.m_listener_port, "web_service.listener_port", true);
+
+    if (!configuration.m_prometheus.isNull())
+    {
+        checkPort(configuration.m_prometheus.m_port, "prometheus.port", false);
+    }
 
     if (!IpWhitelist::isValid(configuration.m_web_service.m_whitelist.asString()))
     {

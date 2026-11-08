@@ -201,6 +201,11 @@
                                  maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="web_service"
                                  type="tns:WebService" maxOccurs="1" minOccurs="1"/>
+                    <!-- The Prometheus exporter, off unless configured. Its own listener rather
+                         than a path on the interface: a scrape carries no credentials, and an
+                         operator may want it reachable by a scraper that cannot reach the GUI. -->
+                    <xsd:element name="prometheus"
+                                 type="tns:Prometheus" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="bridges" type="tns:Bridge"
                                  maxOccurs="unbounded" minOccurs="0">
                     </xsd:element>
@@ -223,6 +228,10 @@
                     <xsd:element name="connections" type="tns:StartupConnections"/>
                     <xsd:element name="authentication" type="tns:Authentication"/>
                     <xsd:element name="web_service" type="tns:StartupWebService"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <!-- Kept in the file rather than the node's row: the address and port are
+                         properties of this machine, like the certificates above. -->
+                    <xsd:element name="prometheus" type="tns:Prometheus"
                                  maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="cluster" type="tns:StartupCluster"
                                  maxOccurs="1" minOccurs="0"/>
@@ -469,6 +478,27 @@
                     <xsd:element name="certfile" type="xsd:string" maxOccurs="1" minOccurs="0">
                     </xsd:element>
                     <xsd:element name="keyfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- Prometheus scrape endpoint. Disabled unless enabled is true: a new listening
+                 port is not something a release should open without being asked to. The address
+                 defaults to every interface, as the MQTT listeners do, and the port is the
+                 conventional exporter range rather than another broker port. -->
+            <xsd:complexType name="Prometheus">
+                <xsd:sequence>
+                    <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="bind_ip" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="port" maxOccurs="1" minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1024"/>
+                                <xsd:maxInclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
                     </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>

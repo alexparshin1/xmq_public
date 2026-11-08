@@ -68,6 +68,11 @@
     "listener_port": 18883,
     "encrypted": true
   },
+  "prometheus": {
+    "enabled": false,
+    "bind_ip": "0.0.0.0",
+    "port": 9184
+  },
   "bridges": [],
   "cluster": {
     "this_node": {

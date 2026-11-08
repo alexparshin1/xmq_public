@@ -194,6 +194,10 @@ void ServerController::startService()
     // diagnosed and corrected, so it must not depend on one having started.
     startControlService();
 
+    // Like the interface, for the lifetime of the process rather than the broker's: a scrape
+    // must be able to say that the broker is down.
+    startPrometheus();
+
     if (string reason;
         !startServing(reason))
     {
@@ -300,6 +304,88 @@ void ServerController::startControlService()
     {
         logger.error("Configuration interface did not start: " + string(exception.what()) + ".");
     }
+}
+
+void ServerController::startPrometheus()
+{
+    if (m_prometheusExporter)
+    {
+        return;
+    }
+
+    const auto& configuration = m_settings->m_prometheus;
+    if (configuration.isNull() || configuration.m_enabled.isNull() || !configuration.m_enabled.asBool())
+    {
+        return;
+    }
+
+    const Logger logger(*m_logEngine, "[Startup] ");
+    const auto   bindAddress = configuration.m_bind_ip.asString().empty()
+                                   ? String("0.0.0.0")
+                                   : configuration.m_bind_ip.asString();
+    const auto   port = static_cast<uint16_t>(configuration.m_port.isNull() ? 9184
+                                                                          : configuration.m_port.asInteger());
+
+    try
+    {
+        // Before the exporter's own socket exists, for the same reason the MQTT listeners are
+        // checked before theirs: once it is open the check can no longer see a conflict.
+        checkListenerPortAvailable("Prometheus endpoint", port);
+        m_prometheusExporter = make_unique<PrometheusExporter>(
+            [this]
+            {
+                return brokerMetrics();
+            },
+            m_settings->m_cluster.m_this_node.m_node_name.asString(), m_logEngine, bindAddress, port);
+        m_prometheusExporter->start();
+    }
+    catch (const std::exception& exception)
+    {
+        // Metrics are auxiliary. A port that cannot be taken loses the exporter, not the broker
+        // it was going to describe - and the line says which address could not be used.
+        m_prometheusExporter.reset();
+        logger.error("Prometheus endpoint on " + bindAddress + ":" + to_string(port) +
+                     " did not start: " + string(exception.what()));
+    }
+}
+
+std::optional<BrokerMetrics> ServerController::brokerMetrics() const
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        return std::nullopt;
+    }
+
+    const auto* statistics = m_xmqServer->systemStatistics();
+    if (!statistics)
+    {
+        return std::nullopt;
+    }
+
+    using enum SystemStatistics::SysTopicKind;
+
+    BrokerMetrics metrics;
+    metrics.clientsConnected = statistics->getValue(BrokerClientsConnected);
+    metrics.clientsDisconnected = statistics->getValue(BrokerClientsDisconnected);
+    metrics.clientsMaximum = statistics->getValue(BrokerClientsMaximum);
+    metrics.clientsTotal = statistics->getValue(BrokerClientsTotal);
+    metrics.messagesReceived = statistics->getValue(BrokerMessagesReceived);
+    metrics.messagesSent = statistics->getValue(BrokerMessagesSent);
+    metrics.publishReceived = statistics->getValue(BrokerMessagesPublishReceived);
+    metrics.publishSent = statistics->getValue(BrokerMessagesPublishSent);
+    metrics.publishDropped = statistics->getValue(BrokerMessagesPublishDropped);
+    metrics.messagesRetained = statistics->getValue(BrokerMessagesRetainedCount);
+    metrics.messagesStored = statistics->getValue(BrokerMessagesStored);
+    metrics.bytesReceived = statistics->getValue(BrokerLoadBytesReceived);
+    metrics.bytesSent = statistics->getValue(BrokerLoadBytesSent);
+    metrics.subscriptions = statistics->getValue(BrokerSubscriptionsCount);
+    metrics.clusterMessagesReceived = statistics->getValue(BrokerClusterMessagesReceived);
+    metrics.queueReceive = statistics->getValue(BrokerQueuesReceive);
+    metrics.queueSend = statistics->getValue(BrokerQueuesSend);
+    metrics.queueDelivery = statistics->getValue(BrokerQueuesDelivery);
+    metrics.uptimeSeconds = statistics->brokerUptimeSeconds();
+    return metrics;
 }
 
 ExtensionHost::Report ServerController::reloadExtensions()
@@ -611,6 +697,12 @@ void ServerController::stopService()
     // The process is going away, so the interface goes too - unlike stopServing(), which keeps it.
     stopServing();
     m_controlServiceListener.reset();
+
+    if (m_prometheusExporter)
+    {
+        m_prometheusExporter->stop();
+        m_prometheusExporter.reset();
+    }
 
     // Keep the existing engine while shutting down. Retiring a configuration can reset the
     // settings to defaults; reopening here then targets the installation's log directory,

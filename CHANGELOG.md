@@ -14,6 +14,14 @@ Requires SPTK 5.6.19.
 
 ### Added
 
+- **A Prometheus metrics endpoint.** Set `prometheus.enabled=true` with `prometheus.bind_ip` and
+  `prometheus.port` (default `0.0.0.0:9184`) and the broker answers `GET /metrics` on that
+  listener with the Prometheus text exposition format: broker counters, queue depths, connection
+  and subscription counts, cluster messages received, and host and process CPU and memory. It is
+  off by default, has no authentication and is per node, not cluster-wide. The listener is owned
+  for the lifetime of the process, so a scrape reports `xmq_up 0` while MQTT is stopped. See
+  [doc/Prometheus.md](doc/Prometheus.md).
+
 - **Experimental acknowledgement after durable storage for standalone brokers.** Set
   `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and
   `max_queued_writes=0`. Persistent deliveries, retained updates/clearings and incoming QoS 2

@@ -55,6 +55,7 @@ SET (xmq_files
   service/CPersistence.cpp service/CPersistence.h
   service/CPersistenceControl.cpp service/CPersistenceControl.h
   service/CPersistenceControlResponse.cpp service/CPersistenceControlResponse.h
+  service/CPrometheus.cpp service/CPrometheus.h
   service/CQueueLimits.cpp service/CQueueLimits.h
   service/CRedisStatistics.cpp service/CRedisStatistics.h
   service/CResult.cpp service/CResult.h

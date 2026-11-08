@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Server.h"
+#include "PrometheusExporter.h"
 
 #include <sptk5/cutils>
 
@@ -300,9 +301,37 @@ private:
     SControlServiceListener m_controlServiceListener;
 
     /**
+     * @brief Prometheus scrape endpoint.
+     *
+     * Owned here for the same reason as the interface: it must outlive every server it
+     * describes, so a stopped broker still answers with xmq_up 0 rather than with nothing.
+     * Absent when the configuration does not enable it.
+     */
+    std::unique_ptr<PrometheusExporter> m_prometheusExporter;
+
+    /**
      * @brief Bring up the configuration interface, once, for the lifetime of the process.
      */
     void startControlService();
+
+    /**
+     * @brief Bring up the Prometheus endpoint, once, for the lifetime of the process.
+     *
+     * A failure is logged and does not stop the broker: metrics are auxiliary, and a port that
+     * cannot be taken is a reason to lose the exporter, not the service it describes.
+     */
+    void startPrometheus();
+
+    /**
+     * @brief Copy the running broker's counters for a scrape.
+     *
+     * Taken under the lock that guards the server object, because the exporter answers on its
+     * own thread and stopping MQTT destroys that object: a pointer handed out here would
+     * outlive it.
+     *
+     * @return the counters, or nothing while MQTT is stopped.
+     */
+    [[nodiscard]] std::optional<BrokerMetrics> brokerMetrics() const;
 
     /**
      * @brief The address the configuration interface accepts connections on.
