@@ -61,9 +61,18 @@ still owed.
   Conclusion: the 8-10% P2P gap to FlashMQ is not in the send queue's hand-off. The remaining
   candidates are per-message userspace costs on the delivery path (topic lookup, queue locks,
   `shared_ptr` traffic) and the broker's receive path, all of which the profile shows as a long
-  tail of 0.1-0.4% symbols rather than one hotspot. The branch is kept for the instrument: with
-  `XMQ_SEND_DIAG` set, the broker prints the queued wait per second, and the inline knob remains
-  for a rig where a direct write is the faster shape.
+  tail of 0.1-0.4% symbols rather than one hotspot.
+  One of them was tried on the same day: the destination topic a PUBLISH names was resolved
+  through `TopicManager` (shared lock plus hash) on every message, 0.26% of every cycle, and now
+  a per-session `PublishMessage::TopicCache` answers the repeat - a publisher sends to its own
+  topic. `getTopic` left the profile (latency 203/205 against 203/211, i.e. unchanged: it was
+  0.24 us of a 200 us median), which sizes the rest: one such item at a time cannot reach the
+  eight to ten per cent, because the broker's userspace is 6.6 us per delivery and the kernel's
+  per-packet work is 84% of the samples on the broker's host. The gap to FlashMQ has to come
+  from fewer packets or fewer wake-ups per delivery, not from cheaper userspace per message.
+  The branch is kept for the instrument: with `XMQ_SEND_DIAG` set, the broker prints the queued
+  wait per second, and the inline knob remains for a rig where a direct write is the faster
+  shape.
 
 - [ ] **Refuse to start when a configured listener is already in use.**
   A broker must not come up on a listener that another process on the same host already serves.

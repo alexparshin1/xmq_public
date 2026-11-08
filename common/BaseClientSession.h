@@ -88,6 +88,18 @@ public:
 
     virtual void clearProtocol();
     virtual void setProtocol(const GenericProtocol& protocol);
+
+    /**
+     * @brief The last PUBLISH destination this session resolved, for the next one to reuse.
+     *
+     * Only the session's own receive thread parses its publishes, and a takeover that would move
+     * it to another thread does so through the session lock before any byte of the new connection
+     * is parsed. A stale entry costs a miss, never a wrong topic: the name is compared first.
+     */
+    mqtt::PublishMessage::TopicCache& publishTopicCache()
+    {
+        return m_publishTopicCache;
+    }
     void         setSocket(const sptk::STCPSocket& socket);
 
     /**
@@ -256,6 +268,7 @@ private:
     /// every session. Copying one into each session meant 56 bytes and three atomic increments per
     /// connection, for three shared pointers that all sessions of that version share anyway.
     const GenericProtocol*                  m_protocol {nullptr};              ///< Session protocol
+    mqtt::PublishMessage::TopicCache        m_publishTopicCache;              ///< Last publish destination resolved.
     sptk::Buffer                            m_writeBuffer {128};               ///< Session write buffer.
     std::atomic_size_t                      m_maximumPacketSize {0xFFFFFFFFU}; ///< Maximum MQTT packet size in the session.
     AtomicSharedPtr<const MessageCallback>  m_messageCallback {nullptr};       ///< Message callback retained by an executing receiver.

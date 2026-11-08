@@ -48,7 +48,8 @@ mqtt::PublishMessage::PublishMessage(const Topic* destination, const string_view
     setRetain(retain);
 }
 
-mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, const FixedHeader& fixedHeader, Packet&& messageData, const ProtocolVersion protocolVersion)
+mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, TopicCache& topicCache, const FixedHeader& fixedHeader,
+                                     Packet&& messageData, const ProtocolVersion protocolVersion)
     : m_messageData(std::move(messageData).takeData())
 {
     const auto payloadSize = static_cast<uint32_t>(m_messageData.size());
@@ -60,7 +61,17 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, const Fi
     availableBytes -= sizeof(uint16_t);
 
     const string_view destination(bit_cast<char*>(readPosition), destinationSize);
-    m_destination = topicManager->getTopic(destination);
+    // The session's last topic serves this one unless the publisher moved on: see TopicCache.
+    if (topicCache.m_topic != nullptr && destination == topicCache.m_name)
+    {
+        m_destination = topicCache.m_topic;
+    }
+    else
+    {
+        m_destination = topicManager->getTopic(destination);
+        topicCache.m_name.assign(destination);
+        topicCache.m_topic = m_destination;
+    }
 
     readPosition += destinationSize;
     availableBytes -= destinationSize;
