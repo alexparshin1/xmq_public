@@ -76,7 +76,7 @@ export default function PrometheusDocumentation() {
             </p>
 
             <p>
-                A ready Prometheus and Grafana stack, with a dashboard and alert rules, is in
+                A ready Prometheus, Loki and Grafana stack, with dashboards and alert rules, is in
                 <code>docker/observability</code> of the XMQ repository. It needs an XMQ image with
                 this endpoint (1.1.1 or later).
             </p>
@@ -167,10 +167,79 @@ curl -i http://broker-1:9184/readyz    # 200 ready, 503 not ready with a reason`
                 </tbody>
             </table>
 
+            <h4 id="prometheus-logs">Logs</h4>
+
+            <p>
+                Metrics say that something is wrong; the log says what. The <b>Logging</b> page has a
+                <b>Format</b> selector, and <code>logging.format</code> in
+                <code>xmq_server.conf</code> does the same. <code>text</code> is the historical line;
+                <code>json</code> writes one object per line, to the log file and to stdout alike:
+            </p>
+
+            <pre className="userManualCode">{`{"timestamp":"2026-11-09T07:47:57.835+11:00","level":"warning","node":"broker-1","scope":"Startup","message":"The configuration interface is set to plain HTTP."}
+{"timestamp":"2026-11-09T07:47:57.847+11:00","level":"error","node":"broker-1","subject":"server_events","message":"No extension authenticates, so only anonymous clients can connect."}`}</pre>
+
+            <table className="userManualTable">
+                <thead>
+                <tr><th>Field</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                <tr><td><code>timestamp</code></td><td>ISO 8601 with milliseconds and the local offset.</td></tr>
+                <tr><td><code>level</code></td><td><code>debug</code>, <code>info</code>, <code>notice</code>, <code>warning</code>, <code>error</code>, <code>critical</code>, <code>alert</code>, <code>emergency</code>.</td></tr>
+                <tr><td><code>node</code></td><td>This node's name.</td></tr>
+                <tr><td><code>subject</code></td><td>The log subject (<code>server_events</code>, <code>publish</code>, <code>connect</code>, ...), when the record has one.</td></tr>
+                <tr><td><code>scope</code></td><td>The component for startup and service records (<code>Startup</code>, <code>Prometheus</code>, ...).</td></tr>
+                <tr><td><code>component</code></td><td>A controller's own name, for records written outside the subject scheme.</td></tr>
+                <tr><td><code>message</code></td><td>The text, with newlines and quotes escaped so the record stays one line.</td></tr>
+                </tbody>
+            </table>
+
+            <p>
+                The default is <code>text</code>, and text output is byte for byte what it was. A
+                change of format takes effect at the next start, because the engine that writes the
+                lines is built while the server starts; log levels still apply immediately.
+            </p>
+
+            <p>
+                Nothing has to be configured in XMQ to collect the lines. A log shipper reads the file
+                or the container's stdout, and the fields become labels. With Grafana Alloy that is
+                a few lines of configuration:
+            </p>
+
+            <pre className="userManualCode">{`loki.process "xmq" {
+  forward_to = [loki.write.local.receiver]
+  stage.json {
+    expressions = {level = "level", node = "node", subject = "subject", component = "component"}
+  }
+  stage.labels {
+    values = {level = "", node = "", subject = "", component = ""}
+  }
+}`}</pre>
+
+            <p>
+                All four are low-cardinality: the seven priorities, the node names, a dozen subjects
+                and a few components. The message stays in the line, so a query narrows by label
+                first and reads the text after:
+            </p>
+
+            <pre className="userManualCode">{`{job="xmq", level="error"}
+{job="xmq", node="broker-2"} |= "certificate"
+sum by (subject) (count_over_time({job="xmq", level="error"}[5m]))`}</pre>
+
+            <p>
+                The three select every error on any node, run a text search on one node, and count
+                errors per subject over five minutes. Lines that are not JSON - the entrypoint's own
+                messages before the broker starts - carry no labels and stay readable as they are.
+                The <code>docker/observability</code> stack wires exactly this up: the broker runs
+                with <code>XMQ_LOG_FORMAT=json</code>, Alloy collects its stdout, Loki keeps a week of
+                it, and Grafana provisions an <b>XMQ logs</b> dashboard and an alert on a burst of
+                errors.
+            </p>
+
             <h4 id="prometheus-limits">What it does not do</h4>
 
             <ul>
-                <li>No OpenTelemetry export, traces or logs: only the text exposition format over HTTP.</li>
+                <li>No OpenTelemetry export and no traces. Logs are separate: <code>logging.format=json</code> and a log shipper, not this endpoint.</li>
                 <li>No TLS and no per-metric filtering. HTTP Basic authentication is available; TLS is expected to be provided by a proxy or a private network.</li>
                 <li>No cluster-wide aggregation: each node answers for itself.</li>
                 <li>No historical samples. Prometheus is expected to keep them.</li>

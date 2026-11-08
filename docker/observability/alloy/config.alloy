@@ -1,0 +1,75 @@
+// XMQ's container logs -> Loki.
+//
+// The broker writes one JSON object per line to stdout when XMQ_LOG_FORMAT=json, and
+// that is what this collector reads - docker's own copy of the container's stdout, not
+// a file inside it. Nothing extra is mounted into the broker and nothing has to be
+// rotated: docker already keeps the stream, and this reads it the way docker logs does.
+//
+// Lines that are not JSON - the entrypoint's own messages before the broker starts -
+// pass through untouched, with no level or node label. They are worth keeping: the one
+// about anonymous access being on is printed there.
+
+discovery.docker "xmq" {
+	host = "unix:///var/run/docker.sock"
+
+	// The compose service, so a stack with other containers is not collected wholesale.
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.service=xmq"]
+	}
+}
+
+discovery.relabel "xmq" {
+	targets = discovery.docker.xmq.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "xmq" {
+	host          = "unix:///var/run/docker.sock"
+	targets       = discovery.docker.xmq.targets
+	relabel_rules = discovery.relabel.xmq.rules
+	labels        = {job = "xmq"}
+	forward_to    = [loki.process.xmq.receiver]
+}
+
+loki.process "xmq" {
+	forward_to = [loki.write.local.receiver]
+
+	// Only the broker's own lines, which begin with a brace. The pattern uses a
+	// character class so that no escaping has to survive two layers of quoting.
+	stage.match {
+		selector = "{job=\"xmq\"} |~ \"^[{]\""
+
+		stage.json {
+			expressions = {
+				level     = "level",
+				node      = "node",
+				subject   = "subject",
+				component = "component",
+			}
+		}
+
+		// Labels are for filtering by series: all four come from fixed sets (the seven
+		// priorities, the node names, the dozen subjects, the few components), so the
+		// series count stays bounded. The message stays in the line.
+		stage.labels {
+			values = {
+				level     = "",
+				node      = "",
+				subject   = "",
+				component = "",
+			}
+		}
+	}
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

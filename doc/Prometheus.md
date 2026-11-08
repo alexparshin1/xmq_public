@@ -61,9 +61,75 @@ A request without credentials, or with the wrong ones, is answered with `401 Una
 `WWW-Authenticate: Basic` challenge. The password is checked against the stored verifier, so a
 copy of the configuration file does not yield the scrape password.
 
-A ready Prometheus and Grafana stack, with a provisioned dashboard and alert rules, is in
+A ready Prometheus, Loki and Grafana stack, with provisioned dashboards and alert rules, is in
 [`docker/observability`](../docker/observability/). It needs an image with this endpoint (1.1.1 or
 later).
+
+## Logs
+
+The **Logging** page has a **Format** selector, and `logging.format` in `xmq_server.conf` does the
+same. `text` is the historical line; `json` writes one object per line, to the log file and to
+stdout alike:
+
+```json
+{"timestamp":"2026-11-09T07:47:57.835+11:00","level":"warning","node":"broker-1","scope":"Startup","message":"The configuration interface is set to plain HTTP."}
+{"timestamp":"2026-11-09T07:47:57.847+11:00","level":"error","node":"broker-1","subject":"server_events","message":"No extension authenticates, so only anonymous clients can connect."}
+```
+
+| Field | Meaning |
+|---|---|
+| `timestamp` | ISO 8601 with milliseconds and the local offset. |
+| `level` | `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`. |
+| `node` | This node's name. |
+| `subject` | The log subject (`server_events`, `publish`, `connect`, ...), when the record has one. |
+| `scope` | The component for startup and service records (`Startup`, `Prometheus`, ...). |
+| `component` | A controller's own name, for records written outside the subject scheme. |
+| `message` | The text, with newlines and quotes escaped so the record is one line. |
+
+The default is `text`, and text output is byte for byte what it was before. A change of format
+takes effect at the next start: the engine that writes the lines is built while the server starts.
+Log levels still apply immediately.
+
+Nothing has to be configured in XMQ to collect the lines. A log shipper reads the file or the
+container's stdout, and the fields above become labels:
+
+```yaml
+# Grafana Alloy: docker's copy of the container's stdout, parsed into labels.
+loki.source.docker "xmq" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.xmq.targets
+  labels     = {job = "xmq"}
+  forward_to = [loki.process.xmq.receiver]
+}
+
+loki.process "xmq" {
+  forward_to = [loki.write.local.receiver]
+  stage.json {
+    expressions = {level = "level", node = "node", subject = "subject", component = "component"}
+  }
+  stage.labels {
+    values = {level = "", node = "", subject = "", component = ""}
+  }
+}
+```
+
+All four are low-cardinality: the seven priorities, the node names, a dozen subjects and a few
+components. The message stays in the line, so a query narrows by label first and reads the text
+after:
+
+```logql
+{job="xmq", level="error"}
+{job="xmq", node="broker-2"} |= "certificate"
+sum by (subject) (count_over_time({job="xmq", level="error"}[5m]))
+```
+
+The first selects every error on any node, the second a text search on one node, the third counts
+errors per subject over five minutes. Lines that are not JSON - the entrypoint's own messages
+before the broker starts - carry no labels and stay readable as they are.
+
+The [`docker/observability`](../docker/observability/) stack wires exactly this up: the broker is
+started with `XMQ_LOG_FORMAT=json`, Alloy collects its stdout, Loki keeps a week of it, and Grafana
+provisions an **XMQ logs** dashboard and an alert on a burst of errors.
 
 ## Health probes
 

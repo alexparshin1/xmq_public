@@ -1,0 +1,26 @@
+apiVersion: 1
+
+# Both datasources in one file: Grafana provisions each file on its own, and a file
+# without isDefault on its entry still counts as a default for the organisation -
+# two files therefore fail with "Only one datasource per organization can be marked
+# as default". One file, one default, no ambiguity.
+datasources:
+  - name: Prometheus
+    uid: xmq-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    uid: xmq-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      # The broker's lines are already JSON objects; panels that need a field the
+      # indexed labels do not carry ask Loki to parse the line at query time.
+      maxLines: 1000

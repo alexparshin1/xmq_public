@@ -38,10 +38,12 @@ Requires SPTK 5.6.19.
   unauthenticated, because a kubelet probe cannot present the metrics password, and neither reveals
   counters or configuration.
 
-- **A ready Prometheus and Grafana stack.** `docker/observability/` starts XMQ, Prometheus and
-  Grafana together, with a provisioned dashboard, alert rules, and the `XMQ_PROMETHEUS`,
-  `XMQ_PROMETHEUS_BIND` and `XMQ_PROMETHEUS_PORT` settings for the Docker image. See
-  [its README](docker/observability/README.md).
+- **A ready Prometheus, Loki and Grafana stack.** `docker/observability/` starts XMQ, Prometheus,
+  Loki and Grafana together, with provisioned dashboards for metrics and logs, alert rules, and the
+  `XMQ_PROMETHEUS`, `XMQ_PROMETHEUS_BIND`, `XMQ_PROMETHEUS_PORT` and `XMQ_LOG_FORMAT` settings for
+  the Docker image. Alloy collects the broker's JSON log lines from the container's stdout and
+  labels them by `level`, `node`, `subject` and `component`, so an error is one query away from the
+  metric that moved. See [its README](docker/observability/README.md).
 
 - **Experimental acknowledgement after durable storage for standalone brokers.** Set
   `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and

@@ -1,16 +1,18 @@
-# XMQ, Prometheus and Grafana
+# XMQ, Prometheus, Loki and Grafana
 
 A small stack that shows what the broker exposes, without assembling the monitoring side by hand:
 
 ```text
-XMQ (9184/metrics)  ->  Prometheus (9090)  ->  Grafana (3001)
+XMQ  metrics (9184)  ->  Prometheus (9090)  ->
+                                                 Grafana (3001)
+XMQ  logs (stdout)   ->  Alloy  ->  Loki (3100)  ->
 ```
 
 ## Requirements
 
 - Docker and Docker Compose.
-- An XMQ image with the Prometheus endpoint: **1.1.1 or later**. Set `XMQ_VERSION` to one that
-  has it; `latest` follows the published image.
+- An XMQ image with the Prometheus endpoint and JSON logs: **1.1.1 or later**. Set `XMQ_VERSION` to
+  one that has them; `latest` follows the published image.
 
 ## Start
 
@@ -26,12 +28,15 @@ left running would make them fail with "address already in use".
 |---|---|---|
 | Grafana | http://localhost:3001 | `admin` / `admin`, or `GRAFANA_PASSWORD` |
 | Prometheus | http://localhost:9090 | none |
+| Loki | http://localhost:3100 | none |
 | XMQ configuration interface | https://localhost:18883 | none until the administrator password is set |
 | XMQ metrics | http://localhost:9184/metrics | none |
 | MQTT | `localhost:1883`, TLS `localhost:8883` | anonymous |
 
-The dashboard is provisioned from `grafana/dashboards/xmq-overview.json` and appears under the
-**XMQ** folder. Alert rules are in `prometheus/xmq-alerts.yml`.
+The dashboards are provisioned from `grafana/dashboards/` and appear under the **XMQ** folder:
+`xmq-overview.json` is the metrics one, `xmq-logs.json` the logs. Prometheus alert rules are in
+`prometheus/xmq-alerts.yml`; the log alert is provisioned by Grafana, in
+`grafana/provisioning/alerting/xmq-logs.yml`.
 
 Anonymous MQTT access is on so the stack works before any account exists. Set
 `XMQ_ALLOW_ANONYMOUS=false` and create accounts in the interface before the ports are reachable
@@ -63,6 +68,44 @@ curl -X POST http://localhost:9090/-/reload
 
 Scrapes without valid credentials are answered with `401`. The password is stored as a verifier,
 not as text; the interface shows it masked.
+
+## Logs
+
+The broker writes one JSON object per line when `XMQ_LOG_FORMAT=json`, which this stack sets. `Alloy`
+reads docker's copy of the container's stdout and sends it to Loki with four labels taken from the
+object: `level`, `node`, `subject` and `component`. The message stays in the line.
+
+Open **Dashboards -> XMQ -> XMQ logs**:
+
+- records per minute, split by level and by node;
+- errors and warnings per minute, by node;
+- errors by subject, so a client that cannot authenticate is distinguishable from a cluster link
+  that keeps dropping;
+- the log itself, filtered by node, level and subject.
+
+The same thing in Explore, if the dashboard is not what you want:
+
+```logql
+{job="xmq", level="error"}
+{job="xmq", node="broker-2"} |= "certificate"
+sum by (subject) (count_over_time({job="xmq", level="error"}[5m]))
+```
+
+Loki keeps a week (`retention_period` in `loki/loki.yml`) in the `loki-data` volume. That is a demo
+retention, not a recommendation: point Alloy's `loki.write` endpoint at the Loki you already run and
+delete the `loki` service if there is one.
+
+Two things to know about the collector:
+
+- It needs `/var/run/docker.sock`, read-only, because that is where docker's copy of the stdout is.
+  It never starts or stops anything.
+- It selects the broker by its compose service label, `com.docker.compose.service=xmq`. A broker
+  run outside compose is not collected - point Alloy at a file with `loki.source.file` instead, or
+  keep using whatever ships your container logs already.
+
+The log alert is provisioned but not connected: **Alerting -> Contact points**, add one, then point
+the **XMQ** notification policy at it. Without a contact point the rule still evaluates and shows in
+the Alerting page, it just notifies nobody.
 
 ## Health probes
 

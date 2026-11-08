@@ -1,0 +1,62 @@
+apiVersion: 1
+
+# One rule, to show where log alerting belongs: in Grafana, on the Loki datasource, not in
+# Prometheus - a log line is not a sample there. It fires when the broker writes more than
+# five error records in five minutes, which is the point at which the log stops being
+# routine (a client that cannot authenticate is worth one line, not a stream of them).
+#
+# Nothing is notified yet: a contact point is a property of the installation, not of this
+# stack. In Grafana, Alerting -> Contact points, add one, then point the "XMQ" notification
+# policy at it.
+groups:
+  - orgId: 1
+    name: xmq-logs
+    folder: XMQ
+    interval: 1m
+    rules:
+      - uid: xmq-log-errors
+        title: XMQ is logging errors
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ wrote more than five error records in five minutes"
+          description: "Check the XMQ logs dashboard: the subject and the component tell whether it is a client, the cluster, or startup."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: xmq-loki
+            model:
+              editorMode: code
+              expr: sum(count_over_time({job="xmq", level="error"}[5m]))
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 5
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold

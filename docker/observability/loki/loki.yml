@@ -1,0 +1,47 @@
+# Loki in single-binary mode: one process, local disk, no object store to configure.
+#
+# It is here so the stack has the broker's logs next to its metrics, not to be a
+# production log platform. On a real installation the same queries point at whatever
+# Loki the operator already runs; Only the scrape side (Alloy) has to be adapted.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # A week of logs in the container volume. Longer belongs in the operator's own Loki.
+  retention_period: 168h
+  allow_structured_metadata: true
+  volume_enabled: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false
