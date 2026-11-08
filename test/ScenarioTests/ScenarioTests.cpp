@@ -466,7 +466,9 @@ TEST_F(XMQ_ScenarioTests, PublishFailureKeepsPartialMeasuredIntervalsAndStillThr
     const auto publisher = server()->getClientSession("partial-publisher-0");
     ASSERT_NE(nullptr, publisher);
     atomic_bool hadSample {false};
-    jthread disruptor([&]
+    // A plain thread, not a jthread: FreeBSD's libc++ has no jthread/stop_token. This one is
+    // joined explicitly below, so there is no cleanup for jthread to add.
+    thread disruptor([&]
     {
         const auto deadline = chrono::steady_clock::now() + 2s;
         while (latencies[0].count() == 0 && chrono::steady_clock::now() < deadline)
