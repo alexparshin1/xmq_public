@@ -311,7 +311,7 @@ void SubscriptionManager::countRetainedChange(const RetainedMessages::Change cha
 }
 
 size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& message, const mqtt::SubscriptionIds& deliverToSessions,
-                                         const size_t shardIndex, const size_t shardCount)
+                                         const size_t shardIndex, const size_t shardCount, const bool inlineSend)
 {
     size_t deliverCount = 0;
 
@@ -339,7 +339,9 @@ size_t SubscriptionManager::deliverShard(const std::shared_ptr<PublishMessage>& 
         }
         else
         {
-            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain);
+            // Only the plain shape takes the hint: the cluster and shared shapes queue for a
+            // reason of their own and are not what a small fan-out is.
+            info.m_session->postMessage(message, info.m_qos, info.m_ids, retain, {}, inlineSend);
         }
         ++deliverCount;
     }

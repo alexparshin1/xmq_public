@@ -188,9 +188,12 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     // The statistics object has no way to reach the thread pools, so the broker hands it the
     // queue depths instead. Called once a second by the metrics scan, never from the message path:
     // reading a queue's size takes the same mutex its push and pop take.
+    // TEMPORARY 2026-11-08: the send-path diagnosis rides on this once-a-second scan; it reads
+    // and clears a handful of buckets and prints one line, and leaves with the rest of the work.
     m_systemStatistics->setQueueDepthProvider(
         [this]
         {
+            sendpathdiagnostics::reportSendWait();
             return SystemStatistics::QueueDepths {.receive = m_clientSessionThreads.receiveQueueLength(),
                                                   .send = m_clientSessionThreads.sendQueueLength(),
                                                   .delivery = m_messageDeliveryThreads.queueLength()};

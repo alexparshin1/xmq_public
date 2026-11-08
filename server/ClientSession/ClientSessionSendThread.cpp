@@ -8,7 +8,7 @@
 ╟──────────────────────────────────────────────────────────────────────────────╢
 ║  This Source Code Form is subject to the terms of the Mozilla Public         ║
 ║  License, v. 2.0. If a copy of the MPL was not distributed with this         ║
-║  file, You can obtain one at https://mozilla.org/MPL/2.0/.                   ║
+║  file, You can obtain one at https://mozilla.org/MPL/2.0.                   ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
@@ -23,24 +23,29 @@ namespace xmq {
 
 void ClientSessionSendThread::processSession(SClientSession& clientSession)
 {
-    // Held for the duration: a takeover replaces the session's write buffer, and this thread would
-    // otherwise be sending from one that has just been destroyed.
+    // Taken before the send: a takeover replaces the session's write buffer, and this thread
+    // would otherwise be sending from one that has just been destroyed.
     const auto socketWriteBuffer = clientSession->socketWriteBuffer();
     if (!socketWriteBuffer)
     {
         return;
     }
 
-    const auto sendBytes = socketWriteBuffer->bytes();
-    const auto messageCount = socketWriteBuffer->messageCount();
-    const auto publishCount = socketWriteBuffer->publishCount();
-    socketWriteBuffer->send(m_exchangeBuffer);
-    if (server().systemStatistics())
+    const auto sent = socketWriteBuffer->send(m_exchangeBuffer);
+    if (sent.m_bytes && server().systemStatistics())
     {
-        server().systemStatistics()->registerSentData(sendBytes, messageCount, publishCount);
+        server().systemStatistics()->registerSentData(sent.m_bytes, sent.m_messages, sent.m_publishes);
     }
 }
 
+/**
+ * @brief Writes each queued session's bytes through its own buffer's send().
+ *
+ * One write per session, through the one flush both writers share: the send workers wake for
+ * what an append queued into them, and the inline send path of a small publication writes the
+ * socket itself. Both detach and write inside the buffer's own send mutex, so a session's
+ * messages leave in the order they were appended, whoever was the writer.
+ */
 void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
 {
     while (m_exchangeBuffers.size() < sessions.size())
@@ -48,13 +53,6 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
         m_exchangeBuffers.push_back(make_unique<Buffer>());
     }
 
-    m_writeItems.clear();
-    m_writeItems.reserve(sessions.size());
-    m_connectionOfItem.clear();
-    m_connectionOfItem.reserve(sessions.size());
-
-    // Detach first, write second. Everything a session had queued leaves its buffer here, so the
-    // delivery threads can carry on filling the fresh one while the round is on its way out.
     size_t index = 0;
     for (auto& clientSession: sessions)
     {
@@ -63,7 +61,7 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
             continue;
         }
 
-        // Held for the duration: a takeover replaces the session's write buffer, and this thread
+        // Taken before the send: a takeover replaces the session's write buffer, and this thread
         // would otherwise be sending from one that has just been destroyed.
         const auto socketWriteBuffer = clientSession->socketWriteBuffer();
         if (!socketWriteBuffer)
@@ -71,77 +69,67 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
             continue;
         }
 
-        const auto sendBytes = socketWriteBuffer->bytes();
-        const auto messageCount = socketWriteBuffer->messageCount();
-        const auto publishCount = socketWriteBuffer->publishCount();
+        auto& exchangeBuffer = m_exchangeBuffers[index++ % m_exchangeBuffers.size()];
 
-        auto& exchangeBuffer = m_exchangeBuffers[index];
-        socketWriteBuffer->detach(exchangeBuffer);
-        ++index;
-
-        if (server().systemStatistics())
+        // The failure handling has to know after the flush is over: send() throws only for a
+        // socket that cannot carry its bytes, and a takeover while it was on its way is not
+        // at fault either way. Closed below, through the server, with the connection this
+        // failure belonged to.
+        SocketWriteMetrics sent;
+        bool               failed = false;
+        String             failureLog;
+        try
         {
-            server().systemStatistics()->registerSentData(sendBytes, messageCount, publishCount);
+            sent = socketWriteBuffer->send(exchangeBuffer);
+        }
+        catch (const ConnectionException&)
+        {
+            // The peer went away. A lost peer goes quietly, anything else gets a line first.
+            failed = true;
+        }
+        catch (const Exception& e)
+        {
+            failed = true;
+            failureLog = e.message();
         }
 
-        // The connection and the socket it carries, taken as one answer. Reading them separately -
-        // the socket now, the connection a few lines later - let a takeover land in between, and
-        // the batch then held the old socket with the new connection: a write that failed on the
-        // old one closed the connection that replaced it, and the client was left with a socket the
-        // broker read nothing more from. The failing cycle names close site 5, this batch.
-        const auto connection = clientSession->getConnection();
-        if (!connection)
+        if (sent.m_bytes && server().systemStatistics())
+        {
+            server().systemStatistics()->registerSentData(sent.m_bytes, sent.m_messages, sent.m_publishes);
+        }
+
+        if (!failed)
         {
             continue;
         }
-        const auto socket = connection->getSocket();
-        if (!socket || exchangeBuffer->empty())
-        {
-            continue;
-        }
 
-        // The socket goes in as the owning reference it already is. Taking .get() here left the
-        // batch holding a pointer whose owner died at the end of this iteration, and a session
-        // torn down before the round was written took the socket with it.
-        m_writeItems.push_back(SocketWriteItem {.m_socket = socket,
-                                                .m_data = exchangeBuffer->data(),
-                                                .m_size = exchangeBuffer->bytes()});
-        m_sessionOfItem.push_back(clientSession);
-        m_connectionOfItem.push_back(connection);
-    }
-
-    m_writer->writeAll(m_writeItems);
-
-    for (size_t item = 0; item < m_writeItems.size(); ++item)
-    {
-        if (!m_writeItems[item].m_failed)
+        try
         {
-            continue;
+            if (clientSession->isConnected())
+            {
+                // Same treatment the one-at-a-time path gave: a lost peer goes quietly, anything
+                // else is worth a line first. The close names the connection the attempt used,
+                // like every other close in the broker does: a takeover between the write and the
+                // close must not tear the replacement's socket down.
+                if (!failureLog.empty())
+                {
+                    log(LogPriority::Error, "(" + server().getSettings()->m_cluster.m_this_node.m_node_name.asString() +
+                                                ") " + string(clientSession->getClientId()) + " can't send message: " +
+                                                failureLog);
+                }
+                clientSession->noteCloseSite(5);
+                server().closeSession(clientSession, false, clientSession->getConnection());
+            }
         }
-        auto& clientSession = m_sessionOfItem[item];
-        if (!clientSession->isConnected())
+        catch (const Exception& e)
         {
-            continue;
-        }
-        // Same treatment the one-at-a-time path gave: a lost peer goes quietly, anything else is
-        // worth a line first.
-        if (!m_writeItems[item].m_error.empty())
-        {
+            // Nothing reasonable to do from here, and whatever the close wanted to say, the next
+            // failure of the session says again.
             log(LogPriority::Error, "(" + server().getSettings()->m_cluster.m_this_node.m_node_name.asString() + ") " +
-                                        string(clientSession->getClientId()) +
-                                        " can't send message: " + m_writeItems[item].m_error);
+                                        string(clientSession->getClientId()) + " can't close after a failed send: " +
+                                        string(e.message()));
         }
-        clientSession->noteCloseSite(5);
-        // Through the server and naming the connection, the way the one-at-a-time path does it.
-        // Closing through the session alone leaves the connection in the reactor, and closing
-        // without naming it skips the comparison every other close makes: a write that failed on a
-        // connection the session has since replaced tore down the replacement's socket, and the
-        // client was left believing it was connected while the broker read nothing from it. This
-        // is the path a failing reconnect test names.
-        server().closeSession(clientSession, false, m_connectionOfItem[item]);
     }
-    m_sessionOfItem.clear();
-    m_connectionOfItem.clear();
 }
 
 } // namespace xmq

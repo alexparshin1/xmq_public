@@ -23,6 +23,32 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
+namespace {
+
+/**
+ * @brief How many recipients an inline send is worth, and nothing above it.
+ *
+ * A publication that matched this many sessions or fewer can be written to their sockets by the
+ * thread that received it: no send worker wake-up between the match and the write. Off by one,
+ * i.e. the inline send is off: measured on the stand's P2P at a hundred thousand deliveries a
+ * second it doubles the median against the queued path (429-625 us against 205-226), and the
+ * send workers are what the write waits behind. XMQ_INLINE_SEND_MAX turns it on - its failure
+ * mode is the send path's own, so let the next measurement find what makes the writes slow
+ * (see the diagnostic in SocketWriteBuffer's send() for where that work goes).
+ */
+size_t inlineSendMaxSessions()
+{
+    static const size_t value = []
+    {
+        const char* env = getenv("XMQ_INLINE_SEND_MAX");
+        const auto parsed = env != nullptr ? strtoul(env, nullptr, 10) : 0;
+        return static_cast<size_t>(parsed);
+    }();
+    return value;
+}
+
+} // namespace
+
 MessageDeliveryThread::MessageDeliveryThread(const MessageDeliveryThreads& pool, const size_t threadIndex)
     : Thread("SubscriptionDelivery")
     , m_pool(pool)
@@ -151,7 +177,10 @@ void MessageDeliveryThreads::fanOutMessage(const SPublishMessage& message, const
     if (const auto shardCount = m_shardCount;
         ReliableMessageStore::Transaction::current() || sessions.size() < MinSessionsForSharding || shardCount < 2)
     {
-        SubscriptionManager::deliverShard(message, sessions, 0, 1);
+        // Not a fan-out, or a durable publication whose commit decides when it is visible: the
+        // recipients are few, so the socket write happens on this thread and no send worker wakes
+        // for it. Over the inline limit the send worker does it, as a fan-out always has.
+        SubscriptionManager::deliverShard(message, sessions, 0, 1, sessions.size() <= inlineSendMaxSessions());
     }
     else
     {

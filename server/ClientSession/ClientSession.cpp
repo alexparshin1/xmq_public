@@ -33,6 +33,18 @@ using namespace xmq;
 
 namespace
 {
+/**
+ * @brief The exchange buffer the inline send path flushes through, one for each thread.
+ *
+ * Threads keep emptying a buffer into their own exchange, the way the send workers do. A thread
+ * that flushes through send() twice in a row reuses the one it has.
+ */
+std::unique_ptr<sptk::Buffer>& inlineSendExchangeBufferPtr()
+{
+    thread_local std::unique_ptr<sptk::Buffer> buffer = std::make_unique<sptk::Buffer>();
+    return buffer;
+}
+
 /// What one publication counts against a session's queue limit: its payload and its topic, as
 /// MessageQueue counts them, so that the two numbers are the same number.
 uint64_t publishedBytes(const SMessage& message)
@@ -810,12 +822,40 @@ void ClientSession::sendMessageUnlocked(const MessageDispatch& messageDispatch)
     }
 
     const auto writeBuffer = socketWriteBuffer();
+    // The inline send asks for no send worker: what the append puts in the buffer goes straight to
+    // the socket a few lines below, and a wake-up in between would only find the buffer empty.
     const auto appended = writeBuffer->appendMessageToBuffer(*message, messageDispatch.m_flags, messageDispatch.m_deliveryId,
-                                                             remainingExpirationSeconds, messageDispatch.m_subscriptionIds, getMaximumPacketSize());
+                                                             remainingExpirationSeconds, messageDispatch.m_subscriptionIds,
+                                                             getMaximumPacketSize(), !messageDispatch.m_inlineSend);
 
     if (appended && message->is(Message::Type::Publish))
     {
         incrementPublishSendCount();
+    }
+
+    if (messageDispatch.m_inlineSend && appended)
+    {
+        try
+        {
+            const auto sent = writeBuffer->send(inlineSendExchangeBufferPtr());
+            if (sent.m_bytes && server().systemStatistics())
+            {
+                server().systemStatistics()->registerSentData(sent.m_bytes, sent.m_messages, sent.m_publishes);
+            }
+        }
+        catch (const ConnectionException& e)
+        {
+            serverUnlocked().logMessage(LogSubject::SessionErrors, LogPriority::Error,
+                                        format("INLINE-SEND FAILED (conn): {}", string(e.message())));
+            // The socket cannot carry its bytes. Nothing here closes the session: its own read
+            // path is on the same socket and meets the same condition within a few milliseconds,
+            // and it goes through the close the way every other peer-loss does.
+        }
+        catch (const Exception&)
+        {
+            // Same as above: whatever the failure, a read or a write of the session meets it next
+            // and takes the session down through the path that names it.
+        }
     }
 }
 
@@ -836,6 +876,12 @@ vector<pair<weak_ptr<Subscription>, SMessage>> ClientSession::unacknowledgedShar
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain)
 {
     return postMessage(message, qos, subscriptionIds, retain, {});
+}
+
+MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
+                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions)
+{
+    return postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions, false);
 }
 
 void ClientSession::countDroppedPublish()
@@ -865,7 +911,7 @@ void ClientSession::countDroppedPublish()
 }
 
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
-                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions)
+                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions, const bool inlineSend)
 {
     if (auto* store = server().reliableMessageStore();
         store && message->is(Message::Type::Publish) && !ReliableMessageStore::Transaction::current())
@@ -1023,6 +1069,9 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     const MessageId deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
 
     const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
+    // The queue does not read this, only the forward path does: this delivery goes straight to the
+    // socket in the forward path rather than waking a send worker for it.
+    messageDelivery->m_inlineSend = inlineSend;
 
     if (inflightQueue)
     {
