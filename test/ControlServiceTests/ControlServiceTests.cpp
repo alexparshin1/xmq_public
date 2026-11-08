@@ -107,6 +107,11 @@ TEST_F(XMQ_ControlServiceTests, startServiceRefusesListenerHeldByAnotherBroker)
     settings->m_cluster.m_this_node.m_node_name = "second";
     settings->m_connections = running->getSettings()->m_connections;
     settings->m_web_service = running->getSettings()->m_web_service;
+    // The controller builds a log engine before it tries to bind, and the loaded configuration
+    // names the installed log path - which a test has no business writing to, and on a machine
+    // where the broker is installed is a file owned by its service account. What this test is
+    // about is the listener.
+    settings->m_logging.m_log_to = (DirectoryNames::tempDirectory() / "xmq_second_broker.log").string();
 
     ServerController second(settings);
     try
@@ -175,7 +180,13 @@ TEST_F(XMQ_ControlServiceTests, prometheusEndpointStartsAndStopsWithoutRestartin
     values.m_port = port;
     settings->setPrometheusSettings(values);
 
+    // The controller's constructor builds the log engine from these settings, and the running
+    // server's log path is the installed one. Point it at the temp directory while the controller
+    // is being built and put it back: the endpoint is what this test is about, not the log file.
+    const auto savedLogTo = settings->m_logging.m_log_to;
+    settings->m_logging.m_log_to = (DirectoryNames::tempDirectory() / "xmq_prometheus_controller.log").string();
     ServerController controller(settings);
+    settings->m_logging.m_log_to = savedLogTo;
     string reason;
     ASSERT_TRUE(controller.applyPrometheusSettings(reason)) << reason;
     ASSERT_TRUE(controller.prometheusListening());
