@@ -25,6 +25,13 @@ Requires SPTK 5.6.19.
   for the lifetime of the process, so a scrape reports `xmq_up 0` while MQTT is stopped. See
   [doc/Prometheus.md](doc/Prometheus.md).
 
+- **Structured JSON logs.** `logging.format=json` (or the Format selector on the Logging page)
+  writes one JSON object per line to both the log file and stdout: `timestamp`, `level`, `node`,
+  the `subject` the broker already knows, `component` for startup and service records, and the
+  message text. The default remains `text`, byte for byte as before. A format change takes effect
+  at the next start; levels still apply immediately. See
+  [the Setup guide](https://xmq.sptk.net/xmq_doc_setup).
+
 - **The Prometheus endpoint answers health probes too.** `GET /healthz` reports that the
   process is alive; `GET /readyz` reports whether MQTT can serve clients, with a `503` and a short
   reason while MQTT is stopped, starting, or while a cluster node does not hold its lease. Both are

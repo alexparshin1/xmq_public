@@ -66,6 +66,7 @@ Anything not listed here is edited in the file itself, or through the web interf
 | `XMQ_REDIS_URI` | `redis://redis_server:6379` | Where that Redis is |
 | `XMQ_CLEAN_START` | `false` | `true` discards stored state on every start |
 | `XMQ_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `XMQ_LOG_FORMAT` | `text` | `text`, or `json` for one object per line |
 | `XMQ_CERT_CN` | `xmq` | Common name for the generated certificate |
 | `XMQ_LOG_FILE` | `discard` | `keep` also writes the log to a file, as a package install does |
 | `XMQ_PROMETHEUS` | `false` | Serve `GET /metrics` on the Prometheus endpoint |

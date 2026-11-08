@@ -11,6 +11,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 #include "ServerController.h"
+#include "JsonLogEngine.h"
 #include "OSService.h"
 
 #include "SelfSignedCertificate.h"
@@ -55,6 +56,24 @@ shared_ptr<LogEngine> ServerController::makeLogEngine(const std::shared_ptr<Sett
     try
     {
         const auto logEngine = make_shared<FileLogEngine>(serverLogPathStr.c_str(), appendToLog);
+
+        const auto json = !settings->m_logging.m_format.isNull() &&
+                          settings->m_logging.m_format.asString().toLowerCase() == "json";
+        if (json)
+        {
+            // The file engine only writes what the wrapper formats. Its own DATE/TIME/PRIORITY
+            // prefixes would make the line invalid JSON, so it is left with ENABLE alone; the
+            // wrapper's stdout option prints the same object to the console.
+            logEngine->options({ENABLE});
+            auto jsonEngine = make_shared<JsonLogEngine>(logEngine,
+                                                        settings->m_cluster.m_this_node.m_node_name.asString());
+            // The file engine writes the JSON; the wrapper prints the same line to stdout itself.
+            // The base engine's STDOUT option would print the original text beside it.
+            jsonEngine->options({ENABLE});
+            jsonEngine->setStdout(true);
+            return jsonEngine;
+        }
+
         logEngine->option(STDOUT, true);
         logEngine->option(DATE, true);
         logEngine->option(TIME, true);

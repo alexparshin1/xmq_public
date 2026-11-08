@@ -292,6 +292,8 @@
             <xsd:complexType name="Logging">
                 <xsd:sequence>
                     <xsd:element name="log_to" type="xsd:string"/>
+                    <!-- text (the historical format) or json, one object per line. -->
+                    <xsd:element name="format" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="keep_logs" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
                     <xsd:element name="min_log_level" type="tns:LogLevel"></xsd:element>
                     <xsd:element name="log_level"

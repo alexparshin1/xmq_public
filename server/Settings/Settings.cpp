@@ -201,6 +201,7 @@ const char* defaultConfigurationText()
   },
   "logging": {
     "log_to": "xmq_server.log",
+    "format": "text",
     "keep_logs": 7,
     "min_log_level": "INFO",
     "log_level": {
@@ -941,6 +942,15 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
     if (!configuration.m_prometheus.isNull())
     {
         checkPort(configuration.m_prometheus.m_port, "prometheus.port", false);
+    }
+
+    if (!configuration.m_logging.m_format.isNull())
+    {
+        const auto format = configuration.m_logging.m_format.asString().toLowerCase();
+        if (format != "text" && format != "json")
+        {
+            throw invalid_argument("The configuration key 'logging.format' should be 'text' or 'json'.");
+        }
     }
 
     if (!IpWhitelist::isValid(configuration.m_web_service.m_whitelist.asString()))
@@ -2279,6 +2289,22 @@ void Settings::loggingControl(const std::string& action, CLogging& logging)
     {
         if (!logging.isNull())
         {
+            // An older caller sends only the levels. Keep the format it did not mention rather
+            // than writing the section without one.
+            if (logging.m_format.isNull())
+            {
+                logging.m_format = m_logging.m_format;
+            }
+            else
+            {
+                const auto format = logging.m_format.asString().toLowerCase();
+                if (format != "text" && format != "json")
+                {
+                    throw invalid_argument("The log format should be 'text' or 'json'.");
+                }
+                logging.m_format = format;
+            }
+
             // The row first, so a database that refuses the change leaves the node on the logging
             // it had rather than on a memory state the next start will not reproduce.
             saveLoggingToNodeRow(logging);

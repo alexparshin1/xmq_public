@@ -555,6 +555,21 @@ const ParameterHelp = {
     },
 
 
+    "logging.format": {
+        title: "Log format",
+        text: [
+            "Text is the historical format: a date, a priority, the node, the subject and the " +
+            "message, as one readable line.",
+            "JSON writes one object per line with timestamp, level, node, optional subject, the " +
+            "component for startup and service records, and the message. It is what Loki, Elastic, " +
+            "OTel and a log shipper expect, and what makes a subject or a node filterable without " +
+            "regexes.",
+            "A format change takes effect at the next start: the engine that writes the lines is " +
+            "built while the server starts."
+        ],
+        suggested: "text, unless the logs are collected by a log platform"
+    },
+
     "prometheus.enabled": {
         title: "Prometheus endpoint",
         text: [

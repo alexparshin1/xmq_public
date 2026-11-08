@@ -49,6 +49,7 @@
   },
   "logging": {
     "log_to": "xmq_server.log",
+    "format": "text",
     "keep_logs": 7,
     "min_log_level": "INFO",
     "log_level": {
