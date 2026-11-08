@@ -452,14 +452,14 @@ int main(int argc, const char* argv[])
             logger.warning(warning);
         }
 
-        logger.info("Configuration:        " + serverConfigurationPath.string());
-        logger.info("Log to:               " + logDestination(logFilePath));
-        logger.info("Log level:            " + LogEngine::priorityName(logEngine->minPriority()));
+        logger.info("Configuration:        " + serverConfigurationPath.string() + ".");
+        logger.info("Log to:               " + logDestination(logFilePath) + ".");
+        logger.info("Log level:            " + LogEngine::priorityName(logEngine->minPriority()) + ".");
 
         if (!cpuAffinityDescription.empty())
         {
             logger.info(String("CPU affinity:         ") + (cpuAffinityApplied ? "" : "not applied - ") +
-                        cpuAffinityDescription);
+                        cpuAffinityDescription + ".");
         }
 
         // The Redis URI stays in the configuration when persistence is switched off, so reporting
@@ -472,11 +472,11 @@ int main(int argc, const char* argv[])
             bool replaced = false;
             auto safeDatabaseURI = matchPassword.replaceAll(redisURI, "\\1@", replaced);
 
-            logger.info("Persistence database: " + safeDatabaseURI);
+            logger.info("Persistence database: " + safeDatabaseURI + ".");
         }
         else
         {
-            logger.info("Persistence:          off");
+            logger.info("Persistence:          off.");
         }
 
         // What the per-connection tables were sized for, and where the number came from. They are
@@ -486,7 +486,7 @@ int main(int argc, const char* argv[])
         // resident memory at two million), and it is invisible: without this line it is a number in
         // ps that nothing explains.
         logger.info("Connection reserve:   " + to_string(possibleConnectionCount()) +
-                    " sessions, from the file descriptor limit");
+                    " sessions, from the file descriptor limit.");
 
         // What "auto" came to, because the numbers are a choice and nobody should have to work it
         // out from the source to read a measurement.
@@ -499,10 +499,10 @@ int main(int argc, const char* argv[])
             logger.info("Threads:              " + to_string(resolveThreadCount(sendThreads)) + " send, " +
                         to_string(resolveReceiveThreadCount(receiveThreads)) + " receive" +
                         ", " + to_string(resolveDeliveryThreadCount(deliveryThreads)) + " delivery" +
-                        (automatic ? " (auto)" : ""));
+                        (automatic ? " (auto)" : "") + ".");
         }
 
-        logger.info("Initialization completed");
+        logger.info("Initialization completed.");
 
 #ifdef _WIN32
         // Windows has two ways to run: under the service dispatcher, or in a terminal.
@@ -541,13 +541,13 @@ int main(int argc, const char* argv[])
     catch (const DatabaseException& exception)
     {
         CERR("Can't start XMQ. Redis: " << UriSecret::hidden(settings->m_persistence.m_redis_uri.asString()) << ": " << exception.message());
-        logger.error(String(exception.message()));
+        logger.error(String(exception.message()) + ".");
         return 1;
     }
     catch (const Exception& exception)
     {
         CERR("Can't start XMQ: " << exception.message());
-        logger.error(String(exception.message()));
+        logger.error(String(exception.message()) + ".");
         return 1;
     }
 

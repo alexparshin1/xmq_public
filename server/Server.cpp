@@ -100,7 +100,7 @@ std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, 
     catch (const exception& e)
     {
         const Logger logger(*logEngine, "[Redis Initialization] ");
-        logger.error(e.what());
+        logger.error(std::string(e.what()) + ".");
         return nullptr;
     }
 }
@@ -126,7 +126,7 @@ SStorage Server::initializeStorage(const Settings& settings, const std::optional
         catch (const Exception& exception)
         {
             logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                       format("Failed to initialize storage for {}: {}", UriSecret::hidden(redisConnectString).c_str(), exception.what()));
+                       format("Failed to initialize storage for {}: {}.", UriSecret::hidden(redisConnectString).c_str(), exception.what()));
         }
     }
 
@@ -380,7 +380,7 @@ void Server::registerNodeTask(const SRedisConnect&)
     }
     catch (const Exception& e)
     {
-        logMessage(LogSubject::ServerEvents, LogPriority::Error, format("Can't register node {}: {}", getNodeName(), e.what()));
+        logMessage(LogSubject::ServerEvents, LogPriority::Error, format("Can't register node {}: {}.", getNodeName(), e.what()));
     }
 }
 
@@ -544,7 +544,7 @@ bool Server::loadSslKeys(const shared_ptr<Settings>& settings)
                                               settingsKeys.m_keyfile.asString().c_str(),
                                               settings->nodeHostName(), description))
             {
-                logMessage(LogSubject::ServerEvents, LogPriority::Info, "Created a " + description);
+                logMessage(LogSubject::ServerEvents, LogPriority::Info, "Created a " + description + ".");
             }
 
             m_keys = make_shared<SSLKeys>(settingsKeys.m_keyfile.asString().c_str(),
@@ -559,7 +559,7 @@ bool Server::loadSslKeys(const shared_ptr<Settings>& settings)
         catch (const Exception& exception)
         {
             logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                       format("Initializing SSL keys: {}", exception.message().c_str()));
+                       format("Initializing SSL keys: {}.", exception.message().c_str()));
         }
     }
     return sslKeysLoaded;
@@ -703,7 +703,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
                        format("Network interface {} has a single receive queue and no receive packet steering, "
                               "so the kernel processes every client's packets on one CPU. Under heavy load that "
                               "CPU saturates, the card drops frames, and clients are disconnected for keep-alive "
-                              "timeouts although they are sending. Consider enabling RPS: {}",
+                              "timeouts although they are sending. Consider enabling RPS: {}.",
                               gap.interfaceName, receiveSteeringDocumentation));
         }
     }
@@ -721,7 +721,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
             stringstream disabledMessage;
             disabledMessage << "Listener " << listener.m_name.asString()
                             << " on port " << listener.m_port.asInteger() << " is disabled.";
-            logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, disabledMessage.str());
+            logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, disabledMessage.str() + ".");
             continue;
         }
 
@@ -734,7 +734,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
             message << "s";
         }
         message << ").";
-        logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, message.str());
+        logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, message.str() + ".");
         const auto connectionType = listener.m_protocol.asString().toUpperCase() == "MQTT" ? ServerConnection::Type::TCP : ServerConnection::Type::SSL;
         if (!sslKeysLoaded && connectionType == ServerConnection::Type::SSL)
         {
@@ -776,7 +776,7 @@ void Server::rebuildListenerWhitelists()
                 // which is the safe side for an allow list.
                 logMessage(LogSubject::ServerEvents, LogPriority::Error,
                            std::string("Listener ") + listener.m_name.asString() +
-                               " has an invalid IP white list, so it admits no connection: " + e.what());
+                               " has an invalid IP white list, so it admits no connection: " + e.what() + ".");
             }
         }
     }
@@ -810,7 +810,7 @@ Server::~Server()
     catch (const Exception& e)
     {
         logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                   std::string("Server::stopServer() failed: ") + e.what());
+                   std::string("Server::stopServer() failed: ") + e.what() + ".");
     }
     // Join before member destruction: callbacks can refer to the subscription manager,
     // which would otherwise be destroyed before the journal member.
@@ -988,7 +988,7 @@ shared_ptr<ServerConnection> Server::createConnection(const ServerConnection::Ty
         logMessage(LogSubject::ServerConnections, LogPriority::Error,
                    [&exception]
                    {
-                       return exception.what();
+                       return std::string(exception.what()) + ".";
                    });
 
         // The socket is not closed here: createConnectionSocket() closes it when it fails, and
@@ -1503,7 +1503,7 @@ void Server::connectCompletionThread()
         }
         catch (const exception& e)
         {
-            logMessage(LogSubject::Connect, LogPriority::Error, format("Completing a CONNECT failed: {}", e.what()));
+            logMessage(LogSubject::Connect, LogPriority::Error, format("Completing a CONNECT failed: {}.", e.what()));
         }
     }
 }
@@ -2194,7 +2194,7 @@ void Server::accountsChanged()
     catch (const Exception& e)
     {
         logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                   std::string("Cannot reload topic permissions: ") + e.what());
+                   std::string("Cannot reload topic permissions: ") + e.what() + ".");
     }
     m_extensions.accountsChanged();
 }
@@ -2307,7 +2307,7 @@ void Server::watchSession(const SClientSession& clientSession, const bool rearmO
     }
     catch (const Exception& e)
     {
-        logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+        logMessage(LogSubject::SessionErrors, LogPriority::Error, std::string(e.what()) + ".");
     }
 }
 

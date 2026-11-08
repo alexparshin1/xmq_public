@@ -96,7 +96,7 @@ void Cluster::releaseSessions()
             }
             catch (const Exception& e)
             {
-                logMessage(LogPriority::Error, [&e] { return format("Cluster session task failed: {}", e.what()); });
+                logMessage(LogPriority::Error, [&e] { return format("Cluster session task failed: {}.", e.what()); });
             }
             lock.lock();
         }
@@ -143,7 +143,7 @@ void Cluster::releaseSessions()
             }
             catch (const Exception& e)
             {
-                logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't hand session {} over: {}", clientId, e.what()); });
+                logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't hand session {} over: {}.", clientId, e.what()); });
             }
             lock.lock();
         }
@@ -196,7 +196,7 @@ void Cluster::releaseSessionOwnership(const string& clientId)
     }
     catch (const Exception& e)
     {
-        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't release session ownership {}: {}", clientId, e.what()); });
+        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't release session ownership {}: {}.", clientId, e.what()); });
     }
 }
 
@@ -273,7 +273,7 @@ bool Cluster::claimSession(const string& clientId)
     }
     catch (const Exception& e)
     {
-        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't claim session {}: {}", clientId, e.what()); });
+        logMessage(LogPriority::Error, [&clientId, &e] { return format("Can't claim session {}: {}.", clientId, e.what()); });
         return false;
     }
 
@@ -355,7 +355,7 @@ void Cluster::joinCluster(const Host& clusterNodeHost, const bool encrypted)
         logMessage(LogPriority::Error, [this, clusterNodeHost]
                    {
                        stringstream str;
-                       str << "Node " << m_server->getNodeName() << " couldn't connect to node " << clusterNodeHost.hostname() << ":" << clusterNodeHost.port();
+                       str << "Node " << m_server->getNodeName() << " couldn't connect to node " << clusterNodeHost.hostname() << ":" << clusterNodeHost.port() << ".";
                        return str.str();
                    });
     }
@@ -590,7 +590,7 @@ void Cluster::keepLinks()
             }
             catch (const Exception& e)
             {
-                logMessage(LogPriority::Warning, [&member, &e] { return format("Can't link to node '{}': {}", member.m_name, e.what()); });
+                logMessage(LogPriority::Warning, [&member, &e] { return format("Can't link to node '{}': {}.", member.m_name, e.what()); });
             }
         }
     }
@@ -615,7 +615,7 @@ void Cluster::rejoin()
         }
         catch (const Exception& e)
         {
-            logMessage(LogPriority::Warning, [&e] { return format("Can't read the cluster members: {}", e.what()); });
+            logMessage(LogPriority::Warning, [&e] { return format("Can't read the cluster members: {}.", e.what()); });
         }
 
         bool anyOther = false;
@@ -631,7 +631,7 @@ void Cluster::rejoin()
                 joinCluster(Host(member.m_hostPort));
                 if (getConnectedNodeCount(member.m_name) > 0)
                 {
-                    logMessage(LogPriority::Info, [&member] { return format("Rejoined the cluster through node [{}]", member.m_name); });
+                    logMessage(LogPriority::Info, [&member] { return format("Rejoined the cluster through node [{}].", member.m_name); });
                     return;
                 }
             }
@@ -639,7 +639,7 @@ void Cluster::rejoin()
             {
                 logMessage(LogPriority::Warning, [&member, &e]
                            {
-                               return format("Can't link to cluster node [{}] at {}: {}", member.m_name, member.m_hostPort, e.what());
+                               return format("Can't link to cluster node [{}] at {}: {}.", member.m_name, member.m_hostPort, e.what());
                            });
             }
         }
@@ -759,7 +759,7 @@ Coordinator& Cluster::coordinatorForCluster()
             [this](const string& error)
             {
                 logMessage(LogPriority::Warning, [&error]
-                           { return "Cluster lease update failed; Redis connection discarded: " + error; });
+                           { return "Cluster lease update failed; Redis connection discarded: " + error + "."; });
             });
         m_coordinator->onAdoptSessions([this](vector<string> clientIds)
                                        {
@@ -850,7 +850,7 @@ void Cluster::registerConnectedNode(const SNode& node)
         logMessage(LogPriority::Error,
                    [&node, e]
                    {
-                       return format("Can't register connected node '{}': {}", node->getName(), e.what());
+                       return format("Can't register connected node '{}': {}.", node->getName(), e.what());
                    });
     }
 }
@@ -894,7 +894,7 @@ SNode Cluster::connectNode(const CServerNode& nodeSettings)
         // is cured by retrying, and neither should take the discovery of the other nodes with it.
         logMessage(LogPriority::Error, [&node, &e]
                    {
-                       return "Couldn't connect to node '" + node->getName() + "': " + e.what();
+                       return "Couldn't connect to node '" + node->getName() + "': " + e.what() + ".";
                    });
         return nullptr;
     }
@@ -982,7 +982,7 @@ void Cluster::mqttConnectAllNodes()
                        {
                            stringstream str;
                            str << "Couldn't connect to node '" << nodeSettings.m_node_name.asString()
-                               << "' at " << nodeSettings.m_host_port.asString() << ": " << e.what();
+                               << "' at " << nodeSettings.m_host_port.asString() << ": " << e.what() << ".";
                            return str.str();
                        });
         }
@@ -1097,7 +1097,7 @@ void Cluster::onAttachNodeRequest(const SPublishMessage& message)
 
     logMessage(LogPriority::Info, [&attachNodeRequest]
                {
-                   return format("Attached to cluster node [{}]", attachNodeRequest.m_this_node.m_node_name.asString().c_str());
+                   return format("Attached to cluster node [{}].", attachNodeRequest.m_this_node.m_node_name.asString().c_str());
                });
 
     m_thisNode->setState(ServerNodeState::ConnectedToCluster);
@@ -1143,7 +1143,7 @@ void Cluster::onAttachNodeResponse(const SPublishMessage& message)
 
     logMessage(LogPriority::Info, [&clusterSettings]
                {
-                   return format("Attached to cluster node [{}]", clusterSettings.m_this_node.m_node_name.asString().c_str());
+                   return format("Attached to cluster node [{}].", clusterSettings.m_this_node.m_node_name.asString().c_str());
                });
 }
 
@@ -1178,7 +1178,7 @@ void Cluster::onDisconnectClientRequest(const SPublishMessage& message, const st
     {
         logMessage(LogPriority::Debug, [&message]
                    {
-                       return format("Process disconnect {}", message->toString());
+                       return format("Process disconnect {}.", message->toString());
                    });
 
         m_server->closeSession(string(message->payload()));
@@ -1690,13 +1690,13 @@ void Cluster::processClusterMessage(const SPublishMessage& message, const string
         case Unknown:
             logMessage(LogPriority::Error, [&message]
                        {
-                           return format("Unknown cluster command: {}", message->toString());
+                           return format("Unknown cluster command: {}.", message->toString());
                        });
             break;
         case NodeDetached:
             logMessage(LogPriority::Debug, [&message]
                        {
-                           return format("Node detached: {}", message->toString());
+                           return format("Node detached: {}.", message->toString());
                        });
             break;
     }

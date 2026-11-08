@@ -56,7 +56,7 @@ void failReliableCommit(const SClientSession& session, const shared_ptr<ServerCo
     try { rethrow_exception(failure); }
     catch (const exception& e)
     {
-        session->server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+        session->server().logMessage(LogSubject::SessionErrors, LogPriority::Error, std::string(e.what()) + ".");
     }
     session->closeSession(connection);
 }
@@ -1330,7 +1330,7 @@ SendReceiveResult ClientSession::receiveMessages()
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error,
                             [reason]
                             {
-                                return reason;
+                                return std::string(reason) + ".";
                             });
         result.noMoreMessages = true;
     }
@@ -1461,7 +1461,7 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                                         {
                                             return publisher + ": publish to '" + topic +
                                                    "' refused (" + xmq::toString(rc) + ")" +
-                                                   (refusal.empty() ? string{} : ": " + refusal);
+                                                   (refusal.empty() ? string{} : ": " + refusal) + ".";
                                         });
                 }
                 ackPublishMessage(msg, rc);
@@ -1921,7 +1921,7 @@ void ClientSession::disconnect(ReasonCode reasonCode, const std::string& reasonS
     server().logMessage(LogSubject::Ack, logPriority,
                         [prefix = prefix(), reasonString]
                         {
-                            return prefix + reasonString;
+                            return prefix + reasonString + ".";
                         });
 
     try

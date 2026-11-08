@@ -146,7 +146,7 @@ void ServerNodes::updateNodeRecord(const SServerNode& node, const bool offline) 
     {
         logMessage(LogPriority::Error, [error = e.what()]
                    {
-                       return format("Can't store node record: {}", error);
+                       return format("Can't store node record: {}.", error);
                    });
     }
 }

@@ -316,7 +316,7 @@ void ExtensionHost::userDatabaseUri(std::string uri)
         if (loaded->m_table->reload(loaded->m_instance) != XMQ_OK)
         {
             const auto reason = takeLastError(*loaded);
-            m_logger.error(format("{}: the account database moved and it could not follow{}",
+            m_logger.error(format("{}: the account database moved and it could not follow{}.",
                                   loaded->m_name, reason.empty() ? "" : ": " + reason));
         }
     }
@@ -394,7 +394,7 @@ void ExtensionHost::hostWantEventAttributes(void* context, const char* names)
         // for a fact this broker does not publish look identical from inside the extension, and
         // only the log can tell the author which of the two happened.
         loaded->m_host->m_logger.warning(loaded->m_name + ": this broker publishes no event attribute named " +
-                                         unknown.join(", "));
+                                         unknown.join(", ") + ".");
     }
 
     // Or-ed, never assigned: two extensions may want different things, and the second must not
@@ -469,7 +469,7 @@ int64_t ExtensionHost::hostTapMessages(void* context, const char* const* filters
     {
         quoted.push_back("'" + filter + "'");
     }
-    loaded->m_host->m_logger.info(format("{}: tapping messages matching {}{}", loaded->m_name,
+    loaded->m_host->m_logger.info(format("{}: tapping messages matching {}{}.", loaded->m_name,
                                          std::string(quoted.join(", ")),
                                          maxPayload == 0 ? std::string{}
                                                          : format(" up to {} bytes", maxPayload)));
@@ -641,7 +641,7 @@ int64_t ExtensionHost::hostRequestLogs(void* context, const uint32_t minLevel)
     loaded->m_host->m_logTapping.store(true, std::memory_order_relaxed);
     loaded->m_host->startLogTap(*loaded);
 
-    loaded->m_host->m_logger.info(format("{}: watching the log at level {} and above",
+    loaded->m_host->m_logger.info(format("{}: watching the log at level {} and above.",
                                          loaded->m_name, minLevel));
     return 0;
 }
@@ -774,7 +774,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     loaded->m_handle = openLibrary(configured.m_library);
     if (loaded->m_handle == nullptr)
     {
-        m_logger.error(format("{}: cannot load {}: {}", configured.m_name,
+        m_logger.error(format("{}: cannot load {}: {}.", configured.m_name,
                               configured.m_library.string(), libraryError()));
         return nullptr;
     }
@@ -783,7 +783,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         findSymbol(loaded->m_handle, XMQ_EXTENSION_DESCRIBE_SYMBOL));
     if (describe == nullptr)
     {
-        m_logger.error(format("{}: {} exports no {}, so it is not an XMQ extension",
+        m_logger.error(format("{}: {} exports no {}, so it is not an XMQ extension.",
                               configured.m_name, configured.m_library.string(),
                               XMQ_EXTENSION_DESCRIBE_SYMBOL));
         closeLibrary(loaded->m_handle);
@@ -793,7 +793,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     loaded->m_table = describe(XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR);
     if (loaded->m_table == nullptr)
     {
-        m_logger.error(format("{}: declined ABI {}.{}, so it was built for another broker",
+        m_logger.error(format("{}: declined ABI {}.{}, so it was built for another broker.",
                               configured.m_name, XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR));
         closeLibrary(loaded->m_handle);
         return nullptr;
@@ -805,7 +805,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     if (loaded->m_table->struct_size != sizeof(xmq_extension))
     {
         m_logger.error(format("{}: describes itself with {} bytes where this broker knows {} - rebuild "
-                              "it against this broker's xmq_extension.h",
+                              "it against this broker's xmq_extension.h.",
                               configured.m_name, loaded->m_table->struct_size, sizeof(xmq_extension)));
         closeLibrary(loaded->m_handle);
         return nullptr;
@@ -813,7 +813,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
 
     if (loaded->m_table->create == nullptr || loaded->m_table->destroy == nullptr)
     {
-        m_logger.error(configured.m_name + ": has no create/destroy pair");
+        m_logger.error(configured.m_name + ": has no create/destroy pair.");
         closeLibrary(loaded->m_handle);
         return nullptr;
     }
@@ -848,7 +848,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)
     {
-        m_logger.error(configured.m_name + ": failed to create an instance");
+        m_logger.error(configured.m_name + ": failed to create an instance.");
         closeLibrary(loaded->m_handle);
         return nullptr;
     }
@@ -905,7 +905,7 @@ void ExtensionHost::createConfigurationFragments(const filesystem::path& configu
             // Reported and stepped over, never fatal: the extension it would have configured is
             // simply not configured, and a broker that refuses to start over a file it could not
             // write is worse than a broker running with one extension fewer.
-            logger.error(format("{}: {}, so the extension it configures is not loaded",
+            logger.error(format("{}: {}, so the extension it configures is not loaded.",
                                 fragment.string(), errorCode.message()));
             continue;
         }
@@ -915,7 +915,7 @@ void ExtensionHost::createConfigurationFragments(const filesystem::path& configu
                                 filesystem::perms::owner_read | filesystem::perms::owner_write |
                                 filesystem::perms::group_read,
                                 errorCode);
-        logger.info(format("{} was not found, so a starting one was created (copied from {})",
+        logger.info(format("{} was not found, so a starting one was created (copied from {}).",
                            fragment.string(), entry.path().string()));
     }
 }
@@ -947,7 +947,7 @@ void ExtensionHost::readConfigurationFile(const filesystem::path&        path, c
             }
             if (configured.m_name.empty() || configured.m_library.empty())
             {
-                logger.error(path.string() + ": an entry has no name or no library, skipping it");
+                logger.error(path.string() + ": an entry has no name or no library, skipping it.");
                 continue;
             }
 
@@ -981,7 +981,7 @@ void ExtensionHost::readConfigurationFile(const filesystem::path&        path, c
             if (const auto seen = seenIn.find(configured.m_name);
                 seen != seenIn.end())
             {
-                logger.error(format("{}: '{}' is already configured in {}, ignoring this one",
+                logger.error(format("{}: '{}' is already configured in {}, ignoring this one.",
                                     path.string(), configured.m_name, seen->second.string()));
                 continue;
             }
@@ -996,7 +996,7 @@ void ExtensionHost::readConfigurationFile(const filesystem::path&        path, c
         // Reported and ignored: a broker that will not start because an extension list is malformed
         // is a broker held hostage by an optional feature. One bad file also costs only itself -
         // the others in the directory are still read.
-        logger.error(format("{}: {}, ignored", path.string(), e.what()));
+        logger.error(format("{}: {}, ignored.", path.string(), e.what()));
     }
 }
 
@@ -1092,7 +1092,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
         {
             report.m_notes.push_back(configured.m_name +
                                      ": settings changed, but it does not take them while running - "
-                                     "restart the broker to apply them");
+                                     "restart the broker to apply them.");
             continue;
         }
 
@@ -1115,7 +1115,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
             report += writeSettings(configured.m_name, previous);
             continue;
         }
-        report.m_notes.push_back(configured.m_name + ": settings applied");
+        report.m_notes.push_back(configured.m_name + ": settings applied.");
     }
 
     // Switched on: an entry that names an extension nothing has loaded, or one that was switched
@@ -1295,7 +1295,7 @@ void ExtensionHost::start(const vector<Configured>& extensions)
 
         if (loaded->m_table->start != nullptr && loaded->m_table->start(loaded->m_instance) != XMQ_OK)
         {
-            m_logger.error(loaded->m_name + ": failed to start, unloading it");
+            m_logger.error(loaded->m_name + ": failed to start, unloading it.");
             unload(*loaded);
             if (configured.m_required)
             {
@@ -1305,7 +1305,7 @@ void ExtensionHost::start(const vector<Configured>& extensions)
         }
         loaded->m_started = true;
 
-        m_logger.info(format("{} {} loaded from {}", loaded->m_name,
+        m_logger.info(format("{} {} loaded from {}.", loaded->m_name,
                              loaded->m_table->version == nullptr ? "" : loaded->m_table->version,
                              loaded->m_library.string()));
 
@@ -1410,13 +1410,13 @@ void ExtensionHost::stop()
 
     if (const auto refused = m_refusedAuthentications.load(std::memory_order_relaxed); refused > 0)
     {
-        m_logger.warning(format("{} connections were refused because no authentication thread was free",
+        m_logger.warning(format("{} connections were refused because no authentication thread was free.",
                                 refused));
     }
 
     if (const auto dropped = m_dropped.load(std::memory_order_relaxed); dropped > 0)
     {
-        m_logger.warning(format("{} events were dropped: an observer could not keep up", dropped));
+        m_logger.warning(format("{} events were dropped: an observer could not keep up.", dropped));
     }
 
     // Emptied first: the threads above have been joined by now, but the snapshot is what any
@@ -1482,7 +1482,7 @@ void ExtensionHost::publishActiveUnlocked()
 
     // Named, not just implied: "the extension is loaded" and "the broker copies bodies for it"
     // are different facts, and only this one decides whether the publish path pays for a tap.
-    m_logger.info(format("capabilities: observer={}, authenticator={}, authorizer={}, message tap={}, log tap={}",
+    m_logger.info(format("capabilities: observer={}, authenticator={}, authorizer={}, message tap={}, log tap={}.",
                          watching, authenticating, authorizing, tapping, logTapping));
 
     // Kept rather than swapped out: a reader may still be walking the previous one, and it holds a
@@ -1506,7 +1506,7 @@ bool ExtensionHost::quiesce(Loaded& loaded, const Logger& logger)
         {
             logger.error(loaded.m_name + ": " + to_string(loaded.m_inFlight.load()) +
                          " call(s) are still inside it after " + to_string(patience.count()) +
-                         "s; leaving it running rather than pulling the ground from under them");
+                         "s; leaving it running rather than pulling the ground from under them.");
             return false;
         }
         this_thread::sleep_for(step);
@@ -1610,7 +1610,7 @@ namespace {
 /// ignore it - and one did, which is how a refused write looked like a silent success.
 ExtensionHost::Report refusedWrite(const Logger& logger, const string& name, const string& reason)
 {
-    const auto refusal = name + ": " + reason;
+    const auto refusal = name + ": " + reason + ".";
     logger.error(refusal);
     return ExtensionHost::Report::problem(refusal);
 }
@@ -1684,7 +1684,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
         return refusedWrite(m_logger, name, "could not write " + source.string() + ": " + e.what());
     }
 
-    const auto written = name + (enabled ? ": enabled in " : ": disabled in ") + source.string();
+    const auto written = name + (enabled ? ": enabled in " : ": disabled in ") + source.string() + ".";
     m_logger.info(written);
     return Report::note(written);
 }
@@ -1874,7 +1874,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         return refusedWrite(m_logger, name, "could not write " + source.string() + ": " + e.what());
     }
 
-    const auto written = name + ": settings written to " + source.string();
+    const auto written = name + ": settings written to " + source.string() + ".";
     m_logger.info(written);
     return Report::note(written);
 }
@@ -1895,7 +1895,7 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
 
         if (found != nullptr && found->m_started)
         {
-            return Report::note(configured.m_name + ": already running");
+            return Report::note(configured.m_name + ": already running.");
         }
 
         if (found == nullptr)
@@ -1913,9 +1913,9 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
             {
                 if (const auto reason = takeLastError(*found); !reason.empty())
                 {
-                    return Report::problem(configured.m_name + ": could not be loaded.\n\n" + reason);
+                    return Report::problem(configured.m_name + ": could not be loaded.\n\n" + reason + ".");
                 }
-                return Report::problem(configured.m_name + ": could not be loaded, see the log");
+                return Report::problem(configured.m_name + ": could not be loaded, see the log.");
             }
             m_loaded.push_back(std::move(loaded));
             found = m_loaded.back().get();
@@ -1932,7 +1932,7 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
             found->m_instance = found->m_table->create(&found->m_hostTable);
             if (found->m_instance == nullptr)
             {
-                return Report::problem(configured.m_name + ": could not be created again");
+                return Report::problem(configured.m_name + ": could not be created again.");
             }
         }
 
@@ -1944,9 +1944,9 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
             found->m_instance = nullptr;
             if (const auto reason = takeLastError(*found); !reason.empty())
             {
-                return Report::problem(configured.m_name + ": refused to start.\n\n" + reason);
+                return Report::problem(configured.m_name + ": refused to start.\n\n" + reason + ".");
             }
-            return Report::problem(configured.m_name + ": refused to start, see the log");
+            return Report::problem(configured.m_name + ": refused to start, see the log.");
         }
 
         // Only now, and never before start(): an extension in the snapshot is one the broker may
@@ -1959,8 +1959,8 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
     // started. Started here rather than in start(), which is for the initial load.
     startWorkerThreads();
 
-    m_logger.info(configured.m_name + ": started");
-    return Report::note(configured.m_name + ": started");
+    m_logger.info(configured.m_name + ": started.");
+    return Report::note(configured.m_name + ": started.");
 }
 
 ExtensionHost::Report ExtensionHost::disable(const string& name)
@@ -1979,14 +1979,14 @@ ExtensionHost::Report ExtensionHost::disable(const string& name)
 
         if (found == nullptr || !found->m_started)
         {
-            return Report::note(name + ": not running");
+            return Report::note(name + ": not running.");
         }
         if (found->m_required)
         {
             // The broker does not serve MQTT without it, so this would be a way to stop serving
             // that does not say it is one.
             return Report::problem(name +
-                                   ": required by the configuration - change that and restart if it should go");
+                                   ": required by the configuration - change that and restart if it should go.");
         }
 
         // Out of the snapshot first: nothing new reaches it from here on, which is what makes the
@@ -2001,18 +2001,18 @@ ExtensionHost::Report ExtensionHost::disable(const string& name)
         // recoverable half of the choice.
         // Switched off as asked, but quiescing timed out - abnormal, and the operator has to
         // be told rather than shown a plain success.
-        return Report::problem(name + ": switched off, but calls are still inside it - not stopped");
+        return Report::problem(name + ": switched off, but calls are still inside it - not stopped.");
     }
 
     if (found->m_table->stop != nullptr && found->m_table->stop(found->m_instance) != XMQ_OK)
     {
-        m_logger.warning(name + ": stop() reported a failure");
+        m_logger.warning(name + ": stop() reported a failure.");
     }
     found->m_table->destroy(found->m_instance);
     found->m_instance = nullptr;
 
-    m_logger.info(name + ": stopped");
-    return Report::note(name + ": stopped");
+    m_logger.info(name + ": stopped.");
+    return Report::note(name + ": stopped.");
 }
 
 void ExtensionHost::unload(Loaded& loaded)
@@ -2028,7 +2028,7 @@ void ExtensionHost::unload(Loaded& loaded)
                               loaded.m_messagesDropped.load(std::memory_order_relaxed);
         messages > 0)
     {
-        m_logger.info(format("{}: {} messages delivered, {} dropped",
+        m_logger.info(format("{}: {} messages delivered, {} dropped.",
                              loaded.m_name,
                              loaded.m_messagesDelivered.load(std::memory_order_relaxed),
                              loaded.m_messagesDropped.load(std::memory_order_relaxed)));
@@ -2037,7 +2037,7 @@ void ExtensionHost::unload(Loaded& loaded)
                              loaded.m_logsDropped.load(std::memory_order_relaxed);
         records > 0)
     {
-        m_logger.info(format("{}: {} log records delivered, {} dropped", loaded.m_name,
+        m_logger.info(format("{}: {} log records delivered, {} dropped.", loaded.m_name,
                              loaded.m_logsDelivered.load(std::memory_order_relaxed),
                              loaded.m_logsDropped.load(std::memory_order_relaxed)));
     }
@@ -2220,9 +2220,9 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
                 // invented label, and two clients can choose the same one. The username is what
                 // the operator is looking for, and the client sent it.
                 m_logger.info(request.m_username.empty()
-                                  ? format("{} refused {} (no username)", loaded->m_name,
+                                  ? format("{} refused {} (no username).", loaded->m_name,
                                            request.m_clientId)
-                                  : format("{} refused user '{}' (client {})", loaded->m_name,
+                                  : format("{} refused user '{}' (client {}).", loaded->m_name,
                                            request.m_username, request.m_clientId));
                 return AuthDecision::Deny;
             case XMQ_AUTH_NOT_HANDLED:
@@ -2233,7 +2233,7 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
                 // it has said "I cannot tell", and treating that as an abstention would let an
                 // outage admit whoever the fallback happens to know.
                 loaded->m_storeErrors.fetch_add(1, std::memory_order_relaxed);
-                m_logger.error(format("{} could not reach its authentication store; refusing {}",
+                m_logger.error(format("{} could not reach its authentication store; refusing {}.",
                                       loaded->m_name, request.m_clientId));
                 return AuthDecision::SubsystemError;
         }
@@ -2275,7 +2275,7 @@ std::shared_ptr<AclGroup> ExtensionHost::resolveGroup(const AuthRequest& request
             // Not cut to fit: two long names that share their beginning would become one group,
             // and each would get the other's rights.
             m_logger.error(format("{} named a {}-byte group for {}, longer than the {} bytes a group "
-                                  "name may have; refusing the connection",
+                                  "name may have; refusing the connection.",
                                   loaded->m_name, length, request.m_clientId, name.size() - 1));
             refused = true;
             return {};
@@ -2313,7 +2313,7 @@ void ExtensionHost::invalidateAcl()
     {
         group->forget();
     }
-    m_logger.info("cached permissions dropped; they will be asked for again");
+    m_logger.info("cached permissions dropped; they will be asked for again.");
 }
 
 AclDecision ExtensionHost::askAuthorizers(const string&        group, const string_view topic,
@@ -2350,7 +2350,7 @@ AclDecision ExtensionHost::askAuthorizers(const string&        group, const stri
                 // rate-limited would be better if this ever needs to be visible by default.
                 m_logger.debug([&loaded]
                 {
-                    return loaded->m_name + " could not reach its permission store";
+                    return loaded->m_name + " could not reach its permission store.";
                 });
                 return AclDecision::SubsystemError;
         }

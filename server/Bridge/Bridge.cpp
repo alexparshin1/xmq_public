@@ -141,7 +141,7 @@ void Bridge::stop()
                 m_server->logMessage(LogSubject::ServerConnections, LogPriority::Debug,
                                      [this, &exception]
                                      {
-                                         return format("Bridge to {} could not unsubscribe on stop: {}",
+                                         return format("Bridge to {} could not unsubscribe on stop: {}.",
                                                        m_remoteNodeName, exception.what());
                                      });
             }
@@ -287,7 +287,7 @@ bool Bridge::connectAndSubscribe()
         m_server->logMessage(LogSubject::ServerConnections, LogPriority::Debug,
                              [this, &exception]
                              {
-                                 return format("Bridge to {} not connected yet: {}", m_remoteNodeName, exception.what());
+                                 return format("Bridge to {} not connected yet: {}.", m_remoteNodeName, exception.what());
                              });
         return false;
     }
@@ -434,7 +434,7 @@ void Bridge::forwardToRemote(const SPublishMessage& message)
         m_server->logMessage(LogSubject::ServerConnections, LogPriority::Error,
                              [this, &exception]
                              {
-                                 return format("Bridge to {} could not forward a message: {}",
+                                 return format("Bridge to {} could not forward a message: {}.",
                                                m_remoteNodeName, exception.what());
                              });
     }

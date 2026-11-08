@@ -117,7 +117,7 @@ SRedisConnect RedisStorage::makeConnection() const
             if (server != nullptr)
             {
                 server->logMessage(LogSubject::SessionErrors, LogPriority::Error,
-                                   format("Asynchronous session write failed: {}", exception.what()));
+                                   format("Asynchronous session write failed: {}.", exception.what()));
             }
         });
     redisConnect->connect(m_redisUrl);

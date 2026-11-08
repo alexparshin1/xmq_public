@@ -139,7 +139,7 @@ std::filesystem::path ServerController::rotateLog()
     if (const Logger logger(*m_logEngine, "[Log] ");
         !archived.empty())
     {
-        logger.info("Log rotated, yesterday's is " + String(archived.string()));
+        logger.info("Log rotated, yesterday's is " + String(archived.string()) + ".");
     }
     return archived;
 }
@@ -198,7 +198,7 @@ void ServerController::startService()
         !startServing(reason))
     {
         const Logger logger(*m_logEngine, "[Startup] ");
-        logger.error("MQTT server did not start: " + reason);
+        logger.error("MQTT server did not start: " + reason + ".");
         logger.info("The configuration interface is running - correct the configuration there and start the server.");
     }
 }
@@ -223,7 +223,7 @@ shared_ptr<SSLKeys> ServerController::webServiceKeys(const Logger& logger) const
             SelfSignedCertificate::create(certificateFile, privateKeyFile,
                                           m_settings->nodeHostName(), description))
         {
-            logger.info("Created a " + description);
+            logger.info("Created a " + description + ".");
         }
 
         // Logged every start, not only when it was just created: a self-signed certificate is
@@ -232,7 +232,7 @@ shared_ptr<SSLKeys> ServerController::webServiceKeys(const Logger& logger) const
         if (const auto description = SelfSignedCertificate::describe(certificateFile);
             !description.empty())
         {
-            logger.info("Web GUI certificate: " + description);
+            logger.info("Web GUI certificate: " + description + ".");
         }
 
         return make_shared<SSLKeys>(privateKeyFile, certificateFile);
@@ -242,7 +242,7 @@ shared_ptr<SSLKeys> ServerController::webServiceKeys(const Logger& logger) const
         // Served without encryption rather than not served at all. The interface is how a broken
         // installation is repaired - including the file permissions that usually cause this - and
         // an interface nobody can reach cannot repair anything. It is not quiet about it.
-        logger.error("The configuration interface could not be encrypted: " + string(exception.what()));
+        logger.error("The configuration interface could not be encrypted: " + string(exception.what()) + ".");
         logger.error("Falling back to plain HTTP. Correct the certificate at " +
                      certificateFile.string() + " and restart to serve HTTPS again.");
         return {};
@@ -298,7 +298,7 @@ void ServerController::startControlService()
     }
     catch (const std::exception& exception)
     {
-        logger.error("Configuration interface did not start: " + string(exception.what()));
+        logger.error("Configuration interface did not start: " + string(exception.what()) + ".");
     }
 }
 
@@ -365,7 +365,7 @@ bool ServerController::startServing(string& reason, const std::optional<bool> cl
         if (const auto error = m_settings->keepLastGoodConfiguration(); !error.empty())
         {
             m_xmqServer->logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                                    std::string("Cannot keep the last good configuration: ") + error.c_str());
+                                    std::string("Cannot keep the last good configuration: ") + error.c_str() + ".");
         }
         return true;
     }
@@ -456,7 +456,7 @@ bool ServerController::moveControlService(const uint16_t port, string& reason)
     {
         reason = exception.what();
         const Logger logger(*m_logEngine, "[Service] ");
-        logger.error(format("Web GUI could not move to port {}: {}", port, reason));
+        logger.error(format("Web GUI could not move to port {}: {}.", port, reason));
         return false;
     }
 }
@@ -477,13 +477,13 @@ bool ServerController::updateControlServiceKeys(const filesystem::path& certific
 
         // Logged with its fingerprint for the same reason it is logged at startup: it is what an
         // administrator checks the browser's warning against.
-        logger.info("Web GUI certificate replaced: " + SelfSignedCertificate::describe(certificateFile));
+        logger.info("Web GUI certificate replaced: " + SelfSignedCertificate::describe(certificateFile) + ".");
         return true;
     }
     catch (const Exception& exception)
     {
         reason = exception.what();
-        logger.error("Web GUI kept its previous certificate: " + reason);
+        logger.error("Web GUI kept its previous certificate: " + reason + ".");
         return false;
     }
 }
@@ -522,7 +522,7 @@ bool ServerController::setControlServiceEncrypted(const bool encrypted, string& 
     catch (const Exception& exception)
     {
         reason = exception.what();
-        logger.error("Web GUI kept its previous scheme: " + reason);
+        logger.error("Web GUI kept its previous scheme: " + reason + ".");
         return false;
     }
 }

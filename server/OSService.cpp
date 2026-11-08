@@ -100,7 +100,7 @@ void OSService::processNodeActions(IServerController& controller)
             if (Server* server = controller.getServer())
             {
                 server->logMessage(LogSubject::ServerEvents, LogPriority::Error,
-                                   std::string("Selected node action failed: ") + error.what());
+                                   std::string("Selected node action failed: ") + error.what() + ".");
             }
             else
             {
@@ -198,7 +198,7 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
     {
         Logger logger(*OSService::m_controlledServer->getLogEngine());
         // Terminating service here, and waiting for termination to complete
-        logger.info("Received service stop command");
+        logger.info("Received service stop command.");
         OSService::m_controlledServer->stopService();
 
         g_ServiceStatus.dwControlsAccepted = 0;
@@ -296,7 +296,7 @@ void OSService::runService()
         return;
     }
 
-    m_logger.notice(serviceName + " starting");
+    m_logger.notice(serviceName + " starting.");
 
 #ifdef _WIN32
     SERVICE_TABLE_ENTRY ServiceTable[] =
@@ -318,7 +318,7 @@ void OSService::runService()
             0, nullptr);
         if (lpMsgBuf)
         {
-            m_logger.error(string(serviceName) + " returned error: " + string(lpMsgBuf));
+            m_logger.error(string(serviceName) + " returned error: " + string(lpMsgBuf) + ".");
         }
     }
 #endif
@@ -328,7 +328,7 @@ void OSService::runService()
 
 int OSService::execute()
 {
-    m_logger.info("Starting");
+    m_logger.info("Starting.");
     if (m_runAsService)
     {
 
@@ -450,7 +450,7 @@ void OSService::installService()
     }
     catch (const Exception& e)
     {
-        m_logger.error(e.what());
+        m_logger.error(std::string(e.what()) + ".");
     }
 
     CloseServiceHandle(schService);
@@ -503,7 +503,7 @@ void OSService::uninstallService()
     }
     catch (const Exception& e)
     {
-        m_logger.error(e.what());
+        m_logger.error(std::string(e.what()) + ".");
     }
 
     CloseServiceHandle(schService);

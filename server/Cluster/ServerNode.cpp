@@ -109,7 +109,7 @@ ReasonCode ServerNode::connect()
         if (rc != ReasonCode::Success)
         {
             m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
-                                 format("Link {} of {} to node '{}' at {}: {}", link, m_links.size(),
+                                 format("Link {} of {} to node '{}' at {}: {}.", link, m_links.size(),
                                         string(m_nodeSettings.m_node_name.asString().c_str()), string(destinationHost->toString().c_str()), toString(rc)));
             return rc;
         }
@@ -271,7 +271,7 @@ void ServerNode::subscribe(const std::string& topic)
     catch (const Exception& e)
     {
         m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
-                             format("Can't subscribe to '{}' on node '{}': {}", topic, getName(), e.what()));
+                             format("Can't subscribe to '{}' on node '{}': {}.", topic, getName(), e.what()));
     }
 }
 
@@ -287,7 +287,7 @@ void ServerNode::unsubscribe(const std::string& topic)
     catch (const Exception& e)
     {
         m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
-                             format("Can't unsubscribe from '{}' on node '{}': {}", topic, getName(), e.what()));
+                             format("Can't unsubscribe from '{}' on node '{}': {}.", topic, getName(), e.what()));
     }
 }
 
@@ -315,7 +315,7 @@ MessageId ServerNode::publish(const std::shared_ptr<PublishMessage>& message)
     catch (const Exception& e)
     {
         m_server->logMessage(LogSubject::ClusterConnections, LogPriority::Warning,
-                             format("Can't send to node '{}': {}", getName(), e.what()));
+                             format("Can't send to node '{}': {}.", getName(), e.what()));
     }
     return 0;
 }

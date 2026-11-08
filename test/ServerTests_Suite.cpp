@@ -314,7 +314,7 @@ void ServerTests_Suite::printTitle(const string_view title)
 
     COUT(titleStream.str());
     // const Logger logger(*logEngine());
-    // logger.info(format("Server suite unit test: {}", title));
+    // logger.info(format("Server suite unit test: {}.", title));
 }
 
 SServer ServerTests_Suite::createServer(const uint16_t listenerPortTcp, const uint16_t listenerPortSsl, const uint16_t servicePortTcp,

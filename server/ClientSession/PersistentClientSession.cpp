@@ -271,7 +271,7 @@ PersistentClientSession::initSession(const string&                              
             }
             catch (const RedisConnectException& e)
             {
-                server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+                server().logMessage(LogSubject::SessionErrors, LogPriority::Error, std::string(e.what()) + ".");
             }
         }
         return SessionInitType::New;
@@ -305,7 +305,7 @@ PersistentClientSession::initSession(const string&                              
     catch (const RedisConnectException& e)
     {
         if (store) throw;
-        server().logMessage(LogSubject::SessionErrors, LogPriority::Error, e.what());
+        server().logMessage(LogSubject::SessionErrors, LogPriority::Error, std::string(e.what()) + ".");
     }
 
     const auto self = dynamic_pointer_cast<ClientSession>(shared_from_this());
@@ -525,7 +525,7 @@ bool PersistentClientSession::initSession(const string& clientId, const bool cle
         if (server().reliableMessageStore()) throw;
         server().logMessage(LogSubject::SessionErrors, LogPriority::Error, [message = exception.what()]
                             {
-                                return format("PersistentClientSession::getPersistentData: {}", message);
+                                return format("PersistentClientSession::getPersistentData: {}.", message);
                             });
     }
 

@@ -78,7 +78,7 @@ void Storage::logError(const std::string& message) const
 {
     m_server->logMessage(LogSubject::StorageEvents, LogPriority::Error, [&message]
                          {
-                             return message;
+                             return message + ".";
                          });
 }
 

@@ -364,7 +364,7 @@ shared_ptr<Subscription> SubscriptionManager::subscribe(const Topic*            
         }
         else
         {
-            m_logger.error("Wildcard subscription can't start from '$', unless it's $SYS or $share");
+            m_logger.error("Wildcard subscription can't start from '$', unless it's $SYS or $share.");
         }
     }
     else

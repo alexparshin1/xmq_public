@@ -136,7 +136,7 @@ shared_ptr<Subscription> Subscriptions::add(const Topic*                        
     }
     catch (const Exception& e)
     {
-        m_server->logMessage(LogSubject::Subscribe, LogPriority::Error, e.what());
+        m_server->logMessage(LogSubject::Subscribe, LogPriority::Error, std::string(e.what()) + ".");
     }
     return nullptr;
 }
