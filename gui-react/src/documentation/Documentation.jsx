@@ -7,6 +7,7 @@ import TestingDocumentation from "./TestingDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
 import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
 import DataIntegrationDocumentation from "./DataIntegrationDocumentation";
+import PrometheusDocumentation from "./PrometheusDocumentation";
 import ClusterDocumentation from "./ClusterDocumentation";
 import LoadBalancerDocumentation from "./LoadBalancerDocumentation";
 import SizingDocumentation from "./SizingDocumentation";
@@ -20,6 +21,7 @@ const screens = {
     permissions: PermissionsDocumentation,
     "mosquitto-import": MosquittoImportDocumentation,
     "data-integration": DataIntegrationDocumentation,
+    prometheus: PrometheusDocumentation,
     cluster: ClusterDocumentation,
     sizing: SizingDocumentation,
     "load-balancer": LoadBalancerDocumentation
