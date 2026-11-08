@@ -9,8 +9,8 @@ export default function DataIntegrationDocumentation() {
             <p>
                 The <code>webhook</code> extension posts what the broker sees to an HTTP(S) endpoint.
                 It has two sources - the MQTT messages the broker accepts, and the broker's own log
-                - and one destination with a URL, an optional body template, filters and retries.
-                Every request carries an HMAC-SHA256 signature when a secret is configured.
+                - and one or more destinations, each with its own URL, body template, filters and
+                retries. Every request carries an HMAC-SHA256 signature when a secret is configured.
             </p>
 
             <p>
@@ -27,7 +27,8 @@ export default function DataIntegrationDocumentation() {
                 what the extension declares: a URL is a URL, a number is a number, and a value that
                 does not have the declared format is refused before anything is written. The same
                 checks run in the broker, so a value written by a script is refused for the same
-                reason.
+                reason. The <code>destinations</code> array is the exception: it is one JSON
+                document inside one setting, and is described below.
             </p>
 
             <h4 id="data-integration-enable">Enabling it</h4>
@@ -88,46 +89,45 @@ export default function DataIntegrationDocumentation() {
             </p>
 
             <p>
-                The <code>sources</code> setting chooses messages, log records, or both; to send
-                neither, disable the extension. A body carries <code>"source"</code> when the
-                template names it, and the default body tells the two apart by
-                <code>"level"</code>. The two taps have separate queues and separate
-                threads, so a receiver that cannot keep up with log records does not delay
-                messages, and the other way round.
+                Both sources are independent and share one endpoint; every body says which it is
+                with <code>"source"</code>. The two taps have separate queues and separate threads,
+                so a receiver that cannot keep up with log records does not delay messages, and the
+                other way round.
             </p>
 
             <h4 id="data-integration-payload">What is sent</h4>
 
-            <p>A message looks like this:</p>
-
             <pre className="userManualCode">{`{
+  "id": "1762790400123-7",
+  "source": "message",
+  "version": 1,
+  "timestamp": "2026-11-03T19:45:00Z",
   "topic": "sensors/water/1",
-  "message": "aGVsbG8=",
-  "level": "message"
+  "qos": 1,
+  "retain": false,
+  "client_id": "device-1",
+  "username": "user7",
+  "payload_base64": "aGVsbG8="
 }`}</pre>
 
             <p>
-                The payload is base64 because MQTT bodies are binary and JSON strings are not. A
-                message has no level of its own, so <code>level</code> says
-                <code>message</code>, which is also how a receiver tells a message from a log
-                record. <code>X-XMQ-Signature: sha256=&lt;hex&gt;</code> is the HMAC-SHA256 of the
-                exact request body, keyed with <code>secret</code>. A receiver should compare it
-                in constant time and reject a request without it when one is configured.
+                The payload is base64 because MQTT bodies are binary and JSON strings are not.
+                <code>X-XMQ-Signature: sha256=&lt;hex&gt;</code> is the HMAC-SHA256 of the exact
+                request body, keyed with <code>secret</code>. A receiver should compare it in
+                constant time and reject a request without it when one is configured.
             </p>
 
             <p>A log record looks like this:</p>
 
             <pre className="userManualCode">{`{
-  "topic": "",
-  "message": "test-client: refused by an extension",
-  "level": "error"
+  "id": "1762790400123-8",
+  "source": "log",
+  "version": 1,
+  "timestamp": "2026-11-03T19:45:01Z",
+  "level": "error",
+  "subject": "server_connections",
+  "message": "test-client: refused by an extension"
 }`}</pre>
-
-            <p>
-                These three fields are the default <code>template</code>. A template of your own
-                replaces them and can name any of the values listed under
-                <a href="#data-integration-template">Body template and headers</a>.
-            </p>
 
             <p>
                 <code>log_subjects</code> is a comma-separated list of the broker's log categories
@@ -158,29 +158,21 @@ export default function DataIntegrationDocumentation() {
                 </thead>
                 <tbody>
                 <tr>
+                    <td><code>destinations</code></td>
+                    <td>string</td>
+                    <td>empty</td>
+                    <td>JSON array</td>
+                    <td>Several endpoints, each with its own settings; replaces every setting
+                        below except the two <code>send_*</code> switches only through its own
+                        <code>sources</code> field. See the next section.</td>
+                </tr>
+                <tr>
                     <td><code>url</code></td>
                     <td>string</td>
                     <td>empty</td>
                     <td><code>https?://\S+</code></td>
-                    <td>Where the bodies are posted. Required: an empty URL means the connector
-                        has nothing to do.</td>
-                </tr>
-                <tr>
-                    <td><code>template</code></td>
-                    <td>string</td>
-                    <td>empty</td>
-                    <td>any</td>
-                    <td>Body template; an empty value keeps the default shown under
-                        <a href="#data-integration-template">Body template and headers</a>. Names
-                        in <code>{"{{...}}"}</code> are replaced.</td>
-                </tr>
-                <tr>
-                    <td><code>headers</code></td>
-                    <td>list of strings</td>
-                    <td>empty</td>
-                    <td>each item is <code>Name: value</code></td>
-                    <td>Extra request headers, for example an authorization token. Edited as a
-                        list, stored as a JSON array.</td>
+                    <td>Where the bodies are posted. Required when <code>destinations</code> is
+                        empty; an empty URL means the connector has nothing to do.</td>
                 </tr>
                 <tr>
                     <td><code>secret</code></td>
@@ -242,12 +234,18 @@ export default function DataIntegrationDocumentation() {
                         machine and for tests, not for a production endpoint.</td>
                 </tr>
                 <tr>
-                    <td><code>sources</code></td>
-                    <td>choice</td>
-                    <td><code>Send messages</code></td>
-                    <td>Send log / Send messages / Send log and messages</td>
-                    <td>What is posted: the broker's log, the messages it accepts, or both. To
-                        send neither, disable the extension instead.</td>
+                    <td><code>send_messages</code></td>
+                    <td>boolean</td>
+                    <td><code>true</code></td>
+                    <td><code>true</code> / <code>false</code></td>
+                    <td>Post the messages the broker accepts.</td>
+                </tr>
+                <tr>
+                    <td><code>send_log</code></td>
+                    <td>boolean</td>
+                    <td><code>false</code></td>
+                    <td><code>true</code> / <code>false</code></td>
+                    <td>Post the broker's log records as well.</td>
                 </tr>
                 <tr>
                     <td><code>log_min_level</code></td>
@@ -273,24 +271,133 @@ export default function DataIntegrationDocumentation() {
                 edited in the configuration file, not in the settings form.
             </p>
 
-            <h4 id="data-integration-template">Body template and headers</h4>
+            <h4 id="data-integration-destinations">Several destinations</h4>
 
             <p>
-                The default body is
-                <code>{'{"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"}'}</code>,
-                and a template of your own replaces it with these names replaced:
-                <code>{"{{id}}"}</code>, <code>{"{{source}}"}</code>,
-                <code>{"{{timestamp}}"}</code>, <code>{"{{topic}}"}</code>,
-                <code>{"{{qos}}"}</code>, <code>{"{{retain}}"}</code>,
+                One connector can post to more than one endpoint, each with its own body template
+                and its own filters. Set <code>destinations</code> to a JSON array; it replaces the
+                single-URL settings entirely:
+            </p>
+
+            <pre className="userManualCode">{`"destinations": "[
+  {"url": "https://ntfy.sh/xmq-errors",
+   "sources": "log",
+   "log_min_level": "error",
+   "template": "[{{level}}] {{subject}}: {{message}}"},
+
+  {"url": "https://collector.example/hook",
+   "sources": "messages",
+   "topic_filter": "sensors/#",
+   "secret": "a shared secret"}
+]"`}</pre>
+
+            <p>
+                One destination can also name several filters. In the interface the single-URL
+                <code>topic_filter</code> is a list: press <b>Add</b> for another row and
+                <b>Remove</b> beside the one that is no longer wanted.
+            </p>
+
+            <pre className="userManualCode">{'"topic_filter": "[\\"sensors/#\\",\\"alarms/+\\"]"'}</pre>
+
+            <p>
+                A message is sent when it matches any of them, so one endpoint receives two
+                unrelated subtrees without a wildcard that would also match the rest of the
+                broker's traffic. In the configuration file the array is one setting, so its quotes
+                are escaped there; inside <code>destinations</code> the same field is an array
+                within the JSON document. The first destination above sends a plain-text body, the
+                second the standard JSON envelope. A messenger that wants JSON of its own - Slack's
+                <code>{"{\"text\": ...}"}</code>, for instance - needs that JSON as the template,
+                which means a string inside a string.
+            </p>
+
+            <table className="userManualTable">
+                <thead>
+                <tr>
+                    <th>Field</th>
+                    <th>Default</th>
+                    <th>Meaning</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td><code>url</code></td>
+                    <td>required</td>
+                    <td>The endpoint, <code>http://</code> or <code>https://</code>.</td>
+                </tr>
+                <tr>
+                    <td><code>sources</code></td>
+                    <td><code>messages</code></td>
+                    <td>Comma-separated: <code>messages</code>, <code>log</code>, or both.</td>
+                </tr>
+                <tr>
+                    <td><code>template</code></td>
+                    <td>empty</td>
+                    <td>Body template; empty means the JSON envelope. Names in
+                        <code>{"{{...}}"}</code> are replaced, see below.</td>
+                </tr>
+                <tr>
+                    <td><code>topic_filter</code></td>
+                    <td><code>#</code></td>
+                    <td>Which messages this destination wants: one filter, or a JSON array of
+                        them.</td>
+                </tr>
+                <tr>
+                    <td><code>log_min_level</code></td>
+                    <td><code>error</code></td>
+                    <td>Lowest log level this destination wants.</td>
+                </tr>
+                <tr>
+                    <td><code>log_subjects</code></td>
+                    <td>empty</td>
+                    <td>Comma-separated log subjects; empty means all.</td>
+                </tr>
+                <tr>
+                    <td><code>headers</code></td>
+                    <td>empty</td>
+                    <td>An object of extra request headers, for example an authorization
+                        token.</td>
+                </tr>
+                <tr>
+                    <td><code>secret</code></td>
+                    <td>empty</td>
+                    <td>HMAC key for this destination.</td>
+                </tr>
+                <tr>
+                    <td><code>retries</code></td>
+                    <td><code>3</code></td>
+                    <td>Attempts after the first one.</td>
+                </tr>
+                <tr>
+                    <td><code>timeout_ms</code></td>
+                    <td><code>5000</code></td>
+                    <td>Connect and read timeout of one request.</td>
+                </tr>
+                <tr>
+                    <td><code>max_payload</code></td>
+                    <td><code>0</code></td>
+                    <td>Largest message body; 0 means no limit.</td>
+                </tr>
+                <tr>
+                    <td><code>concurrency</code></td>
+                    <td><code>4</code></td>
+                    <td>Requests in flight, 1 to 64.</td>
+                </tr>
+                <tr>
+                    <td><code>allow_http</code></td>
+                    <td><code>false</code></td>
+                    <td>Permit a plain HTTP URL for this destination.</td>
+                </tr>
+                </tbody>
+            </table>
+
+            <p>
+                With no template the body is the JSON envelope shown above; with one, the body is
+                the template with these names replaced: <code>{"{{id}}"}</code>,
+                <code>{"{{source}}"}</code>, <code>{"{{timestamp}}"}</code>,
+                <code>{"{{topic}}"}</code>, <code>{"{{qos}}"}</code>, <code>{"{{retain}}"}</code>,
                 <code>{"{{client_id}}"}</code>, <code>{"{{username}}"}</code>,
                 <code>{"{{payload_base64}}"}</code>, <code>{"{{level}}"}</code>,
                 <code>{"{{subject}}"}</code>, <code>{"{{message}}"}</code>.
-            </p>
-
-            <p>
-                For a message, <code>{"{{message}}"}</code> is the base64 payload and
-                <code>{"{{level}}"}</code> is the literal <code>message</code>; for a log record,
-                <code>{"{{topic}}"}</code> is empty.
             </p>
 
             <p>
@@ -299,35 +406,13 @@ export default function DataIntegrationDocumentation() {
                 rather than accept as empty.
             </p>
 
-            <pre className="userManualCode">{`{
-  "url": "https://ntfy.sh/xmq-errors",
-  "topic_filter": "[\\"alarms/#\\",\\"sensors/water/+\\"]",
-  "template": "{\\"text\\":\\"[{{level}}] {{subject}}: {{message}}\\"}",
-  "headers": "[\\"Authorization: Bearer a-token\\"]",
-  "sources": "Send log",
-  "log_min_level": "warning"
-}`}</pre>
-
             <p>
-                A messenger that wants JSON of its own - Slack's <code>{'{"text": ...}'}</code>, for
-                instance - needs that JSON as the template, which means a string inside a string:
-                the escaped quotes above are what the configuration file holds.
-            </p>
-
-            <p>
-                <code>topic_filter</code> and <code>headers</code> are lists: the page shows one
-                field per item with <b>Add</b> and <b>Remove</b>, and stores them as JSON arrays.
-                A message is sent when it matches any filter, so one endpoint receives two
-                unrelated subtrees without a wildcard that would also match the rest of the
-                broker's traffic.
-            </p>
-
-            <pre className="userManualCode">{'"topic_filter": "[\\"sensors/#\\",\\"alarms/+\\"]"'}</pre>
-
-            <p>
-                Each header is <code>Name: value</code>; an authorization token is the usual one.
-                The header travels with every request to the endpoint, beside the
-                <code>X-XMQ-Signature</code> the secret produces.
+                <b>Prototype caveat.</b> <code>destinations</code> is a JSON document inside a
+                string setting: the settings screen shows it as one field, and a
+                <code>secret</code> inside it is not masked the way the single-URL
+                <code>secret</code> is, because the interface masks whole values, not parts of one.
+                Separate connector instances, each with its own masked settings, are the shape this
+                should grow into.
             </p>
 
             <h4 id="data-integration-performance">Performance limits</h4>
@@ -354,9 +439,9 @@ export default function DataIntegrationDocumentation() {
                     traffic that matches the filter.
                 </li>
                 <li>
-                    <b>The destination has a queue of 1024 bodies and <code>concurrency</code>
-                    worker threads.</b> A worker waits for one synchronous HTTP reply, so an
-                    endpoint through a 10 ms round trip carries about
+                    <b>Each destination has a queue of 1024 bodies and <code>concurrency</code>
+                    worker threads.</b> A worker waits for one synchronous HTTP reply, so a
+                    destination through a 10 ms round trip carries about
                     <code>100 × concurrency</code> bodies a second at best. Raise
                     <code>concurrency</code> before raising timeouts.
                 </li>
@@ -374,10 +459,11 @@ export default function DataIntegrationDocumentation() {
                     1.4 MB of JSON, and the queue counts the message once, before encoding.
                 </li>
                 <li>
-                    <b>The tap is registered with every filter <code>topic_filter</code> names</b>,
-                    not with <code>#</code>. A body is copied into the extension only when it
-                    matches at least one of them. Each filter costs one comparison per publication;
-                    a topic nobody wants costs nothing else.
+                    <b>The tap is registered once for all destinations</b>, with the union of every
+                    filter they named - not with <code>#</code>. A body is copied into the extension
+                    only when it matches at least one of those filters, and the per-destination
+                    filters narrow it afterwards. Each filter costs one comparison per publication;
+                    a topic no destination wants costs nothing else.
                 </li>
                 <li>
                     <b>Delivery is at-most-once.</b> The queues are in memory and a restart loses
@@ -405,10 +491,10 @@ export default function DataIntegrationDocumentation() {
                     endpoint or the network if that matters.</li>
                 <li>The payload is the message body: do not point this at an endpoint that logs
                     bodies containing credentials.</li>
-                <li>A header value is stored as an ordinary string, not as a masked secret, so an
-                    authorization token in <code>headers</code> is visible to anyone who can read
-                    the configuration file. The <code>secret</code> setting is masked; a token that
-                    must not be readable there belongs in that signature instead.</li>
+                <li>The <code>destinations</code> array is stored as one string, so a secret inside
+                    it is visible to anyone who can read the configuration file. Prefer the
+                    single-URL form, whose secret is masked, until the connector grows separate
+                    instances.</li>
             </ul>
 
             <h4 id="data-integration-delivery">What it is not</h4>
