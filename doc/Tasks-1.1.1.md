@@ -19,12 +19,34 @@ still owed.
   change is expected in them — their fan-outs are single recipients or shared subscriptions — but
   the run should say so rather than assume it.
 
-- [ ] **The load client is the limiting stage on the stand; measure it, then use it.**
-  The broker's own latency trace puts 33 µs of P2P's 231 µs and 0.76–0.95 ms of Fan-Out's
-  2.24 ms inside the broker; the rest is publishing, the wire and the subscriber side of
-  `xmq_scn` on thinker10, which saturates at 231% CPU with 1000 subscriber connections. Until the
-  client is faster, no broker-side improvement can show the ten per cent the bench-set acceptance
-  asked for. This is tomorrow's work; it also speeds up the comparison runs against FlashMQ.
+- [ ] **The load client, 2026-11-08: it is not the bottleneck the bench implied, and its measured
+      costs are now written down.**
+  Profiling `xmq_scn` under Fan-Out (1000 subscribers, 227k deliveries/s) revised the
+  2026-11-07 conclusion. The client is not CPU saturated - eight session threads at 20–30%,
+  the machine 45% idle - and its latency does not fall when threads are added: session threads
+  8/16/32 measured 1886/2024/2247 µs, socket-event pollers 1/2/4 measured within noise of each
+  other. Fan-Out latency is linear in the publication's copy count (~1.5 µs per copy) and
+  independent of the offered rate, so it is the serialized cost of delivering one publication,
+  shared between the broker's send stage and the client's per-packet work, not a client thread
+  waiting on anything.
+  - The etalon run of this investigation: `/tmp/opencode/` sweeps of 2026-11-08 (threads, pollers,
+    subscriber counts, rates, ack batches). Per-copy end-to-end cost ~1.9 µs at a thousand
+    subscribers; broker-stamped share ~0.95 µs of it.
+  - What did move: batching acknowledgements, one write per 16 acks instead of one per
+    acknowledgement, gave Fan-Out −4.5% (1887 → 1802 µs) and P2P −10% (240 → 216 µs), −3.9% at
+    four. That is the size the ack path is: one write syscall per delivered message, and on the
+    stand's P2P the kernels stop carrying one hundred thousand one-segment writes a second the
+    tool itself made. It is in `xmq_scn` behind `XMQ_CLIENT_ACK_BATCH`, default 1 (unchanged
+    behaviour), force-flushed on disconnect.
+
+- [ ] **Measure the client's latency accounting with an array, not a tree.** Coded 2026-11-08;
+  leaves when 1.1.1 is released.
+  `addToHistogram` inserted into a `std::map` twice per delivered message (interval and total),
+  at 2.48% of all samples on the machine, ~35% of the client's userspace CPU, on the very path
+  whose latency it reports. The two hot histograms now count into dense vectors whose element
+  per bucket index is exactly the key the map folded, with the ranges seen stored sparse (the
+  interval and combined copies) as before. Same medians where measured; the cost fell to 0.16%
+  of all samples.
 
 - [ ] **Refuse to start when a configured listener is already in use.**
   A broker must not come up on a listener that another process on the same host already serves.

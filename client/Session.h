@@ -105,8 +105,18 @@ public:
      */
     static void reserveSessionPool(std::size_t sessionCount)
     {
-        m_socketEvents.reserve(sessionCount);
+        const auto count = socketEventPoolCount();
+        for (size_t index = 0; index < count; ++index)
+        {
+            socketEvents(index).reserve(sessionCount / count + 1);
+        }
     }
+
+    /// Number of socket-event polls the process's sessions are spread over.
+    static size_t socketEventPoolCount();
+
+    /// The socket-event poll sessions assigned to @p index read their events from.
+    static sptk::SocketEvents<Session>& socketEvents(size_t index);
 
     /**
      * @brief Constructor.
@@ -309,6 +319,7 @@ private:
     ReadBufferSizer                    m_readBufferSizer;                                    ///< Keeps m_readBuffer about the size of what is read.
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.
     sptk::Buffer                       m_ackBatchBuffer;                                     ///< Acks accumulated during a drain, flushed with a single write. Guarded by m_mutex.
+    size_t                             m_ackBatchCount {0};                                  ///< Acknowledgements in m_ackBatchBuffer.
     /// The engine the logger writes to, held so that it outlives the session: Logger keeps a
     /// reference to it, and a session lives on in its thread after the client that made it is
     /// gone - the thread holds the session while it reads or sends, and logs an error there.
@@ -320,7 +331,8 @@ private:
     ProtocolVersion                    m_protocolVersion {ProtocolVersion::MqttV5};          ///< MQTT protocol version.
     static SessionThreads              m_allClientThreads;                                   ///< Session threads.
     static sptk::Timer                 keepAliveTimer;                                       ///< Keep alive timer.
-    static sptk::SocketEvents<Session> m_socketEvents;                                       ///< Socket event manager.
+    /// Poll this session's socket events are read from. Chosen round-robin as sessions are made.
+    size_t                             m_pollerIndex {0};
     static STopicManager               m_topicManager;                                       ///< Shared topic manager.
     static GenericProtocols            m_genericProtocols;                                   ///< Shared generic protocols.
 
@@ -378,7 +390,7 @@ private:
      * @brief Write the accumulated ack batch to the socket in a single call.
      * @remark Caller MUST hold m_mutex.
      */
-    void flushAckBatchUnlocked();
+    void flushAckBatchUnlocked(bool force = false);
 
     /**
      * @brief Directly send a message to the client.

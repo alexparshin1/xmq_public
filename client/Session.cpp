@@ -22,6 +22,7 @@
 #include "common/SocketFactory.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -36,7 +37,33 @@ using namespace xmq;
 using namespace xmq::client;
 
 Timer            Session::keepAliveTimer;
-SessionThreads   Session::m_allClientThreads(8);
+
+namespace {
+
+/**
+ * @brief How many client session threads this process shares between its clients.
+ *
+ * Eight, unchanged since the load generator was written for a hundred thousand connections.
+ * XMQ_CLIENT_THREADS overrides it for experiments. Measured on Fan-Out, a thousand subscribers:
+ * eight and sixteen within noise of each other, thirty-two worse. The count is not what holds the
+ * latency back; the override stays for the day a workload says otherwise.
+ */
+size_t clientSessionThreadCount()
+{
+    if (const char* value = getenv("XMQ_CLIENT_THREADS"))
+    {
+        const auto parsed = strtoul(value, nullptr, 10);
+        if (parsed > 0 && parsed <= 256)
+        {
+            return parsed;
+        }
+    }
+    return 8;
+}
+
+} // namespace
+
+SessionThreads   Session::m_allClientThreads(clientSessionThreadCount());
 STopicManager    Session::m_topicManager = make_shared<TopicManager>();
 GenericProtocols Session::m_genericProtocols(m_topicManager);
 
@@ -50,29 +77,80 @@ constexpr auto clientSocketEventsMode = SocketPoolTriggerMode::OneShot;
 constexpr auto clientSocketEventsMode = SocketPoolTriggerMode::EdgeTriggered;
 #endif
 
-SocketEvents<Session> Session::m_socketEvents(
-    "Session",
-    [](const weak_ptr<Session>& userData, const SocketEventType eventType)
+namespace {
+
+/**
+ * @brief How many socket-event polls this process runs.
+ *
+ * One poll thread used to dispatch every socket event of every session, and a fan-out burst is a
+ * thousand events, so sharding the polls over four looked like the fix for a fan-out that took a
+ * millisecond and a half of dispatch. Measured: 1, 2 and 4 polls were within noise of each other,
+ * on Fan-Out, a thousand subscribers. The poll was not the iterator the numbers suggested.
+ * XMQ_CLIENT_POLLERS keeps the experiment reachable for when sockets or cores differ; the
+ * sessions are spread over the polls as they connect, and one remains the default.
+ */
+size_t clientEventPollerCount()
+{
+    if (const char* value = getenv("XMQ_CLIENT_POLLERS"))
     {
-        if (const auto session = userData.lock())
+        const auto parsed = strtoul(value, nullptr, 10);
+        if (parsed > 0 && parsed <= 64)
         {
-            if (!session->isConnected())
-            {
-                return;
-            }
-            // Edge-triggered: the registration stands, and the drain below must empty the socket
-            // because nothing will report the bytes it leaves behind.
-            if (eventType.m_data)
-            {
-                session->queueReceiveMessages();
-            }
-            if (eventType.m_hangup || eventType.m_error)
-            {
-                session->hangup(ReasonCode::ServerUnavailable);
-            }
+            return parsed;
         }
-    },
-    100ms, clientSocketEventsMode);
+    }
+    return 1;
+}
+
+/// Rotates the polls as sessions are created, so an application's connections are spread over
+/// them evenly without the caller having to know how many polls there are.
+std::atomic_size_t nextPollerIndex {0};
+
+void onClientSocketEvent(const weak_ptr<Session>& userData, const SocketEventType eventType)
+{
+    if (const auto session = userData.lock())
+    {
+        if (!session->isConnected())
+        {
+            return;
+        }
+        // Edge-triggered: the registration stands, and the drain below must empty the socket
+        // because nothing will report the bytes it leaves behind.
+        if (eventType.m_data)
+        {
+            session->queueReceiveMessages();
+        }
+        if (eventType.m_hangup || eventType.m_error)
+        {
+            session->hangup(ReasonCode::ServerUnavailable);
+        }
+    }
+}
+
+} // namespace
+
+size_t Session::socketEventPoolCount()
+{
+    static const size_t count = clientEventPollerCount();
+    return count;
+}
+
+SocketEvents<Session>& Session::socketEvents(const size_t index)
+{
+    static const auto pools = []
+    {
+        const auto count = socketEventPoolCount();
+        vector<unique_ptr<SocketEvents<Session>>> result;
+        result.reserve(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            result.push_back(make_unique<SocketEvents<Session>>("Session" + to_string(i), onClientSocketEvent, 100ms,
+                                                                clientSocketEventsMode));
+        }
+        return result;
+    }();
+    return *pools[index % pools.size()];
+}
 
 Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger>& logger,
                  shared_ptr<LogEngine> logEngine, const std::string& bindAddress,
@@ -83,6 +161,8 @@ Session::Session(const MessageCallback& messageCallback, const shared_ptr<Logger
     , m_logEngine(std::move(logEngine))
     , m_logger(logger)
 {
+    m_pollerIndex = nextPollerIndex.fetch_add(1, std::memory_order_relaxed) % socketEventPoolCount();
+
     constexpr uint16_t maxInflightMessages = 32768;
     setInflightLimit(maxInflightMessages);
     BaseClientSession::onMessage(messageCallback);
@@ -463,7 +543,10 @@ SendReceiveResult Session::receiveMessages()
     bool connectionLost = false;
     {
         const unique_lock lock(m_mutex);
-        m_ackBatchBuffer.bytes(0);
+        // Acks left over from the previous drain are not dropped here: with XMQ_CLIENT_ACK_BATCH
+        // above 1 they are still waiting for company, and clearing the buffer would send nothing
+        // and forget them. The buffer is emptied by flushAckBatchUnlocked(), which is the only
+        // place that writes it.
         if (const auto socket = getSocket())
         {
             discardConsumedReadBufferUnlocked();
@@ -609,7 +692,7 @@ SendReceiveResult Session::receiveMessages()
                         // Acks accumulated for earlier messages of this batch must go out
                         // before hangup() closes the socket.
                         const unique_lock lock(m_mutex);
-                        flushAckBatchUnlocked();
+                        flushAckBatchUnlocked(true);
                     }
                     const auto rc = disconnectMessage->getReasonCode();
                     hangup(rc);
@@ -724,20 +807,20 @@ void Session::monitorIncomingDataUnlocked(const bool monitor)
             if constexpr (clientSocketEventsMode == SocketPoolTriggerMode::OneShot)
             {
                 // OneShot re-arm: the registration is unchanged, only EPOLL_CTL_MOD is issued.
-                m_socketEvents.rearm(socket);
+                socketEvents(m_pollerIndex).rearm(socket);
             }
             // Edge-triggered: the socket is still armed, and saying so again costs a syscall
             // under the kernel's epoll mutex for nothing.
         }
         else
         {
-            m_socketEvents.add(socket, shared_from_this());
+            socketEvents(m_pollerIndex).add(socket, shared_from_this());
             m_isMonitoring = true;
         }
     }
     else if (m_isMonitoring)
     {
-        m_socketEvents.remove(socket);
+        socketEvents(m_pollerIndex).remove(socket);
         m_isMonitoring = false;
     }
 }
@@ -929,11 +1012,29 @@ void Session::appendAckBatchUnlocked(const Message& message)
     const auto            ackMessage = make_shared<AckMessage>(messageTypeToAckType(message.type(), message.getQos()), message.getId());
     const MessageDispatch messageDispatch(ackMessage, Qos::Qos1, message.getId());
     m_ackBatchBuffer.append(writeMessageUnlocked(messageDispatch));
+    ++m_ackBatchCount;
 }
 
-void Session::flushAckBatchUnlocked()
+void Session::flushAckBatchUnlocked(const bool force)
 {
     if (m_ackBatchBuffer.empty())
+    {
+        return;
+    }
+
+    // Experimental: one write per this many acknowledgements. Measured on the stand, one write
+    // per acknowledgement is a syscall per delivered message, and the receive path pays for it
+    // twice - here and in the broker's arrival of the ack. 1 is the original behaviour.
+    // Off by one: the batch exists as an option for the load generator, not as the new normal.
+    // Every waiting acknowledgement has to outlive the traffic that brought it, so a size this
+    // large turns punctual decisions about flow control into multi-second guesses.
+    static const auto batchSize = []
+    {
+        const char* value = getenv("XMQ_CLIENT_ACK_BATCH");
+        const auto parsed = value != nullptr ? strtoul(value, nullptr, 10) : 1;
+        return parsed < 1 ? size_t {1} : parsed;
+    }();
+    if (!force && m_ackBatchCount < batchSize)
     {
         return;
     }
@@ -961,6 +1062,7 @@ void Session::flushAckBatchUnlocked()
         postponeKeepAlive();
     }
     m_ackBatchBuffer.bytes(0);
+    m_ackBatchCount = 0;
 }
 
 const string& Session::getClientId() const
