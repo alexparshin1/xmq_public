@@ -531,22 +531,23 @@ IF (NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/service/CXmqServiceBase.h OR
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 ENDIF ()
 
-# Absolute paths, because wsdl2cxx writes into the source tree while a relative OUTPUT names the
-# build tree - so the file the rule promised never appeared where the rule said, and the rule could
-# not be satisfied. And a target to hang it on: an ADD_CUSTOM_COMMAND runs only when something
-# depends on its output, and nothing did, so editing xmq.wsdl regenerated nothing at all. The
-# generated sources were only ever refreshed by deleting them or by running wsdl2cxx by hand.
+# wsdl2cxx preserves timestamps of unchanged files. Use a stamp as the rule's output so an
+# unchanged header older than the WSDL does not trigger generation again in each Make phase.
+# The generated files are byproducts; xmq_service_sources owns their generation.
+SET(XMQ_SERVICE_STAMP ${CMAKE_CURRENT_BINARY_DIR}/xmq-service-sources.stamp)
 ADD_CUSTOM_COMMAND(
-        OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/service/CXmqServiceBase.h
+        OUTPUT ${XMQ_SERVICE_STAMP}
+        BYPRODUCTS ${CMAKE_CURRENT_SOURCE_DIR}/service/CXmqServiceBase.h
         ${CMAKE_CURRENT_SOURCE_DIR}/service/CXmqWSDL.cpp
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xmq.wsdl
         COMMAND wsdl2cxx xmq.wsdl -d service -j xmq.json -a bearer -o Login:basic,SetupState:none -n xmq
+        COMMAND ${CMAKE_COMMAND} -E touch ${XMQ_SERVICE_STAMP}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating the service sources from xmq.wsdl"
 )
 
 ADD_CUSTOM_TARGET(xmq_service_sources
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/service/CXmqServiceBase.h)
+        DEPENDS ${XMQ_SERVICE_STAMP})
 
 # Defined before any subdirectory, because the test directory builds the sample extensions with it.
 SET(XMQ_SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
