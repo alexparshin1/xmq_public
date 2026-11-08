@@ -174,12 +174,13 @@ void ServerController::startService()
                                 : listener.m_bind_ip.asString();
         checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
                                        listener.m_protocol.asString().toUpperCase() + ")",
-                                   static_cast<uint16_t>(listener.m_port.asInteger()));
+                                   bindIP.c_str(), static_cast<uint16_t>(listener.m_port.asInteger()));
     }
 
     if (const auto servicePort = m_settings->m_web_service.m_listener_port.asInteger(); servicePort > 0)
     {
-        checkListenerPortAvailable("Configuration interface", static_cast<uint16_t>(servicePort));
+        checkListenerPortAvailable("Configuration interface", controlServiceAddress().c_str(),
+                                   static_cast<uint16_t>(servicePort));
     }
 
     // Nothing else trims the log: it is opened for appending, so that restarting the broker does
@@ -313,40 +314,80 @@ void ServerController::startPrometheus()
         return;
     }
 
+    string reason;
+    if (!applyPrometheusSettings(reason))
+    {
+        const Logger logger(*m_logEngine, "[Startup] ");
+        logger.error("Prometheus endpoint did not start: " + reason);
+    }
+}
+
+bool ServerController::applyPrometheusSettings(std::string& reason)
+{
+    const scoped_lock lock(m_prometheusMutex);
+
+    // Nothing is reused: a changed address, port or enabled flag is applied by replacing the
+    // listener, the same way the configuration interface replaces its socket.
+    if (m_prometheusExporter)
+    {
+        m_prometheusExporter->stop();
+        m_prometheusExporter.reset();
+    }
+
     const auto& configuration = m_settings->m_prometheus;
     if (configuration.isNull() || configuration.m_enabled.isNull() || !configuration.m_enabled.asBool())
     {
-        return;
+        return true;
     }
 
-    const Logger logger(*m_logEngine, "[Startup] ");
-    const auto   bindAddress = configuration.m_bind_ip.asString().empty()
-                                   ? String("0.0.0.0")
-                                   : configuration.m_bind_ip.asString();
-    const auto   port = static_cast<uint16_t>(configuration.m_port.isNull() ? 9184
-                                                                          : configuration.m_port.asInteger());
+    const auto bindAddress = configuration.m_bind_ip.asString().empty()
+                                 ? String("0.0.0.0")
+                                 : configuration.m_bind_ip.asString();
+    const auto port = static_cast<uint16_t>(configuration.m_port.isNull() ? 9184
+                                                                        : configuration.m_port.asInteger());
+    const auto username = configuration.m_username.isNull() ? String() : configuration.m_username.asString();
+    const auto passwordHash = configuration.m_password.isNull() ? String() : configuration.m_password.asString();
+    if (!username.empty() && passwordHash.empty())
+    {
+        reason = bindAddress + ":" + to_string(port) + ": a username is set without a password.";
+        return false;
+    }
 
     try
     {
         // Before the exporter's own socket exists, for the same reason the MQTT listeners are
         // checked before theirs: once it is open the check can no longer see a conflict.
-        checkListenerPortAvailable("Prometheus endpoint", port);
-        m_prometheusExporter = make_unique<PrometheusExporter>(
+        checkListenerPortAvailable("Prometheus endpoint", bindAddress.c_str(), port);
+        auto exporter = make_unique<PrometheusExporter>(
             [this]
             {
                 return brokerMetrics();
             },
-            m_settings->m_cluster.m_this_node.m_node_name.asString(), m_logEngine, bindAddress, port);
-        m_prometheusExporter->start();
+            m_settings->m_cluster.m_this_node.m_node_name.asString(), m_logEngine, bindAddress, port,
+            username.c_str(), passwordHash.c_str());
+        exporter->start();
+        m_prometheusExporter = std::move(exporter);
+
+        if (m_logEngine)
+        {
+            const Logger logger(*m_logEngine, "[Startup] ");
+            logger.info("Listening Prometheus on " + bindAddress + ":" + to_string(port) + ".");
+        }
+        return true;
     }
     catch (const std::exception& exception)
     {
         // Metrics are auxiliary. A port that cannot be taken loses the exporter, not the broker
-        // it was going to describe - and the line says which address could not be used.
-        m_prometheusExporter.reset();
-        logger.error("Prometheus endpoint on " + bindAddress + ":" + to_string(port) +
-                     " did not start: " + string(exception.what()));
+        // it was going to describe - and the caller says which address could not be used.
+        reason = bindAddress + ":" + to_string(port) + ": " + exception.what();
+        return false;
     }
+}
+
+bool ServerController::prometheusListening() const
+{
+    const scoped_lock lock(m_prometheusMutex);
+    return m_prometheusExporter != nullptr;
 }
 
 std::optional<BrokerMetrics> ServerController::brokerMetrics() const
@@ -698,10 +739,13 @@ void ServerController::stopService()
     stopServing();
     m_controlServiceListener.reset();
 
-    if (m_prometheusExporter)
     {
-        m_prometheusExporter->stop();
-        m_prometheusExporter.reset();
+        const scoped_lock lock(m_prometheusMutex);
+        if (m_prometheusExporter)
+        {
+            m_prometheusExporter->stop();
+            m_prometheusExporter.reset();
+        }
     }
 
     // Keep the existing engine while shutting down. Retiring a configuration can reset the

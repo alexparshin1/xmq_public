@@ -25,6 +25,7 @@
 #include <thread>
 
 #include <sptk5/cutils>
+#include <sptk5/net/HttpReader.h>
 #include <sptk5/net/TCPSocket.h>
 
 namespace xmq {
@@ -93,12 +94,16 @@ public:
      * @param logEngine         Where the listener reports failures.
      * @param bindAddress       Address to accept scrapes on.
      * @param port              Port to accept scrapes on.
+     * @param username          HTTP Basic username, or empty for no authentication.
+     * @param passwordHash      The username's stored verifier, empty when there is no username.
      */
     PrometheusExporter(BrokerMetricsProvider               brokerMetrics,
                        std::string                         nodeName,
                        std::shared_ptr<sptk::LogEngine>    logEngine,
                        std::string                         bindAddress,
-                       uint16_t                            port);
+                       uint16_t                            port,
+                       std::string                         username = {},
+                       std::string                         passwordHash = {});
 
     ~PrometheusExporter();
 
@@ -132,6 +137,8 @@ private:
     std::shared_ptr<sptk::LogEngine> m_logEngine;
     std::string                      m_bindAddress;
     uint16_t                         m_port;
+    std::string                      m_username;     ///< Empty means the endpoint is open.
+    std::string                      m_passwordHash; ///< Verifier of the password, never the password.
 
     sptk::TCPSocket   m_listener;   ///< Accepts scrapes.
     std::thread       m_thread;     ///< The accept loop.
@@ -141,6 +148,17 @@ private:
 
     void serve();
     void serveClient(SocketType socket);
+
+    /**
+     * @brief Whether the request carries acceptable HTTP Basic credentials.
+     *
+     * Always true when no username is configured. The password is checked against the stored
+     * verifier, so what this process holds cannot be replayed as a password.
+     *
+     * @param headers       Request headers.
+     * @return true when the request may be answered.
+     */
+    [[nodiscard]] bool authorized(const sptk::HttpHeaders& headers) const;
 };
 
 } // namespace xmq

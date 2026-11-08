@@ -5,6 +5,7 @@
  */
 
 #include "server/PrometheusExporter.h"
+#include "server/Settings/PasswordHash.h"
 
 #include <gtest/gtest.h>
 #include <sptk5/net/TCPSocket.h>
@@ -46,11 +47,12 @@ uint16_t freePort()
 }
 
 /// Send one request and read the reply until the server closes the connection.
-string request(const uint16_t port, const string& path)
+string request(const uint16_t port, const string& path, const string& extraHeaders = {})
 {
     TCPSocket client;
     client.open(Host("127.0.0.1", port), Socket::OpenMode::CONNECT, true, 2s);
-    client.write(String("GET " + path + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+    client.write(String("GET " + path + " HTTP/1.1\r\nHost: localhost\r\n" + extraHeaders +
+                        "Connection: close\r\n\r\n"));
 
     string response;
     while (client.readyToRead(2s))
@@ -115,6 +117,43 @@ TEST(PrometheusExporterTests, AnswersScrapesAndRefusesEverythingElse)
 
     const auto missing = request(port, "/");
     EXPECT_NE(string::npos, missing.find("HTTP/1.1 404 Not Found")) << missing;
+
+    exporter.stop();
+}
+
+TEST(PrometheusExporterTests, RefusesAPortAnotherEndpointAlreadyServes)
+{
+    const auto port = freePort();
+    PrometheusExporter first([] { return optional<BrokerMetrics> {}; }, "node-a", nullptr, "127.0.0.1", port);
+    first.start();
+
+    // No SO_REUSEPORT: the second endpoint must fail rather than share the port with the first
+    // and answer a scrape from whichever process the kernel chooses.
+    PrometheusExporter second([] { return optional<BrokerMetrics> {}; }, "node-b", nullptr, "127.0.0.1", port);
+    EXPECT_THROW(second.start(), Exception);
+
+    first.stop();
+}
+
+TEST(PrometheusExporterTests, RequiresBasicAuthenticationWhenAUsernameIsSet)
+{
+    const auto port = freePort();
+    PrometheusExporter exporter([] { return optional<BrokerMetrics> {}; }, "node-a", nullptr, "127.0.0.1", port,
+                                "metrics", PasswordHash::hash("Secret1!"));
+    exporter.start();
+
+    const auto anonymous = request(port, "/metrics");
+    EXPECT_NE(string::npos, anonymous.find("HTTP/1.1 401 Unauthorized")) << anonymous;
+    EXPECT_NE(string::npos, anonymous.find("WWW-Authenticate: Basic")) << anonymous;
+
+    const auto wrong = request(port, "/metrics",
+                               "Authorization: Basic bWV0cmljczp3cm9uZw==\r\n");
+    EXPECT_NE(string::npos, wrong.find("HTTP/1.1 401 Unauthorized")) << wrong;
+
+    const auto correct = request(port, "/metrics",
+                                 "Authorization: Basic bWV0cmljczpTZWNyZXQxIQ==\r\n");
+    EXPECT_NE(string::npos, correct.find("HTTP/1.1 200 OK")) << correct;
+    EXPECT_NE(string::npos, correct.find("xmq_up 0")) << correct;
 
     exporter.stop();
 }

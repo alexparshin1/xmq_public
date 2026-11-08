@@ -23,6 +23,7 @@
 #include "LogSubjectPriorities.h"
 #include "UserManager.h"
 #include "service/CInitialSetup.h"
+#include "service/CPrometheusSettings.h"
 #include "service/CStartupSettings.h"
 #include "service/CServerConfiguration.h"
 #include <sptk5/cdatabase>
@@ -112,6 +113,12 @@ public:
     std::function<void()> saveNodeSettings(const CNodeSettings& values);
     std::pair<bool, sptk::String> nodeSettingsStatus() const;
     void nodeSettingsStatus(bool pending, const sptk::String& message);
+
+    /// The Prometheus endpoint as the interface edits it, with the defaults filled in.
+    [[nodiscard]] CPrometheusSettings prometheusSettings() const;
+
+    /// Stores the endpoint's settings and writes them to the configuration file.
+    void setPrometheusSettings(const CPrometheusSettings& values);
 
     uint64_t     bridgeControl(const std::string& action, const CBridge& bridge);
     uint64_t     listenerControl(const std::string& action, const CListener& listener);

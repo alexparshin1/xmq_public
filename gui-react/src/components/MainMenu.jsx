@@ -69,6 +69,7 @@ export default class MainMenu extends React.Component {
             "/persistence": "Persistence",
             "/serverlimits": "Server Limits",
             "/logging": "Logging",
+            "/prometheus": "Prometheus",
             "/service": "Service",
             "/bridges": "Bridges",
             "/cluster": "Cluster",

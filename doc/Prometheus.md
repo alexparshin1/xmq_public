@@ -6,25 +6,36 @@ without being asked.
 
 ## Configuration
 
-Add a `prometheus` section to `xmq_server.conf`:
+The endpoint is configured on the **Prometheus** page of the configuration interface. Saving
+replaces the listener at once: no broker restart, and no MQTT client is disconnected. The same
+section can be edited in `xmq_server.conf` when the interface is not available:
 
 ```json
 "prometheus": {
   "enabled": true,
   "bind_ip": "0.0.0.0",
-  "port": 9184
+  "port": 9184,
+  "username": "",
+  "password": ""
 }
 ```
+
+`username` and `password` enable HTTP Basic authentication for scrapes. Both empty leaves the
+endpoint open, which is the default. The file keeps a one-way verifier for the password, not the
+password itself, so set it through the interface rather than by hand.
 
 | Key | Meaning | Default |
 |---|---|---|
 | `enabled` | Whether the listener is created. | `false` |
 | `bind_ip` | Address to accept scrapes on. | `0.0.0.0` |
 | `port` | Port to accept scrapes on. Must be above 1024. | `9184` |
+| `username` | HTTP Basic username; empty means no authentication. | empty |
+| `password` | HTTP Basic password, stored as a verifier; at least 8 characters. | empty |
 
-The listener is not encrypted and does not authenticate the scraper. Bind it to an address the
-scraper can reach and nothing else can, or put it behind the same network policy as the metrics
-you already collect. It answers one path:
+The listener is not encrypted. With no username it does not authenticate the scraper either:
+bind it to an address the scraper can reach and nothing else can, or put it behind the same network
+policy as the metrics you already collect. With a username and password, every scrape must carry
+HTTP Basic credentials. It answers one path:
 
 ```text
 GET /metrics
@@ -40,7 +51,15 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["broker-1:9184", "broker-2:9184"]
+    # Only when the endpoint has a username and password.
+    basic_auth:
+      username: metrics
+      password: "the same secret entered on the Prometheus page"
 ```
+
+A request without credentials, or with the wrong ones, is answered with `401 Unauthorized` and a
+`WWW-Authenticate: Basic` challenge. The password is checked against the stored verifier, so a
+copy of the configuration file does not yield the scrape password.
 
 The endpoint is per node. A cluster of three nodes answers three series sets, each labelled by
 `node` in `xmq_build_info`; aggregate in the query, not in the broker.
@@ -86,6 +105,7 @@ up.
 ## What it does not do
 
 - No OpenTelemetry export, traces or logs. Only the text exposition format over HTTP.
-- No authentication, TLS or per-metric filtering.
+- No TLS and no per-metric filtering. HTTP Basic authentication is available; TLS is expected to
+  be provided by a proxy or a private network.
 - No cluster-wide aggregation: each node answers for itself.
 - No historical samples. Prometheus is expected to keep them.

@@ -38,9 +38,11 @@ namespace xmq {
  * SO_REUSEPORT makes the same check pass and the conflict is invisible.
  *
  * @param listener      What the error should name, such as "Listener Default (MQTT)".
+ * @param bindAddress   IPv4 address the listener would use, or empty for every address.
  * @param port          TCP port the listener would use.
  * @throws sptk::Exception naming the listener, address and port when the port is already in use.
  */
-void checkListenerPortAvailable(const std::string& listener, std::uint16_t port);
+void checkListenerPortAvailable(const std::string& listener, const std::string& bindAddress,
+                                std::uint16_t port);
 
 } // namespace xmq

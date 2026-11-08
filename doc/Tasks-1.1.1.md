@@ -13,6 +13,16 @@ still owed.
   as the mapping's input, and assert that every shard gets members: the old mapping put all of
   them in one, and that is exactly what a future simplification would reintroduce.
 
+- [ ] **Fix the two failing jest suites.**
+  `gui-react/src/screen/SettingsScreen.test.jsx` and
+  `gui-react/src/screen/InitialSetupScreen.test.jsx` fail on 1.1.1, and did so before the
+  Prometheus work: 3 tests, 2 suites. Both expect a Redis URI or status line without the database
+  suffix, while the screens now render it - `redis://cache:...@theater:6379/0` where the test
+  expects `...:6379`, and `Redis at theater:6380/0 is reachable.` where it expects
+  `Redis at theater:6380 is reachable.`. Decide first which side is right: if the default
+  database is noise in the interface, stop appending it; if it is worth showing, update the
+  expectations. The rest of the suite is green (112 passed on 2026-11-08).
+
 - [ ] **Paired stand run of the bench set, baseline against the fixed delivery sharding.**
   The shard fix was measured on Fan-Out alone (broker share 1.45 ms → 0.95 ms at two delivery
   threads, → 0.76 ms at four). The other four scenarios have not been re-run against it. No
@@ -74,7 +84,13 @@ still owed.
   wait per second, and the inline knob remains for a rig where a direct write is the faster
   shape.
 
-- [ ] **Refuse to start when a configured listener is already in use.**
+- [x] **Refuse to start when a configured listener is already in use.**
+  Done in 1.1.1: `common/ListenerPort.cpp` probes the configured address and port with a bind
+  before any socket of this broker exists; `Server::createMqttListeners()`,
+  `ServerController::startService()` and `ControlServiceListener::factory()` call it, and
+  `XMQ_ControlServiceTests.startServiceRefusesListenerHeldByAnotherBroker` covers a second broker
+  with the same configuration and a different node name. The same probe is used before the
+  Prometheus endpoint is replaced.
   A broker must not come up on a listener that another process on the same host already serves.
   Today SPTK opens the listening sockets with `SO_REUSEPORT`, so a second broker binds the same
   address and port successfully, and the kernel then spreads incoming connections across both

@@ -28,6 +28,7 @@ import UserManualScreen from "./screen/UserManualScreen";
 import Documentation from "./documentation/Documentation";
 import {documentationPages} from "./documentation/pages";
 import ExtensionsScreen from "./screen/ExtensionsScreen";
+import PrometheusScreen from "./screen/PrometheusScreen";
 
 class App extends React.Component {
 
@@ -93,6 +94,7 @@ class App extends React.Component {
                                     <Route path="/sslkeys" element={<RequireAuth><SSLKeysScreen/></RequireAuth>}/>
                                     <Route path="/serverlimits" element={<RequireAuth><ServerLimitsScreen/></RequireAuth>}/>
                                     <Route path="/logging" element={<RequireAuth><LoggingScreen/></RequireAuth>}/>
+                                    <Route path="/prometheus" element={<RequireAuth><PrometheusScreen/></RequireAuth>}/>
                                     <Route path="/service" element={<RequireAuth><XmqServiceScreen/></RequireAuth>}/>
                                     <Route path="/bridges" element={<RequireAuth><BridgesScreen/></RequireAuth>}/>
                                     <Route path="/cluster" element={<RequireAuth><ClusterScreen/></RequireAuth>}/>

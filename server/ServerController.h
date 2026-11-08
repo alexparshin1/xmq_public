@@ -176,6 +176,23 @@ public:
     virtual bool setControlServiceWhitelist(const std::string& whitelist, std::string& reason) = 0;
 
     /**
+     * @brief Apply the Prometheus endpoint settings now in force.
+     *
+     * Stops the endpoint if it is running and starts it again from the configuration, which is
+     * how a port or address change takes effect without restarting the broker. Called after the
+     * interface has written the section, and again on a start.
+     *
+     * @param reason        Receives why the endpoint is not listening, when it is not.
+     * @return true when the endpoint is in the state the configuration asks for.
+     */
+    virtual bool applyPrometheusSettings(std::string& reason) = 0;
+
+    /**
+     * @return true while the Prometheus endpoint is listening.
+     */
+    [[nodiscard]] virtual bool prometheusListening() const = 0;
+
+    /**
      * @return The running server, or nullptr while MQTT is stopped.
      */
     [[nodiscard]] virtual Server* getServer() const = 0;
@@ -242,6 +259,8 @@ public:
     void                             stopServing(std::optional<bool> cleanState = std::nullopt) override;
     [[nodiscard]] bool               isServing() const override;
     bool                             moveControlService(uint16_t port, std::string& reason) override;
+    bool                             applyPrometheusSettings(std::string& reason) override;
+    [[nodiscard]] bool               prometheusListening() const override;
     bool                             updateControlServiceKeys(const std::filesystem::path& certificateFile,
                                                               const std::filesystem::path& privateKeyFile,
                                                               std::string&                 reason) override;
@@ -308,6 +327,7 @@ private:
      * Absent when the configuration does not enable it.
      */
     std::unique_ptr<PrometheusExporter> m_prometheusExporter;
+    mutable std::mutex                  m_prometheusMutex; ///< Guards the endpoint against concurrent edits.
 
     /**
      * @brief Bring up the configuration interface, once, for the lifetime of the process.

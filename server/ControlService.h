@@ -47,6 +47,8 @@ public:
     void InitialSetupControl(const CInitialSetupControl& input, CInitialSetupControlResponse& output, sptk::HttpAuthentication* auth) override;
     void SettingsControl(const CSettingsControl& input, CSettingsControlResponse& output, sptk::HttpAuthentication* auth) override;
     void ServerControl(const CServerControl& input, CServerControlResponse& output, sptk::HttpAuthentication* auth) override;
+    void PrometheusControl(const CPrometheusControl& input, CPrometheusControlResponse& output,
+                           sptk::HttpAuthentication* auth) override;
     void GetStatistics(const CGetStatistics& input, CGetStatisticsResponse& output, sptk::HttpAuthentication* auth) override;
     sptk::String findBridgePassword(int bridgeId) const;
     void UserControl(const CUserControl& input, CUserControlResponse& output, sptk::HttpAuthentication* authentication) override;

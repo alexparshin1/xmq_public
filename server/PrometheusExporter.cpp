@@ -13,8 +13,10 @@
 
 #include "PrometheusExporter.h"
 
+#include "Settings/PasswordHash.h"
 #include "base/xmq-config.h"
 
+#include <sptk5/Base64.h>
 #include <sptk5/net/Host.h>
 #include <sptk5/net/HttpReader.h>
 #include <sptk5/net/URL.h>
@@ -93,12 +95,16 @@ PrometheusExporter::PrometheusExporter(BrokerMetricsProvider            brokerMe
                                        string                           nodeName,
                                        shared_ptr<LogEngine>            logEngine,
                                        string                           bindAddress,
-                                       const uint16_t                   port)
+                                       const uint16_t                   port,
+                                       string                           username,
+                                       string                           passwordHash)
     : m_brokerMetrics(std::move(brokerMetrics))
     , m_nodeName(std::move(nodeName))
     , m_logEngine(std::move(logEngine))
     , m_bindAddress(std::move(bindAddress))
     , m_port(port)
+    , m_username(std::move(username))
+    , m_passwordHash(std::move(passwordHash))
 {
 }
 
@@ -208,6 +214,16 @@ void PrometheusExporter::serveClient(const SocketType socket)
     HttpReader reader(client, content, HttpReader::ReadMode::REQUEST);
     reader.readHttpHeaders();
 
+    if (!authorized(reader.getHttpHeaders()))
+    {
+        client->write(String("HTTP/1.1 401 Unauthorized\r\n"
+                             "WWW-Authenticate: Basic realm=\"XMQ metrics\", charset=\"UTF-8\"\r\n"
+                             "Content-Length: 0\r\n"
+                             "Connection: close\r\n"
+                             "\r\n"));
+        return;
+    }
+
     const auto method = reader.getRequestType();
     const auto url = URL(reader.getRequestURL());
 
@@ -236,6 +252,54 @@ void PrometheusExporter::serveClient(const SocketType socket)
     }
 
     client->write(response);
+}
+
+bool PrometheusExporter::authorized(const HttpHeaders& headers) const
+{
+    // No username is the documented way to leave the endpoint open, and it is what an
+    // installation upgrading from before authentication existed has.
+    if (m_username.empty())
+    {
+        return true;
+    }
+
+    // A username with no verifier is a configuration that promises authentication it cannot
+    // perform. Refuse rather than answer everyone.
+    if (m_passwordHash.empty())
+    {
+        return false;
+    }
+
+    const auto header = headers.find("authorization");
+    if (header == headers.end())
+    {
+        return false;
+    }
+
+    const auto& value = header->second;
+    const auto  space = value.find(' ');
+    if (space == String::npos || String(value.substr(0, space)).toLowerCase() != "basic")
+    {
+        return false;
+    }
+
+    try
+    {
+        Buffer decoded;
+        Base64::decode(decoded, String(String(value.substr(space + 1)).trim()));
+        const string credentials(reinterpret_cast<const char*>(decoded.data()), decoded.bytes());
+        const auto   colon = credentials.find(':');
+        if (colon == string::npos || credentials.substr(0, colon) != m_username)
+        {
+            return false;
+        }
+        return PasswordHash::verify(credentials.substr(colon + 1), m_passwordHash);
+    }
+    catch (const Exception&)
+    {
+        // A malformed Authorization value is a refusal, not a request to fail.
+        return false;
+    }
 }
 
 string PrometheusExporter::render()

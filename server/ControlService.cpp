@@ -2890,6 +2890,109 @@ RedisAofSettings configureRedisAof(const string& uri, const bool durable)
 
 } // namespace
 
+void ControlService::PrometheusControl(const CPrometheusControl& input, CPrometheusControlResponse& output,
+                                       HttpAuthentication* authentication)
+{
+    try
+    {
+        CUser user;
+        authenticate(authentication, user);
+
+        const auto settings = getSettings();
+        const auto action = input.m_action.asString();
+        if (action == "set")
+        {
+            auto values = input.m_settings;
+            const auto port = static_cast<int>(values.m_port.isNull() ? 9184 : values.m_port.asInteger());
+            if (port <= 1024 || port > 65535)
+            {
+                throw Exception("The Prometheus port must be a number between 1025 and 65535.");
+            }
+
+            const auto bindAddress = String(values.m_bind_ip.asString()).trim();
+            values.m_bind_ip = bindAddress.empty() ? String("0.0.0.0") : bindAddress;
+            values.m_port = port;
+
+            // A port already serving something else is caught here with a sentence that names the
+            // other user, rather than by a bind failure the screen would show as a bare errno.
+            for (const auto& listener: settings->m_connections.m_listener)
+            {
+                if (listener.m_port.asInteger() == port &&
+                    (listener.m_enable.isNull() || listener.m_enable.asBool()))
+                {
+                    throw Exception("Port " + to_string(port) + " is already used by listener " +
+                                    listener.m_name.asString() + ".");
+                }
+            }
+            if (settings->m_web_service.m_listener_port.asInteger() == port)
+            {
+                throw Exception("Port " + to_string(port) + " is already used by the configuration interface.");
+            }
+
+            const auto username = String(values.m_username.asString()).trim();
+            const auto password = values.m_password.asString();
+            values.m_username = username;
+            if (username.empty())
+            {
+                // No username means no authentication; a password on its own would be a secret
+                // that authenticates nobody.
+                if (!password.empty() && password != "*****")
+                {
+                    throw Exception("A Prometheus password requires a username.");
+                }
+                values.m_password = "";
+            }
+            else
+            {
+                if (username.find_first_of(": \t\r\n") != String::npos)
+                {
+                    throw Exception("The Prometheus username cannot contain a colon or whitespace.");
+                }
+                if (password.empty())
+                {
+                    throw Exception("A Prometheus username requires a password.");
+                }
+                if (password != "*****" && password.length() < 8)
+                {
+                    throw Exception("The Prometheus password must be at least 8 characters.");
+                }
+            }
+
+            const auto previous = settings->prometheusSettings();
+            settings->setPrometheusSettings(values);
+            string reason;
+            if (!m_controller->applyPrometheusSettings(reason))
+            {
+                // The setting was written before the endpoint was replaced. Put back what was
+                // there and say why, rather than leaving a file that promises a listener which
+                // is not there.
+                settings->setPrometheusSettings(previous);
+                string ignored;
+                m_controller->applyPrometheusSettings(ignored);
+                throw Exception("The Prometheus endpoint did not start: " + reason);
+            }
+        }
+        else if (action != "get")
+        {
+            throw Exception("Unknown Prometheus action: " + action);
+        }
+
+        output.m_settings = settings->prometheusSettings();
+        output.m_listening = m_controller->prometheusListening();
+        output.m_result.m_success = true;
+    }
+    catch (const Exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.message();
+    }
+    catch (const std::exception& e)
+    {
+        output.m_result.m_success = false;
+        output.m_result.m_description = e.what();
+    }
+}
+
 void ControlService::GetStatistics(const CGetStatistics&, CGetStatisticsResponse& output, HttpAuthentication* authentication)
 {
     try

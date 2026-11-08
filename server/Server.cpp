@@ -665,7 +665,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
                                 : listener.m_bind_ip.asString();
         checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
                                        listener.m_protocol.asString().toUpperCase() + ")",
-                                   static_cast<uint16_t>(listener.m_port.asInteger()));
+                                   bindIP.c_str(), static_cast<uint16_t>(listener.m_port.asInteger()));
     }
 
     // Once, before any port opens, and only when the kernel is the one imposing the smaller number.

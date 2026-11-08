@@ -89,6 +89,17 @@ public:
         m_serving = false;
         m_cleanStateOnStop = cleanState;
     }
+    /// This double has no Prometheus endpoint of its own; the tests that need one use the real
+    /// controller. The flag is kept so a control-service test can see what was asked for.
+    bool applyPrometheusSettings(std::string&) override
+    {
+        m_prometheusListening = m_settings && !m_settings->m_prometheus.isNull() &&
+                                m_settings->m_prometheus.m_enabled.asBool();
+        return true;
+    }
+
+    [[nodiscard]] bool prometheusListening() const override { return m_prometheusListening; }
+
 
     [[nodiscard]] bool isServing() const override { return m_serving && m_server != nullptr; }
 
@@ -202,6 +213,7 @@ private:
     std::optional<bool>              m_cleanStateOnStart;
     std::optional<bool>              m_cleanStateOnStop;
     uint16_t                         m_controlServicePort {0};
+    bool                             m_prometheusListening {false};
     SControlServiceListener          m_controlServiceListener;
     std::shared_ptr<sptk::SSLKeys>   m_webServiceKeys;
     std::string                      m_webServiceWhitelist;

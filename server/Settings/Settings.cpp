@@ -3296,6 +3296,85 @@ void Settings::nodeSettingsStatus(const bool pending, const String& message)
     m_nodeSettingsMessage = message;
 }
 
+CPrometheusSettings Settings::prometheusSettings() const
+{
+    constexpr auto defaultPort = 9184;
+    constexpr auto defaultBindAddress = "0.0.0.0";
+
+    const ReadLock lock(m_mutex);
+
+    CPrometheusSettings values;
+    values.m_enabled = !m_prometheus.isNull() && !m_prometheus.m_enabled.isNull() &&
+                       m_prometheus.m_enabled.asBool();
+    values.m_bind_ip = !m_prometheus.isNull() && !m_prometheus.m_bind_ip.isNull() &&
+                               !m_prometheus.m_bind_ip.asString().empty()
+                           ? m_prometheus.m_bind_ip
+                           : String(defaultBindAddress);
+    values.m_port = !m_prometheus.isNull() && !m_prometheus.m_port.isNull()
+                        ? m_prometheus.m_port.asInteger()
+                        : defaultPort;
+    values.m_username = !m_prometheus.isNull() && !m_prometheus.m_username.isNull()
+                            ? m_prometheus.m_username
+                            : String();
+    // Never the verifier: the interface only has to know whether one is set.
+    values.m_password = !m_prometheus.isNull() && !m_prometheus.m_password.isNull() &&
+                                !m_prometheus.m_password.asString().empty()
+                            ? String("*****")
+                            : String();
+    return values;
+}
+
+void Settings::setPrometheusSettings(const CPrometheusSettings& values)
+{
+    const WriteLock lock(m_mutex);
+
+    const CPrometheus previous = m_prometheus;
+    m_prometheus.m_enabled = values.m_enabled.asBool();
+    m_prometheus.m_bind_ip = values.m_bind_ip.asString();
+    m_prometheus.m_port = values.m_port.asInteger();
+
+    const String username = values.m_username.asString();
+    const String password = values.m_password.asString();
+    m_prometheus.m_username = username;
+    if (username.empty())
+    {
+        // No username is the documented way to have no authentication, and leaving a verifier
+        // behind would be a secret nobody can use and nobody remembers setting.
+        m_prometheus.m_password = "";
+    }
+    else if (password == "*****")
+    {
+        // The mask means "unchanged"; the verifier already in place stays.
+    }
+    else if (password.empty())
+    {
+        m_prometheus.m_password = "";
+    }
+    else
+    {
+        m_prometheus.m_password = PasswordHash::hash(password.c_str());
+    }
+
+    if (!m_prometheus.m_username.asString().empty() && m_prometheus.m_password.asString().empty())
+    {
+        m_prometheus = previous;
+        throw std::invalid_argument("A Prometheus username requires a password.");
+    }
+
+    // Written here rather than left to the next start: the endpoint is edited from the interface,
+    // and a setting that works until the process ends is not a setting. A write that fails leaves
+    // memory as it was, rather than describing a file that still says something else.
+    try
+    {
+        saveConfigurationUnlocked();
+    }
+    catch (...)
+    {
+        m_prometheus = previous;
+        throw;
+    }
+}
+
 std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
 {
     const WriteLock lock(m_mutex);

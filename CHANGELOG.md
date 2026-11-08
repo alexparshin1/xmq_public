@@ -18,7 +18,10 @@ Requires SPTK 5.6.19.
   `prometheus.port` (default `0.0.0.0:9184`) and the broker answers `GET /metrics` on that
   listener with the Prometheus text exposition format: broker counters, queue depths, connection
   and subscription counts, cluster messages received, and host and process CPU and memory. It is
-  off by default, has no authentication and is per node, not cluster-wide. The listener is owned
+  off by default, has no TLS and is per node, not cluster-wide. The address and port, and an
+  optional HTTP Basic username and password, are edited on the Prometheus page of the configuration
+  interface and take effect at once, without restarting MQTT; the password is stored as a one-way
+  verifier, and a scrape without valid credentials is answered with `401`. The listener is owned
   for the lifetime of the process, so a scrape reports `xmq_up 0` while MQTT is stopped. See
   [doc/Prometheus.md](doc/Prometheus.md).
 
