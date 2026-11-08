@@ -33,6 +33,24 @@ Requires SPTK 5.6.19.
   to 0.95 ms at the default two delivery threads and to 0.76 ms at four. The measured
   end-to-end figure did not move, because on that rig the load client owns the other 1.4 ms.
 
+### Changed
+
+- **The load generator pays less for its own bookkeeping on the delivery path.** Two changes in
+  `xmq_scn`, both measured on the stand under Fan-Out (1000 subscribers, 227k deliveries/s):
+  - The two histograms written on every delivery were `std::map`s, charging one tree walk and a
+    node allocation per delivery: 2.48% of all machine samples, ~35% of the client's userspace
+    CPU, on the path whose latency the tool itself measures. The interval being collected and the
+    run total now count into dense vectors whose element per bucket index is the key the map
+    folded, with lazy growth capped at a bucket range that covers latencies of about an hour.
+    Stored intervals stay sparse. Cost: 0.16% of all samples; medians where compared unchanged.
+  - `XMQ_CLIENT_ACK_BATCH` makes one TCP write carry up to this many acknowledgements instead of
+    one write per received message. Default 1 is the old behaviour; the option is meant for load
+    runs. At 16 the stand measured Fan-Out 1887 → 1802 µs, P2P 240 → 213 µs, Fan-In 168 → 165 µs,
+    the connection scenario untouched (it has no deliveries): the gain is the write and the
+    small segments both machines were carrying, not faster acknowledgements. Acknowledgements
+    delayed this way wait in the session's buffer until the run's flow of deliveries catches up,
+    and a disconnect flushes them.
+
 ## 1.1.0 — 2026-11-05
 
 Requires SPTK 5.6.18.

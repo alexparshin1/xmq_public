@@ -70,9 +70,43 @@ microseconds histogramCeiling(const uint32_t bucket)
     return microseconds(base + (base * (fraction + 1)) / bucketsPerPower);
 }
 
-void addToHistogram(RoundTripLatency::Histogram& histogram, const microseconds latency)
+uint32_t histogramBucketClamped(const int64_t microseconds)
 {
-    ++histogram[histogramBucket(latency.count())];
+    return min(RoundTripLatency::HistogramBucketLimit - 1, histogramBucket(microseconds));
+}
+
+void histogramAdd(RoundTripLatency::HistogramCounts& histogram, const microseconds latency)
+{
+    RoundTripLatency::countHistogram(histogram, histogramBucketClamped(latency.count()));
+}
+
+microseconds percentileOf(const RoundTripLatency::HistogramCounts& histogram, const double percent)
+{
+    // Cheap for the caller, and only ever asked at the end: the buckets are gathered in arrival
+    // order, so the rank walk wants them in index order.
+    vector<uint16_t> bucketsInIndexOrder(histogram.m_touched.begin(), histogram.m_touched.end());
+    ranges::sort(bucketsInIndexOrder);
+    uint64_t total = 0;
+    for (const auto& bucket: bucketsInIndexOrder)
+    {
+        total += histogram.m_counts[bucket];
+    }
+    if (total == 0)
+    {
+        return {};
+    }
+    const auto rank = static_cast<uint64_t>(
+        clamp(ceil(percent / 100.0 * static_cast<double>(total)), 1.0, static_cast<double>(total)));
+    uint64_t seen = 0;
+    for (const auto& bucket: bucketsInIndexOrder)
+    {
+        seen += histogram.m_counts[bucket];
+        if (seen >= rank)
+        {
+            return histogramCeiling(bucket);
+        }
+    }
+    return histogramCeiling(bucketsInIndexOrder.back());
 }
 
 microseconds percentileOf(const RoundTripLatency::Histogram& histogram, const double percent)
@@ -128,8 +162,10 @@ void RoundTripLatency::start(const microseconds groupInterval)
 
     m_summaryLatency = microseconds(0);
     m_count = 0;
-    m_histogram.clear();
-    m_totalHistogram.clear();
+    m_histogram.m_touched.clear();
+    m_histogram.m_counts.clear();
+    m_totalHistogram.m_touched.clear();
+    m_totalHistogram.m_counts.clear();
     m_startedBySequence.clear();
     m_unmatchedReceived = 0;
     m_intervals.clear();
@@ -170,13 +206,14 @@ void RoundTripLatency::storeCurrentInterval()
         auto& [count, summaryLatency, histogram] = m_intervals[interval];
         count += m_count;
         summaryLatency += m_summaryLatency;
-        for (const auto& [bucket, samples]: m_histogram)
+        for (const auto& bucket: m_histogram.m_touched)
         {
-            histogram[bucket] += samples;
+            histogram[bucket] += m_histogram.m_counts[bucket];
         }
         m_summaryLatency = {};
         m_count = 0;
-        m_histogram.clear();
+        m_histogram.m_touched.clear();
+        m_histogram.m_counts.clear();
     }
     m_nextIntervalTime += m_groupIntervalDuration;
 }
@@ -200,8 +237,8 @@ void RoundTripLatency::received()
         }
 
         m_summaryLatency += latency;
-        addToHistogram(m_histogram, latency);
-        addToHistogram(m_totalHistogram, latency);
+        histogramAdd(m_histogram, latency);
+        histogramAdd(m_totalHistogram, latency);
         ++m_count;
     }
 }
@@ -227,8 +264,8 @@ void RoundTripLatency::received(const uint32_t sequence)
     }
 
     m_summaryLatency += latency;
-    addToHistogram(m_histogram, latency);
-    addToHistogram(m_totalHistogram, latency);
+    histogramAdd(m_histogram, latency);
+    histogramAdd(m_totalHistogram, latency);
     ++m_count;
 }
 
@@ -236,8 +273,8 @@ void RoundTripLatency::add(const microseconds duration)
 {
     const std::scoped_lock lock(m_mutex);
     m_summaryLatency += duration;
-    addToHistogram(m_histogram, duration);
-    addToHistogram(m_totalHistogram, duration);
+    histogramAdd(m_histogram, duration);
+    histogramAdd(m_totalHistogram, duration);
     ++m_count;
 }
 
