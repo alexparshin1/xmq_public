@@ -29,12 +29,14 @@ namespace {
  * @brief How many recipients an inline send is worth, and nothing above it.
  *
  * A publication that matched this many sessions or fewer can be written to their sockets by the
- * thread that received it: no send worker wake-up between the match and the write. Off by one,
- * i.e. the inline send is off: measured on the stand's P2P at a hundred thousand deliveries a
- * second it doubles the median against the queued path (429-625 us against 205-226), and the
- * send workers are what the write waits behind. XMQ_INLINE_SEND_MAX turns it on - its failure
- * mode is the send path's own, so let the next measurement find what makes the writes slow
- * (see the diagnostic in SocketWriteBuffer's send() for where that work goes).
+ * thread that received it: no send worker wake-up between the match and the write.
+ *
+ * Off, which is what 0 asks for. Measured on the stand's P2P, a hundred thousand deliveries a
+ * second and one recipient each, the inline send doubles the median rather than halving it:
+ * 429-625 us against 205-226. The queue the write would skip is not what the write waits for;
+ * putting the write on the delivery thread puts it in front of the receive instead. The number
+ * stays as a knob, and the shape stays built, because a small fan-out on a slower socket may
+ * still want it: XMQ_INLINE_SEND_MAX sessions and above, the send worker keeps the write.
  */
 size_t inlineSendMaxSessions()
 {

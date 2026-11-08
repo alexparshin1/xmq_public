@@ -20,8 +20,7 @@ still owed.
   the run should say so rather than assume it.
 
 - [ ] **The load client, 2026-11-08: it is not the bottleneck the bench implied, and its measured
-      costs are now written down.**
-  Profiling `xmq_scn` under Fan-Out (1000 subscribers, 227k deliveries/s) revised the
+      costs are now written down.**  Profiling `xmq_scn` under Fan-Out (1000 subscribers, 227k deliveries/s) revised the
   2026-11-07 conclusion. The client is not CPU saturated - eight session threads at 20–30%,
   the machine 45% idle - and its latency does not fall when threads are added: session threads
   8/16/32 measured 1886/2024/2247 µs, socket-event pollers 1/2/4 measured within noise of each
@@ -47,6 +46,24 @@ still owed.
   per bucket index is exactly the key the map folded, with the ranges seen stored sparse (the
   interval and combined copies) as before. Same medians where measured; the cost fell to 0.16%
   of all samples.
+
+- [ ] **The send queue is not the P2P slowdown: measured, 2026-11-08.**
+  Branch `2026-11-08-send-optimisation` built the alternative - a publication that matched one or
+  two sessions writes its sockets on the delivering thread instead of waking a send worker for
+  each (`XMQ_INLINE_SEND_MAX`, `MessageDispatch::m_inlineSend`, one detach-and-write mutex in
+  `SocketWriteBuffer::send()`). Stand P2P, 100k deliveries/s, paired against 1.1.1:
+  - inline send on: **429-625 us** against 205-226 - the write moved onto the thread that reads;
+  - inline send off with the send worker rewritten to one `send()` per session: **542-579 us** -
+    the batch shape the worker had (detach a round, then write it) is worth more than the hop it
+    looks like it costs;
+  - inline send off and the worker's 1.1.1 shape restored: **204/213 us** against 200/218 - the
+    rest of the branch (the dispatch flag, the send mutex, the instrument) is neutral.
+  Conclusion: the 8-10% P2P gap to FlashMQ is not in the send queue's hand-off. The remaining
+  candidates are per-message userspace costs on the delivery path (topic lookup, queue locks,
+  `shared_ptr` traffic) and the broker's receive path, all of which the profile shows as a long
+  tail of 0.1-0.4% symbols rather than one hotspot. The branch is kept for the instrument: with
+  `XMQ_SEND_DIAG` set, the broker prints the queued wait per second, and the inline knob remains
+  for a rig where a direct write is the faster shape.
 
 - [ ] **Refuse to start when a configured listener is already in use.**
   A broker must not come up on a listener that another process on the same host already serves.

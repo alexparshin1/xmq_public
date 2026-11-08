@@ -38,8 +38,18 @@ void noteSendWait(const uint64_t elapsedNs)
     g_sendWaitCounts[bucket].fetch_add(1, std::memory_order_relaxed);
 }
 
+bool sendPathDiagnosticsEnabled()
+{
+    static const bool enabled = getenv("XMQ_SEND_DIAG") != nullptr;
+    return enabled;
+}
+
 void reportSendWait()
 {
+    if (!sendPathDiagnosticsEnabled())
+    {
+        return;
+    }
     const auto w0 = g_sendWaitCounts[0].exchange(0, std::memory_order_relaxed);
     const auto w1 = g_sendWaitCounts[1].exchange(0, std::memory_order_relaxed);
     const auto w2 = g_sendWaitCounts[2].exchange(0, std::memory_order_relaxed);
@@ -153,4 +163,20 @@ SocketWriteMetrics SocketWriteBuffer::send(std::unique_ptr<sptk::Buffer>& exchan
     }
 
     return {bytes, messages, publishes};
+}
+
+size_t SocketWriteBuffer::bytes() const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_buffer->bytes();
+}
+
+size_t SocketWriteBuffer::messageCount() const
+{
+    return m_messageCount;
+}
+
+size_t SocketWriteBuffer::publishCount() const
+{
+    return m_publishCount;
 }

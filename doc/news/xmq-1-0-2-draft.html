@@ -1,0 +1,39 @@
+<!--
+  Draft news item for the website. The body below is what goes in the "News" field; the title and
+  release date are the other two fields on the form. Fill in the date when 1.0.2 is released.
+
+  Title: XMQ 1.0.2: safer queues and simpler cluster operations
+  Date:  TBD
+
+  Kept here as the draft announcement, not the changelog: CHANGELOG.md is written for someone
+  upgrading and lists every change; this is written for readers who are not upgrading anything.
+-->
+
+<p>
+    XMQ 1.0.2 focuses on cluster administration, bounded queues, and reliable message delivery. You
+    can download it <a href='/downloads'>here</a>.
+</p>
+
+<ul>
+    <li>
+        <b>Nodes join clusters directly:</b> the obsolete invitation workflow is removed, while
+        authenticated remote Start, Join, Leave, and Retire actions remain available.
+    </li>
+    <li>
+        <b>Cluster settings stay with the node in the shared database:</b> listener and web-service
+        changes are saved there and take effect without a broker restart.
+    </li>
+    <li>
+        <b>Queue limits now bound the whole client session:</b> message and byte limits include
+        in-flight deliveries as well as messages waiting behind them.
+    </li>
+    <li>
+        <b>Reconnects and session handovers are more reliable:</b> fixes prevent a reconnect from
+        losing its live connection and preserve delivery as a persistent session moves between nodes.
+    </li>
+    <li>
+        <b>Rejected publications are visible in monitoring:</b> the
+        <code>$SYS/broker/messages/publish/dropped</code> counter now reports messages refused by
+        queue limits.
+    </li>
+</ul>

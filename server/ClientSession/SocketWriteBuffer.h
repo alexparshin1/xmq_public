@@ -106,6 +106,10 @@ public:
      */
     SocketWriteMetrics send(std::unique_ptr<sptk::Buffer>& exchangeBuffer);
 
+    size_t bytes() const;
+    size_t messageCount() const;
+    size_t publishCount() const;
+
     /**
      * @brief Hands the accumulated bytes over and leaves the session ready to take more.
      *
