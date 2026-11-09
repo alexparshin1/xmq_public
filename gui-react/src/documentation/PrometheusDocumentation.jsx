@@ -78,7 +78,8 @@ export default function PrometheusDocumentation() {
             <p>
                 A ready Prometheus, Loki and Grafana stack, with dashboards and alert rules, is in
                 <code>docker/observability</code> of the XMQ repository. It needs an XMQ image with
-                this endpoint (1.1.1 or later).
+                this endpoint (1.1.1 or later). The dashboards import into a Grafana you already run
+                as they are; its README says which data source UID each panel asks for.
             </p>
 
             <h4 id="prometheus-health">Health probes</h4>

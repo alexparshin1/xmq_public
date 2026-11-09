@@ -38,6 +38,10 @@ The dashboards are provisioned from `grafana/dashboards/` and appear under the *
 `prometheus/xmq-alerts.yml`; the log alert is provisioned by Grafana, in
 `grafana/provisioning/alerting/xmq-logs.yml`.
 
+What the metrics dashboard looks like on a broker serving traffic:
+
+![XMQ — broker overview](grafana-overview.png)
+
 Anonymous MQTT access is on so the stack works before any account exists. Set
 `XMQ_ALLOW_ANONYMOUS=false` and create accounts in the interface before the ports are reachable
 from a network you do not control.
@@ -106,6 +110,29 @@ Two things to know about the collector:
 The log alert is provisioned but not connected: **Alerting -> Contact points**, add one, then point
 the **XMQ** notification policy at it. Without a contact point the rule still evaluates and shows in
 the Alerting page, it just notifies nobody.
+
+## Connecting your own Grafana
+
+If Prometheus and Grafana are already installed, this stack is not needed. Point your Prometheus at
+the broker with the scrape configuration in [`doc/Prometheus.md`](../../doc/Prometheus.md), then
+bring the dashboards across.
+
+The dashboards name their data source by UID, not by name: every panel in `xmq-overview.json` asks
+for `xmq-prometheus`, and every panel in `xmq-logs.json` for `xmq-loki`. A data source called
+"Prometheus" but carrying another UID leaves those panels saying the data source was not found.
+Either create it with that UID - **Connections -> Data sources -> Add data source -> Prometheus**,
+and set **UID** to `xmq-prometheus` - or provision it from
+`grafana/provisioning/datasources/xmq.yml`, which is what this stack uses, with the URLs changed to
+your servers.
+
+Then **Dashboards -> New -> Import -> Upload dashboard JSON file**, picking
+`grafana/dashboards/xmq-overview.json` - and `xmq-logs.json` if the JSON log lines are collected
+too, as described above. The Prometheus alert rules go into your `rule_files` from
+`prometheus/xmq-alerts.yml`; the log alert is a Grafana alert rule on the Loki data source, in
+`grafana/provisioning/alerting/xmq-logs.yml`.
+
+Only Grafana's data source changes: the broker keeps answering the same `/metrics` text and is not
+configured to know who scrapes it.
 
 ## Health probes
 

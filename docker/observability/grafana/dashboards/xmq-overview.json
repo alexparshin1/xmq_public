@@ -189,7 +189,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "none"
           }
         },
         "overrides": []
@@ -203,7 +203,7 @@
           "values": false
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "name",
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto"
@@ -216,7 +216,8 @@
           "datasource": {
             "type": "prometheus",
             "uid": "xmq-prometheus"
-          }
+          },
+          "instant": true
         }
       ]
     },
@@ -238,7 +239,16 @@
           "color": {
             "mode": "thresholds"
           },
-          "unit": "s"
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },

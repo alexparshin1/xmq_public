@@ -63,7 +63,9 @@ copy of the configuration file does not yield the scrape password.
 
 A ready Prometheus, Loki and Grafana stack, with provisioned dashboards and alert rules, is in
 [`docker/observability`](../docker/observability/). It needs an image with this endpoint (1.1.1 or
-later).
+later). The dashboards import into a Grafana you already run as they are; the UID each panel asks
+for is in
+[Connecting your own Grafana](../docker/observability/README.md#connecting-your-own-grafana).
 
 ## Logs
 
