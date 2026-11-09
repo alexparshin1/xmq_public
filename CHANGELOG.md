@@ -55,6 +55,15 @@ Requires SPTK 5.6.19.
 
 ### Fixed
 
+- **The metrics endpoint comes back up straight after a restart.** A scrape's connection is closed
+  as soon as it has been answered, so the listening port stays in `TIME_WAIT` for a minute, and
+  the listener was opened without `SO_REUSEADDR`: a broker restarted within that minute logged
+  `Prometheus endpoint did not start: ... the port is already in use by another process` and
+  served no `/metrics` until it was restarted again - saving the Prometheus settings had the same
+  effect, because the endpoint is replaced. The listener now takes its port the way the MQTT
+  listeners do, after the same availability check, which still refuses a port another process is
+  already serving.
+
 - **A broker refuses to start when another process already holds one of its listener ports.**
   The listening sockets are opened with `SO_REUSEPORT`, so a second broker with the same
   configuration used to bind the same MQTT, MQTT+SSL and web/control ports successfully and the
