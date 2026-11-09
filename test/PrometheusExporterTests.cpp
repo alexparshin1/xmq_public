@@ -127,8 +127,9 @@ TEST(PrometheusExporterTests, RefusesAPortAnotherEndpointAlreadyServes)
     PrometheusExporter first([] { return optional<BrokerMetrics> {}; }, "node-a", nullptr, "127.0.0.1", port);
     first.start();
 
-    // No SO_REUSEPORT: the second endpoint must fail rather than share the port with the first
-    // and answer a scrape from whichever process the kernel chooses.
+    // The second endpoint must fail rather than share the port with the first and answer a scrape
+    // from whichever process the kernel chooses. The exporter sets SO_REUSEPORT, because SPTK
+    // offers SO_REUSEADDR only with it, so the refusal is the availability check before the bind.
     PrometheusExporter second([] { return optional<BrokerMetrics> {}; }, "node-b", nullptr, "127.0.0.1", port);
     EXPECT_THROW(second.start(), Exception);
 

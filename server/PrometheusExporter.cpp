@@ -15,6 +15,7 @@
 
 #include "Settings/PasswordHash.h"
 #include "base/xmq-config.h"
+#include "common/ListenerPort.h"
 
 #include <sptk5/Base64.h>
 #include <sptk5/net/Host.h>
@@ -124,10 +125,21 @@ void PrometheusExporter::start()
 
     m_listener.host(Host(m_bindAddress, m_port));
 
-    // Not SO_REUSEPORT: a metrics port another process already serves must fail here rather than
-    // be shared, for the same reason a broker listener does - a scrape answered by two different
-    // processes is a series with two meanings.
-    m_listener.listen(m_port, false);
+    // Asking for reusePort is about SO_REUSEADDR, which SPTK sets only together with SO_REUSEPORT:
+    // the exporter closes a scrape's connection as soon as it has answered it, so the port stays
+    // in TIME_WAIT for a minute, and binding without the option failed for that minute - a broker
+    // restarted right after being scraped lost its endpoint until the next restart.
+    //
+    // The price is SO_REUSEPORT, which SPTK cannot set separately, and which would let a second
+    // process bind the same port and answer a scrape from whichever one the kernel picked. That
+    // is what the check below is for, the same one every MQTT listener passes before it binds:
+    // it asks the kernel about the port with SO_REUSEADDR alone, without SO_REUSEPORT, and gets
+    // an honest answer about a listener already there. Enough as long as this start() is the only
+    // way to this port in the process; ServerController and the configuration interface check
+    // too, so a broker asked to serve a port that is taken says so before it gets here.
+    checkListenerPortAvailable("Prometheus endpoint", m_bindAddress, m_port);
+
+    m_listener.listen(m_port, true);
 
     m_running = true;
     m_thread = thread([this]
