@@ -6,12 +6,11 @@ still owed.
 
 ## Planned
 
-- [ ] **Regression test for the fan-out shard mapping.**
-  `SubscriptionManager::shardOf()` now mixes the session address before folding it, because
-  sessions are allocated at a stride that made the plain address fold to one shard for every
-  subscriber. The test should allocate a thousand objects of one size class, take their addresses
-  as the mapping's input, and assert that every shard gets members: the old mapping put all of
-  them in one, and that is exactly what a future simplification would reintroduce.
+- [x] **Regression test for the fan-out shard mapping.**
+  Done in 1.1.1: `ShardMappingTests.SpreadsOneAllocatorSizeClassOverEveryShard` allocates a
+  thousand objects of one size class - the shape the session allocator gives a fan-out - and
+  asserts that every shard of 2, 4 and 8 receives at least a twentieth of them. The mapping this
+  replaced, folding the address directly, put all of them in the first shard.
 
 - [x] **Fix the two failing jest suites.**
   Done in 1.1.1: the screens were right and the expectations were stale. `gui-react` asks for the
