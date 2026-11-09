@@ -35,7 +35,7 @@ std::uint32_t networkToHost(std::uint32_t value)
 /// One `a.b.c.d` address as a host-byte-order integer, throwing when malformed.
 std::uint32_t parseAddress(const std::string& token)
 {
-    std::uint32_t octets[4] {};
+    std::uint32_t octets[4]{};
     int           count = 0;
     for (const auto c: token)
     {
@@ -114,7 +114,7 @@ void IpWhitelist::assign(const std::string& text)
         return;
     }
 
-    auto begin = 0U;
+    size_t begin = 0;
     while (begin <= m_text.size())
     {
         const auto comma = m_text.find(',', begin);

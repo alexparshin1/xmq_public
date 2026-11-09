@@ -50,7 +50,7 @@ using namespace sptk;
 using namespace chrono;
 using namespace xmq;
 
-const String Server::Version {XMQ_VERSION_NUMBER};
+const String Server::Version{XMQ_VERSION_NUMBER};
 
 mutex        Server::m_instancesMutex;
 set<Server*> Server::m_instancesSet;
@@ -72,7 +72,7 @@ bool Server::cleanStartFor(const Settings& settings, const std::optional<bool>& 
     return !settings.m_persistence.m_clean_start.isNull() && settings.m_persistence.m_clean_start.asBool();
 }
 
-std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings& settings, const shared_ptr<LogEngine>& logEngine,
+std::shared_ptr<RedisStorage> Server::initializeRedis(const Settings&            settings, const shared_ptr<LogEngine>& logEngine,
                                                       const std::optional<bool>& cleanStart)
 {
     try
@@ -140,21 +140,21 @@ SStorage Server::initializeStorage(const Settings& settings, const std::optional
 }
 
 Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEngine>& logEngine, const LogPriority startupMessagesLogPriority,
-               const std::optional<bool> cleanStart)
+               const std::optional<bool>        cleanStart)
     : ServerData(settings, logEngine, socketEventsMode)
-    , m_sessionTimer(make_shared<Timer>())
-    , m_storage(initializeStorage(*settings, cleanStart))
-    , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
-    , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))
-    , m_clientSessionThreads(this,
-                             resolveThreadCount(settings->m_server_limits.m_send_threads.asString()),
-                             resolveReceiveThreadCount(settings->m_server_limits.m_receive_threads.asString()),
-                             *logEngine)
-    , m_messageDeliveryThreads(*m_subscriptionManager,
-                               resolveDeliveryThreadCount(settings->m_server_limits.m_delivery_threads.asString()))
-    , m_cluster(make_shared<cluster::Cluster>(this))
-    , m_extensions(*logEngine, getVersion())
-    , m_systemStatistics(make_shared<SystemStatistics>(Version, getTopicManager(), m_subscriptionManager))
+      , m_sessionTimer(make_shared<Timer>())
+      , m_storage(initializeStorage(*settings, cleanStart))
+      , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
+      , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))
+      , m_clientSessionThreads(this,
+                               resolveThreadCount(settings->m_server_limits.m_send_threads.asString()),
+                               resolveReceiveThreadCount(settings->m_server_limits.m_receive_threads.asString()),
+                               *logEngine)
+      , m_messageDeliveryThreads(*m_subscriptionManager,
+                                 resolveDeliveryThreadCount(settings->m_server_limits.m_delivery_threads.asString()))
+      , m_cluster(make_shared<cluster::Cluster>(this))
+      , m_extensions(*logEngine, getVersion())
+      , m_systemStatistics(make_shared<SystemStatistics>(Version, getTopicManager(), m_subscriptionManager))
 {
     // Before anything serves: a node that could not read the cluster's configuration does not know
     // whether it belongs to a cluster, and serving on a guess risks writing over the sessions of a
@@ -195,9 +195,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
         [this]
         {
             sendpathdiagnostics::reportSendWait();
-            return SystemStatistics::QueueDepths {.receive = m_clientSessionThreads.receiveQueueLength(),
-                                                  .send = m_clientSessionThreads.sendQueueLength(),
-                                                  .delivery = m_messageDeliveryThreads.queueLength()};
+            return SystemStatistics::QueueDepths{.receive = m_clientSessionThreads.receiveQueueLength(),
+                                                 .send = m_clientSessionThreads.sendQueueLength(),
+                                                 .delivery = m_messageDeliveryThreads.queueLength()};
         });
 
     bool sslKeysLoaded;
@@ -208,9 +208,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     catch (const exception& e)
     {
         logMessage(LogSubject::ServerEvents, LogPriority::Error, [message = e.what()]
-                   {
-                       return "Can't load SSL keys: " + string(message) + ".";
-                   });
+        {
+            return "Can't load SSL keys: " + string(message) + ".";
+        });
         sslKeysLoaded = false;
     }
 
@@ -262,13 +262,13 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     if (!m_extensions.authenticating())
     {
         logMessage(LogSubject::ServerEvents, LogPriority::Error, [&settings]
-                   {
-                       return settings->userManager().isAllowAnonymous()
-                                  ? "No extension authenticates, so only anonymous clients can connect. "
-                                    "Configure an authenticator in xmq_extensions.d."
-                                  : "No extension authenticates and anonymous connections are not allowed, so "
-                                    "nobody can connect. Configure an authenticator in xmq_extensions.d.";
-                   });
+        {
+            return settings->userManager().isAllowAnonymous()
+                       ? "No extension authenticates, so only anonymous clients can connect. "
+                       "Configure an authenticator in xmq_extensions.d."
+                       : "No extension authenticates and anonymous connections are not allowed, so "
+                       "nobody can connect. Configure an authenticator in xmq_extensions.d.";
+        });
     }
 
     // Said once, and only when somebody is watching: an observer that receives nothing looks
@@ -278,16 +278,16 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     if (m_extensions.watching() && !disabledSubjects.empty())
     {
         logMessage(LogSubject::ServerEvents, LogPriority::Info, [&disabledSubjects]
-                   {
-                       return "Extension events are switched off for: " + disabledSubjects.join(", ") +
-                              ". See 'events' in the configuration.";
-                   });
+        {
+            return "Extension events are switched off for: " + disabledSubjects.join(", ") +
+                   ". See 'events' in the configuration.";
+        });
     }
 
     logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, []
-               {
-                   return "XMQ server version " + getVersion() + ".";
-               });
+    {
+        return "XMQ server version " + getVersion() + ".";
+    });
 
     if (m_redisStorage)
     {
@@ -301,9 +301,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
         catch (const exception& e)
         {
             logMessage(LogSubject::ServerEvents, LogPriority::Error, [message = e.what()]
-                       {
-                           return "Can't connect to Redis: " + string(message) + ".";
-                       });
+            {
+                return "Can't connect to Redis: " + string(message) + ".";
+            });
         }
     }
 
@@ -487,9 +487,9 @@ bool Server::bridgesConnected() const
 {
     const scoped_lock lock(m_mutex);
     return std::ranges::all_of(m_bridges, [](const auto& bridge)
-                               {
-                                   return bridge->isConnected();
-                               });
+    {
+        return bridge->isConnected();
+    });
 }
 
 void Server::restoreServerState() const
@@ -527,9 +527,9 @@ void Server::restoreServerState() const
 bool Server::loadSslKeys(const shared_ptr<Settings>& settings)
 {
     logMessage(LogSubject::ServerEvents, LogPriority::Debug, []
-               {
-                   return "Initializing SSL keys..";
-               });
+    {
+        return "Initializing SSL keys..";
+    });
     auto sslKeysLoaded = false;
     if (const auto settingsKeys = settings->m_connections.m_ssl_keys;
         !settingsKeys.m_certfile.asString().empty())
@@ -664,7 +664,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
                                 ? String("0.0.0.0")
                                 : listener.m_bind_ip.asString();
         checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
-                                       listener.m_protocol.asString().toUpperCase() + ")",
+                                   listener.m_protocol.asString().toUpperCase() + ")",
                                    bindIP.c_str(), static_cast<uint16_t>(listener.m_port.asInteger()));
     }
 
@@ -723,15 +723,15 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
         {
             stringstream disabledMessage;
             disabledMessage << "Listener " << listener.m_name.asString()
-                            << " on port " << listener.m_port.asInteger() << " is disabled.";
+                << " on port " << listener.m_port.asInteger() << " is disabled.";
             logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, disabledMessage.str() + ".");
             continue;
         }
 
         stringstream message;
         message << "Listening " << listener.m_protocol.asString().toUpperCase()
-                << " on port " << listener.m_port.asInteger()
-                << " (" + listener.m_threads.asString() + " thread";
+            << " on port " << listener.m_port.asInteger()
+            << " (" + listener.m_threads.asString() + " thread";
         if (listener.m_threads.asInteger() > 1)
         {
             message << "s";
@@ -746,7 +746,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
         else
         {
             const auto bindIP = listener.m_bind_ip.asString().empty() ? String("0.0.0.0") : listener.m_bind_ip.asString();
-            Host       host {bindIP, static_cast<uint16_t>(listener.m_port.asInteger())};
+            Host       host{bindIP, static_cast<uint16_t>(listener.m_port.asInteger())};
             addListener(connectionType, host, static_cast<uint16_t>(listener.m_threads.asInteger()));
         }
     }
@@ -756,7 +756,7 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
 
 void Server::rebuildListenerWhitelists()
 {
-    const auto settings = getSettings();
+    const auto                                     settings = getSettings();
     std::unordered_map<std::uint16_t, IpWhitelist> rebuilt;
     if (settings)
     {
@@ -779,7 +779,7 @@ void Server::rebuildListenerWhitelists()
                 // which is the safe side for an allow list.
                 logMessage(LogSubject::ServerEvents, LogPriority::Error,
                            std::string("Listener ") + listener.m_name.asString() +
-                               " has an invalid IP white list, so it admits no connection: " + e.what() + ".");
+                           " has an invalid IP white list, so it admits no connection: " + e.what() + ".");
             }
         }
     }
@@ -795,7 +795,7 @@ bool Server::allowConnection(const sockaddr_in* peer, const sptk::Host& listener
     }
 
     std::shared_lock lock(m_listenerWhitelistsMutex);
-    const auto        iterator = m_listenerWhitelists.find(listenerHost.port());
+    const auto       iterator = m_listenerWhitelists.find(listenerHost.port());
     if (iterator == m_listenerWhitelists.end())
     {
         // No allow list for this port: anyone may connect.
@@ -844,13 +844,13 @@ void Server::stopServer()
         {
             vector<pair<weak_ptr<Subscription>, SMessage>> unacknowledged;
             getClientSessionManager()->forEach([&unacknowledged](const SClientSession& session)
-                                               {
-                                                   if (session->isCleanSession() && !session->isClusterLink())
-                                                   {
-                                                       auto messages = session->unacknowledgedShared();
-                                                       unacknowledged.insert(unacknowledged.end(), messages.begin(), messages.end());
-                                                   }
-                                               });
+            {
+                if (session->isCleanSession() && !session->isClusterLink())
+                {
+                    auto messages = session->unacknowledgedShared();
+                    unacknowledged.insert(unacknowledged.end(), messages.begin(), messages.end());
+                }
+            });
             if (!unacknowledged.empty())
             {
                 logMessage(LogSubject::ClusterEvents, LogPriority::Info,
@@ -868,12 +868,12 @@ void Server::stopServer()
                 {
                     size_t queued = 0;
                     getClientSessionManager()->forEach([&queued](const SClientSession& session)
-                                                       {
-                                                           if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr)
-                                                           {
-                                                               queued += queue->size();
-                                                           }
-                                                       });
+                    {
+                        if (const auto queue = session->isClusterLink() ? session->getInflightQueue() : nullptr)
+                        {
+                            queued += queue->size();
+                        }
+                    });
                     return queued;
                 };
                 constexpr auto patience = 1s;
@@ -1030,7 +1030,7 @@ void Server::closeSession(const string& clientId, const bool takeOver)
     }
 }
 
-void Server::closeSession(const SClientSession& clientSession, const bool takeOver,
+void Server::closeSession(const SClientSession&                  clientSession, const bool takeOver,
                           const shared_ptr<ServerConnectionExt>& closingConnection)
 {
     if (closingConnection && clientSession->getConnection() != closingConnection)
@@ -1315,7 +1315,7 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
         newClientSession->setAuthenticationPending(true);
 
         const auto connection = newClientSession->getConnection();
-        const auto socketAddress = connection ? std::string(connection->address()) : std::string {};
+        const auto socketAddress = connection ? std::string(connection->address()) : std::string{};
 
         // Asked of the socket, because that is what knows. A rule of the form "this client may
         // connect, but only over TLS" is one of the first an authentication extension is asked
@@ -1323,12 +1323,12 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
         const auto encrypted = dynamic_pointer_cast<SSLSocket>(newClientSession->getSocket()) != nullptr;
 
         m_extensions.authenticate(
-            ExtensionHost::AuthRequest {.m_clientId = clientId,
-                                        .m_username = connectMessage->getUsername(),
-                                        .m_password = connectMessage->getPassword(),
-                                        .m_remoteAddress = socketAddress,
-                                        .m_protocolVersion = static_cast<uint8_t>(protocolVersion),
-                                        .m_encrypted = encrypted},
+            ExtensionHost::AuthRequest{.m_clientId = clientId,
+                                       .m_username = connectMessage->getUsername(),
+                                       .m_password = connectMessage->getPassword(),
+                                       .m_remoteAddress = socketAddress,
+                                       .m_protocolVersion = static_cast<uint8_t>(protocolVersion),
+                                       .m_encrypted = encrypted},
             [this, newClientSession, connectMessage](const ExtensionHost::AuthDecision decision,
                                                      std::shared_ptr<AclGroup>         aclGroup)
             {
@@ -1384,7 +1384,7 @@ bool Server::needsSessionLookup(const SConnectMessage& connectMessage) const
     return getRedisStorage() != nullptr && !parameters->m_cleanSession && !getClientSession(parameters->getClientId());
 }
 
-void Server::lookUpSessionThen(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+void Server::lookUpSessionThen(const SClientSession&             newClientSession, const SConnectMessage& connectMessage,
                                const ExtensionHost::AuthDecision decision)
 {
     // A client an extension has already refused is not looked up: nothing will be done with the
@@ -1399,19 +1399,19 @@ void Server::lookUpSessionThen(const SClientSession& newClientSession, const SCo
         connectMessage->getUsername() != "cluster" && !newClientSession->isClaimedForCluster())
     {
         runConnectCompletion([this, cluster, newClientSession, connectMessage, decision]
-                             {
-                                 newClientSession->setClaimedForCluster();
-                                 if (!cluster->claimSession(connectMessage->getParameters()->getClientId()))
-                                 {
-                                     const auto protocolVersion = connectMessage->getParameters()->m_protocolVersion;
-                                     connectMessage->setReasonCode(protocolVersion == ProtocolVersion::MqttV5
-                                                                       ? ReasonCode::ServerUnavailable
-                                                                       : ReasonCode::ErrorServerNotAvailable);
-                                     completePendingConnect(newClientSession, connectMessage, decision);
-                                     return;
-                                 }
-                                 lookUpSessionThen(newClientSession, connectMessage, decision);
-                             });
+        {
+            newClientSession->setClaimedForCluster();
+            if (!cluster->claimSession(connectMessage->getParameters()->getClientId()))
+            {
+                const auto protocolVersion = connectMessage->getParameters()->m_protocolVersion;
+                connectMessage->setReasonCode(protocolVersion == ProtocolVersion::MqttV5
+                                                  ? ReasonCode::ServerUnavailable
+                                                  : ReasonCode::ErrorServerNotAvailable);
+                completePendingConnect(newClientSession, connectMessage, decision);
+                return;
+            }
+            lookUpSessionThen(newClientSession, connectMessage, decision);
+        });
         return;
     }
 
@@ -1432,14 +1432,14 @@ void Server::lookUpSessionThen(const SClientSession& newClientSession, const SCo
                                                 // On the Redis connection's reader thread, which
                                                 // every reply waits behind: hand the work over.
                                                 runConnectCompletion([this, newClientSession, connectMessage, decision, record]
-                                                                     {
-                                                                         newClientSession->setPrefetchedSession(record);
-                                                                         completePendingConnect(newClientSession, connectMessage, decision);
-                                                                     });
+                                                {
+                                                    newClientSession->setPrefetchedSession(record);
+                                                    completePendingConnect(newClientSession, connectMessage, decision);
+                                                });
                                             });
 }
 
-void Server::completePendingConnect(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+void Server::completePendingConnect(const SClientSession&             newClientSession, const SConnectMessage& connectMessage,
                                     const ExtensionHost::AuthDecision decision)
 {
     newClientSession->setAuthenticationPending(false);
@@ -1481,12 +1481,12 @@ void Server::completePendingConnect(const SClientSession& newClientSession, cons
 void Server::runConnectCompletion(std::function<void()> work)
 {
     std::call_once(m_connectCompletionsStarted, [this]
-                   {
-                       for (size_t i = 0; i < ConnectCompletionThreads; ++i)
-                       {
-                           m_connectCompletionThreads.emplace_back(&Server::connectCompletionThread, this);
-                       }
-                   });
+    {
+        for (size_t i = 0; i < ConnectCompletionThreads; ++i)
+        {
+            m_connectCompletionThreads.emplace_back(&Server::connectCompletionThread, this);
+        }
+    });
     m_connectCompletions.push_back(std::move(work));
 }
 
@@ -1525,7 +1525,7 @@ void Server::stopConnectCompletions()
     m_connectCompletionThreads.clear();
 }
 
-ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession, const SConnectMessage& connectMessage,
+ReasonCode Server::completeConnectMessage(const SClientSession&             newClientSession, const SConnectMessage& connectMessage,
                                           const ExtensionHost::AuthDecision extensionDecision,
                                           SClientSession*                   survivingSession)
 {
@@ -1536,8 +1536,9 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
     // The extension/Redis reply can outlive the socket carrying CONNECT. Refuse
     // that late completion before authenticate() can disconnect a live incumbent.
     const auto pendingConnection = newClientSession->getConnection();
-    const auto unavailable = protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
-                                                                       : ReasonCode::ErrorServerNotAvailable;
+    const auto unavailable = protocolVersion == ProtocolVersion::MqttV5
+                                 ? ReasonCode::ServerUnavailable
+                                 : ReasonCode::ErrorServerNotAvailable;
     if (!pendingConnection)
     {
         return unavailable;
@@ -1579,8 +1580,9 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
                        return format("{}: refused, the cluster is offline: participating {}, lease held {}.",
                                      clientId, coordinator->isParticipating(), coordinator->isOnline());
                    });
-        reasonCode = protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
-                                                                : ReasonCode::ErrorServerNotAvailable;
+        reasonCode = protocolVersion == ProtocolVersion::MqttV5
+                         ? ReasonCode::ServerUnavailable
+                         : ReasonCode::ErrorServerNotAvailable;
     }
 
     if (reasonCode == ReasonCode::Success && existingClientSession &&
@@ -1721,7 +1723,7 @@ ReasonCode Server::completeConnectMessage(const SClientSession& newClientSession
     // The address goes as an attribute rather than a field: a fact the broker knows about an event
     // should not cost an ABI version to publish. Copied only if some extension asked for it.
     const auto connected = clientSession->getConnection();
-    const auto remoteAddress = connected ? std::string(connected->address()) : std::string {};
+    const auto remoteAddress = connected ? std::string(connected->address()) : std::string{};
 
     m_extensions.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, clientId, clientSession->getUsername(), {}, 0, 0,
                               false, {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
@@ -1791,8 +1793,9 @@ namespace {
  */
 ReasonCode unavailableFor(const ProtocolVersion protocolVersion)
 {
-    return protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::ServerUnavailable
-                                                      : ReasonCode::ErrorServerNotAvailable;
+    return protocolVersion == ProtocolVersion::MqttV5
+               ? ReasonCode::ServerUnavailable
+               : ReasonCode::ErrorServerNotAvailable;
 }
 
 } // namespace
@@ -1837,9 +1840,9 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
     const auto configured = ExtensionHost::readConfiguration(getSettings()->configurationPath(),
                                                              *getLogEngine());
     const auto wanted = ranges::find_if(configured, [&name](const auto& candidate)
-                                        {
-                                            return candidate.m_name == name;
-                                        });
+    {
+        return candidate.m_name == name;
+    });
     if (wanted == configured.end())
     {
         return ExtensionHost::Report::problem(name + ": the configuration no longer lists it");
@@ -1875,9 +1878,9 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     return report;
 }
 
-ReasonCode Server::authenticate(const string&                     clientId,
-                                const string&                     username,
-                                const string&                     password,
+ReasonCode Server::authenticate(const string& clientId,
+                                const string& username,
+                                const string& /*password*/,
                                 const string&                     remoteAddress,
                                 const ProtocolVersion             protocolVersion,
                                 const shared_ptr<ClientSession>&  existingClientSession,
@@ -1895,8 +1898,9 @@ ReasonCode Server::authenticate(const string&                     clientId,
                        return error;
                    });
         m_extensions.publishError(LogSubject::Connect, "invalid_client_id",
-                                  clientId.empty() ? "Empty client identifier"
-                                                   : "Invalid client identifier",
+                                  clientId.empty()
+                                      ? "Empty client identifier"
+                                      : "Invalid client identifier",
                                   clientId, username,
                                   {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
         return protocolVersion == ProtocolVersion::MqttV5 ? ReasonCode::IdentifierRejected : ReasonCode::ErrorIdentifierRejected;
@@ -1913,8 +1917,9 @@ ReasonCode Server::authenticate(const string&                     clientId,
             logMessage(LogSubject::ServerConnections, LogPriority::Error,
                        [&clientId, &username]
                        {
-                           return (username.empty() ? clientId
-                                                    : username + " (" + clientId + ")") +
+                           return (username.empty()
+                                       ? clientId
+                                       : username + " (" + clientId + ")") +
                                   ": refused by an extension.";
                        });
             m_extensions.publishError(LogSubject::Connect, "refused", "Refused by an extension",
@@ -1983,7 +1988,7 @@ ReasonCode Server::authenticate(const string&                     clientId,
                            return clientId + (m_extensions.authenticating()
                                                   ? ": no extension recognised this account."
                                                   : ": refused, because no extension authenticates. "
-                                                    "Configure an authenticator in xmq_extensions.d.");
+                                                  "Configure an authenticator in xmq_extensions.d.");
                        });
 
             // The reason is finer than what the client is told, which learns only that it failed:
@@ -2092,16 +2097,16 @@ bool Server::releaseSession(const string& clientId)
         logMessage(LogSubject::ClusterEvents, LogPriority::Debug,
                    format("Session {} let go with {} queued message(s).", clientId, queue->size()));
         queue->forEach([](const SMessageDispatch& dispatch)
-                       {
-                           if (const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch))
-                           {
-                               delivery->keepRecord();
-                           }
-                       });
+        {
+            if (const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch))
+            {
+                delivery->keepRecord();
+            }
+        });
         queue->clear();
     }
 
-    const auto redisStorage = getRedisStorage();
+    const auto     redisStorage = getRedisStorage();
     constexpr auto writesTimeout = chrono::seconds(2);
     return !redisStorage || redisStorage->waitForWrites(writesTimeout);
 }
@@ -2118,12 +2123,12 @@ void Server::onClusterStateChanged(const bool online)
                "Cluster-offline: the shared storage cannot be reached. Disconnecting clients until it can.");
     vector<SClientSession> clients;
     getClientSessionManager()->forEach([&clients](const SClientSession& session)
-                                       {
-                                           if (!session->isClusterSession() && session->getConnection())
-                                           {
-                                               clients.push_back(session);
-                                           }
-                                       });
+    {
+        if (!session->isClusterSession() && session->getConnection())
+        {
+            clients.push_back(session);
+        }
+    });
     // Outside forEach(), which holds the manager's lock that closing a session takes too.
     for (const auto& session: clients)
     {
@@ -2137,8 +2142,9 @@ namespace {
 /// earlier versions do not, and get the general one.
 ReasonCode refusalFor(const SClientSession& client)
 {
-    return client->getProtocolVersion() == ProtocolVersion::MqttV5 ? ReasonCode::NotAuthorized
-                                                                   : ReasonCode::UnspecifiedError;
+    return client->getProtocolVersion() == ProtocolVersion::MqttV5
+               ? ReasonCode::NotAuthorized
+               : ReasonCode::UnspecifiedError;
 }
 
 /**
@@ -2152,7 +2158,7 @@ ReasonCode refusalFor(const SClientSession& client)
  * A cluster session is not asked about. Traffic between nodes is the broker's own, and running it
  * past a customer's topic rules would let a rule mistake partition the cluster.
  */
-ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, const xmq_acl_action action,
+ReasonCode extensionGrants(const SClientSession&  client, const Topic*, const xmq_acl_action action,
                            const std::string_view topicName)
 {
     if (client->isClusterSession())
@@ -2179,7 +2185,7 @@ ReasonCode extensionGrants(const SClientSession& client, const Topic* topic, con
 void Server::reloadAclRules()
 {
     const scoped_lock lock(m_aclRulesMutex);
-    const auto       settings = getSettings();
+    const auto        settings = getSettings();
     m_aclRules.reload(settings->userManager().store(), settings->userManager());
     m_aclRulesLoaded.store(true, std::memory_order_release);
 }
@@ -2203,7 +2209,7 @@ void Server::accountsChanged()
 }
 
 ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic,
-                                string* explanation)
+                                string*               explanation)
 {
     using enum ReasonCode;
 
@@ -2215,7 +2221,7 @@ ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic
             server.reloadAclRules();
         }
         const auto native = server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
-                                     topic->fullName(), true, explanation);
+                                                        topic->fullName(), true, explanation);
         if (native == AclRules::Decision::Deny)
         {
             return refusalFor(client);
@@ -2269,7 +2275,7 @@ ReasonCode Server::grantSubscription(const SClientSession& client, const Topic* 
             server.reloadAclRules();
         }
         const auto native = server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
-                                     topic->filterName(), false);
+                                                        topic->filterName(), false);
         if (native == AclRules::Decision::Deny)
         {
             return refusalFor(client);

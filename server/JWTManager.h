@@ -12,6 +12,7 @@
 */
 #pragma once
 
+#include "base/xmq.h"
 #include "service/CUser.h"
 #include <set>
 #include <sptk5/JWT.h>
@@ -20,7 +21,7 @@
 
 namespace xmq {
 
-class JWTManager
+class XMQ_EXPORT JWTManager
 {
 public:
     explicit JWTManager(std::chrono::seconds tokenExpirationTime = std::chrono::hours(12));
@@ -33,9 +34,9 @@ public:
 
 private:
     sptk::SmartMutex             m_mutex;
-    const sptk::String           m_key {"ProTIS " + sptk::DateTime::Now().isoDateTimeString(sptk::DateTime::PrintAccuracy::SECONDS, true)};
+    const sptk::String           m_key{"ProTIS " + sptk::DateTime::Now().isoDateTimeString(sptk::DateTime::PrintAccuracy::SECONDS, true)};
     std::set<sptk::String>       m_issuedJwtMd5;
-    std::shared_ptr<sptk::Timer> m_timer {std::make_shared<sptk::Timer>()};
+    std::shared_ptr<sptk::Timer> m_timer{std::make_shared<sptk::Timer>()};
     std::chrono::seconds         m_tokenExpirationTime;
 };
 

@@ -75,9 +75,10 @@ size_t indexStart(const CTestClientGroup& group)
 
 std::string processTopicNamespace()
 {
-    static const std::string value = [] {
+    static const std::string value = []
+    {
         std::random_device random;
-        std::string uuid;
+        std::string        uuid;
         for (size_t i = 0; i < 16; ++i)
         {
             if (i == 4 || i == 6 || i == 8 || i == 10) uuid += '-';
@@ -174,7 +175,7 @@ std::string ScenarioEngine::typeToString(const Type type)
 
 void ScenarioEngine::verifyScenario() const
 {
-    for (const auto* group : {&m_scenario.m_publishers, &m_scenario.m_subscribers})
+    for (const auto* group: {&m_scenario.m_publishers, &m_scenario.m_subscribers})
     {
         const auto start = group->m_client_index_start.isNull() ? 0 : group->m_client_index_start.asInteger();
         const auto count = group->m_client_count.asInteger();
@@ -182,7 +183,7 @@ void ScenarioEngine::verifyScenario() const
         {
             throw std::invalid_argument("Invalid client index range");
         }
-        for (const auto& server : group->m_servers)
+        for (const auto& server: group->m_servers)
         {
             if (server.m_hostname.asString().empty() || server.m_port.asInteger() < 1 || server.m_port.asInteger() > 65535)
             {
@@ -192,7 +193,7 @@ void ScenarioEngine::verifyScenario() const
     }
     switch (typeFromString(m_scenario.m_type))
     {
-        using enum Type;
+            using enum Type;
         case FanIn:
             if (m_scenario.m_subscribers.m_client_count.asInteger() >= m_scenario.m_publishers.m_client_count.asInteger())
             {
@@ -224,9 +225,9 @@ void ScenarioEngine::verifyScenario() const
     }
 }
 
-void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCredentials& serverCredentials,
+void ScenarioEngine::probeConnection(const Host&                      serverHost, const ConnectCredentials&    serverCredentials,
                                      const client::ConnectParameters& connectParameters, const ProtocolVersion protocolVersion,
-                                     const shared_ptr<SSLKeys>& sslKeys) const
+                                     const shared_ptr<SSLKeys>&       sslKeys) const
 {
     const ConnectCredentials probeCredentials(processTopicNamespace() + "/connect-probe", serverCredentials.getUsername(), serverCredentials.getPassword());
 
@@ -250,14 +251,14 @@ void ScenarioEngine::probeConnection(const Host& serverHost, const ConnectCreden
     probeClient.disconnect();
 }
 
-client::SMqttClient ScenarioEngine::connectClientAsync(const Host& serverHost, const client::ConnectParameters& connectParameters,
-                                                       const ProtocolVersion protocolVersion,
-                                                       const size_t clientIndex, const size_t clientCount,
+client::SMqttClient ScenarioEngine::connectClientAsync(const Host&                        serverHost, const client::ConnectParameters& connectParameters,
+                                                       const ProtocolVersion              protocolVersion,
+                                                       const size_t                       clientIndex, const size_t clientCount,
                                                        const shared_ptr<ConnectProgress>& progress,
-                                                       const ConnectCredentials& connectCredentials,
-                                                       const SMessageProperties& connectProperties,
-                                                       const shared_ptr<SSLKeys>& sslKeys,
-                                                       const shared_ptr<atomic_bool>& counted) const
+                                                       const ConnectCredentials&          connectCredentials,
+                                                       const SMessageProperties&          connectProperties,
+                                                       const shared_ptr<SSLKeys>&         sslKeys,
+                                                       const shared_ptr<atomic_bool>&     counted) const
 {
     String bindAddress;
     if (!m_bindAddresses.empty())
@@ -314,7 +315,7 @@ shared_ptr<MessageProperties> ScenarioEngine::groupProperties(const WSArray<CMes
     if (protocolVersion != ProtocolVersion::MqttV5)
     {
         throw Exception("This scenario asks for " + string(what) + " properties, which need MQTT 5; "
-                                                                   "protocol_version is " +
+                        "protocol_version is " +
                         to_string(static_cast<int>(protocolVersion)));
     }
 
@@ -337,7 +338,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                                                const ConnectCredentials&        serverCredentials,
                                                                const client::ConnectParameters& connectParameters,
                                                                const ProtocolVersion            protocolVersion,
-                                                               const CTestClientGroup&           group,
+                                                               const CTestClientGroup&          group,
                                                                const size_t                     clientCount,
                                                                const string&                    clientIdPrefix,
                                                                const string&                    scenarioTitle,
@@ -345,18 +346,18 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                                                const SMessageProperties&        connectProperties,
                                                                const shared_ptr<SSLKeys>&       sslKeys) const
 {
-    mutex                       amutex;
-    vector<client::SMqttClient> clients(clientCount);
+    mutex                           amutex;
+    vector<client::SMqttClient>     clients(clientCount);
     vector<shared_ptr<atomic_bool>> clientCounted(clientCount);
-    const auto                  connectProgress = make_shared<ConnectProgress>();
-    auto&                       connectedCount = connectProgress->connected;
-    auto&                       allConnected = connectProgress->finished;
-    atomic_size_t               failedCount = 0;
+    const auto                      connectProgress = make_shared<ConnectProgress>();
+    auto&                           connectedCount = connectProgress->connected;
+    auto&                           allConnected = connectProgress->finished;
+    atomic_size_t                   failedCount = 0;
 
     vector<Host> serverHosts;
     if (group.m_servers.empty()) serverHosts.push_back(serverHost);
     else
-        for (const auto& endpoint : group.m_servers)
+        for (const auto& endpoint: group.m_servers)
             serverHosts.emplace_back(endpoint.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger()));
     const auto serverHostsPtr = make_shared<const vector<Host>>(serverHosts);
 
@@ -380,7 +381,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
 
     constexpr size_t threadCount = 128;
 
-    milliseconds statsInterval {0};
+    milliseconds statsInterval{0};
     if (m_paceMaker)
     {
         statsInterval = chrono::duration_cast<milliseconds>(
@@ -401,7 +402,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     ProgressBar progressBar(string(progressLabel), m_showProgress);
     struct ProgressThread
     {
-        std::atomic_bool stop {false};
+        std::atomic_bool stop{false};
         std::thread      thread;
 
         void stopAndJoin()
@@ -422,83 +423,83 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     if (m_showProgress)
     {
         progress.thread = thread([&connectedCount, clientCount, &progressBar, &progress]
-                                 {
-                                     while (!progress.stop && connectedCount.load() < clientCount)
-                                     {
-                                         progressBar.update(connectedCount.load(), clientCount);
-                                         this_thread::sleep_for(50ms);
-                                     }
-                                 });
+        {
+            while (!progress.stop && connectedCount.load() < clientCount)
+            {
+                progressBar.update(connectedCount.load(), clientCount);
+                this_thread::sleep_for(50ms);
+            }
+        });
     }
 
     roundTripLatency.start(statsInterval);
     for (size_t i = 0; i < threadCount; ++i)
     {
         threads.emplace_back([this, &group, serverHostsPtr, &amutex, &clientIndices, &serverCredentials, &clientIdPrefix, &connectParameters, protocolVersion, &connectedCount, &failedCount, &allConnected, &connectProperties,
-                              clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys, connectProgress]
-                             {
-                                 size_t clientIndex = 0;
-                                 while (!clientIndices.empty() && clientIndices.pop_front(clientIndex, 100ms))
-                                 {
-                                     if (m_paceMaker)
-                                     {
-                                         m_paceMaker->next();
-                                     }
+            clientCount, &clients, &clientCounted, testEndTime, &roundTripLatency, &sslKeys, connectProgress]
+        {
+            size_t clientIndex = 0;
+            while (!clientIndices.empty() && clientIndices.pop_front(clientIndex, 100ms))
+            {
+                if (m_paceMaker)
+                {
+                    m_paceMaker->next();
+                }
 
-                                     if (testEndTime && steady_clock::now() > *testEndTime)
-                                     {
-                                         allConnected.post();
-                                         break;
-                                     }
+                if (testEndTime && steady_clock::now() > *testEndTime)
+                {
+                    allConnected.post();
+                    break;
+                }
 
-                                     const auto* endpoint = group.m_servers.empty() ? nullptr : &group.m_servers[clientIndex % group.m_servers.size()];
-                                     const auto& target = (*serverHostsPtr)[clientIndex % serverHostsPtr->size()];
-                                     ConnectCredentials connectCredentials((m_topicNamespace.empty() ? "" : m_topicNamespace + "/") + clientIdPrefix + to_string(indexStart(group) + clientIndex),
-                                         endpoint && !endpoint->m_username.isNull() ? endpoint->m_username.asString() : serverCredentials.getUsername(),
-                                         endpoint && !endpoint->m_password.isNull() ? endpoint->m_password.asString() : serverCredentials.getPassword());
+                const auto*        endpoint = group.m_servers.empty() ? nullptr : &group.m_servers[clientIndex % group.m_servers.size()];
+                const auto&        target = (*serverHostsPtr)[clientIndex % serverHostsPtr->size()];
+                ConnectCredentials connectCredentials((m_topicNamespace.empty() ? "" : m_topicNamespace + "/") + clientIdPrefix + to_string(indexStart(group) + clientIndex),
+                                                      endpoint && !endpoint->m_username.isNull() ? endpoint->m_username.asString() : serverCredentials.getUsername(),
+                                                      endpoint && !endpoint->m_password.isNull() ? endpoint->m_password.asString() : serverCredentials.getPassword());
 
-                                     // A client whose node goes away moves to the next node in the group's list,
-                                     // rather than asking the node that just failed to take it back. One attempt per
-                                     // node in turn also means a dead node is skipped: the next reconnect attempts
-                                     // the next address. With one server this stays the old behaviour.
-                                     auto clientConnectParameters = connectParameters;
-                                     if (clientConnectParameters.m_autoReconnect && serverHostsPtr->size() > 1)
-                                     {
-                                         const auto attempt = make_shared<atomic_size_t>(0);
-                                         clientConnectParameters.m_reconnectDestination =
-                                             [serverHostsPtr, clientIndex, attempt]
-                                             {
-                                                 const auto step = attempt->fetch_add(1, memory_order_relaxed) + 1;
-                                                 return (*serverHostsPtr)[(clientIndex + step) % serverHostsPtr->size()];
-                                             };
-                                     }
+                // A client whose node goes away moves to the next node in the group's list,
+                // rather than asking the node that just failed to take it back. One attempt per
+                // node in turn also means a dead node is skipped: the next reconnect attempts
+                // the next address. With one server this stays the old behaviour.
+                auto clientConnectParameters = connectParameters;
+                if (clientConnectParameters.m_autoReconnect && serverHostsPtr->size() > 1)
+                {
+                    const auto attempt = make_shared<atomic_size_t>(0);
+                    clientConnectParameters.m_reconnectDestination =
+                        [serverHostsPtr, clientIndex, attempt]
+                        {
+                            const auto step = attempt->fetch_add(1, memory_order_relaxed) + 1;
+                            return (*serverHostsPtr)[(clientIndex + step) % serverHostsPtr->size()];
+                        };
+                }
 
-                                     // A failed connect (bad hostname, refused connection, ...) must not escape this
-                                     // thread: an uncaught exception here would call std::terminate and kill the whole
-                                     // process instead of just failing this one client. Account for the failure the
-                                     // same way a successful connect would, so allConnected.wait() below still unblocks.
-                                     try
-                                     {
-                                         const auto counted = make_shared<atomic_bool>(false);
-                                         auto       client = connectClientAsync(target, clientConnectParameters, protocolVersion, clientIndex, clientCount,
-                                                                                connectProgress, connectCredentials,
-                                                                                connectProperties, sslKeys, counted);
+                // A failed connect (bad hostname, refused connection, ...) must not escape this
+                // thread: an uncaught exception here would call std::terminate and kill the whole
+                // process instead of just failing this one client. Account for the failure the
+                // same way a successful connect would, so allConnected.wait() below still unblocks.
+                try
+                {
+                    const auto counted = make_shared<atomic_bool>(false);
+                    auto       client = connectClientAsync(target, clientConnectParameters, protocolVersion, clientIndex, clientCount,
+                                                           connectProgress, connectCredentials,
+                                                           connectProperties, sslKeys, counted);
 
-                                         const scoped_lock lock(amutex);
-                                         clients[clientIndex] = std::move(client);
-                                         clientCounted[clientIndex] = counted;
-                                     }
-                                     catch (const std::exception& e)
-                                     {
-                                         ++failedCount;
-                                         CERR(format("Client '{}' connect to {} failed: {}", connectCredentials.getClientId(), target.toString(), e.what()));
-                                         if (const auto count = ++connectedCount; count == clientCount)
-                                         {
-                                             allConnected.post();
-                                         }
-                                     }
-                                 }
-                             });
+                    const scoped_lock lock(amutex);
+                    clients[clientIndex] = std::move(client);
+                    clientCounted[clientIndex] = counted;
+                }
+                catch (const std::exception& e)
+                {
+                    ++failedCount;
+                    CERR(format("Client '{}' connect to {} failed: {}", connectCredentials.getClientId(), target.toString(), e.what()));
+                    if (const auto count = ++connectedCount; count == clientCount)
+                    {
+                        allConnected.post();
+                    }
+                }
+            }
+        });
     }
     // Join first: each launcher thread always terminates on its own (queue drained, or
     // testEndTime elapsed for Connections scenarios) independently of whether every dispatched
@@ -511,7 +512,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
     // e.g. a dropped SYN/ACK or a ConnectAck that never arrived - that will never resolve on
     // its own. Bound the wait so one straggler out of a huge client count can't hang the run
     // forever (see incident: 100K-connection run that never exited).
-    if (constexpr seconds allConnectedTimeout {60};
+    if (constexpr seconds allConnectedTimeout{60};
         !allConnected.wait_for(allConnectedTimeout))
     {
         // A few clients the broker never answered do not change what the others measure: the run
@@ -525,7 +526,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                                    connected, clientCount, allConnectedTimeout.count(), stalled));
         }
         CERR(format("{} of {} client connection(s) got no CONNACK within {}s; the scenario goes on without them.",
-                    stalled, clientCount, allConnectedTimeout.count()));
+            stalled, clientCount, allConnectedTimeout.count()));
         const scoped_lock lock(amutex);
         for (size_t i = 0; i < clients.size(); ++i)
         {
@@ -550,7 +551,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
         roundTripLatency.stop();
         roundTripLatency.print(scenarioTitle);
         COUT("PaceMaker re-bases: " << m_paceMaker->reBases()
-                                   << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
+            << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
     }
 
     if (!group.m_servers.empty())
@@ -566,7 +567,7 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
             }
             const auto& server = group.m_servers[endpoint];
             COUT(format("{}: {}:{} - {} connected / {} assigned", progressLabel,
-                        std::string(server.m_hostname.asString()), server.m_port.asInteger(), connected, assigned));
+                std::string(server.m_hostname.asString()), server.m_port.asInteger(), connected, assigned));
         }
     }
     return clients;
@@ -578,7 +579,7 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
 
     Stopwatch stopwatch;
     stopwatch.start();
-    SMessageProperties properties {};
+    SMessageProperties properties{};
     m_receivedMessageCount = 0;
     const auto              subscriberTopicTemplate = namespaceTopic(m_scenario.m_subscribers.m_topics.asString(), m_topicNamespace);
     const RegularExpression matchClientId(R"(\$clientid)");
@@ -606,48 +607,48 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
             continue;
         }
         subscriber->onMessage([this, totalMessageCount, &clientPublishLatency, latencyIndex](const auto& message)
-                              {
-                                  if (m_scenarioCompleted.load() || m_warmingUp.load())
-                                  {
-                                      return;
-                                  }
-                                  if (message->is(Message::Type::Publish))
-                                  {
-                                      if (const auto sequence = messageSequence(*message);
-                                          sequence && (*sequence & warmupSequenceBit) == 0)
-                                      {
-                                          clientPublishLatency[latencyIndex].received(*sequence);
-                                      }
-                                      // ClientReceive was already snapped in Session::receiveMessages(),
-                                      // right before this callback ran; only present when the publisher
-                                      // attached a trace (see publish()'s latencyTraceEnabled gate).
-                                      if (const auto properties = message->getProperties())
-                                      {
-                                          if (const auto* latencyTrace = properties->getLatencyTrace())
-                                          {
-                                              m_latencyTraceTotal.add(latencyTrace);
-                                          }
-                                      }
-                                  }
-                                  const auto count = ++m_receivedMessageCount;
-                                  const auto measurementEndNs = m_measurementEndNs.load();
-                                  if ((totalMessageCount > 0 && count == totalMessageCount) ||
-                                      (measurementEndNs != 0 &&
-                                       steady_clock::now().time_since_epoch().count() >= measurementEndNs))
-                                  {
-                                      m_scenarioCompleted = true;
-                                      m_allMessagesReceived.post();
-                                  }
-                              });
+        {
+            if (m_scenarioCompleted.load() || m_warmingUp.load())
+            {
+                return;
+            }
+            if (message->is(Message::Type::Publish))
+            {
+                if (const auto sequence = messageSequence(*message);
+                    sequence && (*sequence & warmupSequenceBit) == 0)
+                {
+                    clientPublishLatency[latencyIndex].received(*sequence);
+                }
+                // ClientReceive was already snapped in Session::receiveMessages(),
+                // right before this callback ran; only present when the publisher
+                // attached a trace (see publish()'s latencyTraceEnabled gate).
+                if (const auto properties = message->getProperties())
+                {
+                    if (const auto* latencyTrace = properties->getLatencyTrace())
+                    {
+                        m_latencyTraceTotal.add(latencyTrace);
+                    }
+                }
+            }
+            const auto count = ++m_receivedMessageCount;
+            const auto measurementEndNs = m_measurementEndNs.load();
+            if ((totalMessageCount > 0 && count == totalMessageCount) ||
+                (measurementEndNs != 0 &&
+                 steady_clock::now().time_since_epoch().count() >= measurementEndNs))
+            {
+                m_scenarioCompleted = true;
+                m_allMessagesReceived.post();
+            }
+        });
 
         subscriber->onAck([subscribedCount, allSubscribed, subscriberCount](const SMessage& message)
-                          {
-                              if (message->is(Message::Type::SubscribeAck) &&
-                                  subscribedCount->fetch_add(1, std::memory_order_acq_rel) + 1 == subscriberCount)
-                              {
-                                  allSubscribed->post();
-                              }
-                          });
+        {
+            if (message->is(Message::Type::SubscribeAck) &&
+                subscribedCount->fetch_add(1, std::memory_order_acq_rel) + 1 == subscriberCount)
+            {
+                allSubscribed->post();
+            }
+        });
 
         const auto* topic = substituteTopic(subscriberTopicTemplate, indexStart(m_scenario.m_subscribers) + clientIndex, subscriber->getClientId());
 
@@ -806,11 +807,11 @@ void ScenarioEngine::checkSystemLimits(const size_t clientCount) const
         descriptors.has_value() && *descriptors < needed)
     {
         CERR(format("WARNING: this process may open {} descriptors ({} clients plus {} for its own "
-                    "use) but is limited to {}. Connections past that limit fail, and the failure "
-                    "is reported as the server being unavailable. Raise the hard limit for this "
-                    "user - 'ulimit -n' shows the soft one, which has already been raised as far as "
-                    "the hard one allows.",
-                    needed, clientCount, descriptorHeadroom, *descriptors));
+            "use) but is limited to {}. Connections past that limit fail, and the failure "
+            "is reported as the server being unavailable. Raise the hard limit for this "
+            "user - 'ulimit -n' shows the soft one, which has already been raised as far as "
+            "the hard one allows.",
+            needed, clientCount, descriptorHeadroom, *descriptors));
     }
 
     // One source port per connection, per local address: the kernel cannot reuse a port for a
@@ -821,10 +822,10 @@ void ScenarioEngine::checkSystemLimits(const size_t clientCount) const
         ports.has_value() && *ports * localAddresses < clientCount)
     {
         CERR(format("WARNING: {} clients need more source ports than this host offers - {} per "
-                    "local address across {} address(es), {} in all. The connections beyond that "
-                    "cannot be given a port. Widen {}, or give the run more local addresses.",
-                    clientCount, *ports, localAddresses, *ports * localAddresses,
-                    ephemeralPortSetting()));
+            "local address across {} address(es), {} in all. The connections beyond that "
+            "cannot be given a port. Widen {}, or give the run more local addresses.",
+            clientCount, *ports, localAddresses, *ports * localAddresses,
+            ephemeralPortSetting()));
     }
 }
 
@@ -859,7 +860,7 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     ConnectCredentials connectCredentials("", publisherServer.m_username.asString(), publisherServer.m_password.asString());
     ConnectCredentials subscriberCredentials("", subscriberServer.m_username.asString(), subscriberServer.m_password.asString());
 
-    client::ConnectParameters connectParameters {};
+    client::ConnectParameters connectParameters{};
     // A late CONNACK is a slow connection, not a failed one: it still gets its place in the test.
     // Under the 60s the engine waits for all the clients to connect.
     connectParameters.m_connackTimeout = 50s;
@@ -914,23 +915,29 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
     // The probe keeps a clean session regardless of the scenario: it must not leave a
     // persistent session behind for its own client id.
     const auto& subscriberKeys = m_subscriberSslKeysSet ? m_subscriberSslKeys : m_sslKeys;
-    const auto probeGroup = [&](const CTestClientGroup& group, const Host& fallback, const ConnectCredentials& credentials,
-                                ProtocolVersion version, const shared_ptr<SSLKeys>& keys) {
+    const auto  probeGroup = [&](const CTestClientGroup& group, const Host&                  fallback, const ConnectCredentials& credentials,
+                                 ProtocolVersion         version, const shared_ptr<SSLKeys>& keys)
+    {
         if (group.m_client_count.asInteger() == 0) return;
         if (group.m_servers.empty())
         {
             probeConnection(fallback, credentials, connectParameters, version, keys);
         }
         else
-            for (const auto& endpoint : group.m_servers)
+        {
+            for (const auto& endpoint: group.m_servers)
             {
                 const ConnectCredentials endpointCredentials("", endpoint.m_username.isNull() ? credentials.getUsername() : endpoint.m_username.asString(),
-                    endpoint.m_password.isNull() ? credentials.getPassword() : endpoint.m_password.asString());
+                                                             endpoint.m_password.isNull() ? credentials.getPassword() : endpoint.m_password.asString());
                 probeConnection(Host(endpoint.m_hostname.asString().c_str(), static_cast<uint16_t>(endpoint.m_port.asInteger())),
                                 endpointCredentials, connectParameters, version, keys);
             }
+        }
     };
-    if (!m_topicNamespace.empty()) COUT(format("Topic namespace: {}", m_topicNamespace));
+
+    if (!m_topicNamespace.empty())
+        COUT(format("Topic namespace: {}", m_topicNamespace));
+
     probeGroup(m_scenario.m_publishers, serverHost, connectCredentials, publisherProtocolVersion, m_sslKeys);
     probeGroup(m_scenario.m_subscribers, subscriberHost, subscriberCredentials,
                static_cast<ProtocolVersion>(m_scenario.m_subscribers.m_protocol_version.asInteger()), subscriberKeys);
@@ -952,9 +959,8 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
         return;
     }
 
-    const auto durationSeconds = static_cast<size_t>(m_scenario.m_parameters.m_duration_sec.asInteger());
-    auto       totalMessageCount = static_cast<size_t>(m_scenario.m_parameters.m_message_count.asInteger());
-    size_t     subscriberCount = m_scenario.m_subscribers.m_client_count.asInteger();
+    auto   totalMessageCount = static_cast<size_t>(m_scenario.m_parameters.m_message_count.asInteger());
+    size_t subscriberCount = m_scenario.m_subscribers.m_client_count.asInteger();
     if (typeFromString(m_scenario.m_type) == Type::FanOut)
     {
         totalMessageCount *= subscriberCount;
@@ -1032,11 +1038,11 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     const auto publishRate = m_scenario.m_parameters.m_publish_rate.asInteger();
     m_paceMaker = publishRate > 0 ? make_shared<PaceMaker>(publishRate * publisherCount) : nullptr;
 
-    size_t     topicCount {0};
+    size_t     topicCount{0};
     const auto testType = typeFromString(m_scenario.m_type);
     switch (testType)
     {
-        using enum Type;
+            using enum Type;
         case FanIn:
             // Resolve the topic template for each publisher. A literal template still gives
             // one logical topic; $clientindex/$clientid must produce distinct publisher topics.
@@ -1070,7 +1076,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     if (payloadSize < sizeof(uint32_t))
     {
         throw Exception("The payload must be at least 4 bytes: the first four carry the message "
-                        "sequence number that pairs a delivery with its send.");
+            "sequence number that pairs a delivery with its send.");
     }
     Buffer payload;
     payload.fill('#', payloadSize);
@@ -1121,8 +1127,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     const auto durationSeconds = static_cast<size_t>(m_scenario.m_parameters.m_duration_sec.asInteger());
     auto       publishStartTime = steady_clock::now();
     auto       publishDeadline = durationSeconds > 0
-                                    ? std::optional {publishStartTime + seconds(durationSeconds)}
-                                    : std::nullopt;
+                                     ? std::optional{publishStartTime + seconds(durationSeconds)}
+                                     : std::nullopt;
 
     Stopwatch stopwatch;
     stopwatch.start();
@@ -1131,9 +1137,9 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     // count when publishMessageCount is set, elapsed milliseconds against the duration otherwise.
     // A total of 0 (neither bound set) means progress can't be shown; ProgressBar::update() is a
     // no-op in that case, so the call sites below don't need to special-case it.
-    const auto  progressTotal = publishMessageCount > 0
-                                    ? static_cast<size_t>(publishMessageCount)
-                                    : (durationSeconds > 0 ? durationSeconds * 1000 : 0);
+    const auto progressTotal = publishMessageCount > 0
+                                   ? static_cast<size_t>(publishMessageCount)
+                                   : (durationSeconds > 0 ? durationSeconds * 1000 : 0);
     ProgressBar progressBar("Publishing", m_showProgress);
 
     // How many messages to publish between asking the progress bar anything. The bar rate-limits
@@ -1166,13 +1172,13 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
-    bool measurementStarted = false;
+    bool       measurementStarted = false;
     const auto beginMeasurement = [&]
     {
         measurementStarted = true;
         publishStartTime = steady_clock::now();
         publishDeadline = durationSeconds > 0
-                              ? std::optional {publishStartTime + seconds(durationSeconds)}
+                              ? std::optional{publishStartTime + seconds(durationSeconds)}
                               : std::nullopt;
         m_measurementEndNs = durationSeconds > 0
                                  ? (publishStartTime + seconds(durationSeconds)).time_since_epoch().count()
@@ -1191,7 +1197,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         COUT("MEASUREMENT-START duration_seconds=" << durationSeconds);
     };
 
-    auto warmupDeadline = m_warmup > seconds(0) ? std::optional {steady_clock::now() + m_warmup} : std::nullopt;
+    auto warmupDeadline = m_warmup > seconds(0) ? std::optional{steady_clock::now() + m_warmup} : std::nullopt;
     m_warmingUp = warmupDeadline.has_value();
     if (!m_warmingUp.load())
     {
@@ -1267,7 +1273,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             {
                 switch (testType)
                 {
-                    using enum Type;
+                        using enum Type;
                     case FanIn:
                         // Shared subscription: each message is delivered to exactly one subscriber,
                         // so record the send once in the shared latency object.
@@ -1299,8 +1305,9 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                     // copy), so a shared instance here would let every in-flight message's send thread
                     // mutate the same LatencyTrace concurrently. Whatever "-D publish ..." asked for is
                     // copied into that fresh object, which is also what a real client would pay.
-                    auto messageProperties = publishProperties ? make_shared<MessageProperties>(*publishProperties)
-                                                               : make_shared<MessageProperties>();
+                    auto messageProperties = publishProperties
+                                                 ? make_shared<MessageProperties>(*publishProperties)
+                                                 : make_shared<MessageProperties>();
                     if (latencyTraceEnabled)
                     {
                         messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
@@ -1356,7 +1363,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         for (const auto& subscriber: m_subscribers) subscriber->onMessage({});
         const auto elapsedMs = duration_cast<milliseconds>(steady_clock::now() - publishStartTime).count();
         COUT("MEASUREMENT-PARTIAL elapsed_ms=" << elapsedMs
-             << " target_duration_seconds=" << durationSeconds << " sent=" << sendMessageCount);
+            << " target_duration_seconds=" << durationSeconds << " sent=" << sendMessageCount);
         const auto current = publishMessageCount > 0 ? sendMessageCount : static_cast<size_t>(elapsedMs);
         progressBar.update(current, progressTotal);
         progressBar.finish();
@@ -1387,7 +1394,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     if (m_paceMaker)
     {
         COUT("PaceMaker re-bases: " << m_paceMaker->reBases()
-                                   << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
+            << " (the offered rate dropped whenever the generator fell more than 50 ms behind)");
     }
 
     if (latencyTraceEnabled)

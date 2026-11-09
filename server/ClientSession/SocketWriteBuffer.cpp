@@ -28,12 +28,12 @@ namespace sendpathdiagnostics {
 // what the numbers belong to.
 std::atomic<uint64_t> g_sendWaitCounts[] = {0, 0, 0, 0, 0};
 // TEMPORARY 2026-11-08: the notice itself, and the flush read that cleared a stamp.
-std::atomic<uint64_t> g_noticeQueued {0};
-std::atomic<uint64_t> g_flushCleared {0};
+std::atomic<uint64_t> g_noticeQueued{0};
+std::atomic<uint64_t> g_flushCleared{0};
 
 void noteSendWait(const uint64_t elapsedNs)
 {
-    const auto us = elapsedNs / 1000;
+    const auto   us = elapsedNs / 1000;
     const size_t bucket = us < 10 ? 0 : us < 50 ? 1 : us < 200 ? 2 : us < 1000 ? 3 : 4;
     g_sendWaitCounts[bucket].fetch_add(1, std::memory_order_relaxed);
 }
@@ -58,7 +58,7 @@ void reportSendWait()
     const auto noticed = g_noticeQueued.exchange(0, std::memory_order_relaxed);
     const auto cleared = g_flushCleared.exchange(0, std::memory_order_relaxed);
     COUT(std::format("SEND-PATH-DIAG per second: to10us={} to50={} to200={} to1ms={} over1ms={} notices={} flushWrites={}",
-                     w0, w1, w2, w3, w4, noticed, cleared));
+        w0, w1, w2, w3, w4, noticed, cleared));
 }
 
 } // namespace sendpathdiagnostics
@@ -66,14 +66,14 @@ void reportSendWait()
 
 SocketWriteBuffer::SocketWriteBuffer(ClientSession* clientSession, const MessageWriter* writer, size_t size)
     : m_writer(writer)
-    , m_buffer(make_unique<Buffer>(size))
-    , m_clientSession(clientSession)
+      , m_buffer(make_unique<Buffer>(size))
+      , m_clientSession(clientSession)
 {
 }
 
-bool SocketWriteBuffer::appendMessageToBuffer(const Message& message, const MessageFlags messageFlags, const MessageId& deliveryId,
+bool SocketWriteBuffer::appendMessageToBuffer(const Message& message, const MessageFlags                          messageFlags, const MessageId& deliveryId,
                                               const uint32_t remainingExpirationSeconds, const SubscriptionIdSet& subscriptionIds,
-                                              const size_t maxPacketSize, const bool notifySendWorker)
+                                              const size_t   maxPacketSize, const bool                            notifySendWorker)
 {
     std::scoped_lock lock(m_mutex);
 
@@ -115,7 +115,7 @@ void SocketWriteBuffer::queueMessageIfBufferWasEmpty(const bool bufferWasEmpty, 
         // TEMPORARY 2026-11-08, see the header note.
         sendpathdiagnostics::g_noticeQueued.fetch_add(1, std::memory_order_relaxed);
         const_cast<std::atomic<uint64_t>&>(m_enqueuedNs).store(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               std::chrono::steady_clock::now().time_since_epoch()).count());
+            std::chrono::steady_clock::now().time_since_epoch()).count());
         m_clientSession->clientSessionSendThread()->queueProcessSession(m_clientSession->shared());
     }
 }
@@ -145,7 +145,7 @@ SocketWriteMetrics SocketWriteBuffer::send(std::unique_ptr<sptk::Buffer>& exchan
     {
         sendpathdiagnostics::g_flushCleared.fetch_add(1, std::memory_order_relaxed);
         const auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-        sendpathdiagnostics::noteSendWait(now > enqueued ? now - enqueued : 0);
+        sendpathdiagnostics::noteSendWait(static_cast<uint64_t>(now) > enqueued ? now - enqueued : 0);
     }
 
     detach(exchangeBuffer);
