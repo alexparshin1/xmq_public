@@ -13,15 +13,11 @@ still owed.
   as the mapping's input, and assert that every shard gets members: the old mapping put all of
   them in one, and that is exactly what a future simplification would reintroduce.
 
-- [ ] **Fix the two failing jest suites.**
-  `gui-react/src/screen/SettingsScreen.test.jsx` and
-  `gui-react/src/screen/InitialSetupScreen.test.jsx` fail on 1.1.1, and did so before the
-  Prometheus work: 3 tests, 2 suites. Both expect a Redis URI or status line without the database
-  suffix, while the screens now render it - `redis://cache:...@theater:6379/0` where the test
-  expects `...:6379`, and `Redis at theater:6380/0 is reachable.` where it expects
-  `Redis at theater:6380 is reachable.`. Decide first which side is right: if the default
-  database is noise in the interface, stop appending it; if it is worth showing, update the
-  expectations. The rest of the suite is green (112 passed on 2026-11-08).
+- [x] **Fix the two failing jest suites.**
+  Done in 1.1.1: the screens were right and the expectations were stale. `gui-react` asks for the
+  Redis database explicitly, in a field of its own, and names it back in what it sends and in
+  what it says it checked, so `redis://cache:...@theater:6379/0` and
+  `Redis at theater:6380/0 is reachable.` stay. The suite is green: 116 passed.
 
 - [ ] **Paired stand run of the bench set, baseline against the fixed delivery sharding.**
   The shard fix was measured on Fan-Out alone (broker share 1.45 ms → 0.95 ms at two delivery

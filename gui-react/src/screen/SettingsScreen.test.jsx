@@ -26,7 +26,9 @@ test("loads existing values, retains password masks, and tests without saving", 
     fireEvent.click(screen.getByRole("button", {name: "Test connections"}));
     await screen.findByText("Connections verified.");
     expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("SettingsControl", {action: "test", settings: expect.objectContaining({
-        redis_uri: settings.redis_uri, database_uri: settings.database_uri
+        // The server may return a URI without a database, which means database 0; the form shows
+        // the database in its own field and submits it back explicitly.
+        redis_uri: "redis://cache:*****@theater:6379/0", database_uri: settings.database_uri
     })});
     expect(confirmationWindow).not.toHaveBeenCalled();
     expect(ControlAPI.asyncMakeAPICall.mock.calls.some(([, body]) => body.action === "set")).toBe(false);
