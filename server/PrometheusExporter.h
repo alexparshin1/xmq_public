@@ -73,6 +73,14 @@ struct BrokerMetrics
     uint64_t queueReceive {0};
     uint64_t queueSend {0};
     uint64_t queueDelivery {0};
+    uint64_t writeCapacityPauses {0};
+    uint64_t writeCapacityPausedSessions {0};
+
+    uint64_t clusterEnabled {0};
+    uint64_t clusterNodes {0};
+    uint64_t clusterConnectedPeers {0};
+    uint64_t clusterLinks {0};
+    uint64_t clusterReady {0};
 
     uint64_t uptimeSeconds {0};
 };

@@ -899,6 +899,135 @@
           }
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Persistence write backpressure",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "xmq-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmq_broker_write_capacity_paused_sessions",
+          "legendFormat": "paused sessions",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "xmq-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "rate(xmq_broker_write_capacity_pauses_total[5m])",
+          "legendFormat": "pause events/s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "xmq-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cluster topology",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "xmq-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmq_cluster_nodes",
+          "legendFormat": "registered nodes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "xmq-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "xmq_cluster_connected_peers",
+          "legendFormat": "connected peers",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "xmq-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "xmq_cluster_links",
+          "legendFormat": "outgoing links",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "xmq-prometheus"
+          }
+        }
+      ]
     }
   ],
   "refresh": "15s",

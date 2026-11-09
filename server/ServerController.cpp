@@ -17,6 +17,7 @@
 #include "SelfSignedCertificate.h"
 #include "common/DirectoryNames.h"
 #include "common/ListenerPort.h"
+#include "MessageDelivery.h"
 
 using namespace std;
 using namespace sptk;
@@ -465,7 +466,24 @@ std::optional<BrokerMetrics> ServerController::brokerMetrics() const
     metrics.queueReceive = statistics->getValue(BrokerQueuesReceive);
     metrics.queueSend = statistics->getValue(BrokerQueuesSend);
     metrics.queueDelivery = statistics->getValue(BrokerQueuesDelivery);
+    metrics.writeCapacityPauses = MessageDelivery::writeCapacityPauses();
+    metrics.writeCapacityPausedSessions = MessageDelivery::pausedSessionCount();
     metrics.uptimeSeconds = statistics->brokerUptimeSeconds();
+
+    metrics.clusterEnabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
+    if (const auto cluster = m_xmqServer->cluster())
+    {
+        metrics.clusterNodes = cluster->getClusterNodeCount();
+        metrics.clusterConnectedPeers = cluster->connectedPeerCount();
+        const auto clusterSettings = cluster->getClusterSettings();
+        for (const auto& node : clusterSettings.m_nodes)
+        {
+            if (node.m_node_name.asString() != clusterSettings.m_this_node.m_node_name.asString())
+            {
+                metrics.clusterLinks += cluster->linkCountOf(node.m_node_name.asString());
+            }
+        }
+    }
     return metrics;
 }
 

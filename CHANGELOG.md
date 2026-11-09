@@ -45,6 +45,13 @@ Requires SPTK 5.6.19.
   labels them by `level`, `node`, `subject` and `component`, so an error is one query away from the
   metric that moved. See [its README](docker/observability/README.md).
 
+- **Prometheus reports persistence backpressure and cluster connectivity.** The endpoint exposes
+  publisher sessions paused at `max_queued_writes`, the cumulative number of such pauses, registered
+  cluster nodes, connected peers and outgoing links. The overview dashboard charts both groups;
+  Grafana provisions warnings for sustained publisher pauses and missing cluster peer links. These
+  make two operational failures visible without an operator having to infer them from traffic or
+  logs.
+
 - **Experimental acknowledgement after durable storage for standalone brokers.** Set
   `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and
   `max_queued_writes=0`. Persistent deliveries, retained updates/clearings and incoming QoS 2

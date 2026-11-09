@@ -89,6 +89,12 @@ TEST(PrometheusExporterTests, ReportsBrokerCountersAndLabels)
     metrics.clientsConnected = 7;
     metrics.publishReceived = 1234;
     metrics.queueDelivery = 3;
+    metrics.writeCapacityPauses = 19;
+    metrics.writeCapacityPausedSessions = 2;
+    metrics.clusterEnabled = 1;
+    metrics.clusterNodes = 3;
+    metrics.clusterConnectedPeers = 2;
+    metrics.clusterLinks = 8;
     metrics.uptimeSeconds = 42;
 
     PrometheusExporter exporter([metrics] { return optional<BrokerMetrics> {metrics}; }, "node-\"b\"", nullptr,
@@ -99,6 +105,13 @@ TEST(PrometheusExporterTests, ReportsBrokerCountersAndLabels)
     EXPECT_NE(string::npos, body.find("xmq_broker_clients_connected 7")) << body;
     EXPECT_NE(string::npos, body.find("xmq_broker_publish_received_total 1234")) << body;
     EXPECT_NE(string::npos, body.find("xmq_broker_queue_delivery 3")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_broker_write_capacity_pauses_total 19")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_broker_write_capacity_paused_sessions 2")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_cluster_enabled 1")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_cluster_nodes 3")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_cluster_connected_peers 2")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_cluster_links 8")) << body;
+    EXPECT_NE(string::npos, body.find("xmq_broker_write_capacity_pauses_total")) << body;
     EXPECT_NE(string::npos, body.find("xmq_broker_uptime_seconds 42")) << body;
     // A quote in a label value must not end the label.
     EXPECT_NE(string::npos, body.find("node=\"node-\\\"b\\\"\"")) << body;

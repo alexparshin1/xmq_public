@@ -407,6 +407,19 @@ string PrometheusExporter::render()
                      broker->queueSend);
         appendMetric(body, "xmq_broker_queue_delivery", "Messages waiting in the delivery queues.", "gauge",
                      broker->queueDelivery);
+        appendMetric(body, "xmq_broker_write_capacity_pauses_total",
+                     "Times a publisher session was paused because persistent writes reached their configured limit.",
+                     "counter", broker->writeCapacityPauses);
+        appendMetric(body, "xmq_broker_write_capacity_paused_sessions",
+                     "Publisher sessions currently paused while persistent writes catch up.", "gauge",
+                     broker->writeCapacityPausedSessions);
+        appendMetric(body, "xmq_cluster_enabled", "Whether cluster mode is enabled on this node.", "gauge",
+                     broker->clusterEnabled);
+        appendMetric(body, "xmq_cluster_nodes", "Registered nodes in this cluster.", "gauge", broker->clusterNodes);
+        appendMetric(body, "xmq_cluster_connected_peers", "Cluster peers with an open link to this node.", "gauge",
+                     broker->clusterConnectedPeers);
+        appendMetric(body, "xmq_cluster_links", "Open outgoing links from this node to its peers.", "gauge",
+                     broker->clusterLinks);
         appendMetric(body, "xmq_broker_uptime_seconds", "Seconds since the broker started serving.", "gauge",
                      broker->uptimeSeconds);
     }

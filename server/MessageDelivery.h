@@ -225,6 +225,12 @@ public:
         return m_writeCapacityPauses.load(std::memory_order_relaxed);
     }
 
+    /// Number of sessions currently paused while persistent writes catch up.
+    [[nodiscard]] static size_t pausedSessionCount()
+    {
+        return m_pausedSessionCount.load(std::memory_order_relaxed);
+    }
+
 private:
     static void releaseWriteCapacity();
     static void resumePausedSessions();

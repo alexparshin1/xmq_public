@@ -36,7 +36,9 @@ left running would make them fail with "address already in use".
 The dashboards are provisioned from `grafana/dashboards/` and appear under the **XMQ** folder:
 `xmq-overview.json` is the metrics one, `xmq-logs.json` the logs. Prometheus alert rules are in
 `prometheus/xmq-alerts.yml`; the log alert is provisioned by Grafana, in
-`grafana/provisioning/alerting/xmq-logs.yml`.
+`grafana/provisioning/alerting/xmq-logs.yml`. Broker-side Prometheus alerts for sustained
+persistence backpressure and missing cluster peer links are in
+`grafana/provisioning/alerting/xmq-broker.yml`.
 
 What the metrics dashboard looks like on a broker serving traffic:
 
@@ -107,7 +109,7 @@ Two things to know about the collector:
   run outside compose is not collected - point Alloy at a file with `loki.source.file` instead, or
   keep using whatever ships your container logs already.
 
-The log alert is provisioned but not connected: **Alerting -> Contact points**, add one, then point
+The provisioned log and broker alerts are not connected to a receiver: **Alerting -> Contact points**, add one, then point
 the **XMQ** notification policy at it. Without a contact point the rule still evaluates and shows in
 the Alerting page, it just notifies nobody.
 
@@ -129,7 +131,8 @@ Then **Dashboards -> New -> Import -> Upload dashboard JSON file**, picking
 `grafana/dashboards/xmq-overview.json` - and `xmq-logs.json` if the JSON log lines are collected
 too, as described above. The Prometheus alert rules go into your `rule_files` from
 `prometheus/xmq-alerts.yml`; the log alert is a Grafana alert rule on the Loki data source, in
-`grafana/provisioning/alerting/xmq-logs.yml`.
+`grafana/provisioning/alerting/xmq-logs.yml`. Broker alert rules on Prometheus are in
+`grafana/provisioning/alerting/xmq-broker.yml`.
 
 Only Grafana's data source changes: the broker keeps answering the same `/metrics` text and is not
 configured to know who scrapes it.

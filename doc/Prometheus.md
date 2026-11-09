@@ -188,6 +188,12 @@ up.
 | `xmq_broker_queue_receive` | gauge | Messages waiting in the receive queues. |
 | `xmq_broker_queue_send` | gauge | Messages waiting in the send queues. |
 | `xmq_broker_queue_delivery` | gauge | Messages waiting in the delivery queues. |
+| `xmq_broker_write_capacity_pauses_total` | counter | Times publishers were paused because persistent writes reached `max_queued_writes`. |
+| `xmq_broker_write_capacity_paused_sessions` | gauge | Publisher sessions currently paused while Redis writes catch up. |
+| `xmq_cluster_enabled` | gauge | Whether cluster mode is enabled on this node (`1` or `0`). |
+| `xmq_cluster_nodes` | gauge | Registered nodes in the cluster. |
+| `xmq_cluster_connected_peers` | gauge | Peers with at least one open link to this node. |
+| `xmq_cluster_links` | gauge | Total open outgoing links from this node to its peers. |
 | `xmq_broker_uptime_seconds` | gauge | Seconds since the broker started serving. |
 | `xmq_host_cpu_percent` | gauge | Whole-machine CPU use, percent of all cores. |
 | `xmq_host_cpu_cores` | gauge | Hardware threads on this machine. |

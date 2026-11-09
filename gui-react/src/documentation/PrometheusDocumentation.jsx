@@ -165,6 +165,12 @@ curl -i http://broker-1:9184/readyz    # 200 ready, 503 not ready with a reason`
                 <tr><td><code>xmq_broker_queue_receive</code></td><td>gauge</td><td>Messages waiting in the receive queues.</td></tr>
                 <tr><td><code>xmq_broker_queue_send</code></td><td>gauge</td><td>Messages waiting in the send queues.</td></tr>
                 <tr><td><code>xmq_broker_queue_delivery</code></td><td>gauge</td><td>Messages waiting in the delivery queues.</td></tr>
+                <tr><td><code>xmq_broker_write_capacity_pauses_total</code></td><td>counter</td><td>Times publishers were paused because persistent writes reached <code>max_queued_writes</code>.</td></tr>
+                <tr><td><code>xmq_broker_write_capacity_paused_sessions</code></td><td>gauge</td><td>Publisher sessions currently paused while Redis writes catch up.</td></tr>
+                <tr><td><code>xmq_cluster_enabled</code></td><td>gauge</td><td>Whether cluster mode is enabled on this node.</td></tr>
+                <tr><td><code>xmq_cluster_nodes</code></td><td>gauge</td><td>Registered nodes in the cluster.</td></tr>
+                <tr><td><code>xmq_cluster_connected_peers</code></td><td>gauge</td><td>Peers with at least one open link to this node.</td></tr>
+                <tr><td><code>xmq_cluster_links</code></td><td>gauge</td><td>Total open outgoing links from this node to its peers.</td></tr>
                 <tr><td><code>xmq_broker_uptime_seconds</code></td><td>gauge</td><td>Seconds since the broker started serving.</td></tr>
                 <tr><td><code>xmq_host_cpu_percent</code></td><td>gauge</td><td>Whole-machine CPU use, percent of all cores.</td></tr>
                 <tr><td><code>xmq_host_cpu_cores</code></td><td>gauge</td><td>Hardware threads on this machine.</td></tr>
