@@ -96,7 +96,7 @@ public:
      * counts divide, and so all of them gave the same remainder. The whole fan-out then ran on
      * one thread however many delivery threads existed - a hundredth of the point of sharding it.
      */
-    static size_t shardOf(const ISubscriptionClient* session, const size_t shardCount)
+    static size_t shardOf(const void* session, const size_t shardCount)
     {
         auto value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(session));
         value ^= value >> 33;

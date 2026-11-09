@@ -57,8 +57,7 @@ TEST(ShardMappingTests, SpreadsOneAllocatorSizeClassOverEveryShard)
         {
             // Only the address is read, which is what the mapping is about; a session needs no
             // subscriptions to be counted.
-            const auto address = reinterpret_cast<const ISubscriptionClient*>(session.get());
-            ++perShard[SubscriptionManager::shardOf(address, shardCount)];
+            ++perShard[SubscriptionManager::shardOf(session.get(), shardCount)];
         }
 
         // Not just "not one shard": a mapping that folded a stride to two remainders would still
