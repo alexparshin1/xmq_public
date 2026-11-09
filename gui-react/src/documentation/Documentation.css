@@ -87,3 +87,20 @@
     padding: 8px 12px;
     margin-bottom: 12px;
 }
+
+.userManualFigure {
+    margin: 16px 0;
+    text-align: center;
+}
+
+.userManualFigure img {
+    max-width: 100%;
+    border: 1px solid rgba(128, 128, 128, 0.35);
+    border-radius: 6px;
+}
+
+.userManualFigure figcaption {
+    font-size: 0.9em;
+    opacity: 0.75;
+    margin-top: 8px;
+}

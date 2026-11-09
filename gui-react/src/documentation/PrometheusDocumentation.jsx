@@ -82,6 +82,15 @@ export default function PrometheusDocumentation() {
                 as they are; its README says which data source UID each panel asks for.
             </p>
 
+            <figure className="userManualFigure">
+                <img src="/images/xmq/grafana-overview.png"
+                     alt="The XMQ broker overview dashboard in Grafana: broker state, throughput, queues, CPU and memory"/>
+                <figcaption>
+                    The overview dashboard on a broker serving traffic: four status figures on top,
+                    then throughput, queue depths, CPU and memory, and what a scrape costs.
+                </figcaption>
+            </figure>
+
             <h4 id="prometheus-health">Health probes</h4>
 
             <p>
