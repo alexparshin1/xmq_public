@@ -18,11 +18,18 @@ still owed.
   what it says it checked, so `redis://cache:...@theater:6379/0` and
   `Redis at theater:6380/0 is reachable.` stay. The suite is green: 116 passed.
 
-- [ ] **Paired stand run of the bench set, baseline against the fixed delivery sharding.**
-  The shard fix was measured on Fan-Out alone (broker share 1.45 ms → 0.95 ms at two delivery
-  threads, → 0.76 ms at four). The other four scenarios have not been re-run against it. No
-  change is expected in them — their fan-outs are single recipients or shared subscriptions — but
-  the run should say so rather than assume it.
+- [x] **Paired stand run of the bench set, baseline against the fixed delivery sharding.**
+  Done 2026-11-09 on thinker10/thinker11: the exact parent of the shard fix (`ae2b3ca`) against
+  `72503bd`, same scenario files, broker configuration and `xmq_scn`, with
+  `XMQ_CLIENT_ACK_BATCH=1` for both arms. Raw records:
+  `LoadTest/results/raw/2026-11-09-xmq-shard-parent-ae2b3ca/` and
+  `LoadTest/results/raw/2026-11-09-xmq-shard-head-72503bd-retry/`.
+  Interval medians, parent → fixed: Fan-Out 1920 → 1797 µs (−6.4%); Fan-In 168 → 166 µs;
+  P2P 230 → 234 µs; persistent P2P 178 → 174 µs; 500K connections 336 → 334 µs. All runs
+  completed with no client NIC drops. Non-Fan-Out differences are small and their sample ranges
+  overlap. This is a release-level parent-to-HEAD comparison, not a perfectly isolated estimate
+  of the shard change: several unrelated server changes landed after `ae2b3ca`; do not attribute
+  the entire Fan-Out delta to shard mapping alone.
 
 - [ ] **The load client, 2026-11-08: it is not the bottleneck the bench implied, and its measured
       costs are now written down.**  Profiling `xmq_scn` under Fan-Out (1000 subscribers, 227k deliveries/s) revised the
@@ -52,18 +59,24 @@ still owed.
   interval and combined copies) as before. Same medians where measured; the cost fell to 0.16%
   of all samples.
 
-- [ ] **The send queue is not the P2P slowdown: measured, 2026-11-08.**
+- [ ] **Send-worker scheduling and inline writes: measured, 2026-11-08.**
   Branch `2026-11-08-send-optimisation` built the alternative - a publication that matched one or
   two sessions writes its sockets on the delivering thread instead of waking a send worker for
   each (`XMQ_INLINE_SEND_MAX`, `MessageDispatch::m_inlineSend`, one detach-and-write mutex in
   `SocketWriteBuffer::send()`). Stand P2P, 100k deliveries/s, paired against 1.1.1:
   - inline send on: **429-625 us** against 205-226 - the write moved onto the thread that reads;
   - inline send off with the send worker rewritten to one `send()` per session: **542-579 us** -
-    the batch shape the worker had (detach a round, then write it) is worth more than the hop it
-    looks like it costs;
+    restoring the worker's detach-a-round-then-write-a-round implementation brought it back to
+    the 200-µs range. This measures the worker's scheduling/round implementation, not aggregation
+    of multiple messages in one recipient's `SocketWriteBuffer`;
   - inline send off and the worker's 1.1.1 shape restored: **204/213 us** against 200/218 - the
     rest of the branch (the dispatch flag, the send mutex, the instrument) is neutral.
-  Conclusion: the 8-10% P2P gap to FlashMQ is not in the send queue's hand-off. The remaining
+  Important limit: in these P2P runs a receiving session gets only about one or two messages a
+  second, so its `SocketWriteBuffer` normally sends one message at a time. This P2P experiment
+  cannot establish whether buffering several messages per socket helps; that shape occurs in
+  Fan-Out and needs to be measured there. It does show that inline socket writes were slower in
+  this P2P setup, and that the send worker's round implementation mattered in the tested branch.
+  It does not establish that the send queue is not a P2P bottleneck. The remaining
   candidates are per-message userspace costs on the delivery path (topic lookup, queue locks,
   `shared_ptr` traffic) and the broker's receive path, all of which the profile shows as a long
   tail of 0.1-0.4% symbols rather than one hotspot.
