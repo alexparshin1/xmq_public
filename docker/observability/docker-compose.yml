@@ -17,10 +17,10 @@ services:
   xmq:
     image: alexeyparshin/xmq:${XMQ_VERSION:-latest}
     ports:
-      - "1883:1883"      # MQTT
-      - "8883:8883"      # MQTT over TLS
-      - "18883:18883"    # configuration interface
-      - "9184:9184"      # Prometheus endpoint
+      - "127.0.0.1:1883:1883"      # MQTT
+      - "127.0.0.1:8883:8883"      # MQTT over TLS
+      - "127.0.0.1:18883:18883"    # configuration interface
+      - "127.0.0.1:9184:9184"      # Prometheus endpoint
     environment:
       XMQ_ALLOW_ANONYMOUS: "true"
       XMQ_LOG_LEVEL: "INFO"
@@ -41,7 +41,7 @@ services:
     depends_on:
       - xmq
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/xmq-alerts.yml:/etc/prometheus/xmq-alerts.yml:ro
@@ -55,7 +55,7 @@ services:
   loki:
     image: grafana/loki:latest
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./loki/loki.yml:/etc/loki/loki.yml:ro
       - loki-data:/loki
@@ -87,7 +87,7 @@ services:
       - prometheus
       - loki
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       GF_SECURITY_ADMIN_USER: "admin"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"

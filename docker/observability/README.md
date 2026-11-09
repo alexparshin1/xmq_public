@@ -8,6 +8,11 @@ XMQ  metrics (9184)  ->  Prometheus (9090)  ->
 XMQ  logs (stdout)   ->  Alloy  ->  Loki (3100)  ->
 ```
 
+This is a local demo, not a production-hardened deployment. Published ports bind to
+`127.0.0.1` so the anonymous MQTT listener, unauthenticated metrics/Prometheus/Loki endpoints,
+and Grafana's demo credentials are not exposed to the LAN. Do not remove that bind address or
+publish these services publicly without configuring authentication, TLS and network access first.
+
 ## Requirements
 
 - Docker and Docker Compose.
@@ -26,7 +31,7 @@ left running would make them fail with "address already in use".
 
 | What | Where | Credentials |
 |---|---|---|
-| Grafana | http://localhost:3001 | `admin` / `admin`, or `GRAFANA_PASSWORD` |
+| Grafana | http://localhost:3001 | `admin` / `admin`, or `GRAFANA_PASSWORD`; anonymous Viewer access is also enabled |
 | Prometheus | http://localhost:9090 | none |
 | Loki | http://localhost:3100 | none |
 | XMQ configuration interface | https://localhost:18883 | none until the administrator password is set |
@@ -44,9 +49,10 @@ What the metrics dashboard looks like on a broker serving traffic:
 
 ![XMQ — broker overview](grafana-overview.png)
 
-Anonymous MQTT access is on so the stack works before any account exists. Set
-`XMQ_ALLOW_ANONYMOUS=false` and create accounts in the interface before the ports are reachable
-from a network you do not control.
+Anonymous MQTT access is on so the stack works before any account exists. Keep the ports bound to
+localhost for this demo. For a network-accessible deployment, set `XMQ_ALLOW_ANONYMOUS=false`,
+create accounts in the interface, configure a Grafana password and metrics authentication, and
+restrict access to Prometheus and Loki before exposing any ports.
 
 Stop it with:
 
