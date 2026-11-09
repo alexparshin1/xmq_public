@@ -473,9 +473,9 @@ std::optional<BrokerMetrics> ServerController::brokerMetrics() const
     metrics.clusterEnabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
     if (const auto cluster = m_xmqServer->cluster())
     {
-        metrics.clusterNodes = cluster->getClusterNodeCount();
-        metrics.clusterConnectedPeers = cluster->connectedPeerCount();
         const auto clusterSettings = cluster->getClusterSettings();
+        metrics.clusterNodes = clusterSettings.m_nodes.size();
+        metrics.clusterConnectedPeers = cluster->connectedPeerCount();
         for (const auto& node : clusterSettings.m_nodes)
         {
             if (node.m_node_name.asString() != clusterSettings.m_this_node.m_node_name.asString())
