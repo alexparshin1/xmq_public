@@ -89,6 +89,19 @@ Requires SPTK 5.6.19.
   to 0.95 ms at the default two delivery threads and to 0.76 ms at four. The measured
   end-to-end figure did not move, because on that rig the load client owns the other 1.4 ms.
 
+- **A durable broker asks for its acknowledgements one at a time.** A client that batches
+  acknowledgements (`XMQ_CLIENT_ACK_BATCH`, the load generator sets sixteen) writes them every
+  sixteen deliveries. Against a durable broker that is not a saving but a window: every QoS 1
+  publication stays in the journal until its subscriber acknowledges it, so sixteen deliveries per
+  subscriber waited where one had to, the queue grew for as long as the run lasted, and the
+  measured latency followed it. On the stand's 60K persistent scenario the client's interval
+  median was 88 ms and the broker's RSS 1246 Mb, against 183 us and 498 Mb with a batch of one.
+  The broker now says what its storage is in a CONNACK user property (`$xmq-persistence=durable`)
+  when persistence is enabled, and a client that reads it writes each acknowledgement on its own,
+  whatever its batching default says - the broker knows what its storage does, the client cannot.
+  Batching stays an option everywhere else: two was already worse than one on the same scenario
+  (237 us), four was not worth measuring.
+
 ### Changed
 
 - **The load generator pays less for its own bookkeeping on the delivery path.** Two changes in

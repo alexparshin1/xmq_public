@@ -22,6 +22,12 @@
 # sweep: P2P 240 -> 213 us, Fan-Out 1899 -> 1811 us, Fan-In 168 -> 165 us, the connections
 # scenario within noise. Anyone comparing against an older record that ran a batch of 1 knows
 # why the medians moved; any arm can carry XMQ_CLIENT_ACK_BATCH=1 to match it.
+#
+# A durable broker overrides this for itself: it announces $xmq-persistence=durable in CONNACK,
+# and a client that reads it writes each acknowledgement on its own, because there the batch is a
+# flow-control window and sixteen of them measured 88ms against 183us on the persistent scenario.
+# So persistent runs are one-write-per-acknowledge whatever this default says, and the figures in
+# this file are the non-persistent ones.
 export XMQ_CLIENT_ACK_BATCH="${XMQ_CLIENT_ACK_BATCH:-16}"
 
 set -u

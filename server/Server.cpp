@@ -26,6 +26,7 @@
 #include "base/ReceiveSteering.h"
 #include "base/ThreadCount.h"
 #include "base/xmq-config.h"
+#include "common/ConnectAckMessage.h"
 #include "common/ConnectMessage.h"
 #include "common/ListenerPort.h"
 #include "common/SocketFactory.h"
@@ -1241,6 +1242,15 @@ SMessageProperties connectAckProperties(const Settings& settings)
     properties->setProperty(RetainAvailable, 1);
     properties->setProperty(WildcardSubscriptionAvailable, 1);
     properties->setProperty(SubscriptionIdentifierAvailable, 1);
+
+    // A durable broker keeps every QoS 1 publication until its subscriber acknowledges it, so the
+    // client's acknowledgement batch is a flow-control window here, not a syscall optimisation.
+    // Told here, at CONNECT, because this is the only point where the broker and the client agree
+    // on anything: the client cannot see what storage the messages are going into.
+    if (settings.m_persistence.m_enabled.asBool())
+    {
+        properties->setUserProperty(ConnectAckMessage::PersistenceProperty, "durable");
+    }
     return properties;
 }
 
