@@ -90,16 +90,17 @@ Requires SPTK 5.6.19.
   end-to-end figure did not move, because on that rig the load client owns the other 1.4 ms.
 
 - **A durable broker asks for its acknowledgements one at a time.** A client that batches
-  acknowledgements (`XMQ_CLIENT_ACK_BATCH`, the load generator sets sixteen) writes them every
-  sixteen deliveries. Against a durable broker that is not a saving but a window: every QoS 1
-  publication stays in the journal until its subscriber acknowledges it, so sixteen deliveries per
+  acknowledgements (`parameters.ack_batch_size` in the scenario configuration, default sixteen)
+  writes them every sixteen deliveries. Against a durable broker that is not a saving but a window:
+  every QoS 1 publication stays in the journal until its subscriber acknowledges it, so sixteen deliveries per
   subscriber waited where one had to, the queue grew for as long as the run lasted, and the
   measured latency followed it. On the stand's 60K persistent scenario the client's interval
   median was 88 ms and the broker's RSS 1246 Mb, against 183 us and 498 Mb with a batch of one.
   The broker now says what its storage is in a CONNACK user property (`$xmq-persistence=durable`)
   when persistence is enabled, and a client that reads it writes each acknowledgement on its own,
   whatever its batching default says - the broker knows what its storage does, the client cannot.
-  Batching stays an option everywhere else: two was already worse than one on the same scenario
+  The batch is configured with `parameters.ack_batch_size`, not an environment variable. Batching
+  stays an option everywhere else: two was already worse than one on the same scenario
   (237 us), four was not worth measuring.
 
 ### Changed
@@ -112,9 +113,9 @@ Requires SPTK 5.6.19.
     run total now count into dense vectors whose element per bucket index is the key the map
     folded, with lazy growth capped at a bucket range that covers latencies of about an hour.
     Stored intervals stay sparse. Cost: 0.16% of all samples; medians where compared unchanged.
-  - `XMQ_CLIENT_ACK_BATCH` makes one TCP write carry up to this many acknowledgements instead of
-    one write per received message. Default 1 is the old behaviour; the option is meant for load
-    runs. At 16 the stand measured Fan-Out 1887 → 1802 µs, P2P 240 → 213 µs, Fan-In 168 → 165 µs,
+  - `parameters.ack_batch_size` makes one TCP write carry up to this many acknowledgements instead
+    of one write per received message. Its default is 16; the durable broker's CONNACK overrides it
+    to 1. At 16 the stand measured Fan-Out 1887 → 1802 µs, P2P 240 → 213 µs, Fan-In 168 → 165 µs,
     the connection scenario untouched (it has no deliveries): the gain is the write and the
     small segments both machines were carrying, not faster acknowledgements. Acknowledgements
     delayed this way wait in the session's buffer until the run's flow of deliveries catches up,

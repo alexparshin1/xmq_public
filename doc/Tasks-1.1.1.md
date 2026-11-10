@@ -47,8 +47,9 @@ still owed.
     acknowledgement, gave Fan-Out −4.5% (1887 → 1802 µs) and P2P −10% (240 → 216 µs), −3.9% at
     four. That is the size the ack path is: one write syscall per delivered message, and on the
     stand's P2P the kernels stop carrying one hundred thousand one-segment writes a second the
-    tool itself made. It is in `xmq_scn` behind `XMQ_CLIENT_ACK_BATCH`, default 1 (unchanged
-    behaviour), force-flushed on disconnect.
+  tool itself made. It is configured per scenario through `parameters.ack_batch_size`, default 16;
+  a broker that announces durable persistence in CONNACK overrides it to 1. Pending acknowledgements
+  are force-flushed on disconnect.
 
 - [ ] **Measure the client's latency accounting with an array, not a tree.** Coded 2026-11-08;
   leaves when 1.1.1 is released.

@@ -19,6 +19,7 @@
 #include <unistd.h>
 #endif
 #include "base/ReceiveSteering.h"
+#include "client/Session.h"
 #include "Scenario.h"
 #include "ScenarioCommandLine.h"
 #include "base/CpuAffinity.h"
@@ -444,6 +445,11 @@ void Scenario::executeScenario() const
     engine.load(scenarioFile);
 
     overrideScenarioParameters(engine.scenario());
+    const auto& ackBatchSize = engine.scenario().m_parameters.m_ack_batch_size;
+    const auto ackBatchSizeValue = ackBatchSize.isNull() ? client::Session::defaultScenarioAckBatchSize
+                                                         : static_cast<size_t>(ackBatchSize.asInteger());
+    client::Session::setDefaultAckBatchSize(ackBatchSizeValue);
+    COUT("Scenario acknowledgement batch size: " << ackBatchSizeValue);
     engine.showProgress(commandLine().hasOption("progress"));
     engine.warmup(chrono::seconds(commandLine().getOptionValue("warmup").toInt()));
     // Null unless --encrypted, --cafile or --cert/--key were given; see RunDefinition::load().

@@ -2101,6 +2101,14 @@
             				</xsd:restriction>
             			</xsd:simpleType>
             		</xsd:element>
+                            <xsd:element name="ack_batch_size" type="xsd:int"
+                                maxOccurs="1" minOccurs="0">
+                                <xsd:simpleType>
+                                    <xsd:restriction base="xsd:int">
+                                        <xsd:minInclusive value="1"></xsd:minInclusive>
+                                    </xsd:restriction>
+                                </xsd:simpleType>
+                            </xsd:element>
             	</xsd:sequence>
             </xsd:complexType>
         </xsd:schema>
