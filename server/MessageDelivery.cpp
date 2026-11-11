@@ -25,7 +25,7 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
-atomic<RecordId>   MessageDelivery::m_recordIdSerial {0};
+atomic<RecordId>   MessageDelivery::m_recordIdSerial{0};
 atomic_size_t      MessageDelivery::m_queuedOperations; ///< Number of queued message deliveries not yet stored to Redis.
 mutex              MessageDelivery::m_writeCapacityMutex;
 condition_variable MessageDelivery::m_writeCapacityAvailable;
@@ -33,15 +33,15 @@ atomic_size_t      MessageDelivery::m_queuedWrites;
 atomic_size_t      MessageDelivery::m_writeCapacityWaiters;
 atomic_size_t      MessageDelivery::m_writeCapacityResumeAt;
 
-mutex                             MessageDelivery::m_pausedSessionsMutex;
-vector<weak_ptr<ClientSession>>   MessageDelivery::m_pausedSessions;
-atomic_size_t                     MessageDelivery::m_pausedSessionCount;
-atomic_size_t                     MessageDelivery::m_writeCapacityPauses;
+mutex                           MessageDelivery::m_pausedSessionsMutex;
+vector<weak_ptr<ClientSession>> MessageDelivery::m_pausedSessions;
+atomic_size_t                   MessageDelivery::m_pausedSessionCount;
+atomic_size_t                   MessageDelivery::m_writeCapacityPauses;
 
-mutex&                                          MessageDelivery::m_pendingWritesMutex = *new mutex;
-condition_variable&                             MessageDelivery::m_pendingWritesAdded = *new condition_variable;
+mutex&                                                  MessageDelivery::m_pendingWritesMutex = *new mutex;
+condition_variable&                                     MessageDelivery::m_pendingWritesAdded = *new condition_variable;
 unordered_map<RecordId, MessageDelivery::PendingWrite>& MessageDelivery::m_pendingWrites = *new unordered_map<RecordId, MessageDelivery::PendingWrite>;
-STimerEvent                       MessageDelivery::m_pauseTimeout;
+STimerEvent                                             MessageDelivery::m_pauseTimeout;
 
 namespace {
 
@@ -79,8 +79,8 @@ size_t maxQueuedWritesSetting(const std::shared_ptr<ClientSession>& clientSessio
 
 } // namespace
 
-shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSession>& clientSession, const SMessage& message, const Qos qos,
-                                                    const MessageId& deliveryId, const SubscriptionIdSet& subscriptionIds, const bool setRetainFlag, const int64_t messageDeliveryRecordId)
+shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSession>& clientSession, const SMessage&       message, const Qos          qos,
+                                                    const MessageId&                 deliveryId, const SubscriptionIdSet& subscriptionIds, const bool setRetainFlag, const int64_t messageDeliveryRecordId)
 {
     auto messageDelivery = make_shared<MessageDelivery>(clientSession, message, qos, deliveryId, subscriptionIds, setRetainFlag);
     if (qos != Qos::Qos0 && !clientSession->isCleanSession() && messageDeliveryRecordId == 0)
@@ -94,11 +94,11 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
         }
         else if (clientSession->reliableStore())
         {
-            ReliableMessageStore::Transaction transaction(*clientSession->reliableStore());
-            Buffer record;
+            ReliableMessageStore::Transaction localTransaction(*clientSession->reliableStore());
+            Buffer                            record;
             messageDelivery->pack(record);
-            transaction.hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
-            transaction.commit();
+            localTransaction.hashSet(messageDelivery->m_sessionMessagesKey, to_string(messageDelivery->m_recordId), record);
+            localTransaction.commit();
             messageDelivery->m_persisted = true;
         }
         else if (const auto maxQueuedWrites = maxQueuedWritesSetting(clientSession); maxQueuedWrites == 0)
@@ -108,9 +108,9 @@ shared_ptr<MessageDelivery> MessageDelivery::create(const shared_ptr<ClientSessi
             // never pipeline - this is what caps the broker at ~25,000 messages/s.
             Semaphore semaphore;
             messageDelivery->storeRecordAsync([&semaphore]
-                                              {
-                                                  semaphore.post();
-                                              });
+            {
+                semaphore.post();
+            });
             semaphore.wait();
         }
         else
@@ -147,9 +147,9 @@ void MessageDelivery::awaitWriteCapacity(const size_t maxQueuedWrites)
     {
         unique_lock lock(m_writeCapacityMutex);
         m_writeCapacityAvailable.wait_for(lock, WriteCapacityTimeout, [resumeAt]
-                                          {
-                                              return m_queuedWrites.load() <= resumeAt;
-                                          });
+        {
+            return m_queuedWrites.load() <= resumeAt;
+        });
     }
     --m_writeCapacityWaiters;
 }
@@ -177,9 +177,9 @@ void MessageDelivery::pauseUntilWriteCapacity(const shared_ptr<ClientSession>& c
             if (const auto timer = clientSession->server().getTimer())
             {
                 m_pauseTimeout = timer->fireAt(DateTime::clock::now() + WriteCapacityTimeout, []
-                                               {
-                                                   resumePausedSessions();
-                                               });
+                {
+                    resumePausedSessions();
+                });
             }
         }
     }
@@ -242,19 +242,19 @@ std::shared_ptr<MessageDelivery> MessageDelivery::create(const std::shared_ptr<C
     if (qos != Qos::Qos0 && !clientSession->isCleanSession() && messageDeliveryRecordId == 0)
     {
         messageDelivery->storeRecordAsync([messageDelivery, completionCallback]
-                                          {
-                                              completionCallback(messageDelivery);
-                                          });
+        {
+            completionCallback(messageDelivery);
+        });
     }
     return messageDelivery;
 }
 
-MessageDelivery::MessageDelivery(const std::shared_ptr<ClientSession>& clientSession, const SMessage& message, const Qos qos,
-                                 const MessageId& deliveryId, const SubscriptionIdSet& subscriptionIds, const bool setRetainFlag)
+MessageDelivery::MessageDelivery(const std::shared_ptr<ClientSession>& clientSession, const SMessage&       message, const Qos          qos,
+                                 const MessageId&                      deliveryId, const SubscriptionIdSet& subscriptionIds, const bool setRetainFlag)
     : MessageDispatch(message, qos, deliveryId, setRetainFlag, subscriptionIds)
-    , PersistentObject(clientSession->getRedis())
-    , m_clientSession(clientSession)
-    , m_recordId(++m_recordIdSerial)
+      , PersistentObject(clientSession->getRedis())
+      , m_clientSession(clientSession)
+      , m_recordId(++m_recordIdSerial)
 {
     // The key is only used by Redis persistence. In the in-memory broker it would allocate a
     // string for every delivered message, even though no record is ever written.
@@ -266,8 +266,8 @@ MessageDelivery::MessageDelivery(const std::shared_ptr<ClientSession>& clientSes
 
 MessageDelivery::MessageDelivery(const std::shared_ptr<ClientSession>& clientSession, const Buffer& packedData)
     : PersistentObject(clientSession->getRedis())
-    , m_clientSession(clientSession)
-    , m_sessionMessagesKey(std::format("session_{}_messages", clientSession->getClientIdUnlocked()))
+      , m_clientSession(clientSession)
+      , m_sessionMessagesKey(std::format("session_{}_messages", clientSession->getClientIdUnlocked()))
 {
     MessageDelivery::unpack(packedData);
     // The packed data came from Redis, and unpack() restored its record id.
@@ -318,9 +318,9 @@ void MessageDelivery::storeRecordBehind()
 
     static once_flag flusherStarted;
     call_once(flusherStarted, []
-              {
-                  thread(runWriteFlusher).detach();
-              });
+    {
+        thread(runWriteFlusher).detach();
+    });
 
     Buffer record;
     pack(record);
@@ -329,8 +329,8 @@ void MessageDelivery::storeRecordBehind()
     ++m_queuedWrites;
     {
         const scoped_lock lock(m_pendingWritesMutex);
-        m_pendingWrites.emplace(m_recordId, PendingWrite {redis, m_sessionMessagesKey, to_string(m_recordId), std::move(record),
-                                                          std::chrono::steady_clock::now()});
+        m_pendingWrites.emplace(m_recordId, PendingWrite{redis, m_sessionMessagesKey, to_string(m_recordId), std::move(record),
+                                                         std::chrono::steady_clock::now()});
     }
     m_pendingWritesAdded.notify_one();
 }
@@ -342,9 +342,9 @@ void MessageDelivery::runWriteFlusher()
         {
             unique_lock lock(m_pendingWritesMutex);
             m_pendingWritesAdded.wait(lock, []
-                                      {
-                                          return !m_pendingWrites.empty();
-                                      });
+            {
+                return !m_pendingWrites.empty();
+            });
         }
         // Only what has waited the whole delay: a record queued a moment before the flush gets its
         // full chance to be acknowledged, and dropped, like any other.
@@ -391,18 +391,18 @@ void MessageDelivery::pack(Buffer& record)
     // and No Local have already been decided; the publisher id is not part of outgoing MQTT.
     // Keep the legacy string field (empty) so old records/readers remain format compatible.
     const string emptySender;
-    const auto& storedSender = m_clientSession->reliableStore() ? emptySender : publishMessage->getSender();
+    const auto&  storedSender = m_clientSession->reliableStore() ? emptySender : publishMessage->getSender();
 
     const auto expectedSizeWithoutProperties =
-        sizeof(m_recordId) + 1                                                                      // recordId
-        + sizeof(uint8_t) + 1                                                                       // flags
+        sizeof(m_recordId) + 1 // recordId
+        + sizeof(uint8_t) + 1 // flags
         + sizeof(uint16_t) + 1 + sizeof(uint32_t) * m_subscriptionIds.size() + 1 + sizeof(uint32_t) // subscriptionIds
-        + sizeof(uint32_t) + 1 + publishMessage->destination()->fullName().length()                 // topicName
-        + sizeof(uint32_t) + 1 + publishMessage->payloadSize()                                      // payload
-        + sizeof(uint32_t) + 1 + storedSender.size()                                               // sender
-        + sizeof(uint32_t) + 1 + publishMessage->getSourceNode().size()                             // sourceNode
-        + sizeof(m_deliveryId) + 1                                                                  // deliveryId
-        + 64;                                                                                       // minimal reserve for properties
+        + sizeof(uint32_t) + 1 + publishMessage->destination()->fullName().length() // topicName
+        + sizeof(uint32_t) + 1 + publishMessage->payloadSize() // payload
+        + sizeof(uint32_t) + 1 + storedSender.size() // sender
+        + sizeof(uint32_t) + 1 + publishMessage->getSourceNode().size() // sourceNode
+        + sizeof(m_deliveryId) + 1 // deliveryId
+        + 64; // minimal reserve for properties
 
     record.reserve(expectedSizeWithoutProperties);
 
@@ -440,7 +440,7 @@ void MessageDelivery::unpack(const Buffer& record)
     }
     read(*reinterpret_cast<uint8_t*>(&m_flags));
 
-    uint16_t subscriptionCount {0};
+    uint16_t subscriptionCount{0};
     read(subscriptionCount);
     m_subscriptionIds.resize(subscriptionCount);
     read(reinterpret_cast<uint8_t*>(m_subscriptionIds.data()), subscriptionCount * sizeof(uint32_t));
@@ -562,17 +562,17 @@ void MessageDelivery::removeRecordAsync(const std::function<void(const size_t&)>
         try
         {
             store->eraseDelivery(m_sessionMessagesKey, to_string(m_recordId),
-                [callback]
-                {
-                    --m_queuedOperations;
-                    if (callback) callback(1);
-                },
-                [store, callback](std::exception_ptr)
-                {
-                    --m_queuedOperations;
-                    store->invalidate();
-                    if (callback) callback(0);
-                }, m_flags.getQos() == Qos::Qos1);
+                                 [callback]
+                                 {
+                                     --m_queuedOperations;
+                                     if (callback) callback(1);
+                                 },
+                                 [store, callback](std::exception_ptr)
+                                 {
+                                     --m_queuedOperations;
+                                     store->invalidate();
+                                     if (callback) callback(0);
+                                 }, m_flags.getQos() == Qos::Qos1);
         }
         catch (...)
         {

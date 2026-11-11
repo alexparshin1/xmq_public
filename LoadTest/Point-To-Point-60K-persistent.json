@@ -41,6 +41,7 @@
     "payload_size": 16,
     "publish_rate": 1,
     "keep_alive_sec": 300,
-    "max_inflight_messages": 1024
+    "max_inflight_messages": 1024,
+    "ack_batch_size": 16
   }
 }

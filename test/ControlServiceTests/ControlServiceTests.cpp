@@ -14,6 +14,7 @@
 
 #include "ControlServiceTests.h"
 
+#include "server/ServerController.h"
 #include "server/Settings/UserStore.h"
 #include "server/Settings/PasswordHash.h"
 #include "test/TestServers.h"
@@ -39,6 +40,24 @@ void XMQ_ControlServiceTests::SetUp()
 }
 
 namespace {
+uint16_t freePrometheusPort()
+{
+    TCPSocket probe;
+    probe.host(Host("127.0.0.1", 0));
+    probe.listen(0, false);
+
+    sockaddr_in address {};
+    socklen_t   length = sizeof(address);
+    if (::getsockname(probe.fd(), reinterpret_cast<sockaddr*>(&address), &length) != 0)
+    {
+        probe.close();
+        throw runtime_error("getsockname failed");
+    }
+    const auto port = ntohs(address.sin_port);
+    probe.close();
+    return port;
+}
+
 void verifyResult(const CResult& result)
 {
     if (result.m_success != true)
@@ -88,6 +107,11 @@ TEST_F(XMQ_ControlServiceTests, startServiceRefusesListenerHeldByAnotherBroker)
     settings->m_cluster.m_this_node.m_node_name = "second";
     settings->m_connections = running->getSettings()->m_connections;
     settings->m_web_service = running->getSettings()->m_web_service;
+    // The controller builds a log engine before it tries to bind, and the loaded configuration
+    // names the installed log path - which a test has no business writing to, and on a machine
+    // where the broker is installed is a file owned by its service account. What this test is
+    // about is the listener.
+    settings->m_logging.m_log_to = (DirectoryNames::tempDirectory() / "xmq_second_broker.log").string();
 
     ServerController second(settings);
     try
@@ -101,6 +125,136 @@ TEST_F(XMQ_ControlServiceTests, startServiceRefusesListenerHeldByAnotherBroker)
         EXPECT_NE(string::npos, message.find("already in use")) << message;
         EXPECT_NE(string::npos, message.find(to_string(TestTcpPortNumber))) << message;
     }
+}
+
+TEST_F(XMQ_ControlServiceTests, prometheusSettingsAreReadAndAppliedThroughTheInterface)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    const auto settings = server()->getSettings();
+    const auto saved = settings->m_prometheus;
+
+    CPrometheusControl get;
+    get.m_action = "get";
+    CPrometheusControlResponse current;
+    m_controlService->PrometheusControl(get, current, &authentication);
+    ASSERT_TRUE(current.m_result.m_success.asBool()) << current.m_result.m_description.asString();
+    ASSERT_FALSE(current.m_settings.m_enabled.asBool());
+    EXPECT_EQ(9184, current.m_settings.m_port.asInteger());
+    EXPECT_FALSE(current.m_listening.asBool());
+
+    CPrometheusControl set;
+    set.m_action = "set";
+    set.m_settings.m_enabled = true;
+    set.m_settings.m_bind_ip = "127.0.0.1";
+    set.m_settings.m_port = 29185;
+    set.m_settings.m_username = "metrics";
+    set.m_settings.m_password = "Secret1!";
+    CPrometheusControlResponse applied;
+    m_controlService->PrometheusControl(set, applied, &authentication);
+    ASSERT_TRUE(applied.m_result.m_success.asBool()) << applied.m_result.m_description.asString();
+    EXPECT_TRUE(applied.m_settings.m_enabled.asBool());
+    EXPECT_EQ(29185, applied.m_settings.m_port.asInteger());
+    EXPECT_TRUE(applied.m_listening.asBool());
+    EXPECT_STREQ("metrics", applied.m_settings.m_username.asString().c_str());
+    // The verifier is never sent back; a set password reads as a mask.
+    EXPECT_STREQ("*****", applied.m_settings.m_password.asString().c_str());
+    // Written, not only held: the next start has to come up with the same endpoint.
+    EXPECT_TRUE(settings->prometheusSettings().m_enabled.asBool());
+    EXPECT_EQ(29185, settings->prometheusSettings().m_port.asInteger());
+    EXPECT_STREQ("metrics", settings->prometheusSettings().m_username.asString().c_str());
+    EXPECT_TRUE(PasswordHash::isHashed(settings->m_prometheus.m_password.asString().c_str()));
+
+    // Back to what this fixture started with; the server is shared by the tests that follow.
+    settings->m_prometheus = saved;
+}
+
+TEST_F(XMQ_ControlServiceTests, prometheusEndpointStartsAndStopsWithoutRestartingTheBroker)
+{
+    const auto settings = server()->getSettings();
+    const auto saved = settings->m_prometheus;
+    const auto port = freePrometheusPort();
+
+    CPrometheusSettings values;
+    values.m_enabled = true;
+    values.m_bind_ip = "127.0.0.1";
+    values.m_port = port;
+    settings->setPrometheusSettings(values);
+
+    // The controller's constructor builds the log engine from these settings, and the running
+    // server's log path is the installed one. Point it at the temp directory while the controller
+    // is being built and put it back: the endpoint is what this test is about, not the log file.
+    const auto savedLogTo = settings->m_logging.m_log_to;
+    settings->m_logging.m_log_to = (DirectoryNames::tempDirectory() / "xmq_prometheus_controller.log").string();
+    ServerController controller(settings);
+    settings->m_logging.m_log_to = savedLogTo;
+    string reason;
+    ASSERT_TRUE(controller.applyPrometheusSettings(reason)) << reason;
+    ASSERT_TRUE(controller.prometheusListening());
+
+    TCPSocket client;
+    client.open(Host("127.0.0.1", port), Socket::OpenMode::CONNECT, true, chrono::seconds(2));
+    client.write(String("GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+    string reply;
+    array<uint8_t, 4096> buffer {};
+    while (client.readyToRead(chrono::seconds(2)))
+    {
+        const auto received = client.read(buffer.data(), buffer.size());
+        if (received == 0) break;
+        reply.append(reinterpret_cast<const char*>(buffer.data()), received);
+    }
+    EXPECT_NE(string::npos, reply.find("HTTP/1.1 200 OK")) << reply;
+    // The controller owns no MQTT server here, so the endpoint says so rather than disappearing.
+    EXPECT_NE(string::npos, reply.find("xmq_up 0")) << reply;
+
+    values.m_enabled = false;
+    settings->setPrometheusSettings(values);
+    ASSERT_TRUE(controller.applyPrometheusSettings(reason)) << reason;
+    EXPECT_FALSE(controller.prometheusListening());
+
+    // The raw section, not prometheusSettings(): the latter masks the verifier, and restoring a
+    // mask after the hash was cleared would be a username without a password.
+    settings->m_prometheus = saved;
+}
+
+TEST_F(XMQ_ControlServiceTests, prometheusRejectsAPortAnotherListenerUses)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    const auto settings = server()->getSettings();
+    const auto mqttPort = settings->m_connections.m_listener.front().m_port.asInteger();
+
+    CPrometheusControl set;
+    set.m_action = "set";
+    set.m_settings.m_enabled = true;
+    set.m_settings.m_bind_ip = "127.0.0.1";
+    set.m_settings.m_port = mqttPort;
+    CPrometheusControlResponse refused;
+    m_controlService->PrometheusControl(set, refused, &authentication);
+    EXPECT_FALSE(refused.m_result.m_success.asBool());
+    EXPECT_NE(string::npos, string(refused.m_result.m_description.asString().c_str()).find("already used"))
+        << refused.m_result.m_description.asString().c_str();
+
+    set.m_settings.m_port = 80;
+    CPrometheusControlResponse tooLow;
+    m_controlService->PrometheusControl(set, tooLow, &authentication);
+    EXPECT_FALSE(tooLow.m_result.m_success.asBool());
+    EXPECT_NE(string::npos, string(tooLow.m_result.m_description.asString().c_str()).find("1025"))
+        << tooLow.m_result.m_description.asString().c_str();
+
+    set.m_settings.m_port = 29186;
+    set.m_settings.m_username = "metrics";
+    set.m_settings.m_password = "";
+    CPrometheusControlResponse noPassword;
+    m_controlService->PrometheusControl(set, noPassword, &authentication);
+    EXPECT_FALSE(noPassword.m_result.m_success.asBool());
+    EXPECT_NE(string::npos, string(noPassword.m_result.m_description.asString().c_str()).find("requires a password"))
+        << noPassword.m_result.m_description.asString().c_str();
+
+    set.m_settings.m_password = "short";
+    CPrometheusControlResponse weakPassword;
+    m_controlService->PrometheusControl(set, weakPassword, &authentication);
+    EXPECT_FALSE(weakPassword.m_result.m_success.asBool());
+    EXPECT_NE(string::npos, string(weakPassword.m_result.m_description.asString().c_str()).find("8 characters"))
+        << weakPassword.m_result.m_description.asString().c_str();
 }
 
 TEST_F(XMQ_ControlServiceTests, settingsTestsConnectionsWithoutSavingAndMasksPasswords)

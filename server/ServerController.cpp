@@ -11,11 +11,13 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 #include "ServerController.h"
+#include "JsonLogEngine.h"
 #include "OSService.h"
 
 #include "SelfSignedCertificate.h"
 #include "common/DirectoryNames.h"
 #include "common/ListenerPort.h"
+#include "MessageDelivery.h"
 
 using namespace std;
 using namespace sptk;
@@ -55,6 +57,24 @@ shared_ptr<LogEngine> ServerController::makeLogEngine(const std::shared_ptr<Sett
     try
     {
         const auto logEngine = make_shared<FileLogEngine>(serverLogPathStr.c_str(), appendToLog);
+
+        const auto json = !settings->m_logging.m_format.isNull() &&
+                          settings->m_logging.m_format.asString().toLowerCase() == "json";
+        if (json)
+        {
+            // The file engine only writes what the wrapper formats. Its own DATE/TIME/PRIORITY
+            // prefixes would make the line invalid JSON, so it is left with ENABLE alone; the
+            // wrapper's stdout option prints the same object to the console.
+            logEngine->options({ENABLE});
+            auto jsonEngine = make_shared<JsonLogEngine>(logEngine,
+                                                        settings->m_cluster.m_this_node.m_node_name.asString());
+            // The file engine writes the JSON; the wrapper prints the same line to stdout itself.
+            // The base engine's STDOUT option would print the original text beside it.
+            jsonEngine->options({ENABLE});
+            jsonEngine->setStdout(true);
+            return jsonEngine;
+        }
+
         logEngine->option(STDOUT, true);
         logEngine->option(DATE, true);
         logEngine->option(TIME, true);
@@ -174,12 +194,13 @@ void ServerController::startService()
                                 : listener.m_bind_ip.asString();
         checkListenerPortAvailable("Listener " + listener.m_name.asString() + " (" +
                                        listener.m_protocol.asString().toUpperCase() + ")",
-                                   static_cast<uint16_t>(listener.m_port.asInteger()));
+                                   bindIP.c_str(), static_cast<uint16_t>(listener.m_port.asInteger()));
     }
 
     if (const auto servicePort = m_settings->m_web_service.m_listener_port.asInteger(); servicePort > 0)
     {
-        checkListenerPortAvailable("Configuration interface", static_cast<uint16_t>(servicePort));
+        checkListenerPortAvailable("Configuration interface", controlServiceAddress().c_str(),
+                                   static_cast<uint16_t>(servicePort));
     }
 
     // Nothing else trims the log: it is opened for appending, so that restarting the broker does
@@ -193,6 +214,10 @@ void ServerController::startService()
     // The interface comes up first and stays up: it is how a server that will not start gets
     // diagnosed and corrected, so it must not depend on one having started.
     startControlService();
+
+    // Like the interface, for the lifetime of the process rather than the broker's: a scrape
+    // must be able to say that the broker is down.
+    startPrometheus();
 
     if (string reason;
         !startServing(reason))
@@ -300,6 +325,166 @@ void ServerController::startControlService()
     {
         logger.error("Configuration interface did not start: " + string(exception.what()) + ".");
     }
+}
+
+void ServerController::startPrometheus()
+{
+    if (m_prometheusExporter)
+    {
+        return;
+    }
+
+    string reason;
+    if (!applyPrometheusSettings(reason))
+    {
+        const Logger logger(*m_logEngine, "[Startup] ");
+        logger.error("Prometheus endpoint did not start: " + reason);
+    }
+}
+
+bool ServerController::applyPrometheusSettings(std::string& reason)
+{
+    const scoped_lock lock(m_prometheusMutex);
+
+    // Nothing is reused: a changed address, port or enabled flag is applied by replacing the
+    // listener, the same way the configuration interface replaces its socket.
+    if (m_prometheusExporter)
+    {
+        m_prometheusExporter->stop();
+        m_prometheusExporter.reset();
+    }
+
+    const auto& configuration = m_settings->m_prometheus;
+    if (configuration.isNull() || configuration.m_enabled.isNull() || !configuration.m_enabled.asBool())
+    {
+        return true;
+    }
+
+    const auto bindAddress = configuration.m_bind_ip.asString().empty()
+                                 ? String("0.0.0.0")
+                                 : configuration.m_bind_ip.asString();
+    const auto port = static_cast<uint16_t>(configuration.m_port.isNull() ? 9184
+                                                                        : configuration.m_port.asInteger());
+    const auto username = configuration.m_username.isNull() ? String() : configuration.m_username.asString();
+    const auto passwordHash = configuration.m_password.isNull() ? String() : configuration.m_password.asString();
+    if (!username.empty() && passwordHash.empty())
+    {
+        reason = bindAddress + ":" + to_string(port) + ": a username is set without a password.";
+        return false;
+    }
+
+    try
+    {
+        // Before the exporter's own socket exists, for the same reason the MQTT listeners are
+        // checked before theirs: once it is open the check can no longer see a conflict.
+        checkListenerPortAvailable("Prometheus endpoint", bindAddress.c_str(), port);
+        auto exporter = make_unique<PrometheusExporter>(
+            [this]
+            {
+                return brokerMetrics();
+            },
+            m_settings->m_cluster.m_this_node.m_node_name.asString(), m_logEngine, bindAddress, port,
+            username.c_str(), passwordHash.c_str(),
+            [this]
+            {
+                return readiness();
+            });
+        exporter->start();
+        m_prometheusExporter = std::move(exporter);
+
+        if (m_logEngine)
+        {
+            const Logger logger(*m_logEngine, "[Startup] ");
+            logger.info("Listening Prometheus on " + bindAddress + ":" + to_string(port) + ".");
+        }
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        // Metrics are auxiliary. A port that cannot be taken loses the exporter, not the broker
+        // it was going to describe - and the caller says which address could not be used.
+        reason = bindAddress + ":" + to_string(port) + ": " + exception.what();
+        return false;
+    }
+}
+
+bool ServerController::prometheusListening() const
+{
+    const scoped_lock lock(m_prometheusMutex);
+    return m_prometheusExporter != nullptr;
+}
+
+Readiness ServerController::readiness() const
+{
+    const scoped_lock lock(m_mutex);
+
+    if (!m_xmqServer)
+    {
+        return {false, "MQTT is not running"};
+    }
+
+    if (const auto cluster = m_xmqServer->cluster(); cluster && !cluster->isOnline())
+    {
+        return {false, "the cluster lease is not held"};
+    }
+
+    return {true, {}};
+}
+
+std::optional<BrokerMetrics> ServerController::brokerMetrics() const
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        return std::nullopt;
+    }
+
+    const auto* statistics = m_xmqServer->systemStatistics();
+    if (!statistics)
+    {
+        return std::nullopt;
+    }
+
+    using enum SystemStatistics::SysTopicKind;
+
+    BrokerMetrics metrics;
+    metrics.clientsConnected = statistics->getValue(BrokerClientsConnected);
+    metrics.clientsDisconnected = statistics->getValue(BrokerClientsDisconnected);
+    metrics.clientsMaximum = statistics->getValue(BrokerClientsMaximum);
+    metrics.clientsTotal = statistics->getValue(BrokerClientsTotal);
+    metrics.messagesReceived = statistics->getValue(BrokerMessagesReceived);
+    metrics.messagesSent = statistics->getValue(BrokerMessagesSent);
+    metrics.publishReceived = statistics->getValue(BrokerMessagesPublishReceived);
+    metrics.publishSent = statistics->getValue(BrokerMessagesPublishSent);
+    metrics.publishDropped = statistics->getValue(BrokerMessagesPublishDropped);
+    metrics.messagesRetained = statistics->getValue(BrokerMessagesRetainedCount);
+    metrics.messagesStored = statistics->getValue(BrokerMessagesStored);
+    metrics.bytesReceived = statistics->getValue(BrokerLoadBytesReceived);
+    metrics.bytesSent = statistics->getValue(BrokerLoadBytesSent);
+    metrics.subscriptions = statistics->getValue(BrokerSubscriptionsCount);
+    metrics.clusterMessagesReceived = statistics->getValue(BrokerClusterMessagesReceived);
+    metrics.queueReceive = statistics->getValue(BrokerQueuesReceive);
+    metrics.queueSend = statistics->getValue(BrokerQueuesSend);
+    metrics.queueDelivery = statistics->getValue(BrokerQueuesDelivery);
+    metrics.writeCapacityPauses = MessageDelivery::writeCapacityPauses();
+    metrics.writeCapacityPausedSessions = MessageDelivery::pausedSessionCount();
+    metrics.uptimeSeconds = statistics->brokerUptimeSeconds();
+
+    metrics.clusterEnabled = !m_settings->m_cluster.m_enabled.isNull() && m_settings->m_cluster.m_enabled.asBool();
+    if (const auto cluster = m_xmqServer->cluster())
+    {
+        const auto clusterSettings = cluster->getClusterSettings();
+        metrics.clusterNodes = clusterSettings.m_nodes.size();
+        metrics.clusterConnectedPeers = cluster->connectedPeerCount();
+        for (const auto& node : clusterSettings.m_nodes)
+        {
+            if (node.m_node_name.asString() != clusterSettings.m_this_node.m_node_name.asString())
+            {
+                metrics.clusterLinks += cluster->linkCountOf(node.m_node_name.asString());
+            }
+        }
+    }
+    return metrics;
 }
 
 ExtensionHost::Report ServerController::reloadExtensions()
@@ -611,6 +796,15 @@ void ServerController::stopService()
     // The process is going away, so the interface goes too - unlike stopServing(), which keeps it.
     stopServing();
     m_controlServiceListener.reset();
+
+    {
+        const scoped_lock lock(m_prometheusMutex);
+        if (m_prometheusExporter)
+        {
+            m_prometheusExporter->stop();
+            m_prometheusExporter.reset();
+        }
+    }
 
     // Keep the existing engine while shutting down. Retiring a configuration can reset the
     // settings to defaults; reopening here then targets the installation's log directory,

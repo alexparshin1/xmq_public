@@ -43,6 +43,7 @@ export default class LoggingScreen extends BasicScreen {
         // Left empty until the server reports it: the log path is the server's, and its shape
         // depends on the server's platform, which the browser has no way of knowing.
         log_to: "",
+        format: "text",
         min_log_level: "INFO",
         log_level: {
             connect: "INFO",
@@ -67,6 +68,7 @@ export default class LoggingScreen extends BasicScreen {
                 const logging = result.logging;
                 this.setState({
                     log_to: logging.log_to,
+                    format: logging.format || "text",
                     min_log_level: logging.min_log_level,
                     // Keep the defaults for any subject the server didn't report,
                     // so an older configuration file doesn't blank the selects.
@@ -127,6 +129,16 @@ export default class LoggingScreen extends BasicScreen {
                 <HelpButton helpKey="logging.log_to"/>
             </div>
 
+            <div className="inputScreenRow">
+                <label htmlFor="format" className="inputScreenLabel">Format:</label>
+                <select id="format" className="inputScreenSelect" value={this.state.format}
+                        onChange={(e) => this.setState({format: e.target.value})}>
+                    <option value="text">Text</option>
+                    <option value="json">JSON, one object per line</option>
+                </select>
+                <HelpButton helpKey="logging.format"/>
+            </div>
+
             {this.renderLevelSelect("Minimum log level", this.state.min_log_level,
                                     (level) => this.setState({min_log_level: level}),
                                     "logging.min_log_level")}
@@ -149,6 +161,7 @@ export default class LoggingScreen extends BasicScreen {
                 action: "set",
                 logging: {
                     log_to: this.state.log_to,
+                    format: this.state.format,
                     min_log_level: this.state.min_log_level,
                     log_level: this.state.log_level
                 }

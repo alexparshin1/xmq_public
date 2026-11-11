@@ -138,6 +138,16 @@ private:
                 string reply = ":1\r\n";
                 if (request[0] == "HELLO") reply = "%0\r\n";
                 else if (request[0] == "SELECT") reply = "+OK\r\n";
+                else if (request.size() > 4 && request[0] == "EVAL" &&
+                         (request[3] == "storage:id" || request[3] == "cluster:id"))
+                {
+                    // storageIdentity() creates the value on first use and returns the ARGV[1]
+                    // that this peer was given. Replying with the integer default would make the
+                    // coordinator reject the identity before it ever reaches the lease logic
+                    // this test is about.
+                    const auto& identity = request[4];
+                    reply = "$" + to_string(identity.size()) + "\r\n" + identity + "\r\n";
+                }
                 else if (request.size() > 1 && request[1].find("local rank =") != string::npos)
                 {
                     if (++statuses == 2)

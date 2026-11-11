@@ -40,7 +40,7 @@ public:
     /// CPU, taken by the measurement whose latency it reports.
     struct HistogramCounts
     {
-        std::vector<uint32_t> m_counts;  ///< Count per bucket index, sized lazily to the range seen.
+        std::vector<uint64_t> m_counts;  ///< Count per bucket index, sized lazily to the range seen.
         std::vector<uint16_t> m_touched; ///< Bucket indices with a non-zero count, in arrival order.
     };
 
@@ -53,13 +53,17 @@ public:
     using Histogram = std::map<uint32_t, uint64_t>;
 
     /**
-     * @brief Count one more sample in a dense histogram at an already-computed bucket.
+     * @brief Add samples to a dense histogram at an already-computed bucket.
      *
      * The place a HistogramCounts grows: resizing here means every user shares one growth
      * pattern, whatever bucket index it was handed.
      */
-    static void countHistogram(HistogramCounts& histogram, const uint32_t bucket)
+    static void countHistogram(HistogramCounts& histogram, const uint32_t bucket, const uint64_t samples = 1)
     {
+        if (samples == 0)
+        {
+            return;
+        }
         if (bucket >= histogram.m_counts.size())
         {
             const auto target = std::min<size_t>(HistogramBucketLimit,
@@ -70,7 +74,7 @@ public:
         {
             histogram.m_touched.push_back(static_cast<uint16_t>(bucket));
         }
-        ++histogram.m_counts[bucket];
+        histogram.m_counts[bucket] += samples;
     }
 
     struct Interval
@@ -152,7 +156,8 @@ public:
             summaryRoundTripLatency.m_unmatchedReceived += roundTripLatency.m_unmatchedReceived;
             for (const auto& bucket: roundTripLatency.m_totalHistogram.m_touched)
             {
-                countHistogram(summaryRoundTripLatency.m_totalHistogram, bucket);
+                countHistogram(summaryRoundTripLatency.m_totalHistogram, bucket,
+                               roundTripLatency.m_totalHistogram.m_counts[bucket]);
             }
             for (const auto& [intervalTime, intervalData]: roundTripLatency.m_intervals)
             {

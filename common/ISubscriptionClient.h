@@ -106,6 +106,22 @@ public:
         return postMessage(message, qos, subscriptionIds, retain);
     }
 
+    /**
+     * @brief Post a message for sending, with the socket write done on this thread.
+     *
+     * The sender says it can write the recipient's socket as soon as the message clears the
+     * queue: the send worker that would otherwise wake up for it is skipped, and its queue
+     * notification skipped with it. The session has a say in whether the write happens here, per
+     * message - ones it will send another way ignore the hint. Meant for deliveries of a
+     * publication that did not fan out.
+     * @param inlineSend Write on this thread rather than waking the send worker.
+     */
+    virtual MessageId postMessage(const SMessage& message, Qos qos, const SubscriptionIdSet& subscriptionIds, bool retain,
+                                  const std::vector<std::weak_ptr<Subscription>>& sharedSubscriptions, [[maybe_unused]] bool inlineSend)
+    {
+        return postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions);
+    }
+
     virtual void onMessage(MessageCallback messageCallback) = 0;
 
     [[nodiscard]] virtual std::string bridgeOrigin() const = 0;

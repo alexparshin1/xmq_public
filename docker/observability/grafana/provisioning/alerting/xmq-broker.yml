@@ -1,0 +1,98 @@
+apiVersion: 1
+
+# These rules describe broker conditions in Prometheus. Notifications are installation-specific:
+# configure a contact point and route in Grafana rather than shipping somebody else's receiver.
+groups:
+  - orgId: 1
+    name: xmq-broker
+    folder: XMQ
+    interval: 1m
+    rules:
+      - uid: xmq-persistence-backpressure
+        title: XMQ publishers are paused by persistence
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        labels:
+          severity: warning
+        annotations:
+          summary: "XMQ has publisher sessions paused by the persistent-write limit"
+          description: "Check Redis latency and persistence.max_queued_writes. Sustained pauses apply TCP backpressure to publishers."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: xmq-prometheus
+            model:
+              editorMode: code
+              expr: max by (job, instance) (xmq_broker_write_capacity_paused_sessions)
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold
+      - uid: xmq-cluster-peer-missing
+        title: XMQ cluster peer links are missing
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        isPaused: false
+        labels:
+          severity: warning
+        annotations:
+          summary: "An XMQ cluster node is connected to fewer peers than expected"
+          description: "Check cluster network connectivity and broker logs; connected peer counts are per node."
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: xmq-prometheus
+            model:
+              editorMode: code
+              expr: xmq_cluster_enabled * (xmq_cluster_nodes - 1 - xmq_cluster_connected_peers)
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: threshold

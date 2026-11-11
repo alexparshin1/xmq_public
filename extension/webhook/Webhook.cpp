@@ -90,7 +90,7 @@ bool startSockets()
     // matching WSACleanup is not an error, but there is no reason to make it one.
     static const bool ready = []
     {
-        WSADATA data {};
+        WSADATA data{};
         return WSAStartup(MAKEWORD(2, 2), &data) == 0;
     }();
     return ready;
@@ -165,10 +165,10 @@ constexpr int sendFlags = 0;
 
 struct Url
 {
-    bool        m_tls {true};
+    bool        m_tls{true};
     std::string m_host;
     std::string m_port;
-    std::string m_path {"/"};
+    std::string m_path{"/"};
 };
 
 bool parseUrl(const std::string& text, Url& url)
@@ -288,7 +288,7 @@ std::string isoTimestamp()
 {
     const auto now = std::chrono::system_clock::now();
     const auto time = std::chrono::system_clock::to_time_t(now);
-    std::tm    utc {};
+    std::tm    utc{};
 #ifdef _WIN32
     gmtime_s(&utc, &time);
 #else
@@ -306,7 +306,7 @@ socket_t connectTcp(const Url& url, const int timeoutMs)
         return invalidSocket;
     }
 
-    addrinfo hints {};
+    addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
@@ -350,7 +350,7 @@ socket_t connectTcp(const Url& url, const int timeoutMs)
         fd_set writeSet;
         FD_ZERO(&writeSet);
         FD_SET(socketHandle, &writeSet);
-        timeval timeout {};
+        timeval timeout{};
         timeout.tv_sec = timeoutMs / 1000;
         timeout.tv_usec = (timeoutMs % 1000) * 1000;
 #ifdef _WIN32
@@ -371,9 +371,9 @@ socket_t connectTcp(const Url& url, const int timeoutMs)
 #else
 
 #endif
-        if (socklen_t length = sizeof(error);
+        if (socklen_t errorLength = sizeof(error);
             getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
-                       reinterpret_cast<char*>(&error), &length) != 0 ||
+                       reinterpret_cast<char*>(&error), &errorLength) != 0 ||
             error != 0)
         {
             closeSocket(socketHandle);
@@ -396,7 +396,7 @@ socket_t connectTcp(const Url& url, const int timeoutMs)
         setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO,
                    reinterpret_cast<const char*>(&timeout), sizeof(timeout));
 #else
-        timeval timeout {};
+        timeval timeout{};
         timeout.tv_sec = timeoutMs / 1000;
         timeout.tv_usec = (timeoutMs % 1000) * 1000;
         setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
@@ -426,8 +426,11 @@ public:
     Connection() = default;
     Connection(const Connection&) = delete;
     Connection& operator=(const Connection&) = delete;
+
     ~Connection()
-    { close(); }
+    {
+        close();
+    }
 
     bool open(const Url& url, const int timeoutMs)
     {
@@ -445,10 +448,10 @@ public:
 
         static std::once_flag once;
         std::call_once(once, []
-                       {
-                           SSL_library_init();
-                           SSL_load_error_strings();
-                       });
+        {
+            SSL_library_init();
+            SSL_load_error_strings();
+        });
 
         m_context = SSL_CTX_new(TLS_client_method());
         if (m_context == nullptr)
@@ -558,12 +561,14 @@ public:
                 return true;
             }
 
-            const int received = m_ssl != nullptr ? SSL_read(m_ssl, buffer, sizeof(buffer))
-                                                  : static_cast<int>(::recv(m_socket, buffer, sizeof(buffer), 0));
+            const int received = m_ssl != nullptr
+                                     ? SSL_read(m_ssl, buffer, sizeof(buffer))
+                                     : static_cast<int>(::recv(m_socket, buffer, sizeof(buffer), 0));
             if (received <= 0)
             {
-                error = response.empty() ? "the endpoint sent no response"
-                                         : "the endpoint closed the connection mid-response";
+                error = response.empty()
+                            ? "the endpoint sent no response"
+                            : "the endpoint closed the connection mid-response";
                 m_closeAfterResponse = true;
                 return false;
             }
@@ -578,7 +583,10 @@ public:
     }
 
     [[nodiscard]] bool closeAfterResponse() const
-    { return m_closeAfterResponse; }
+    {
+        return m_closeAfterResponse;
+    }
+
     void close()
     {
         m_closeAfterResponse = false;
@@ -601,16 +609,21 @@ public:
     }
 
     [[nodiscard]] const std::string& error() const
-    { return m_error; }
+    {
+        return m_error;
+    }
+
     [[nodiscard]] bool isOpen() const
-    { return m_socket != invalidSocket; }
+    {
+        return m_socket != invalidSocket;
+    }
 
 private:
-    socket_t    m_socket {invalidSocket};
-    int         m_timeout {defaultTimeoutMs};
-    SSL_CTX*    m_context {nullptr};
-    SSL*        m_ssl {nullptr};
-    bool        m_closeAfterResponse {false};
+    socket_t    m_socket{invalidSocket};
+    int         m_timeout{defaultTimeoutMs};
+    SSL_CTX*    m_context{nullptr};
+    SSL*        m_ssl{nullptr};
+    bool        m_closeAfterResponse{false};
     std::string m_error;
 };
 
@@ -627,12 +640,12 @@ private:
 class Peer
 {
 public:
-    Peer(Url url, std::string secret, const int timeoutMs,
+    Peer(Url                                              url, std::string secret, const int timeoutMs,
          std::vector<std::pair<std::string, std::string>> headers)
         : m_url(std::move(url))
-        , m_secret(std::move(secret))
-        , m_timeoutMs(timeoutMs)
-        , m_headers(std::move(headers))
+          , m_secret(std::move(secret))
+          , m_timeoutMs(timeoutMs)
+          , m_headers(std::move(headers))
     {
     }
 
@@ -693,7 +706,7 @@ public:
 private:
     Url                                              m_url;
     std::string                                      m_secret;
-    int                                              m_timeoutMs {defaultTimeoutMs};
+    int                                              m_timeoutMs{defaultTimeoutMs};
     std::vector<std::pair<std::string, std::string>> m_headers;
     Connection                                       m_connection;
 };
@@ -716,7 +729,7 @@ struct JsonValue
         Array
     };
 
-    Kind                                           kind {Kind::Null};
+    Kind                                           kind{Kind::Null};
     std::string                                    text;
     std::vector<std::pair<std::string, JsonValue>> object;
     std::vector<JsonValue>                         array;
@@ -737,7 +750,9 @@ public:
     }
 
     [[nodiscard]] const std::string& error() const
-    { return m_error; }
+    {
+        return m_error;
+    }
 
 private:
     void skipSpace()
@@ -949,10 +964,13 @@ private:
                     {
                         code <<= 4U;
                         const char hexDigit = m_at < m_text.size() ? m_text[m_at++] : '0';
-                        code |= hexDigit >= '0' && hexDigit <= '9'   ? static_cast<unsigned>(hexDigit - '0')
-                                : hexDigit >= 'a' && hexDigit <= 'f' ? static_cast<unsigned>(hexDigit - 'a' + 10)
-                                : hexDigit >= 'A' && hexDigit <= 'F' ? static_cast<unsigned>(hexDigit - 'A' + 10)
-                                                                     : 0U;
+                        code |= hexDigit >= '0' && hexDigit <= '9'
+                                    ? static_cast<unsigned>(hexDigit - '0')
+                                    : hexDigit >= 'a' && hexDigit <= 'f'
+                                    ? static_cast<unsigned>(hexDigit - 'a' + 10)
+                                    : hexDigit >= 'A' && hexDigit <= 'F'
+                                    ? static_cast<unsigned>(hexDigit - 'A' + 10)
+                                    : 0U;
                     }
                     // UTF-8, for the ranges a settings file is likely to hold; a surrogate pair is
                     // left as two replacements rather than guessed at.
@@ -981,7 +999,7 @@ private:
     }
 
     const std::string_view m_text;
-    size_t                 m_at {0};
+    size_t                 m_at{0};
     std::string            m_error;
 };
 
@@ -1100,7 +1118,7 @@ bool parseTopicFilters(const std::string_view text, std::vector<std::string>& fi
 /// The same shape as topic_filter: the interface edits a list, the file stores a JSON array, and a
 /// value written by hand as one header still works.
 bool parseHeaders(const std::string_view text, std::vector<std::pair<std::string, std::string>>& headers,
-                  std::string& error)
+                  std::string&           error)
 {
     headers.clear();
     const auto value = trimmed(text);
@@ -1226,37 +1244,37 @@ struct Destination
     std::string                                      name;
     Url                                              url;
     std::string                                      secret;
-    int                                              timeoutMs {defaultTimeoutMs};
-    int                                              retries {defaultRetries};
+    int                                              timeoutMs{defaultTimeoutMs};
+    int                                              retries{defaultRetries};
     std::string                                      tmpl; ///< Never empty; the setting falls back to defaultTemplate.
-    bool                                             sendMessages {true};
-    bool                                             sendLog {false};
-    std::vector<std::string>                         topicFilters {"#"};
-    size_t                                           maxPayload {std::numeric_limits<size_t>::max()};
-    uint32_t                                         minLevel {XMQ_LOG_ERROR};
+    bool                                             sendMessages{true};
+    bool                                             sendLog{false};
+    std::vector<std::string>                         topicFilters{"#"};
+    size_t                                           maxPayload{std::numeric_limits<size_t>::max()};
+    uint32_t                                         minLevel{XMQ_LOG_ERROR};
     std::vector<std::string>                         logSubjects;
     std::vector<std::pair<std::string, std::string>> headers;
 
     /// How many requests may be in flight at once. One connection per destination is enough on
     /// loopback and far too few across a network: a synchronous reply per record caps a destination
     /// at 1/RTT, which is a hundred records a second at 10 ms.
-    int concurrency {4};
+    int concurrency{4};
 
     std::mutex                                      lock;
     std::condition_variable                         condition;
     std::deque<std::pair<std::string, std::string>> queue; ///< body, what it was
-    bool                                            stopping {false};
+    bool                                            stopping{false};
     std::vector<std::thread>                        threads;
-    std::atomic<uint64_t>                           sent {0};
-    std::atomic<uint64_t>                           failed {0};
-    std::atomic<uint64_t>                           dropped {0};
+    std::atomic<uint64_t>                           sent{0};
+    std::atomic<uint64_t>                           failed{0};
+    std::atomic<uint64_t>                           dropped{0};
 };
 
 constexpr size_t maxQueuedPerDestination = 1024;
 
 /// 2xx is success; 4xx except 429 is refused without a second attempt; everything else retries
 /// with backoff. The same policy for both inputs, in one place.
-bool deliverOnce(Peer& peer, const Destination& destination, const std::string& body,
+bool deliverOnce(Peer&              peer, const Destination& destination, const std::string& body,
                  const std::string& what)
 {
     for (int attempt = 0; attempt <= destination.retries; ++attempt)
@@ -1324,9 +1342,9 @@ public:
         {
             if (!destination->sendMessages ||
                 std::ranges::none_of(destination->topicFilters, [&topic](const std::string& filter)
-                                     {
-                                         return topicMatches(filter, topic);
-                                     }) ||
+                {
+                    return topicMatches(filter, topic);
+                }) ||
                 message.payload.length > destination->maxPayload)
             {
                 continue;
@@ -1467,8 +1485,8 @@ private:
     std::string nextId()
     {
         return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::system_clock::now().time_since_epoch())
-                                  .count()) +
+                       std::chrono::system_clock::now().time_since_epoch())
+                   .count()) +
                "-" + std::to_string(m_sequence.fetch_add(1));
     }
 
@@ -1501,9 +1519,9 @@ private:
             {
                 std::unique_lock lock(destination->lock);
                 destination->condition.wait(lock, [&destination]
-                                            {
-                                                return destination->stopping || !destination->queue.empty();
-                                            });
+                {
+                    return destination->stopping || !destination->queue.empty();
+                });
                 if (destination->queue.empty() && destination->stopping)
                 {
                     return;
@@ -1648,7 +1666,7 @@ private:
             log(XMQ_LOG_ERROR, error);
             return false;
         }
-        const std::vector<std::shared_ptr<Destination>> wanted {std::move(destinations)};
+        const std::vector<std::shared_ptr<Destination>> wanted{std::move(destinations)};
 
         // The host is asked once, with the filters this destination names. A list rather than the
         // widest single filter: with "#" the broker would copy every body here for nothing, and
@@ -1696,9 +1714,9 @@ private:
                 filters += (filters.empty() ? "'" : ", '") + filter + "'";
             }
             log(XMQ_LOG_INFO, destination->name + ": " + destination->url.m_host + ":" +
-                                  destination->url.m_port + destination->url.m_path +
-                                  (destination->sendMessages ? " messages " + filters : "") +
-                                  (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
+                              destination->url.m_port + destination->url.m_path +
+                              (destination->sendMessages ? " messages " + filters : "") +
+                              (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
         }
 
         stopDestinations();
@@ -1711,9 +1729,9 @@ private:
             for (int at = 0; at < destination->concurrency; ++at)
             {
                 destination->threads.emplace_back([destination]
-                                                  {
-                                                      run(destination);
-                                                  });
+                {
+                    run(destination);
+                });
             }
         }
 
@@ -1737,20 +1755,20 @@ private:
 
     mutable std::mutex                        m_destinationsLock;
     std::vector<std::shared_ptr<Destination>> m_current;
-    std::atomic<uint64_t>                     m_sequence {0};
+    std::atomic<uint64_t>                     m_sequence{0};
 };
 
 constexpr xmq_setting settings[] = {
     {.name = "url", .label = "URL", .description = "Where accepted messages are posted, http:// or https://", .type = XMQ_SETTING_STRING, .default_value = "", .pattern = "https?://\\S+"},
     {.name = "template", .label = "Body template", .description = "Body to post: {{topic}}, {{message}}, {{level}} and the other names are "
-                                                                  "substituted and JSON-escaped. For a message {{message}} is the base64 "
-                                                                  "payload and {{level}} is \"message\"; for a log record {{topic}} is empty",
+     "substituted and JSON-escaped. For a message {{message}} is the base64 "
+     "payload and {{level}} is \"message\"; for a log record {{topic}} is empty",
      .type = XMQ_SETTING_STRING,
      .default_value = defaultTemplate},
     {.name = "headers", .label = "Headers", .description = "Extra request headers, one Name: value per item; empty means none", .type = XMQ_SETTING_LIST, .default_value = "", .pattern = "[-A-Za-z0-9!#$%&'*+.^_`|~]+: *\\S.*"},
     {.name = "secret", .label = "Secret", .description = "HMAC-SHA256 key for the X-XMQ-Signature header", .type = XMQ_SETTING_SECRET, .default_value = ""},
     {.name = "topic_filter", .label = "Topic filters", .description = "One or more MQTT filters; a message matching any is sent. + and # must each "
-                                                                      "be a whole level, and # the last one",
+     "be a whole level, and # the last one",
      .type = XMQ_SETTING_LIST,
      .default_value = "#",
      .pattern = R"((?:(?:[^+#/]*|\+)/)*(?:[^+#/]*|\+|#))"},
@@ -1759,13 +1777,13 @@ constexpr xmq_setting settings[] = {
     {.name = "retries", .label = "Retries", .description = "Attempts after the first one, 0 to 100", .type = XMQ_SETTING_INTEGER, .default_value = "3", .pattern = "[0-9]|[1-9][0-9]|100"},
     {.name = "allow_http", .label = "Allow HTTP", .description = "Permit a plain HTTP URL (for a local receiver)", .type = XMQ_SETTING_BOOLEAN, .default_value = "false"},
     {.name = "sources", .label = "Sources", .description = "What is posted: the messages the broker accepts, its own log records, or "
-                                                           "both. To send neither, disable the extension",
+     "both. To send neither, disable the extension",
      .type = XMQ_SETTING_CHOICE,
      .default_value = "Send messages",
      .choices = "Send log,Send messages,Send log and messages"},
     {.name = "log_min_level", .label = "Log level", .description = "Lowest log level to send", .type = XMQ_SETTING_CHOICE, .default_value = "error", .choices = "debug,info,warning,error"},
     {.name = "log_subjects", .label = "Log subjects", .description = "Comma-separated broker log subjects, for example publish,connect; empty "
-                                                                     "means all",
+     "means all",
      .type = XMQ_SETTING_STRING,
      .default_value = "",
      .pattern = "[a-z_]+(?:,[a-z_]+)*"},

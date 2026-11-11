@@ -14,6 +14,44 @@ Requires SPTK 5.6.19.
 
 ### Added
 
+- **A Prometheus metrics endpoint.** Set `prometheus.enabled=true` with `prometheus.bind_ip` and
+  `prometheus.port` (default `0.0.0.0:9184`) and the broker answers `GET /metrics` on that
+  listener with the Prometheus text exposition format: broker counters, queue depths, connection
+  and subscription counts, cluster messages received, and host and process CPU and memory. It is
+  off by default, has no TLS and is per node, not cluster-wide. The address and port, and an
+  optional HTTP Basic username and password, are edited on the Prometheus page of the configuration
+  interface and take effect at once, without restarting MQTT; the password is stored as a one-way
+  verifier, and a scrape without valid credentials is answered with `401`. The listener is owned
+  for the lifetime of the process, so a scrape reports `xmq_up 0` while MQTT is stopped. See
+  [doc/Prometheus.md](doc/Prometheus.md).
+
+- **Structured JSON logs.** `logging.format=json` (or the Format selector on the Logging page)
+  writes one JSON object per line to both the log file and stdout: `timestamp`, `level`, `node`,
+  the `subject` the broker already knows, `component` for startup and service records, and the
+  message text. The default remains `text`, byte for byte as before. A format change takes effect
+  at the next start; levels still apply immediately. See
+  [the Setup guide](https://xmq.sptk.net/xmq_doc_setup).
+
+- **The Prometheus endpoint answers health probes too.** `GET /healthz` reports that the
+  process is alive; `GET /readyz` reports whether MQTT can serve clients, with a `503` and a short
+  reason while MQTT is stopped, starting, or while a cluster node does not hold its lease. Both are
+  unauthenticated, because a kubelet probe cannot present the metrics password, and neither reveals
+  counters or configuration.
+
+- **A ready Prometheus, Loki and Grafana stack.** `docker/observability/` starts XMQ, Prometheus,
+  Loki and Grafana together, with provisioned dashboards for metrics and logs, alert rules, and the
+  `XMQ_PROMETHEUS`, `XMQ_PROMETHEUS_BIND`, `XMQ_PROMETHEUS_PORT` and `XMQ_LOG_FORMAT` settings for
+  the Docker image. Alloy collects the broker's JSON log lines from the container's stdout and
+  labels them by `level`, `node`, `subject` and `component`, so an error is one query away from the
+  metric that moved. See [its README](docker/observability/README.md).
+
+- **Prometheus reports persistence backpressure and cluster connectivity.** The endpoint exposes
+  publisher sessions paused at `max_queued_writes`, the cumulative number of such pauses, registered
+  cluster nodes, connected peers and outgoing links. The overview dashboard charts both groups;
+  Grafana provisions warnings for sustained publisher pauses and missing cluster peer links. These
+  make two operational failures visible without an operator having to infer them from traffic or
+  logs.
+
 - **Experimental acknowledgement after durable storage for standalone brokers.** Set
   `persistence.ack_after_store=true` with persistence enabled, `clean_start=false` and
   `max_queued_writes=0`. Persistent deliveries, retained updates/clearings and incoming QoS 2
@@ -23,6 +61,15 @@ Requires SPTK 5.6.19.
   in this mode. See [the contract and tests](doc/ReliableMessageStore.md) for its boundaries.
 
 ### Fixed
+
+- **The metrics endpoint comes back up straight after a restart.** A scrape's connection is closed
+  as soon as it has been answered, so the listening port stays in `TIME_WAIT` for a minute, and
+  the listener was opened without `SO_REUSEADDR`: a broker restarted within that minute logged
+  `Prometheus endpoint did not start: ... the port is already in use by another process` and
+  served no `/metrics` until it was restarted again - saving the Prometheus settings had the same
+  effect, because the endpoint is replaced. The listener now takes its port the way the MQTT
+  listeners do, after the same availability check, which still refuses a port another process is
+  already serving.
 
 - **A broker refuses to start when another process already holds one of its listener ports.**
   The listening sockets are opened with `SO_REUSEPORT`, so a second broker with the same
@@ -42,6 +89,20 @@ Requires SPTK 5.6.19.
   to 0.95 ms at the default two delivery threads and to 0.76 ms at four. The measured
   end-to-end figure did not move, because on that rig the load client owns the other 1.4 ms.
 
+- **A durable broker asks for its acknowledgements one at a time.** A client that batches
+  acknowledgements (`parameters.ack_batch_size` in the scenario configuration, default sixteen)
+  writes them every sixteen deliveries. Against a durable broker that is not a saving but a window:
+  every QoS 1 publication stays in the journal until its subscriber acknowledges it, so sixteen deliveries per
+  subscriber waited where one had to, the queue grew for as long as the run lasted, and the
+  measured latency followed it. On the stand's 60K persistent scenario the client's interval
+  median was 88 ms and the broker's RSS 1246 Mb, against 183 us and 498 Mb with a batch of one.
+  The broker now says what its storage is in a CONNACK user property (`$xmq-persistence=durable`)
+  when persistence is enabled, and a client that reads it writes each acknowledgement on its own,
+  whatever its batching default says - the broker knows what its storage does, the client cannot.
+  The batch is configured with `parameters.ack_batch_size`, not an environment variable. Batching
+  stays an option everywhere else: two was already worse than one on the same scenario
+  (237 us), four was not worth measuring.
+
 ### Changed
 
 - **The load generator pays less for its own bookkeeping on the delivery path.** Two changes in
@@ -52,9 +113,9 @@ Requires SPTK 5.6.19.
     run total now count into dense vectors whose element per bucket index is the key the map
     folded, with lazy growth capped at a bucket range that covers latencies of about an hour.
     Stored intervals stay sparse. Cost: 0.16% of all samples; medians where compared unchanged.
-  - `XMQ_CLIENT_ACK_BATCH` makes one TCP write carry up to this many acknowledgements instead of
-    one write per received message. Default 1 is the old behaviour; the option is meant for load
-    runs. At 16 the stand measured Fan-Out 1887 → 1802 µs, P2P 240 → 213 µs, Fan-In 168 → 165 µs,
+  - `parameters.ack_batch_size` makes one TCP write carry up to this many acknowledgements instead
+    of one write per received message. Its default is 16; the durable broker's CONNACK overrides it
+    to 1. At 16 the stand measured Fan-Out 1887 → 1802 µs, P2P 240 → 213 µs, Fan-In 168 → 165 µs,
     the connection scenario untouched (it has no deliveries): the gain is the write and the
     small segments both machines were carrying, not faster acknowledgements. Acknowledgements
     delayed this way wait in the session's buffer until the run's flow of deliveries catches up,

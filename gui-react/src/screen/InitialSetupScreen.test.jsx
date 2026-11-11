@@ -87,13 +87,15 @@ test("Enter runs validation and repeated submit is ignored while busy", async ()
     expect(ControlAPI.asyncMakeAPICall.mock.calls.filter(([, body]) => body.action === "set")).toHaveLength(1);
 });
 
-test.each(["redis_host", "redis_port"])("leaving %s checks the current host and port on the server", async field => {
+test.each(["redis_host", "redis_port"])("leaving %s checks the current address and database on the server", async field => {
     const view = await form();
     ControlAPI.asyncMakeAPICall.mockResolvedValue({result: {success: true}});
     fireEvent.change(screen.getByLabelText("Redis host:"), {target: {value: "theater"}});
     fireEvent.change(screen.getByLabelText("port:"), {target: {value: "6380"}});
     fireEvent.blur(view.container.querySelector(`input[name="${field}"]`));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Redis at theater:6380 is reachable."));
+    // The database is part of what is checked, so the reply names it: the form has a database
+    // field, and "reachable" without it would leave which database was proved open.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Redis at theater:6380/0 is reachable."));
     expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("InitialSetupControl", {
         action: "check-redis", redis_host: "theater", redis_port: 6380, redis_database: 0, redis_username: "", redis_password: ""
     }, true);

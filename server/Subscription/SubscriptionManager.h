@@ -78,10 +78,14 @@ public:
      *
      * Processes only the sessions whose shardOf() equals shardIndex, so a large fan-out can be
      * split across the delivery thread pool. shardCount of 1 delivers to every session.
+     * @param inlineSend Write each delivery to the recipient's socket on this thread: the sender
+     *                   says the fan-out is small enough for the write to be done here, and its
+     *                   path asks the sessions for it (see base/MessageDispatch on what it turns
+     *                   into). The deliveries that do not fit the shape ignore it.
      * @return Number of sessions delivered to.
      */
     static size_t deliverShard(const std::shared_ptr<PublishMessage>& message, const mqtt::SubscriptionIds& deliverToSessions,
-                               size_t shardIndex, size_t shardCount);
+                               size_t shardIndex, size_t shardCount, bool inlineSend = false);
 
     /**
      * @brief Stable session-to-shard mapping used by deliverShard().
@@ -92,7 +96,7 @@ public:
      * counts divide, and so all of them gave the same remainder. The whole fan-out then ran on
      * one thread however many delivery threads existed - a hundredth of the point of sharding it.
      */
-    static size_t shardOf(const ISubscriptionClient* session, const size_t shardCount)
+    static size_t shardOf(const void* session, const size_t shardCount)
     {
         auto value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(session));
         value ^= value >> 33;

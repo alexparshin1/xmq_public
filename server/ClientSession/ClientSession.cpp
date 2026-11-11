@@ -31,8 +31,19 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
-namespace
+namespace {
+/**
+ * @brief The exchange buffer the inline send path flushes through, one for each thread.
+ *
+ * Threads keep emptying a buffer into their own exchange, the way the send workers do. A thread
+ * that flushes through send() twice in a row reuses the one it has.
+ */
+std::unique_ptr<sptk::Buffer>& inlineSendExchangeBufferPtr()
 {
+    thread_local std::unique_ptr<sptk::Buffer> buffer = std::make_unique<sptk::Buffer>();
+    return buffer;
+}
+
 /// What one publication counts against a session's queue limit: its payload and its topic, as
 /// MessageQueue counts them, so that the two numbers are the same number.
 uint64_t publishedBytes(const SMessage& message)
@@ -51,7 +62,7 @@ uint64_t publishedBytes(const SMessage& message)
 }
 
 void failReliableCommit(const SClientSession& session, const shared_ptr<ServerConnectionExt>& connection,
-                         const exception_ptr& failure)
+                        const exception_ptr&  failure)
 {
     try { rethrow_exception(failure); }
     catch (const exception& e)
@@ -73,7 +84,7 @@ constexpr size_t initialWriteBufferSize = 128;
 
 // A deadline the session is not waiting on. The session's timer is armed at the earliest of the
 // deadlines that are not this.
-constexpr sptk::DateTime::time_point noDeadline {};
+constexpr sptk::DateTime::time_point noDeadline{};
 } // namespace
 
 ClientSessionSerial ClientSession::m_serial;
@@ -288,16 +299,16 @@ vector<pair<weak_ptr<Subscription>, SMessage>> unacknowledgedSharedIn(const Mess
 {
     vector<pair<weak_ptr<Subscription>, SMessage>> messages;
     queue.forEach([&messages](const SMessageDispatch& dispatch)
-                  {
-                      const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch);
-                      if (delivery && delivery->m_flags.getQos() == Qos::Qos1)
-                      {
-                          for (const auto& sharedSubscription: delivery->sharedSubscriptions())
-                          {
-                              messages.emplace_back(sharedSubscription, delivery->message());
-                          }
-                      }
-                  });
+    {
+        const auto delivery = dynamic_pointer_cast<MessageDelivery>(dispatch);
+        if (delivery && delivery->m_flags.getQos() == Qos::Qos1)
+        {
+            for (const auto& sharedSubscription: delivery->sharedSubscriptions())
+            {
+                messages.emplace_back(sharedSubscription, delivery->message());
+            }
+        }
+    });
     return messages;
 }
 
@@ -479,7 +490,7 @@ DateTime::time_point ClientSession::deadlineForStateUnlocked() const
 {
     switch (m_sessionState.load(std::memory_order_relaxed))
     {
-        using enum SessionState;
+            using enum SessionState;
 
         case Accepted:
         case Authenticating:
@@ -580,7 +591,7 @@ void ClientSession::onSessionTimerEvent()
 {
     const auto now = DateTime::clock::now();
 
-    auto connectTimeout = chrono::milliseconds {0};
+    auto connectTimeout = chrono::milliseconds{0};
     bool connectTimedOut = false;
     bool keepAliveTimedOut = false;
     bool sessionExpired = false;
@@ -600,7 +611,7 @@ void ClientSession::onSessionTimerEvent()
 
         switch (m_sessionState.load(std::memory_order_relaxed))
         {
-            using enum SessionState;
+                using enum SessionState;
 
             case Accepted:
             case Authenticating:
@@ -810,12 +821,40 @@ void ClientSession::sendMessageUnlocked(const MessageDispatch& messageDispatch)
     }
 
     const auto writeBuffer = socketWriteBuffer();
+    // The inline send asks for no send worker: what the append puts in the buffer goes straight to
+    // the socket a few lines below, and a wake-up in between would only find the buffer empty.
     const auto appended = writeBuffer->appendMessageToBuffer(*message, messageDispatch.m_flags, messageDispatch.m_deliveryId,
-                                                             remainingExpirationSeconds, messageDispatch.m_subscriptionIds, getMaximumPacketSize());
+                                                             remainingExpirationSeconds, messageDispatch.m_subscriptionIds,
+                                                             getMaximumPacketSize(), !messageDispatch.m_inlineSend);
 
     if (appended && message->is(Message::Type::Publish))
     {
         incrementPublishSendCount();
+    }
+
+    if (messageDispatch.m_inlineSend && appended)
+    {
+        try
+        {
+            const auto sent = writeBuffer->send(inlineSendExchangeBufferPtr());
+            if (sent.m_bytes && server().systemStatistics())
+            {
+                server().systemStatistics()->registerSentData(sent.m_bytes, sent.m_messages, sent.m_publishes);
+            }
+        }
+        catch (const ConnectionException& e)
+        {
+            serverUnlocked().logMessage(LogSubject::SessionErrors, LogPriority::Error,
+                                        format("INLINE-SEND FAILED (conn): {}", string(e.message())));
+            // The socket cannot carry its bytes. Nothing here closes the session: its own read
+            // path is on the same socket and meets the same condition within a few milliseconds,
+            // and it goes through the close the way every other peer-loss does.
+        }
+        catch (const Exception&)
+        {
+            // Same as above: whatever the failure, a read or a write of the session meets it next
+            // and takes the session down through the path that names it.
+        }
     }
 }
 
@@ -830,12 +869,18 @@ vector<pair<weak_ptr<Subscription>, SMessage>> ClientSession::unacknowledgedShar
 {
     const shared_lock lock(m_mutex);
     const auto&       queue = getInflightQueueUnlocked();
-    return queue ? unacknowledgedSharedIn(*queue) : vector<pair<weak_ptr<Subscription>, SMessage>> {};
+    return queue ? unacknowledgedSharedIn(*queue) : vector<pair<weak_ptr<Subscription>, SMessage>>{};
 }
 
 MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain)
 {
     return postMessage(message, qos, subscriptionIds, retain, {});
+}
+
+MessageId ClientSession::postMessage(const SMessage&                       message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
+                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions)
+{
+    return postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions, false);
 }
 
 void ClientSession::countDroppedPublish()
@@ -864,8 +909,8 @@ void ClientSession::countDroppedPublish()
     }
 }
 
-MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
-                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions)
+MessageId ClientSession::postMessage(const SMessage&                       message, const Qos              qos, const SubscriptionIdSet& subscriptionIds, const bool retain,
+                                     const vector<weak_ptr<Subscription>>& sharedSubscriptions, const bool inlineSend)
 {
     if (auto* store = server().reliableMessageStore();
         store && message->is(Message::Type::Publish) && !ReliableMessageStore::Transaction::current())
@@ -873,7 +918,7 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         // Internal publications (e.g. retained replay and LWT) take the store lock before any
         // recipient lock too, avoiding an inversion with publication commit callbacks.
         ReliableMessageStore::Transaction transaction(*store);
-        const auto id = postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions);
+        const auto                        id = postMessage(message, qos, subscriptionIds, retain, sharedSubscriptions);
         transaction.commit();
         return id;
     }
@@ -881,12 +926,17 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     {
         const auto queue = inflightQueueUnlocked();
         const auto bytes = publishedBytes(message);
+
         if (!queue || (qos != Qos::Qos0 && !queue->reserve(bytes)))
         {
             throw ProtocolException(getProtocolVersion(), ReasonCode::QuotaExceeded, "Reliable publication: recipient queue is full");
         }
+
         if (qos != Qos::Qos0)
+        {
             transaction->onRollback([queue, bytes] { queue->cancelReservation(bytes); });
+        }
+
         // Discovery membership was fenced before this persistent session's CONNACK.
         // Repeating SADD for every publication only adds work to the durable journal.
         const auto id = qos == Qos::Qos0 ? 0 : queue->nextDeliveryId();
@@ -897,13 +947,35 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
         const auto install = [self = shared(), queue, delivery, qos, isPublish, replyConnection]
         {
             const unique_lock lock(self->m_mutex);
-            if (!isPublish && self->getConnection() != replyConnection) return;
-            if (qos == Qos::Qos0) queue->queueCommittedMessage(delivery);
-            else queue->queueReservedMessage(delivery);
-            if (isPublish) self->incrementPublishScheduledCount();
+            if (!isPublish && self->getConnection() != replyConnection)
+            {
+                return;
+            }
+
+            if (qos == Qos::Qos0)
+            {
+                queue->queueCommittedMessage(delivery);
+            }
+            else
+            {
+                queue->queueReservedMessage(delivery);
+            }
+
+            if (isPublish)
+            {
+                self->incrementPublishScheduledCount();
+            }
         };
-        if (message->is(Message::Type::Publish)) transaction->onCommit(install);
-        else transaction->onDurable(install); // SUBACK must never escape after a failed fence.
+
+        if (message->is(Message::Type::Publish))
+        {
+            transaction->onCommit(install);
+        }
+        else
+        {
+            // SUBACK must never escape after a failed fence.
+            transaction->onDurable(install);
+        }
         return id;
     }
 
@@ -1023,6 +1095,9 @@ MessageId ClientSession::postMessage(const SMessage& message, const Qos qos, con
     const MessageId deliveryId = (qos != Qos::Qos0 && inflightQueue) ? inflightQueue->nextDeliveryId() : 0;
 
     const auto messageDelivery = MessageDelivery::create(shared(), message, qos, deliveryId, subscriptionIds, retain);
+    // The queue does not read this, only the forward path does: this delivery goes straight to the
+    // socket in the forward path rather than waking a send worker for it.
+    messageDelivery->m_inlineSend = inlineSend;
 
     if (inflightQueue)
     {
@@ -1079,7 +1154,7 @@ void ClientSession::receivedAck(const MessageId& messageId, const Message::Type 
 
 SendReceiveResult ClientSession::receiveMessages()
 {
-    SendReceiveResult result {};
+    SendReceiveResult result{};
 
     if (authenticationPending())
     {
@@ -1367,7 +1442,7 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
 
     switch (msg->type())
     {
-        using enum Message::Type;
+            using enum Message::Type;
         case Connect:
             handleConnectMessage(sharedMessage);
             break;
@@ -1405,7 +1480,7 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                     Latency::SNAP_LATENCY(messageProperties, LatencyPhase::ServerHandler);
                 }
 
-                string refusal;
+                string     refusal;
                 const auto rc = Server::grantPublish(shared(), publishMessage->destination(), &refusal);
                 if (rc == ReasonCode::Success)
                 {
@@ -1561,7 +1636,7 @@ void ClientSession::ackPublishMessage(const Message* message, const ReasonCode r
 
     switch (message->getQos())
     {
-        using enum Qos;
+            using enum Qos;
         case Qos0:
             break;
         case Qos1:
@@ -1617,10 +1692,10 @@ void ClientSession::handlePublishMessage(const SMessage& message)
             // what clients did, not what subscribers received. The payload is not passed on - copying
             // every message body through the queue would make observation cost more than delivery.
             self->server().extensions().publishEvent(XMQ_EVENT_PUBLISHED, self->getClientId(), self->getUsername(),
-                                               publishMessage->destination()->fullName(),
-                                               publishMessage->payload().size(),
-                                               static_cast<uint8_t>(publishMessage->getQos()),
-                                               publishMessage->isRetain());
+                                                     publishMessage->destination()->fullName(),
+                                                     publishMessage->payload().size(),
+                                                     static_cast<uint8_t>(publishMessage->getQos()),
+                                                     publishMessage->isRetain());
         }
 
         if (self->server().extensions().tapping())
@@ -1628,11 +1703,11 @@ void ClientSession::handlePublishMessage(const SMessage& message)
             // Only the taps that asked for this topic pay for the body; the broker copies it no
             // further than the extensions that have a matching filter.
             self->server().extensions().publishMessage(self->getClientId(), self->getUsername(),
-                                                 publishMessage->destination()->fullName(),
-                                                 reinterpret_cast<const char*>(publishMessage->payloadData()),
-                                                 publishMessage->payloadSize(),
-                                                 static_cast<uint8_t>(publishMessage->getQos()),
-                                                 publishMessage->isRetain());
+                                                       publishMessage->destination()->fullName(),
+                                                       reinterpret_cast<const char*>(publishMessage->payloadData()),
+                                                       publishMessage->payloadSize(),
+                                                       static_cast<uint8_t>(publishMessage->getQos()),
+                                                       publishMessage->isRetain());
         }
     };
     if (auto* transaction = ReliableMessageStore::Transaction::current())
@@ -1744,9 +1819,9 @@ void ClientSession::handleUnsubscribeMessage(const Message* msg)
     }
 
     server().logMessage(LogSubject::Unsubscribe, LogPriority::Debug, [msg]
-                        {
-                            return msg->toString();
-                        });
+    {
+        return msg->toString();
+    });
 
     for (const auto& destination: unsubscribeMessage->destinations())
     {

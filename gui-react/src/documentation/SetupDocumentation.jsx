@@ -236,6 +236,18 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             </p>
 
             <p>
+                <b>Format</b> chooses how a line is written. <code>text</code> is the historical
+                format; <code>json</code> writes one object per line with
+                <code>timestamp</code>, <code>level</code>, <code>node</code>, an optional
+                <code>subject</code>, a <code>component</code> for startup and service records, and
+                the <code>message</code>. That is what a log shipper, Loki, Elastic or an OTel
+                collector can index without a parser. The same objects go to the file and to
+                stdout. A format change takes effect at the next start, because the engine that
+                writes the lines is built while the server starts; the levels above still apply
+                immediately.
+            </p>
+
+            <p>
                 Log rotation is left to the system. Session errors are always logged at
                 <code>ERROR</code> and are not configurable.
             </p>

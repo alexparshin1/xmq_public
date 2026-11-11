@@ -17,13 +17,6 @@
 # Everything after -- is passed to run_load_test.sh unchanged, so the server host, credentials
 # and bind addresses are specified there exactly as for a single run.
 
-# The load generator acknowledges in batches of this many (one write per batch instead of one
-# write per received message, see RoundTripLatency/xmq_scn). Measured on the 2026-11-08 stand
-# sweep: P2P 240 -> 213 us, Fan-Out 1899 -> 1811 us, Fan-In 168 -> 165 us, the connections
-# scenario within noise. Anyone comparing against an older record that ran a batch of 1 knows
-# why the medians moved; any arm can carry XMQ_CLIENT_ACK_BATCH=1 to match it.
-export XMQ_CLIENT_ACK_BATCH="${XMQ_CLIENT_ACK_BATCH:-16}"
-
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -40,6 +40,31 @@ export default class BasicScreen extends React.Component
     }
 
     /**
+     * Renders a text input row.
+     * Used for fields that are not numbers, such as an address or a pattern.
+     * @param {String} label        Field label
+     * @param {String} fieldName    Name of the state field to edit
+     * @param {String} helpKey      Parameter help key, "<section>.<field>". Optional.
+     * @param {String} inputWidth   Input width
+     */
+    renderTextInput(label, fieldName, helpKey = null, inputWidth = "140px")
+    {
+        return <div className="inputScreenRow">
+            <label htmlFor={fieldName} className="inputScreenLabel">{label}:</label>
+            <input id={fieldName} name={fieldName} type="text" style={{width: inputWidth}}
+                   value={this.state[fieldName]}
+                   onChange={(e) =>
+                   {
+                       let newState = {};
+                       newState[fieldName] = e.target.value;
+                       this.setState(newState);
+                   }
+                   }/>
+            <HelpButton helpKey={helpKey}/>
+        </div>
+    }
+
+    /**
      * Renders a checkbox row, with a [?] button when the parameter has a help entry.
      * @param {String} label        Field label
      * @param {String} fieldName    Name of the state field to edit

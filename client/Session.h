@@ -83,6 +83,7 @@ class Session final
 
 public:
     using BaseClientSession::postMessage;
+    static constexpr size_t defaultScenarioAckBatchSize = 16;
 
     enum class State : uint8_t
     {
@@ -117,6 +118,10 @@ public:
 
     /// The socket-event poll sessions assigned to @p index read their events from.
     static sptk::SocketEvents<Session>& socketEvents(size_t index);
+
+    /// Set/read the scenario-configured acknowledgement batch size before creating sessions.
+    static void setDefaultAckBatchSize(size_t batchSize);
+    static size_t defaultAckBatchSize();
 
     /**
      * @brief Constructor.
@@ -268,6 +273,17 @@ protected:
      */
     void applyServerReceiveMaximum(const SMessage& connectAck);
 
+    /**
+     * @brief Take the acknowledgement batch size from the broker's CONNACK.
+     *
+     * A broker that stores durably says so in a user property, and there an acknowledgement
+     * batch of sixteen means sixteen messages per subscriber held in the journal before the
+     * broker may drop them - on the 60K persistent scenario that was 88ms of latency and a
+     * broker RSS that doubled. The property wins over scenario configuration: the broker knows
+     * what its storage does, and a load generator's syscall savings do not outweigh it.
+     */
+    void applyServerPersistence(const SMessage& connectAck);
+
     void autoAck(const Message* message) override;
 
 private:
@@ -320,6 +336,9 @@ private:
     size_t                             m_readConsumed {0};                                   ///< Bytes already parsed from m_readBuffer.
     sptk::Buffer                       m_ackBatchBuffer;                                     ///< Acks accumulated during a drain, flushed with a single write. Guarded by m_mutex.
     size_t                             m_ackBatchCount {0};                                  ///< Acknowledgements in m_ackBatchBuffer.
+    /// How many acknowledgements a write carries. From scenario configuration, and forced to 1
+    /// when the broker says its storage is durable, where this is a flow-control window.
+    size_t                             m_ackBatchSize {defaultAckBatchSize()};
     /// The engine the logger writes to, held so that it outlives the session: Logger keeps a
     /// reference to it, and a session lives on in its thread after the client that made it is
     /// gone - the thread holds the session while it reads or sends, and logs an error there.
@@ -330,6 +349,7 @@ private:
     MessageCallback                    m_onDisconnect;                                       ///< Optional callback called for disconnection.
     ProtocolVersion                    m_protocolVersion {ProtocolVersion::MqttV5};          ///< MQTT protocol version.
     static SessionThreads              m_allClientThreads;                                   ///< Session threads.
+    static std::atomic<size_t>          m_defaultAckBatchSize;                                ///< Scenario-configured ACK batch size (default 16).
     static sptk::Timer                 keepAliveTimer;                                       ///< Keep alive timer.
     /// Poll this session's socket events are read from. Chosen round-robin as sessions are made.
     size_t                             m_pollerIndex {0};

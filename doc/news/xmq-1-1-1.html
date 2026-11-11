@@ -1,0 +1,53 @@
+<!--
+  Draft news item for the website. The body below is what goes in the "News" field; the title and
+  release date are the other two fields on the form. Fill in the date when 1.1.1 is released.
+
+  Title: XMQ 1.1.1: It's all about observability
+  Date:  TBD
+
+  Kept here as the draft announcement, not the changelog: CHANGELOG.md is written for someone
+  upgrading and lists every change; this is written for readers who are not upgrading anything.
+-->
+
+<p>
+    XMQ 1.1.1 brings metrics, structured logs and health checks together so you can see how your broker is behaving - and what needs attention - before clients report a problem. You can download it <a href='/downloads'>here</a>.
+</p>
+
+<ul>
+    <li>
+        <b>Scrape broker and host metrics with Prometheus.</b> A dedicated, optional HTTP endpoint
+        reports connections, message traffic, queue depths, storage, cluster topology, and CPU and
+        memory usage. Configure the listener and optional HTTP Basic authentication from the
+        management interface without restarting MQTT.
+    </li>
+    <li>
+        <b>Distinguish a running process from an online broker.</b> The metrics listener provides
+        <code>/healthz</code> for liveness and <code>/readyz</code> for readiness, reflecting
+        whether MQTT is serving clients, including whether a cluster node holds its lease, so a load
+        balancer or Kubernetes probe can stop routing clients to a node that is not ready.
+    </li>
+    <li>
+        <b>Search structured logs by node and event.</b> Optional JSON output gives each log record
+        a timestamp, level, node, subject or component, and message, ready for collection from a file
+        or container stdout. Plain-text logging remains the default.
+    </li>
+    <li>
+        <b>Go from metrics to logs in one monitoring stack.</b> A ready-to-run Docker Compose example
+        connects XMQ, Prometheus, Grafana, Loki and Grafana Alloy with provisioned dashboards and
+        alert rules. Start exploring broker metrics and the corresponding logs without assembling
+        the monitoring stack from scratch.
+    </li>
+    <li>
+        <b>Make persistence backpressure and broken cluster links visible.</b> Dedicated metrics
+        show publishers paused while storage catches up, registered cluster nodes, connected peers
+        and outgoing links. Dashboards and alert rules highlight sustained publisher pauses and
+        missing peer links, rather than leaving you to infer them from falling throughput.
+    </li>
+</ul>
+
+<p>
+    The Prometheus endpoint is off by default and reports each node separately; Prometheus provides
+    history and Grafana provides dashboards and alert delivery. See the
+    <a href='/xmq_doc_prometheus'>Prometheus guide</a> for configuration, metric definitions and the
+    Docker observability stack.
+</p>

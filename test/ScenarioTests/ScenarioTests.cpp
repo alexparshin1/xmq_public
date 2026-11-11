@@ -47,18 +47,57 @@ TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
     EXPECT_EQ(latency.percentile(99).count(), 0);
 }
 
+TEST(RoundTripLatencyTests, combiningHistogramsPreservesSampleWeights)
+{
+    vector<RoundTripLatency> latencies(2);
+    for (auto& latency: latencies)
+    {
+        latency.start(1s);
+    }
+    for (int i = 0; i < 1000; ++i)
+    {
+        latencies[0].add(100us);
+        latencies[1].add(200us);
+    }
+    latencies[0].add(20ms);
+    latencies[1].add(30ms);
+    for (auto& latency: latencies)
+    {
+        latency.stop();
+    }
+
+    const auto combined = RoundTripLatency::combine(latencies);
+    EXPECT_GE(combined.percentile(99), 200us);
+    EXPECT_LE(combined.percentile(99), 204us);
+    EXPECT_GE(combined.percentile(100), 30ms);
+    EXPECT_EQ(combined.averageLatency(), 174us);
+
+    RoundTripLatency::HistogramCounts counts;
+    RoundTripLatency::countHistogram(counts, 10, uint64_t(1) << 32);
+    RoundTripLatency::countHistogram(counts, 10, 7);
+    EXPECT_EQ(counts.m_counts[10], (uint64_t(1) << 32) + 7);
+    EXPECT_EQ(counts.m_touched.size(), 1);
+}
+
 TEST(RoundTripLatencyTests, sequencesPairOutOfOrderAndLostMessagesDoNotShiftTheRest)
 {
     RoundTripLatency latency;
     latency.start(1s);
 
+    // The expected latencies are measured here rather than assumed from the sleeps below: a
+    // virtual machine stretches a 10 ms sleep into fifty often enough, and a fixed ceiling turned
+    // that into a failure of nothing on the FreeBSD farm. What the test is about is which send a
+    // delivery is paired with, and that does not change when the sleeps do.
+    const auto sentOne = RoundTripLatency::Clock::now();
     latency.sent(1);
     this_thread::sleep_for(10ms);
+    const auto sentTwo = RoundTripLatency::Clock::now();
     latency.sent(2);
     this_thread::sleep_for(10ms);
     latency.sent(3);
 
     // Two arrives before one: FIFO pairing would give it one's send time.
+    const auto receivedAt = RoundTripLatency::Clock::now();
     latency.received(2);
     latency.received(1);
     // Three is lost.
@@ -67,10 +106,19 @@ TEST(RoundTripLatencyTests, sequencesPairOutOfOrderAndLostMessagesDoNotShiftTheR
     latency.stop();
 
     EXPECT_EQ(latency.unmatchedReceived(), 0);
-    // One waited about 20 ms, two about 10 ms; the average follows the sequences, not arrival order.
-    const auto average = std::chrono::duration_cast<std::chrono::milliseconds>(latency.averageLatency()).count();
-    EXPECT_GE(average, 12);
-    EXPECT_LE(average, 18);
+
+    // One waited from its own send, two from a sleep later. Arrival order would swap those two,
+    // and the loss of three would shift everything after it in a FIFO pairing.
+    const auto oneWaited = std::chrono::duration_cast<std::chrono::microseconds>(receivedAt - sentOne);
+    const auto twoWaited = std::chrono::duration_cast<std::chrono::microseconds>(receivedAt - sentTwo);
+    const auto expected = (oneWaited + twoWaited) / 2;
+
+    const auto average = latency.averageLatency();
+    // Two milliseconds of slack: enough for the microseconds between this timestamp and the
+    // clock reading inside received(), and nothing else. A FIFO pairing would have to land
+    // within it by accident.
+    EXPECT_NEAR(static_cast<double>(average.count()), static_cast<double>(expected.count()), 2000.0);
+    EXPECT_GT(average, twoWaited);
 }
 
 TEST(RoundTripLatencyTests, aDeliveryWithoutASendIsUnmatched)
@@ -466,7 +514,9 @@ TEST_F(XMQ_ScenarioTests, PublishFailureKeepsPartialMeasuredIntervalsAndStillThr
     const auto publisher = server()->getClientSession("partial-publisher-0");
     ASSERT_NE(nullptr, publisher);
     atomic_bool hadSample {false};
-    jthread disruptor([&]
+    // A plain thread, not a jthread: FreeBSD's libc++ has no jthread/stop_token. This one is
+    // joined explicitly below, so there is no cleanup for jthread to add.
+    thread disruptor([&]
     {
         const auto deadline = chrono::steady_clock::now() + 2s;
         while (latencies[0].count() == 0 && chrono::steady_clock::now() < deadline)

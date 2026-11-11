@@ -201,6 +201,11 @@
                                  maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="web_service"
                                  type="tns:WebService" maxOccurs="1" minOccurs="1"/>
+                    <!-- The Prometheus exporter, off unless configured. Its own listener rather
+                         than a path on the interface: a scrape carries no credentials, and an
+                         operator may want it reachable by a scraper that cannot reach the GUI. -->
+                    <xsd:element name="prometheus"
+                                 type="tns:Prometheus" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="bridges" type="tns:Bridge"
                                  maxOccurs="unbounded" minOccurs="0">
                     </xsd:element>
@@ -223,6 +228,10 @@
                     <xsd:element name="connections" type="tns:StartupConnections"/>
                     <xsd:element name="authentication" type="tns:Authentication"/>
                     <xsd:element name="web_service" type="tns:StartupWebService"
+                                 maxOccurs="1" minOccurs="0"/>
+                    <!-- Kept in the file rather than the node's row: the address and port are
+                         properties of this machine, like the certificates above. -->
+                    <xsd:element name="prometheus" type="tns:Prometheus"
                                  maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="cluster" type="tns:StartupCluster"
                                  maxOccurs="1" minOccurs="0"/>
@@ -283,6 +292,8 @@
             <xsd:complexType name="Logging">
                 <xsd:sequence>
                     <xsd:element name="log_to" type="xsd:string"/>
+                    <!-- text (the historical format) or json, one object per line. -->
+                    <xsd:element name="format" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="keep_logs" type="xsd:int" maxOccurs="1" minOccurs="0"></xsd:element>
                     <xsd:element name="min_log_level" type="tns:LogLevel"></xsd:element>
                     <xsd:element name="log_level"
@@ -469,6 +480,34 @@
                     <xsd:element name="certfile" type="xsd:string" maxOccurs="1" minOccurs="0">
                     </xsd:element>
                     <xsd:element name="keyfile" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                </xsd:sequence>
+            </xsd:complexType>
+
+            <!-- Prometheus scrape endpoint. Disabled unless enabled is true: a new listening
+                 port is not something a release should open without being asked to. The address
+                 defaults to every interface, as the MQTT listeners do, and the port is the
+                 conventional exporter range rather than another broker port. -->
+            <xsd:complexType name="Prometheus">
+                <xsd:sequence>
+                    <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="bind_ip" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="port" maxOccurs="1" minOccurs="0">
+                        <xsd:simpleType>
+                            <xsd:restriction base="xsd:int">
+                                <xsd:minExclusive value="1024"/>
+                                <xsd:maxInclusive value="65535"/>
+                            </xsd:restriction>
+                        </xsd:simpleType>
+                    </xsd:element>
+                    <!-- HTTP Basic authentication for scrapes. Both empty means the endpoint is
+                         open; a username without a password is refused. The password is kept as a
+                         one-way verifier, not as text. -->
+                    <xsd:element name="username" type="xsd:string" maxOccurs="1" minOccurs="0">
+                    </xsd:element>
+                    <xsd:element name="password" type="xsd:string" maxOccurs="1" minOccurs="0">
                     </xsd:element>
                 </xsd:sequence>
             </xsd:complexType>
@@ -1467,6 +1506,47 @@
                 </xsd:complexType>
             </xsd:element>
 
+            <!-- The Prometheus endpoint as the interface edits it. Whether it listens is separate
+                 from enabled: the port can be held by another process, and the screen has to be
+                 able to say so rather than show a setting that is not in force. -->
+            <xsd:complexType name="PrometheusSettings">
+                <xsd:sequence>
+                    <xsd:element name="enabled" type="xsd:boolean"/>
+                    <xsd:element name="bind_ip" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="port" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="username" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- The stored verifier is never sent back; a set password reads as "*****",
+                         and sending that back unchanged keeps it. -->
+                    <xsd:element name="password" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+            <xsd:element name="PrometheusControl">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="action">
+                            <xsd:simpleType>
+                                <xsd:restriction base="xsd:string">
+                                    <xsd:enumeration value="get"/>
+                                    <xsd:enumeration value="set"/>
+                                </xsd:restriction>
+                            </xsd:simpleType>
+                        </xsd:element>
+                        <xsd:element name="settings" type="tns:PrometheusSettings" minOccurs="0"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+            <xsd:element name="PrometheusControlResponse">
+                <xsd:complexType>
+                    <xsd:sequence>
+                        <xsd:element name="result" type="tns:Result"/>
+                        <xsd:element name="settings" type="tns:PrometheusSettings" minOccurs="0"/>
+                        <!-- Whether the endpoint is listening after the action. Separate from
+                             enabled because a port another process holds leaves it off. -->
+                        <xsd:element name="listening" type="xsd:boolean"/>
+                    </xsd:sequence>
+                </xsd:complexType>
+            </xsd:element>
+
             <xsd:complexType name="Bridge">
                 <xsd:sequence>
                     <xsd:element name="id" type="xsd:int" maxOccurs="1"
@@ -2021,6 +2101,14 @@
             				</xsd:restriction>
             			</xsd:simpleType>
             		</xsd:element>
+                            <xsd:element name="ack_batch_size" type="xsd:int"
+                                maxOccurs="1" minOccurs="0">
+                                <xsd:simpleType>
+                                    <xsd:restriction base="xsd:int">
+                                        <xsd:minInclusive value="1"></xsd:minInclusive>
+                                    </xsd:restriction>
+                                </xsd:simpleType>
+                            </xsd:element>
             	</xsd:sequence>
             </xsd:complexType>
         </xsd:schema>
@@ -2135,6 +2223,12 @@
     <wsdl:message name="ServerControlResponse">
         <wsdl:part name="parameters" element="tns:ServerControlResponse"></wsdl:part>
     </wsdl:message>
+    <wsdl:message name="PrometheusControlRequest">
+        <wsdl:part name="parameters" element="tns:PrometheusControl"></wsdl:part>
+    </wsdl:message>
+    <wsdl:message name="PrometheusControlResponse">
+        <wsdl:part name="parameters" element="tns:PrometheusControlResponse"></wsdl:part>
+    </wsdl:message>
     <wsdl:message name="GetStatisticsRequest">
         <wsdl:part name="parameters" element="tns:GetStatistics"></wsdl:part>
     </wsdl:message>
@@ -2222,6 +2316,10 @@
         <wsdl:operation name="ServerControl">
             <wsdl:input message="tns:ServerControlRequest"></wsdl:input>
             <wsdl:output message="tns:ServerControlResponse"></wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PrometheusControl">
+            <wsdl:input message="tns:PrometheusControlRequest"></wsdl:input>
+            <wsdl:output message="tns:PrometheusControlResponse"></wsdl:output>
         </wsdl:operation>
         <wsdl:operation name="GetStatistics">
             <wsdl:input message="tns:GetStatisticsRequest"></wsdl:input>
@@ -2411,6 +2509,16 @@
         <wsdl:operation name="ServerControl">
             <soap:operation
                     soapAction="http://www.sptk.net/xmq/ServerControl"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+        </wsdl:operation>
+        <wsdl:operation name="PrometheusControl">
+            <soap:operation
+                    soapAction="http://www.sptk.net/xmq/PrometheusControl"/>
             <wsdl:input>
                 <soap:body use="literal"/>
             </wsdl:input>

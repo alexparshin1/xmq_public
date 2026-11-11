@@ -37,6 +37,7 @@ using namespace xmq;
 using namespace xmq::client;
 
 Timer            Session::keepAliveTimer;
+std::atomic<size_t> Session::m_defaultAckBatchSize {1};
 
 namespace {
 
@@ -543,7 +544,7 @@ SendReceiveResult Session::receiveMessages()
     bool connectionLost = false;
     {
         const unique_lock lock(m_mutex);
-        // Acks left over from the previous drain are not dropped here: with XMQ_CLIENT_ACK_BATCH
+        // Acks left over from the previous drain are not dropped here: with ack_batch_size
         // above 1 they are still waiting for company, and clearing the buffer would send nothing
         // and forget them. The buffer is emptied by flushAckBatchUnlocked(), which is the only
         // place that writes it.
@@ -680,6 +681,7 @@ SendReceiveResult Session::receiveMessages()
                     else
                     {
                         applyServerReceiveMaximum(message);
+                        applyServerPersistence(message);
                     }
                 }
                 break;
@@ -1007,6 +1009,38 @@ void Session::autoAck(const Message* message)
     postponeKeepAlive();
 }
 
+void Session::setDefaultAckBatchSize(const size_t batchSize)
+{
+    if (batchSize == 0)
+    {
+        throw Exception("ack_batch_size must be greater than zero");
+    }
+    m_defaultAckBatchSize.store(batchSize, memory_order_relaxed);
+}
+
+size_t Session::defaultAckBatchSize()
+{
+    return m_defaultAckBatchSize.load(memory_order_relaxed);
+}
+
+void Session::applyServerPersistence(const SMessage& connectAck)
+{
+    const auto& properties = connectAck->getProperties();
+    if (!properties)
+    {
+        return;
+    }
+    if (properties->getUserProperty(ConnectAckMessage::PersistenceProperty) != "durable")
+    {
+        return;
+    }
+
+    // Under m_mutex, which flushAckBatchUnlocked() holds when it reads the size. Anything already
+    // buffered is left where it is: it was collected under the old size and the next flush sends it.
+    const unique_lock lock(m_mutex);
+    m_ackBatchSize = 1;
+}
+
 void Session::appendAckBatchUnlocked(const Message& message)
 {
     const auto            ackMessage = make_shared<AckMessage>(messageTypeToAckType(message.type(), message.getQos()), message.getId());
@@ -1028,13 +1062,9 @@ void Session::flushAckBatchUnlocked(const bool force)
     // Off by one: the batch exists as an option for the load generator, not as the new normal.
     // Every waiting acknowledgement has to outlive the traffic that brought it, so a size this
     // large turns punctual decisions about flow control into multi-second guesses.
-    static const auto batchSize = []
-    {
-        const char* value = getenv("XMQ_CLIENT_ACK_BATCH");
-        const auto parsed = value != nullptr ? strtoul(value, nullptr, 10) : 1;
-        return parsed < 1 ? size_t {1} : parsed;
-    }();
-    if (!force && m_ackBatchCount < batchSize)
+    // The size is a member, not a process-wide constant: a durable broker overrides it per
+    // connection, see applyServerPersistence().
+    if (!force && m_ackBatchCount < m_ackBatchSize)
     {
         return;
     }

@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Server.h"
+#include "PrometheusExporter.h"
 
 #include <sptk5/cutils>
 
@@ -175,6 +176,23 @@ public:
     virtual bool setControlServiceWhitelist(const std::string& whitelist, std::string& reason) = 0;
 
     /**
+     * @brief Apply the Prometheus endpoint settings now in force.
+     *
+     * Stops the endpoint if it is running and starts it again from the configuration, which is
+     * how a port or address change takes effect without restarting the broker. Called after the
+     * interface has written the section, and again on a start.
+     *
+     * @param reason        Receives why the endpoint is not listening, when it is not.
+     * @return true when the endpoint is in the state the configuration asks for.
+     */
+    virtual bool applyPrometheusSettings(std::string& reason) = 0;
+
+    /**
+     * @return true while the Prometheus endpoint is listening.
+     */
+    [[nodiscard]] virtual bool prometheusListening() const = 0;
+
+    /**
      * @return The running server, or nullptr while MQTT is stopped.
      */
     [[nodiscard]] virtual Server* getServer() const = 0;
@@ -241,6 +259,8 @@ public:
     void                             stopServing(std::optional<bool> cleanState = std::nullopt) override;
     [[nodiscard]] bool               isServing() const override;
     bool                             moveControlService(uint16_t port, std::string& reason) override;
+    bool                             applyPrometheusSettings(std::string& reason) override;
+    [[nodiscard]] bool               prometheusListening() const override;
     bool                             updateControlServiceKeys(const std::filesystem::path& certificateFile,
                                                               const std::filesystem::path& privateKeyFile,
                                                               std::string&                 reason) override;
@@ -300,9 +320,47 @@ private:
     SControlServiceListener m_controlServiceListener;
 
     /**
+     * @brief Prometheus scrape endpoint.
+     *
+     * Owned here for the same reason as the interface: it must outlive every server it
+     * describes, so a stopped broker still answers with xmq_up 0 rather than with nothing.
+     * Absent when the configuration does not enable it.
+     */
+    std::unique_ptr<PrometheusExporter> m_prometheusExporter;
+    mutable std::mutex                  m_prometheusMutex; ///< Guards the endpoint against concurrent edits.
+
+    /**
      * @brief Bring up the configuration interface, once, for the lifetime of the process.
      */
     void startControlService();
+
+    /**
+     * @brief Bring up the Prometheus endpoint, once, for the lifetime of the process.
+     *
+     * A failure is logged and does not stop the broker: metrics are auxiliary, and a port that
+     * cannot be taken is a reason to lose the exporter, not the service it describes.
+     */
+    void startPrometheus();
+
+    /**
+     * @brief Copy the running broker's counters for a scrape.
+     *
+     * Taken under the lock that guards the server object, because the exporter answers on its
+     * own thread and stopping MQTT destroys that object: a pointer handed out here would
+     * outlive it.
+     *
+     * @return the counters, or nothing while MQTT is stopped.
+     */
+    [[nodiscard]] std::optional<BrokerMetrics> brokerMetrics() const;
+
+    /**
+     * @brief Whether this broker can serve clients, for /readyz.
+     *
+     * Under the same lock as brokerMetrics(): a probe must not name a server that is being
+     * destroyed. Not ready while MQTT is stopped or while a cluster node does not hold its
+     * lease - a node in that state refuses clients, so a load balancer should stop sending them.
+     */
+    [[nodiscard]] Readiness readiness() const;
 
     /**
      * @brief The address the configuration interface accepts connections on.

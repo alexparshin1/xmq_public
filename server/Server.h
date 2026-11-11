@@ -482,9 +482,17 @@ private:
 
     static const sptk::String         Version;                                                   ///< Server version.
     std::chrono::milliseconds         m_waitForConnectMessageTimeout {std::chrono::seconds(30)}; ///< Wait for first CONNECT message timeout.
-    SSystemStatistics                 m_systemStatistics;                                        ///< System statistics.
     AtomicSharedPtr<cluster::Cluster> m_cluster;                                                 ///< Cluster connections.
     ExtensionHost                     m_extensions;                                              ///< Loaded extensions; see ExtensionHost.
+    /// Last, so that it is the first member destroyed.
+    ///
+    /// Its scan thread starts in the constructor and publishes $SYS once a second through the
+    /// subscription manager, which reaches the sessions a cluster link brought and the delivery
+    /// threads. Declared before the cluster - as it used to be - it outlived it, and a broker whose
+    /// constructor threw while joining a cluster destroyed the cluster under the running scan: on
+    /// libc++ the next lock in that path reports "mutex lock failed: Invalid argument" and
+    /// terminates the process. On Linux the same race is usually silent.
+    SSystemStatistics                 m_systemStatistics;                                        ///< System statistics.
     AclRules                          m_aclRules;                                                ///< Topic permissions from the accounts database.
     std::atomic<bool>                 m_aclRulesLoaded {false};
     std::mutex                        m_aclRulesMutex;

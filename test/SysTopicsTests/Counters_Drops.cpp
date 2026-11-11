@@ -87,7 +87,13 @@ TEST_F(XMQ_SysTopicsTests, PublishDropped_QueueFull)
     auto subscriber = make_shared<TestMqttClient>(logEngine(), subscriberClientId, false, false, ProtocolVersion::MqttV31);
     ASSERT_TRUE(subscriber->isConnected());
     ASSERT_TRUE(test::subscribeAndWait(subscriber, Destination(client::MqttClient::getTopic(topicName), SubscriptionOptions(Qos::Qos1))));
+    const auto connectedBeforeDisconnect = statistics->getValue(BrokerClientsConnected);
     subscriber->disconnect();
+    // Wait until the broker has actually closed the session. A message published in the window
+    // between the DISCONNECT and its processing is delivered down the still-open socket, drains
+    // the queue, and leaves the drop counter at zero - which on a slow machine is most of them.
+    ASSERT_EQ(connectedBeforeDisconnect - 1,
+              waitForCounter(BrokerClientsConnected, connectedBeforeDisconnect - 1));
 
     const auto publisher = make_shared<TestMqttClient>(logEngine(), publisherClientId, true, false, ProtocolVersion::MqttV31);
     ASSERT_TRUE(publisher->isConnected());

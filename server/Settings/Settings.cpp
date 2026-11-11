@@ -201,6 +201,7 @@ const char* defaultConfigurationText()
   },
   "logging": {
     "log_to": "xmq_server.log",
+    "format": "text",
     "keep_logs": 7,
     "min_log_level": "INFO",
     "log_level": {
@@ -219,6 +220,11 @@ const char* defaultConfigurationText()
   "web_service": {
     "listener_port": 18883,
     "encrypted": true
+  },
+  "prometheus": {
+    "enabled": false,
+    "bind_ip": "0.0.0.0",
+    "port": 9184
   },
   "bridges": [],
   "cluster": {
@@ -412,6 +418,12 @@ void loadEitherShape(CServerConfiguration& target, const xdoc::SNode& root)
     target.m_authentication = startup.m_authentication;
     target.m_web_service.m_certfile = startup.m_web_service.m_certfile;
     target.m_web_service.m_keyfile = startup.m_web_service.m_keyfile;
+    // The exporter's address and port are kept in the file, so a trimmed configuration must
+    // carry them over rather than fall back to the built-in defaults.
+    if (!startup.m_prometheus.isNull())
+    {
+        target.m_prometheus = startup.m_prometheus;
+    }
     if (!startup.m_database_uri.isNull())
     {
         target.m_cluster.m_database_uri = startup.m_database_uri;
@@ -641,6 +653,7 @@ void Settings::saveConfigurationUnlocked(Buffer& config) const
     startup.m_authentication = m_authentication;
     startup.m_web_service.m_certfile = m_web_service.m_certfile;
     startup.m_web_service.m_keyfile = m_web_service.m_keyfile;
+    startup.m_prometheus = m_prometheus;
     // The cluster account's secret is kept in the accounts database; a copy beside it would be
     // the one readable place it had been moved out of.
     startup.unload(document.root());
@@ -925,6 +938,20 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
     }
 
     checkPort(configuration.m_web_service.m_listener_port, "web_service.listener_port", true);
+
+    if (!configuration.m_prometheus.isNull())
+    {
+        checkPort(configuration.m_prometheus.m_port, "prometheus.port", false);
+    }
+
+    if (!configuration.m_logging.m_format.isNull())
+    {
+        const auto format = configuration.m_logging.m_format.asString().toLowerCase();
+        if (format != "text" && format != "json")
+        {
+            throw invalid_argument("The configuration key 'logging.format' should be 'text' or 'json'.");
+        }
+    }
 
     if (!IpWhitelist::isValid(configuration.m_web_service.m_whitelist.asString()))
     {
@@ -2262,6 +2289,22 @@ void Settings::loggingControl(const std::string& action, CLogging& logging)
     {
         if (!logging.isNull())
         {
+            // An older caller sends only the levels. Keep the format it did not mention rather
+            // than writing the section without one.
+            if (logging.m_format.isNull())
+            {
+                logging.m_format = m_logging.m_format;
+            }
+            else
+            {
+                const auto format = logging.m_format.asString().toLowerCase();
+                if (format != "text" && format != "json")
+                {
+                    throw invalid_argument("The log format should be 'text' or 'json'.");
+                }
+                logging.m_format = format;
+            }
+
             // The row first, so a database that refuses the change leaves the node on the logging
             // it had rather than on a memory state the next start will not reproduce.
             saveLoggingToNodeRow(logging);
@@ -3277,6 +3320,85 @@ void Settings::nodeSettingsStatus(const bool pending, const String& message)
     const WriteLock lock(m_mutex);
     m_nodeSettingsPending = pending;
     m_nodeSettingsMessage = message;
+}
+
+CPrometheusSettings Settings::prometheusSettings() const
+{
+    constexpr auto defaultPort = 9184;
+    constexpr auto defaultBindAddress = "0.0.0.0";
+
+    const ReadLock lock(m_mutex);
+
+    CPrometheusSettings values;
+    values.m_enabled = !m_prometheus.isNull() && !m_prometheus.m_enabled.isNull() &&
+                       m_prometheus.m_enabled.asBool();
+    values.m_bind_ip = !m_prometheus.isNull() && !m_prometheus.m_bind_ip.isNull() &&
+                               !m_prometheus.m_bind_ip.asString().empty()
+                           ? m_prometheus.m_bind_ip
+                           : String(defaultBindAddress);
+    values.m_port = !m_prometheus.isNull() && !m_prometheus.m_port.isNull()
+                        ? m_prometheus.m_port.asInteger()
+                        : defaultPort;
+    values.m_username = !m_prometheus.isNull() && !m_prometheus.m_username.isNull()
+                            ? m_prometheus.m_username
+                            : String();
+    // Never the verifier: the interface only has to know whether one is set.
+    values.m_password = !m_prometheus.isNull() && !m_prometheus.m_password.isNull() &&
+                                !m_prometheus.m_password.asString().empty()
+                            ? String("*****")
+                            : String();
+    return values;
+}
+
+void Settings::setPrometheusSettings(const CPrometheusSettings& values)
+{
+    const WriteLock lock(m_mutex);
+
+    const CPrometheus previous = m_prometheus;
+    m_prometheus.m_enabled = values.m_enabled.asBool();
+    m_prometheus.m_bind_ip = values.m_bind_ip.asString();
+    m_prometheus.m_port = values.m_port.asInteger();
+
+    const String username = values.m_username.asString();
+    const String password = values.m_password.asString();
+    m_prometheus.m_username = username;
+    if (username.empty())
+    {
+        // No username is the documented way to have no authentication, and leaving a verifier
+        // behind would be a secret nobody can use and nobody remembers setting.
+        m_prometheus.m_password = "";
+    }
+    else if (password == "*****")
+    {
+        // The mask means "unchanged"; the verifier already in place stays.
+    }
+    else if (password.empty())
+    {
+        m_prometheus.m_password = "";
+    }
+    else
+    {
+        m_prometheus.m_password = PasswordHash::hash(password.c_str());
+    }
+
+    if (!m_prometheus.m_username.asString().empty() && m_prometheus.m_password.asString().empty())
+    {
+        m_prometheus = previous;
+        throw std::invalid_argument("A Prometheus username requires a password.");
+    }
+
+    // Written here rather than left to the next start: the endpoint is edited from the interface,
+    // and a setting that works until the process ends is not a setting. A write that fails leaves
+    // memory as it was, rather than describing a file that still says something else.
+    try
+    {
+        saveConfigurationUnlocked();
+    }
+    catch (...)
+    {
+        m_prometheus = previous;
+        throw;
+    }
 }
 
 std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)

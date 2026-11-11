@@ -1,0 +1,107 @@
+# XMQ with Prometheus, Loki and Grafana.
+#
+#   docker compose up -d
+#   open http://localhost:3001        (admin / admin by default)
+#
+# Grafana is on 3001 rather than its usual 3000: the XMQ unit tests bind 3000 on this host,
+# and a stack left running would make them fail with "address already in use".
+#
+# The broker is the published image, with the Prometheus endpoint switched on. It needs
+# XMQ 1.1.1 or later: earlier images have no /metrics to scrape. Set XMQ_VERSION to a
+# version that does, or leave it at latest.
+#
+# Anonymous MQTT access is on so the stack works without creating an account first. Turn
+# it off before the ports are reachable from anywhere you do not control; the web
+# interface on 18883 is where accounts are made.
+services:
+  xmq:
+    image: alexeyparshin/xmq:${XMQ_VERSION:-latest}
+    ports:
+      - "127.0.0.1:1883:1883"      # MQTT
+      - "127.0.0.1:8883:8883"      # MQTT over TLS
+      - "127.0.0.1:18883:18883"    # configuration interface
+      - "127.0.0.1:9184:9184"      # Prometheus endpoint
+    environment:
+      XMQ_ALLOW_ANONYMOUS: "true"
+      XMQ_LOG_LEVEL: "INFO"
+      # One JSON object per line, which is what Loki indexes. Text would still be
+      # collected, but without the level and node labels the dashboards use.
+      XMQ_LOG_FORMAT: "json"
+      XMQ_PROMETHEUS: "true"
+      XMQ_PROMETHEUS_BIND: "0.0.0.0"
+      XMQ_PROMETHEUS_PORT: "9184"
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      - xmq
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/xmq-alerts.yml:/etc/prometheus/xmq-alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    command:
+      - -config.file=/etc/loki/loki.yml
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:latest
+    depends_on:
+      - xmq
+      - loki
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Reading docker's copy of the container's stdout. Read-only: the collector
+      # never starts or stops anything.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+      - loki
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

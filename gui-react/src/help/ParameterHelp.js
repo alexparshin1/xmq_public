@@ -555,6 +555,79 @@ const ParameterHelp = {
     },
 
 
+    "logging.format": {
+        title: "Log format",
+        text: [
+            "Text is the historical format: a date, a priority, the node, the subject and the " +
+            "message, as one readable line.",
+            "JSON writes one object per line with timestamp, level, node, optional subject, the " +
+            "component for startup and service records, and the message. It is what Loki, Elastic, " +
+            "OTel and a log shipper expect, and what makes a subject or a node filterable without " +
+            "regexes.",
+            "A format change takes effect at the next start: the engine that writes the lines is " +
+            "built while the server starts."
+        ],
+        suggested: "text, unless the logs are collected by a log platform"
+    },
+
+    "prometheus.enabled": {
+        title: "Prometheus endpoint",
+        text: [
+            "Answers GET /metrics with the broker's counters, queue depths, and the host's and " +
+            "process's CPU and memory, in the Prometheus text format.",
+            "It is a listener of its own rather than a path on the configuration interface: a " +
+            "scrape carries no credentials, and the scraper often cannot reach the interface.",
+            "Off by default. It is also off, whatever this says, while MQTT is stopped: the " +
+            "endpoint stays up and reports xmq_up 0, which is what makes a failed start visible."
+        ]
+    },
+
+    "prometheus.bind_ip": {
+        title: "Bind address",
+        text: [
+            "The address the Prometheus endpoint accepts scrapes on. 0.0.0.0 means every address.",
+            "The endpoint has no authentication and no TLS. Bind it to a private address, or put " +
+            "the same network policy in front of it as the rest of your metrics."
+        ],
+        suggested: "0.0.0.0 behind a private network, otherwise the address the scraper uses"
+    },
+
+    "prometheus.port": {
+        title: "Port",
+        text: [
+            "The TCP port the endpoint listens on. It must not be one of the MQTT, MQTT+SSL or " +
+            "web interface ports.",
+            "9184 is the default and is not otherwise used by XMQ."
+        ],
+        range: "1025 .. 65535",
+        suggested: "9184",
+        min: 1025,
+        max: 65535
+    },
+
+    "prometheus.username": {
+        title: "Username",
+        text: [
+            "Username for HTTP Basic authentication on the Prometheus endpoint. Leave it empty " +
+            "to leave the endpoint open, as it is by default.",
+            "A username requires a password; the two are set and cleared together. Scrapes then " +
+            "carry an Authorization header, which Prometheus configures under basic_auth."
+        ]
+    },
+
+    "prometheus.password": {
+        title: "Password",
+        text: [
+            "Password for HTTP Basic authentication. It is stored as a one-way verifier, not as " +
+            "text, and is never sent back to this page: the field shows a mask once one is set. " +
+            "Leave the mask unchanged to keep it, or clear the username to remove authentication.",
+            "At least 8 characters. Basic authentication sends the password with every scrape, so " +
+            "use this together with a private network, or put TLS in front of the endpoint."
+        ],
+        range: "8 characters or more",
+        suggested: "a generated secret, shared only with the scraper"
+    },
+
     "persistence.max_queued_writes": {
         title: "Max queued writes",
         text: [
