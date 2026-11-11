@@ -1,29 +1,93 @@
-.AccordionGroupTitle {
-    background-color: #E0E8ff;
-    width: 100;
-    margin: 0px;
-    padding: 8px;
+/* The main menu follows the accordion of the XMQ web site (xmq_web_site/src/components/Accordion.css):
+   one group open at a time, a caret marking the open one, and the current page in green. */
+
+.Accordion {
+    background-color: #FFF;
+    border: 1px solid #C8C8BE;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    font-size: 0.9em;
+    text-align: left;
+}
+
+.AccordionGroup {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    background-color: #EFEFE6;
     border: none;
-    cursor: pointer;
-}
-
-.AccordionGroupItem {
-    padding: 8px;
-    border-spacing: 0;
-}
-
-.AccordionGroupItem > a {
-    text-decoration: none;
-    padding: 8px;
-    color: black;
-}
-
-.AccordionGroupItem > a.active {
-    text-decoration: none;
+    border-bottom: 1px solid #D8D8CE;
+    color: #333;
+    font-family: inherit;
+    font-size: inherit;
     font-weight: bold;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.AccordionGroupItem:has(> a.active) {
+.AccordionGroup::after {
+    content: "\25B8"; /* ▸ */
+    font-weight: normal;
+    color: #999;
+    transition: transform 0.15s ease;
+}
+
+.AccordionGroup:hover {
+    background-color: #E4E4D8;
+    color: #006600;
+}
+
+.AccordionGroupSelected {
+    color: #006600;
+}
+
+.AccordionGroupSelected::after {
+    transform: rotate(90deg);
+    color: #006600;
+}
+
+.AccordionItem,
+.AccordionItemSelected {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    background-color: #FFF;
+    border-bottom: 1px solid #EEE;
+    border-left: 3px solid transparent;
+    text-align: left;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.AccordionItem > a,
+.AccordionItemSelected > a {
+    display: block;
+    padding: 7px 12px 7px 21px;
     text-decoration: none;
-    background-color: white;
+    color: #333;
+}
+
+.AccordionItem > a:hover {
+    color: #006600;
+}
+
+.AccordionItem:hover {
+    background-color: #F5F5EB;
+}
+
+.AccordionItemSelected {
+    background-color: #F0F6EC;
+    border-left-color: #006600;
+}
+
+.AccordionItemSelected > a,
+.AccordionItemSelected > a:hover {
+    color: #006600;
+    font-weight: bold;
 }
