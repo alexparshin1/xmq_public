@@ -2,46 +2,36 @@ import React from "react";
 import {NavLink} from "react-router-dom";
 import './AccordionGroup.css';
 
-export default class AccordionGroup extends React.Component {
-
-    state = {
-        collased: false
-    };
-
-    /**
-     * Constructs a new MainMenu component.
-     * Calls the superclass constructor and hooks the change of connection status to ControlAPI.
-     * When the connection status changes, the component's state is updated to reflect the new status.
-     * @memberof MainMenu
-     */
-    constructor(props) {
-        super();
-        this.items = props.items;
-        this.title = props.title;
-        this.state.collapsed = props.collapsed;
-    }
-
-    setCollapsed(isCollapsed) {
-        this.setState({collapsed: isCollapsed});
-    }
-
-    renderGroupItem(link, text) {
-        return <div key={"group-item-" + link} className="AccordionGroupItem">
-            <NavLink key={"group-link-" + link} to={link}>{text}</NavLink>
-        </div>;
-    }
-
-    render() {
-        let groupItems = [];
-        for (let link in this.items) {
-            groupItems.push(this.renderGroupItem(link, this.items[link]));
-        }
-
-        return <div className="AccordionGroup" style={{align: 'left'}}>
-            <div key={"title-" + this.title} className="AccordionGroupTitle">{this.title}</div>
-            <div key={"group-" + this.title} className="AccordionGroupItems">
-                {groupItems}
+/**
+ * @brief One group of the main menu, rendered in the style of the XMQ web site.
+ *
+ * The group is a header followed by its items, shown only while the group is expanded. The menu
+ * keeps a single group expanded, so this component is told whether it is the expanded one rather
+ * than owning that decision: an accordion with two open groups is what makes a long menu
+ * unreadable in the first place.
+ *
+ * Props:
+ * - title: the group header
+ * - items: an object of link -> label, in display order
+ * - expanded: whether the items are shown
+ * - selectedLink: the link of the current page, highlighted the way the site highlights it
+ * - onHeaderClick: called when the header is clicked
+ */
+export default function AccordionGroup({title, items, expanded, selectedLink, onHeaderClick}) {
+    const groupClass = expanded ? "AccordionGroup AccordionGroupSelected" : "AccordionGroup";
+    const nodes = [];
+    for (const link in items) {
+        const itemClass = link === selectedLink ? "AccordionItemSelected" : "AccordionItem";
+        nodes.push(
+            <div key={"group-item-" + link} className={itemClass}>
+                <NavLink to={link}>{items[link]}</NavLink>
             </div>
-        </div>;
+        );
     }
+
+    return <div className="AccordionGroupBlock">
+        <button key={"title-" + title} type="button" className={groupClass}
+                aria-expanded={expanded} onClick={onHeaderClick}>{title}</button>
+        {expanded ? <div key={"group-" + title} className="AccordionGroupItems">{nodes}</div> : null}
+    </div>;
 }

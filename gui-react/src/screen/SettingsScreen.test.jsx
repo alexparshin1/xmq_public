@@ -38,6 +38,9 @@ test("loads existing values, retains password masks, and tests without saving", 
 test("Settings follows Initial Setup in the configuration menu", () => {
     jest.spyOn(ControlAPI, "connected").mockReturnValue(true);
     render(<MemoryRouter><MainMenu/></MemoryRouter>);
+    // The configuration group is opened from its header; the menu shows the group holding the
+    // current page, and the test starts on the home page.
+    fireEvent.click(screen.getByRole("button", {name: "Configuration"}));
     const links = screen.getAllByRole("link");
     const at = links.findIndex(link => link.textContent === "Initial Setup");
     expect(at).toBeGreaterThanOrEqual(0);
