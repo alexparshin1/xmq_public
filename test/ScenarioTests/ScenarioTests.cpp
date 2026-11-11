@@ -47,6 +47,38 @@ TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
     EXPECT_EQ(latency.percentile(99).count(), 0);
 }
 
+TEST(RoundTripLatencyTests, combiningHistogramsPreservesSampleWeights)
+{
+    vector<RoundTripLatency> latencies(2);
+    for (auto& latency: latencies)
+    {
+        latency.start(1s);
+    }
+    for (int i = 0; i < 1000; ++i)
+    {
+        latencies[0].add(100us);
+        latencies[1].add(200us);
+    }
+    latencies[0].add(20ms);
+    latencies[1].add(30ms);
+    for (auto& latency: latencies)
+    {
+        latency.stop();
+    }
+
+    const auto combined = RoundTripLatency::combine(latencies);
+    EXPECT_GE(combined.percentile(99), 200us);
+    EXPECT_LE(combined.percentile(99), 204us);
+    EXPECT_GE(combined.percentile(100), 30ms);
+    EXPECT_EQ(combined.averageLatency(), 174us);
+
+    RoundTripLatency::HistogramCounts counts;
+    RoundTripLatency::countHistogram(counts, 10, uint64_t(1) << 32);
+    RoundTripLatency::countHistogram(counts, 10, 7);
+    EXPECT_EQ(counts.m_counts[10], (uint64_t(1) << 32) + 7);
+    EXPECT_EQ(counts.m_touched.size(), 1);
+}
+
 TEST(RoundTripLatencyTests, sequencesPairOutOfOrderAndLostMessagesDoNotShiftTheRest)
 {
     RoundTripLatency latency;
