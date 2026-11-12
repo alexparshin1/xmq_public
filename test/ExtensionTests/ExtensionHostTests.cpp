@@ -284,8 +284,10 @@ TEST_F(XMQ_ExtensionHostTests, listsAnInstalledButUnconfiguredExtensionAsStopped
     // therefore offered on the Extensions page, stopped, instead of being invisible.
     const auto directory = uniqueTemporary("discovery");
     filesystem::create_directories(directory);
-    const auto running = directory / testExtensionLibrary().filename();
-    const auto spare = directory / testAuthorizerLibrary().filename();
+    // Copied under names of their own: the test suite's own builds live outside the extensions
+    // directory, and this test is about libraries that sit in it.
+    const auto running = directory / "libxmq_sample_observer.so";
+    const auto spare = directory / "libxmq_sample_authorizer.so";
     ASSERT_TRUE(filesystem::copy_file(testExtensionLibrary(), running, filesystem::copy_options::overwrite_existing));
     ASSERT_TRUE(filesystem::copy_file(testAuthorizerLibrary(), spare, filesystem::copy_options::overwrite_existing));
 

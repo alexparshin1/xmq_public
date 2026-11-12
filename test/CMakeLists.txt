@@ -83,6 +83,17 @@ XMQ_ADD_EXTENSION(xmq_test_tap_recorder SOURCES ${CMAKE_CURRENT_LIST_DIR}/Extens
 
 ADD_DEPENDENCIES(xmq_unit_tests xmq_test_extension xmq_test_authenticator xmq_test_authorizer
         xmq_test_slow_authorizer xmq_test_user_database xmq_test_tap_recorder)
+
+# Fixtures, not installed extensions: their output goes outside lib/, so the broker's extension
+# discovery - which reads the directory the configured extensions live in - never offers the test
+# suite's copies of the samples as something an operator could switch on.
+SET(XMQ_TEST_EXTENSION_TARGETS xmq_test_extension xmq_test_authenticator xmq_test_authorizer
+        xmq_test_slow_authorizer xmq_test_tap_recorder xmq_test_user_database)
+FOREACH (testExtension ${XMQ_TEST_EXTENSION_TARGETS})
+    SET_TARGET_PROPERTIES(${testExtension} PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test/extensions"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test/extensions")
+ENDFOREACH ()
 TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_EXTENSION_LIBRARY="$<TARGET_FILE:xmq_test_extension>"
         XMQ_TEST_AUTHENTICATOR_LIBRARY="$<TARGET_FILE:xmq_test_authenticator>"
