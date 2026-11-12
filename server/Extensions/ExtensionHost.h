@@ -249,7 +249,8 @@ public:
      * than the configuration expects, is reported and skipped - the broker starts without it. An
      * extension is an addition to a broker, never a condition for one.
      */
-    void start(const std::vector<Configured>& extensions);
+    void start(const std::vector<Configured>& extensions,
+               const std::filesystem::path&   configurationPath = {});
 
     /**
      * @brief Apply a changed configuration to a broker that is running.
@@ -887,6 +888,29 @@ private:
     /// Entries the configuration switched off: known, listed, never loaded. Guarded by the same
     /// lock as m_loaded, because switching one on moves it from here to there.
     std::vector<Configured> m_configuredOnly;
+
+    /**
+     * @brief Libraries installed beside the configured ones that the configuration never named.
+     *
+     * Shown on the Extensions page as stopped, so an installed extension can be switched on there
+     * instead of being invisible until somebody writes an entry by hand. Enabling one writes a
+     * fragment of its own, which from then on is its source - the same file the page would edit.
+     * Metadata comes from the library itself, read through describe() without starting it.
+     */
+    struct Discovered
+    {
+        Configured  m_configured;
+        Description m_description;
+    };
+    std::vector<Discovered> m_discovered;
+
+    /// Where the broker's configuration lives, so a discovered extension can be given a fragment.
+    std::filesystem::path m_configurationPath;
+
+    /// Fills m_discovered from the directories the configured libraries live in, and returns the
+    /// entries that should be started now - the configured ones plus a mandatory accounts database
+    /// found installed but never configured.
+    std::vector<Configured> discoverInstalled(std::vector<Configured> configured);
 
     /// Guards m_loaded, m_configuredOnly and the swapping of m_active. Never taken on a path that
     /// carries messages.

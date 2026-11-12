@@ -1052,6 +1052,145 @@ vector<ExtensionHost::Configured> ExtensionHost::readConfiguration(const filesys
     return extensions;
 }
 
+vector<ExtensionHost::Configured> ExtensionHost::discoverInstalled(vector<Configured> configured)
+{
+    // Siblings of the configured libraries: an installation puts all of them in one directory, and
+    // the configuration names that directory through the entries it already has.
+    vector<filesystem::path> directories;
+    vector<filesystem::path> known;
+    for (const auto& entry: configured)
+    {
+        error_code errorCode;
+        known.push_back(filesystem::weakly_canonical(entry.m_library, errorCode));
+        const auto parent = entry.m_library.parent_path();
+        if (parent.empty() || ranges::find(directories, parent) != directories.end())
+        {
+            continue;
+        }
+        directories.push_back(parent);
+    }
+
+    // Names the configuration already accounts for, in either state.
+    const auto named = [this, &configured](const string& name)
+    {
+        const auto matches = [&name](const auto& candidate) { return candidate.m_name == name; };
+        return ranges::any_of(configured, matches) ||
+               ranges::any_of(m_configuredOnly, matches) ||
+               ranges::any_of(m_loaded, [&name](const auto& candidate) { return candidate->m_name == name; });
+    };
+
+    for (const auto& directory: directories)
+    {
+        error_code errorCode;
+        if (!filesystem::is_directory(directory, errorCode))
+        {
+            continue;
+        }
+        for (const auto& entry: filesystem::directory_iterator(directory, errorCode))
+        {
+            if (errorCode || !entry.is_regular_file(errorCode))
+            {
+                continue;
+            }
+            const auto fileName = entry.path().filename().string();
+            const auto extension = entry.path().extension().string();
+            if (!fileName.starts_with("libxmq_") ||
+                (extension != ".so" && extension != ".dylib" && extension != ".dll"))
+            {
+                continue;
+            }
+            const auto canonical = filesystem::weakly_canonical(entry.path(), errorCode);
+            if (ranges::find(known, canonical) != known.end())
+            {
+                continue;
+            }
+
+            // Read what the library says about itself, then let it go: discovery must not start it,
+            // and must not leave a second copy of its code open for the life of the broker.
+            void* handle = openLibrary(entry.path());
+            if (handle == nullptr)
+            {
+                m_logger.debug([&entry] { return entry.path().string() + ": not a loadable extension, skipped."; });
+                continue;
+            }
+            const auto describe = reinterpret_cast<xmq_extension_describe_fn>(
+                findSymbol(handle, XMQ_EXTENSION_DESCRIBE_SYMBOL));
+            const xmq_extension* description = describe == nullptr ? nullptr
+                                                                  : describe(XMQ_EXTENSION_ABI_MAJOR,
+                                                                             XMQ_EXTENSION_ABI_MINOR);
+            if (description == nullptr || description->name == nullptr)
+            {
+                closeLibrary(handle);
+                continue;
+            }
+
+            Configured candidate;
+            candidate.m_name = description->name;
+            candidate.m_library = entry.path();
+            candidate.m_enabled = false;
+            candidate.m_required = false;
+            const string version = description->version == nullptr ? string{} : description->version;
+            const string summary = description->description == nullptr ? string{} : description->description;
+            const auto capabilities = description->capabilities;
+
+            if (named(candidate.m_name))
+            {
+                closeLibrary(handle);
+                continue;
+            }
+
+            // The accounts database is not one of the switches this page offers: an installation
+            // either configures it (the template does) or does not run with accounts at all.
+            // Starting it from discovery would turn a deliberately bare broker into one with a
+            // store it never asked for, so it is simply not listed as an available extra.
+            if (candidate.m_name == "user-database")
+            {
+                closeLibrary(handle);
+                continue;
+            }
+
+            Discovered discovered;
+            discovered.m_configured = candidate;
+            discovered.m_description.m_name = candidate.m_name;
+            discovered.m_description.m_version = version;
+            discovered.m_description.m_description = summary;
+            discovered.m_description.m_library = candidate.m_library;
+            discovered.m_description.m_running = false;
+            discovered.m_description.m_capabilities = capabilities;
+            if (description->settings != nullptr)
+            {
+                for (size_t at = 0; at < description->setting_count; ++at)
+                {
+                    const auto& declared = description->settings[at];
+                    if (declared.name == nullptr)
+                    {
+                        continue;
+                    }
+                    discovered.m_description.m_settings.push_back(
+                        {.m_name = declared.name,
+                         .m_label = declared.label == nullptr ? string{} : declared.label,
+                         .m_description = declared.description == nullptr ? string{} : declared.description,
+                         .m_type = static_cast<xmq_setting_type>(declared.type),
+                         .m_defaultValue = declared.default_value == nullptr ? string{} : declared.default_value,
+                         .m_choices = declared.choices == nullptr ? string{} : declared.choices,
+                         .m_required = declared.required != 0,
+                         .m_value = declared.default_value == nullptr ? string{} : declared.default_value,
+                         .m_declared = true});
+                }
+            }
+            closeLibrary(handle);
+
+            m_logger.debug([&candidate]
+            {
+                return candidate.m_name + " is installed but not configured; listed as stopped.";
+            });
+            m_discovered.push_back(std::move(discovered));
+        }
+    }
+
+    return configured;
+}
+
 ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& extensions)
 {
     Report report;
@@ -1261,9 +1400,15 @@ bool parseStringList(const std::string& text, std::vector<std::string>& items)
 
 } // namespace
 
-void ExtensionHost::start(const vector<Configured>& extensions)
+void ExtensionHost::start(const vector<Configured>& extensions, const filesystem::path& configurationPath)
 {
-    if (extensions.empty())
+    m_configurationPath = configurationPath;
+
+    // Everything the configuration names, and everything installed beside it that it does not.
+    // The latter is listed on the Extensions page as stopped rather than being invisible.
+    const auto toStart = discoverInstalled(extensions);
+
+    if (toStart.empty())
     {
         return;
     }
@@ -1272,7 +1417,7 @@ void ExtensionHost::start(const vector<Configured>& extensions)
     // broker that says "an extension is missing" has told them nothing they can act on.
     Strings missingRequired;
 
-    for (const auto& configured: extensions)
+    for (const auto& configured: toStart)
     {
         if (!configured.m_enabled)
         {
@@ -1601,6 +1746,13 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         }
         described.push_back(std::move(one));
     }
+
+    // Installed but never configured: shown so it can be switched on from the page instead of
+    // staying invisible until somebody writes an entry by hand.
+    for (const auto& discovered: m_discovered)
+    {
+        described.push_back(discovered.m_description);
+    }
     return described;
 }
 
@@ -1639,7 +1791,56 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
             });
             if (known == m_configuredOnly.end())
             {
-                return refusedWrite(m_logger, name, "no such extension");
+                // Installed but never configured: enabling it writes a fragment of its own, which
+                // becomes its configuration source from then on.
+                const auto discovered = ranges::find_if(m_discovered, [&name](const auto& candidate)
+                {
+                    return candidate.m_configured.m_name == name;
+                });
+                if (discovered == m_discovered.end())
+                {
+                    return refusedWrite(m_logger, name, "no such extension");
+                }
+                if (!enabled)
+                {
+                    return Report::note(name + ": is not configured, so there is nothing to disable.");
+                }
+                const auto directory = configurationDirectoryFor(m_configurationPath);
+                error_code errorCode;
+                if (directory.empty())
+                {
+                    return refusedWrite(m_logger, name,
+                                        "it is installed but not configured, and the broker's "
+                                        "configuration path is unknown");
+                }
+                filesystem::create_directories(directory, errorCode);
+                if (!filesystem::is_directory(directory, errorCode))
+                {
+                    return refusedWrite(m_logger, name,
+                                        "it is installed but not configured, and " +
+                                            directory.string() + " cannot be created");
+                }
+                const auto fragment = directory / ("90-" + name + ".conf");
+                std::ofstream out(fragment);
+                out << "{\n  \"extensions\": [{\n"
+                    << "    \"name\": \"" << name << "\",\n"
+                    << "    \"library\": \"" << discovered->m_configured.m_library.string() << "\",\n"
+                    << "    \"enabled\": true,\n"
+                    << "    \"required\": false\n"
+                    << "  }]\n}\n";
+                out.close();
+                if (!out)
+                {
+                    return refusedWrite(m_logger, name, "could not write " + fragment.string());
+                }
+                filesystem::permissions(fragment,
+                                        filesystem::perms::owner_read | filesystem::perms::owner_write |
+                                        filesystem::perms::group_read,
+                                        errorCode);
+                m_discovered.erase(discovered);
+                const auto note = name + ": enabled in " + fragment.string() + ".";
+                m_logger.info(note);
+                return Report::note(note);
             }
             source = known->m_source;
         }

@@ -14,6 +14,12 @@ Requires SPTK 5.6.20.
 
 ### Added
 
+- **Every installed extension is listed, whether or not it is configured.** The Extensions page now
+  shows libraries found beside the configured ones as stopped, with the version and description they
+  report, so one can be switched on from the page instead of staying invisible until somebody writes
+  an entry by hand. Enabling writes `xmq_extensions.d/90-<name>.conf`, which becomes that entry's
+  home. The accounts database is never offered as an optional switch.
+
 - **Optional LDAP authentication with native group permissions (experimental).** When built with
   OpenLDAP development libraries, `xmq_ldap` searches and binds over verified LDAPS/StartTLS and maps
   direct directory groups to existing XMQ groups. Directory identities use an explicit login prefix;

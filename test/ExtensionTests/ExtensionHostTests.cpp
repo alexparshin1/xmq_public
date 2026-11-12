@@ -278,6 +278,37 @@ TEST_F(XMQ_ExtensionHostTests, carriesEventFieldsAcrossTheBoundary)
     EXPECT_NE(string::npos, line.find("qos=2"));
 }
 
+TEST_F(XMQ_ExtensionHostTests, listsAnInstalledButUnconfiguredExtensionAsStopped)
+{
+    // Two libraries in one directory, one named by the configuration: the other is installed and
+    // therefore offered on the Extensions page, stopped, instead of being invisible.
+    const auto directory = uniqueTemporary("discovery");
+    filesystem::create_directories(directory);
+    const auto running = directory / testExtensionLibrary().filename();
+    const auto spare = directory / testAuthorizerLibrary().filename();
+    ASSERT_TRUE(filesystem::copy_file(testExtensionLibrary(), running, filesystem::copy_options::overwrite_existing));
+    ASSERT_TRUE(filesystem::copy_file(testAuthorizerLibrary(), spare, filesystem::copy_options::overwrite_existing));
+
+    ExtensionHost host(m_logEngine, "test");
+    host.start({{.m_name = "event-log", .m_library = running, .m_settings = {{"file", m_eventFile.string()}}}},
+               directory / "xmq_server.conf");
+
+    const auto described = host.describe();
+    const auto found = ranges::find_if(described, [&spare](const auto& one)
+    {
+        return filesystem::equivalent(one.m_library, spare);
+    });
+    ASSERT_NE(found, described.end()) << "an installed extension must be listed";
+    EXPECT_FALSE(found->m_running);
+    EXPECT_FALSE(found->m_name.empty());
+    EXPECT_FALSE(found->m_required);
+    EXPECT_TRUE(host.watching()) << "the configured one still runs";
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
 TEST_F(XMQ_ExtensionHostTests, refusesALibraryThatIsNotAnExtension)
 {
     ExtensionHost host(m_logEngine, "test");
@@ -680,10 +711,11 @@ TEST_F(XMQ_ExtensionHostTests, refusedSettingsArePutBackWhereTheyCameFrom)
 
     // In memory: what describe() says is what the screen shows.
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    const auto setting = ranges::find_if(described[0].m_settings, [](const auto& one)
+    const auto listed = ranges::find_if(described, [](const auto& one) { return one.m_name == "event-log"; });
+    ASSERT_NE(listed, described.end());
+    const auto setting = ranges::find_if(listed->m_settings, [](const auto& one)
                                          { return one.m_name == "file"; });
-    ASSERT_NE(described[0].m_settings.end(), setting);
+    ASSERT_NE(listed->m_settings.end(), setting);
     EXPECT_EQ(m_eventFile.generic_string(), setting->m_value)
         << "a refused setting must not be reported as the one in force";
 
@@ -787,8 +819,9 @@ TEST_F(XMQ_ExtensionHostTests, describesItselfForTheInterface)
     ASSERT_TRUE(waitFor([this] { return countLines(m_eventFile) >= 1; }));
 
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    const auto& one = described[0];
+    const auto listed = ranges::find_if(described, [](const auto& one) { return one.m_name == "event-log"; });
+    ASSERT_NE(listed, described.end()) << "the configured extension is listed";
+    const auto& one = *listed;
 
     EXPECT_EQ("event-log", one.m_name);
     EXPECT_FALSE(one.m_version.empty());
@@ -893,15 +926,16 @@ TEST_F(XMQ_ExtensionHostTests, aDisabledEntryIsListedButNeverLoaded)
     EXPECT_FALSE(host.watching()) << "its library must not have been opened";
 
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size()) << "and yet it is listed";
-    EXPECT_EQ("event-log", described[0].m_name);
-    EXPECT_FALSE(described[0].m_running);
+    const auto listed = ranges::find_if(described, [](const auto& one) { return one.m_name == "event-log"; });
+    ASSERT_NE(listed, described.end()) << "and yet it is listed";
+    EXPECT_EQ("event-log", listed->m_name);
+    EXPECT_FALSE(listed->m_running);
 
     // Nothing came from inside the library, because it was never opened - that is what being
     // switched off has to mean.
-    EXPECT_TRUE(described[0].m_version.empty());
-    ASSERT_EQ(1U, described[0].m_settings.size());
-    EXPECT_EQ("file", described[0].m_settings[0].m_name);
+    EXPECT_TRUE(listed->m_version.empty());
+    ASSERT_EQ(1U, listed->m_settings.size());
+    EXPECT_EQ("file", listed->m_settings[0].m_name);
 
     host.stop();
 

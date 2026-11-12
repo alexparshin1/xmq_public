@@ -246,7 +246,8 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
 
     // After the broker exists and before it listens: an extension may want to be running when the
     // first client arrives, and none of them may keep the broker from starting.
-    m_extensions.start(ExtensionHost::readConfiguration(settings->configurationPath(), *logEngine));
+    m_extensions.start(ExtensionHost::readConfiguration(settings->configurationPath(), *logEngine),
+                       settings->configurationPath());
 
     // Everything that reaches the log file is offered to the extension host from here: a connector
     // that reports faults is useless if it only sees the messages clients publish, since the

@@ -98,6 +98,16 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
+                The page lists every extension installed beside the configured ones, including those
+                no entry mentions. An unmentioned library appears <b>stopped</b>, with the version and
+                description it reports about itself, and is switched on with <b>Enable</b>; that writes
+                a fragment of its own, <code>xmq_extensions.d/90-&lt;name&gt;.conf</code>, which from then
+                on is where its entry lives. Nothing is started by merely being installed. The accounts
+                database is the exception: it is never offered as an optional switch, because a broker
+                either configures it or does not run with accounts at all.
+            </p>
+
+            <p>
                 <b>Order matters for authenticators.</b> They are asked in configuration order and the
                 first allow or deny is final; an extension that does not recognise a client abstains,
                 and the broker's own accounts answer last. A directory must therefore be listed before
