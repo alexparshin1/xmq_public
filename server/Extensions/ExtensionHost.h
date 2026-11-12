@@ -97,6 +97,9 @@ public:
         return m_name;
     }
 
+    bool nativeIdentity() const { return m_nativeIdentity; }
+    const std::vector<std::string>& nativeGroups() const { return m_nativeGroups; }
+
 private:
     friend class ExtensionHost;
 
@@ -117,6 +120,8 @@ private:
 
     ExtensionHost*            m_host;
     std::string               m_name;
+    bool m_nativeIdentity {false};
+    std::vector<std::string> m_nativeGroups;
 
     /// Identity for the per-thread decision cache, and the reason that cache cannot key on the
     /// address of the group.
@@ -809,7 +814,7 @@ private:
     void                                  logThread(Loaded& loaded);
     void                                  startLogTap(Loaded& loaded);
     void                                  stopLogTap(Loaded& loaded);
-    [[nodiscard]] AuthDecision            askAuthenticators(const AuthRequest& request);
+    [[nodiscard]] AuthDecision askAuthenticators(const AuthRequest& request, std::shared_ptr<AclGroup>& identity);
 
     // The three services an extension is given. Static, because they are C function pointers with
     // the Loaded record as their context.

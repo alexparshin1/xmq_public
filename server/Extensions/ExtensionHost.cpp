@@ -799,10 +799,10 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return nullptr;
     }
 
-    // An extension compiled against a larger table would have the broker read past what it wrote,
-    // and one compiled against a smaller table was built for an ABI before 1.0, whose layout this
-    // broker does not read. ABI 1.0 is the first; later minors will append, and relax the second.
-    if (loaded->m_table->struct_size != sizeof(xmq_extension))
+    // ABI 1.4 appends native identity authentication. Accept the previous table unchanged;
+    // the appended callback is read only after a size check. Reject unknown intermediate layouts.
+    if (loaded->m_table->struct_size != sizeof(xmq_extension) &&
+        loaded->m_table->struct_size != offsetof(xmq_extension, authenticate_identity))
     {
         m_logger.error(format("{}: describes itself with {} bytes where this broker knows {} - rebuild "
                               "it against this broker's xmq_extension.h.",
@@ -2179,7 +2179,7 @@ void ExtensionHost::authenticate(AuthRequest                                    
     m_authentications.push_back(PendingAuth{.m_request = std::move(request), .m_answer = std::move(answer)});
 }
 
-ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& request)
+ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& request, shared_ptr<AclGroup>& identity)
 {
     const xmq_auth_request wire{
         .client_id = {.data = request.m_clientId.c_str(), .length = request.m_clientId.size()},
@@ -2209,9 +2209,34 @@ ExtensionHost::AuthDecision ExtensionHost::askAuthenticators(const AuthRequest& 
         }
 
         const InFlight inFlight(loaded->m_inFlight);
-        switch (authenticator->authenticate(loaded->m_instance, &wire))
+        vector<string> nativeGroups;
+        const bool native = loaded->m_table->struct_size >=
+            offsetof(xmq_extension, authenticate_identity) + sizeof(loaded->m_table->authenticate_identity) &&
+            loaded->m_table->authenticate_identity != nullptr;
+        struct Membership { vector<string>& groups; bool failed = false; } membership {nativeGroups};
+        const xmq_identity_sink sink {
+            .context = &membership,
+            .add_group = [](void* context, const xmq_str* name) -> xmq_status {
+                auto& output = *static_cast<Membership*>(context);
+                if (!name || !name->data || name->length == 0 || name->length > 255 ||
+                    output.groups.size() >= 64 || string_view(name->data, name->length).find('\0') != string_view::npos ||
+                    string_view(name->data, name->length).starts_with("user:"))
+                { output.failed = true; return XMQ_ERROR; }
+                output.groups.emplace_back(name->data, name->length);
+                return XMQ_OK;
+            }};
+        auto decision = native ? loaded->m_table->authenticate_identity(loaded->m_instance, &wire, &sink)
+                               : authenticator->authenticate(loaded->m_instance, &wire);
+        if (membership.failed) decision = XMQ_AUTH_SUBSYSTEM_ERROR;
+        switch (decision)
         {
             case XMQ_AUTH_ALLOW:
+                if (native)
+                {
+                    identity = make_shared<AclGroup>(this, string());
+                    identity->m_nativeIdentity = true;
+                    identity->m_nativeGroups = std::move(nativeGroups);
+                }
                 loaded->m_admitted.fetch_add(1, std::memory_order_relaxed);
                 return AuthDecision::Allow;
             case XMQ_AUTH_DENY:
@@ -2515,15 +2540,15 @@ void ExtensionHost::authenticationThread()
             continue;
         }
 
+        shared_ptr<AclGroup> group;
         auto decision = m_authenticating.load(std::memory_order_relaxed)
-                            ? askAuthenticators(pending.m_request)
+                             ? askAuthenticators(pending.m_request, group)
                             : AuthDecision::NotHandled;
 
         // Only for a client that is getting in. Asking a directory which groups a refused client
         // belongs to is work nobody will use, and on the connect path of a client being refused.
-        shared_ptr<AclGroup> group;
         if (decision != AuthDecision::Deny && decision != AuthDecision::Unavailable &&
-            m_authorizing.load(std::memory_order_relaxed))
+            m_authorizing.load(std::memory_order_relaxed) && !group)
         {
             bool refused = false;
             group = resolveGroup(pending.m_request, refused);

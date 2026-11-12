@@ -752,6 +752,7 @@ ENDIF ()
 # broker admits nobody. It is still built through XMQ_ADD_EXTENSION, so it reaches no more of the
 # broker than an extension written by anyone else.
 ADD_SUBDIRECTORY(extension/user-database)
+ADD_SUBDIRECTORY(extension/ldap)
 ADD_SUBDIRECTORY(extension/webhook)
 
 # The extension interface. These two headers are the whole of what an extension compiles against;

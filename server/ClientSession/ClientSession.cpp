@@ -1823,6 +1823,22 @@ void ClientSession::handleSubscribeMessage(const Message* msg)
                                           : static_cast<uint8_t>(reasonCode);
 
             subscriptionResults.push_back(subscriptionResult);
+            if (reasonCode != ReasonCode::Success)
+            {
+                // Silent otherwise: a refused filter delivers nothing, and the CLI shows only that
+                // SUBSCRIBE "succeeded". Mosquitto-style rules make a wildcard broader than the
+                // allowed exact topic a refusal, which is the case an operator most needs to see.
+                const string filter(destination.m_topic->filterName());
+                const string subscriber =
+                    getUsername().empty() ? string(getClientId()) : string(getUsername());
+                server().logMessage(LogSubject::Subscribe, LogPriority::Info,
+                                    [subscriber, filter, reasonCode]
+                                    {
+                                        return subscriber + ": subscribe to '" + filter +
+                                               "' refused (" + xmq::toString(reasonCode) + ").";
+                                    });
+                continue; // A refused SUBACK must not install a subscription or deliver retained data.
+            }
             const bool existed = isSubscribed(destination.m_topic->name());
             subscriptions.push_back({server().subscribeClient(clientSession, destination, subscriptionId), existed});
         }

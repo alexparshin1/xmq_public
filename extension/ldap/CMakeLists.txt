@@ -1,0 +1,16 @@
+# Optional: ordinary broker builds do not acquire a mandatory LDAP dependency.
+FIND_PATH(LDAP_INCLUDE_DIR ldap.h)
+FIND_LIBRARY(LDAP_LIBRARY NAMES ldap)
+FIND_LIBRARY(LDAP_LBER_LIBRARY NAMES lber)
+IF (LDAP_INCLUDE_DIR AND LDAP_LIBRARY AND LDAP_LBER_LIBRARY)
+    XMQ_ADD_EXTENSION(xmq_ldap SOURCES ${CMAKE_CURRENT_LIST_DIR}/Ldap.cpp)
+    TARGET_INCLUDE_DIRECTORIES(xmq_ldap PRIVATE ${LDAP_INCLUDE_DIR})
+    TARGET_LINK_LIBRARIES(xmq_ldap ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY})
+    INSTALL(TARGETS xmq_ldap LIBRARY DESTINATION lib/xmq-extensions
+            RUNTIME DESTINATION lib/xmq-extensions)
+    ADD_EXECUTABLE(xmq_ldap_tests EXCLUDE_FROM_ALL tests/LdapTests.cpp)
+    TARGET_INCLUDE_DIRECTORIES(xmq_ldap_tests PRIVATE ${PROJECT_SOURCE_DIR} ${LDAP_INCLUDE_DIR})
+    TARGET_LINK_LIBRARIES(xmq_ldap_tests ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY})
+ELSE ()
+    MESSAGE(STATUS "LDAP development library not found: xmq_ldap extension is not built")
+ENDIF ()

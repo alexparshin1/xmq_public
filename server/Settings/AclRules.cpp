@@ -63,6 +63,7 @@ void AclRules::reload(const shared_ptr<UserStore>& store, const UserManager& use
     m_users = &users;
     m_rules.clear();
     m_groupsByUser.clear();
+    m_knownGroups.clear();
     m_defaultDeny = false;
 
     if (!store)
@@ -75,6 +76,7 @@ void AclRules::reload(const shared_ptr<UserStore>& store, const UserManager& use
     // DDL transaction in front of the first publish or subscribe, and on a cluster node that held
     // the session long enough for a peer's lease to look expired.
     m_rules = store->aclRules();
+    for (const auto& group: store->groups()) m_knownGroups.emplace(group.m_name.c_str());
     m_defaultDeny = store->defaultDeny();
 }
 
@@ -149,6 +151,22 @@ AclRules::Decision AclRules::authorizeGroups(const vector<string>& groups, const
 {
     const shared_lock lock(m_mutex);
     return evaluate(m_rules, groups, username, clientId, topic, publish, m_defaultDeny);
+}
+
+AclRules::Decision AclRules::authorizeIdentity(const vector<string>& groups, const string_view username,
+                                               const string_view clientId, const string_view topic,
+                                               const bool publish, string* explanation) const
+{
+    const shared_lock lock(m_mutex);
+    vector<string> existing;
+    for (const auto& group: groups)
+        if (m_knownGroups.contains(group)) existing.push_back(group);
+    if (existing.empty())
+    {
+        if (explanation) *explanation = "denied: external identity has no mapped XMQ groups";
+        return Decision::Deny;
+    }
+    return evaluate(m_rules, existing, username, clientId, topic, publish, true, explanation);
 }
 
 AclRules::Decision AclRules::evaluate(const vector<UserStore::AclRule>& rules, const vector<string>& groups,

@@ -1,0 +1,155 @@
+# LDAP authenticator — first implementation
+
+Optional `xmq_ldap` extension, built when OpenLDAP development headers and libraries are available
+(`libldap-dev` on Debian). It authenticates MQTT CONNECT with a search followed by a password bind.
+It maps verified directory membership onto native XMQ groups; topic Permissions stay in the broker.
+It does not create local copies of directory users or change administrative login.
+Microsoft AD compatibility has **not** yet been tested.
+
+## Build and test
+
+In the configured XMQ tree:
+
+```sh
+cmake .
+make -j8 xmq_ldap xmq_ldap_tests
+./extension/ldap/xmq_ldap_tests
+python3 extension/ldap/tests/integration.py extension/ldap/xmq_ldap_tests
+```
+
+For an out-of-tree build, use the executable under that build's `extension/ldap/` directory.
+The integration runner needs Docker and OpenSSL. It creates a disposable OpenLDAP container
+(`osixia/openldap:1.5.0`), binds randomly allocated ports **only on 127.0.0.1**, generates a one-day
+test CA and server certificate, and removes its container and temporary credentials afterwards.
+It tests verified LDAPS and StartTLS, correct/incorrect passwords, empty passwords, unknown and
+ambiguous users, filter escaping, invalid service credentials, bad CA, and recovery after failure.
+To include a real broker and MQTT 5 CONNECT/PUBLISH/SUBSCRIBE acceptance checks:
+
+```sh
+python3 extension/ldap/tests/integration.py build/extension/ldap/xmq_ldap_tests build/xmq_server
+```
+
+This creates a separate broker, SQLite database and loopback MQTT port. It checks mapping, delivery,
+refused PUBLISH/SUBSCRIBE, an unmapped user, invalid password, directory outage and local emergency
+login. It never restarts the installed broker. Some existing broker CONNECT failures use legacy
+reason codes even for MQTT 5; the harness accepts those as refusals.
+
+## CONNECT benchmark, and what it says about caching
+
+```sh
+python3 extension/ldap/tests/integration.py build/extension/ldap/xmq_ldap_tests \
+    build/xmq_server --benchmark
+```
+
+This provisions 1000 distinct directory users (`bench0001`…, password `bench-pass`), then performs
+one MQTT 5 CONNECT per user — TCP, CONNECT, CONNACK, DISCONNECT — at a fixed concurrency, and
+repeats the whole round. Each round is timed and reported as CONNECT/s:
+
+```
+LDAP CONNECT benchmark round 1: 1000 connects, concurrency 32, 1.24 s, 804.6 CONNECT/s
+LDAP CONNECT benchmark round 2: 1000 connects, concurrency 32, 1.22 s, 818.5 CONNECT/s
+```
+
+Options: `--benchmark-users N` (default 1000), `--benchmark-rounds N` (default 2),
+`--benchmark-concurrency N` (default 32). The run is isolated: its own LDAP container and its own
+broker on a random loopback port, so a stand already serving on 1883 is not disturbed.
+
+There is **no decision cache in this release**, so the second round is expected to be the same as the
+first, and it is: every CONNECT repeats the search, the password bind, and one membership search per
+mapped group (three in this configuration, hence five directory operations per CONNECT). The numbers
+are a baseline, not a target, and depend on the host and on the directory — measure before and after
+adding a cache on the same machine and with the same concurrency.
+
+Add `--serve` to keep the isolated stand running for MQTTX and GUI testing. The script prints its
+randomly allocated loopback MQTT/Web GUI ports and test credentials. Alice (`ldap/alice`, password
+`test-alice`) can publish to `allowed/#`; Bob (`ldap/bob`, `test-bob`) can subscribe; `ldap/nogroup`
+(`test-nogroup`) authenticates but has no topic rights. Local GUI login: `admin` / `Test-local-admin7!`.
+The GUI edits the stand's own Groups and Permissions. Ctrl+C removes the stand and test credentials.
+
+No system package is installed by these tests, and no running XMQ configuration is modified.
+
+## Configuration
+
+Install the library with the normal `make install`. Add an extension configuration file before
+`50-user-database.conf`, for example `xmq_extensions.d/40-ldap.conf` (use the actual absolute
+installation path; `.dll`/`.dylib` instead of `.so` where appropriate):
+
+```json
+{
+  "extensions": [{
+    "name": "ldap",
+    "library": "/home/alexeyp/.local/lib/xmq-extensions/libxmq_ldap.so",
+    "enabled": true,
+    "required": true,
+    "settings": {
+      "uri": "ldaps://ldap.example.org:636",
+      "search_base": "ou=people,dc=example,dc=org",
+      "bind_dn": "cn=xmq-reader,ou=services,dc=example,dc=org",
+      "bind_password": "REPLACE-ME",
+      "user_filter": "(uid={username})",
+      "username_prefix": "ldap/",
+      "ca_file": "/path/to/directory-ca.crt",
+      "timeout_seconds": "3",
+      "group_filter": "(member={dn})",
+      "group_mappings": "cn=mqtt-publishers,ou=groups,dc=example,dc=org => Publishers\ncn=mqtt-readers,ou=groups,dc=example,dc=org => Readers"
+    }
+  }]
+}
+```
+
+Protect the configuration containing the service password (owner-only permissions). Use a read-only
+search account limited to the user subtree, **not** the directory administrator. Empty `bind_dn`
+and `bind_password` select anonymous search; they must otherwise both be set.
+`ca_file` may be empty to use system trust. TLS certificate/hostname checks cannot be disabled.
+For StartTLS use `ldap://ldap.example.org:389`; `start_tls` defaults to `true` and must remain true
+for `ldap://`. Referrals are disabled to avoid sending credentials to another server.
+
+Connect as `ldap/alice` with Alice's directory password. Only `alice` is substituted into the
+RFC 4515-escaped search filter. The prefix is mandatory and nonempty: it makes local versus directory
+identity explicit and keeps local emergency accounts independent of directory availability.
+Reserve this prefix for LDAP; do not create local accounts named `ldap/...`.
+
+Create `Publishers` and `Readers` on the XMQ Groups page, and their policies on Permissions.
+`group_mappings` is one `group DN => XMQ group name` per line (up to 64); the JSON representation
+uses `\n` between lines. Every group is searched at its exact DN after successful password bind.
+Default `group_filter=(member={dn})` supports `groupOfNames`; for `posixGroup` use
+`(memberUid={username})`, or `(uniqueMember={dn})` for `groupOfUniqueNames`. Substitutions are escaped.
+Only direct membership is implemented. Multiple matching groups supply all their rules to the
+normal broker evaluator, preserving rule order and deny precedence. Local account membership is
+never merged. Mapped groups with no rules and users without mapped groups deny by default, regardless
+of the ordinary default-deny switch. Missing directory group DNs fail closed as configuration/store
+errors. Permission edits apply to connected clients; directory membership and mapping changes apply
+at the next CONNECT. Directory users do not appear as local entries on the Users page.
+
+This requires extension ABI 1.4. The broker accepts ABI 1.3 tables with no identity callback;
+older brokers reject the LDAP library instead of silently ignoring native membership.
+
+Place LDAP **before** `user-database`: the latter's default `unknown_user=deny` otherwise rejects
+directory accounts before LDAP can answer. Inspect the effective extension order if extensions
+are configured in more than one location. Authentication stops at the first definitive answer:
+
+| Condition | Answer |
+|---|---|
+| Username outside the prefix | NOT_HANDLED (local chain continues, even during LDAP outage) |
+| Unknown directory account | NOT_HANDLED (reserve the prefix to avoid local fallback collisions) |
+| Empty password/username, ambiguous search, wrong user password | DENY |
+| Valid password bind | ALLOW |
+| Directory, TLS, service bind or search failure | SUBSYSTEM_ERROR (fail closed; no local fallback) |
+
+Directory connectivity is checked at CONNECT, not extension startup. Network/operation timeouts
+apply separately to each step, not as one total CONNECT deadline. Every attempt opens independent
+search and user sessions so concurrent clients cannot change each other's bind identity. Reload
+swaps a validated configuration snapshot; invalid reload retains the previous settings.
+Logs report the operation and generic LDAP error only, not credentials, DNs or server diagnostics.
+
+## Remaining work before release
+
+- Bounded positive/negative decision cache with TTL, password-safe cache keys and no outage caching.
+- More broker chain/ACL tests (persistent reconnects, policy reload), service-account least-privilege
+  fixtures and slow-server tests.
+- Samba/Microsoft AD testing, nested-group semantics, account-disabled/expired policy.
+- Packaging dependency declarations on the supported platforms.
+
+The initial auth/group/Permissions path is available for manual acceptance, not yet production-hardened.
+No decisions are cached yet: every CONNECT rechecks credentials and membership, and outages never
+become cached password refusals. Cache/TTL, packaging and AD coverage remain release work.

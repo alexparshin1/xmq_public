@@ -56,6 +56,7 @@ namespace xmq {
 class XmqExtensionBase
 {
 public:
+    static constexpr bool NativeGroups = false;
     explicit XmqExtensionBase(const xmq_host& host)
         : m_host(host)
     {
@@ -184,6 +185,14 @@ public:
     virtual xmq_auth_decision authenticate(const xmq_auth_request& /*request*/)
     {
         return XMQ_AUTH_NOT_HANDLED;
+    }
+
+    /// ABI 1.4: opt in with static constexpr bool NativeGroups = true in the extension class.
+    /// Group names are native broker subjects, not extension-owned policy/cache keys.
+    virtual xmq_auth_decision authenticateWithGroups(const xmq_auth_request& request,
+                                                      std::vector<std::string>& /*groups*/)
+    {
+        return authenticate(request);
     }
 
     /// Which group does this client belong to? Called once per connection, on the authentication
@@ -487,6 +496,24 @@ inline xmq_event_type eventType(const xmq_event& event)
             return XMQ_AUTH_DENY;                                                                   \
         }                                                                                           \
     }                                                                                               \
+    xmq_auth_decision xmqExtensionIdentity(void* instance, const xmq_auth_request* request,           \
+                                           const xmq_identity_sink* sink)                            \
+    {                                                                                               \
+        try                                                                                         \
+        {                                                                                           \
+            std::vector<std::string> groups;                                                         \
+            const auto decision = static_cast<ExtensionClass*>(instance)->authenticateWithGroups(*request, groups); \
+            if (decision == XMQ_AUTH_ALLOW)                                                          \
+                for (const auto& group: groups)                                                      \
+                {                                                                                   \
+                    const xmq_str name {group.data(), group.size()};                                 \
+                    if (!sink || !sink->add_group || sink->add_group(sink->context, &name) != XMQ_OK) \
+                        return XMQ_AUTH_SUBSYSTEM_ERROR;                                            \
+                }                                                                                   \
+            return decision;                                                                        \
+        }                                                                                           \
+        catch (...) { return XMQ_AUTH_SUBSYSTEM_ERROR; }                                             \
+    }                                                                                               \
     size_t xmqExtensionResolveGroup(void* instance, const xmq_auth_request* request, char* group,   \
                                     size_t groupSize)                                               \
     {                                                                                               \
@@ -556,7 +583,8 @@ inline xmq_event_type eventType(const xmq_event& event)
         .message_tap =                                                                              \
             ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr, \
         .log_tap = ((ExtensionCapabilities) &XMQ_CAP_LOG_TAP) != 0 ? &xmqExtensionLogTap : nullptr, \
-        .setting_size = sizeof(xmq_setting)}; \
+        .setting_size = sizeof(xmq_setting),                                                         \
+        .authenticate_identity = ExtensionClass::NativeGroups ? xmqExtensionIdentity : nullptr};      \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
     {                                                                                               \

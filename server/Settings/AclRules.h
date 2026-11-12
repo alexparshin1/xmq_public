@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sptk {
@@ -61,6 +62,12 @@ public:
                                            std::string_view clientId, std::string_view topic,
                                            bool publish) const;
 
+    /// Authenticated external membership, never merged with local account membership.
+    /// Unmapped identities and missing rules fail closed even when default_deny is false.
+    [[nodiscard]] Decision authorizeIdentity(const std::vector<std::string>& groups, std::string_view username,
+                                             std::string_view clientId, std::string_view topic, bool publish,
+                                             std::string* explanation = nullptr) const;
+
     /// True when at least one rule is loaded; a false answer leaves the decision to extensions.
     [[nodiscard]] bool empty() const;
 
@@ -81,6 +88,7 @@ private:
     mutable std::shared_mutex                m_mutex;
     std::vector<UserStore::AclRule>          m_rules;
     bool                                     m_defaultDeny {false};
+    std::unordered_set<std::string> m_knownGroups;
     std::unordered_map<std::string, std::vector<std::string>> m_groupsByUser;
     const UserManager*                       m_users {nullptr};
 };

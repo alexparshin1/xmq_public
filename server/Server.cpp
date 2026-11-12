@@ -2247,8 +2247,12 @@ ReasonCode Server::grantPublish(const SClientSession& client, const Topic* topic
         {
             server.reloadAclRules();
         }
-        const auto native = server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
-                                                        topic->fullName(), true, explanation);
+        const auto* identity = client->aclGroup();
+        const auto native = identity && identity->nativeIdentity()
+            ? server.m_aclRules.authorizeIdentity(identity->nativeGroups(), client->getUsername(),
+                                                  client->getClientId(), topic->fullName(), true, explanation)
+            : server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
+                                           topic->fullName(), true, explanation);
         if (native == AclRules::Decision::Deny)
         {
             return refusalFor(client);
@@ -2301,8 +2305,12 @@ ReasonCode Server::grantSubscription(const SClientSession& client, const Topic* 
         {
             server.reloadAclRules();
         }
-        const auto native = server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
-                                                        topic->filterName(), false);
+        const auto* identity = client->aclGroup();
+        const auto native = identity && identity->nativeIdentity()
+            ? server.m_aclRules.authorizeIdentity(identity->nativeGroups(), client->getUsername(),
+                                                  client->getClientId(), topic->filterName(), false)
+            : server.m_aclRules.authorize(client->getUsername(), client->getClientId(),
+                                           topic->filterName(), false);
         if (native == AclRules::Decision::Deny)
         {
             return refusalFor(client);

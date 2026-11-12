@@ -14,11 +14,23 @@ Requires SPTK 5.6.20.
 
 ### Added
 
+- **Optional LDAP authentication with native group permissions (experimental).** When built with
+  OpenLDAP development libraries, `xmq_ldap` searches and binds over verified LDAPS/StartTLS and maps
+  direct directory groups to existing XMQ groups. Directory identities use an explicit login prefix;
+  their topic access requires an explicit Permissions allow, without local-account group fallback.
+  Extension ABI 1.4 adds combined authentication/membership; previous-size extension tables remain
+  supported. See `extension/ldap/README.md` for the isolated manual test stand and current limits.
+
 - **MQTT over WebSocket and secure WebSocket listeners.** Add listeners with protocol `MQTT+WS` or
   `MQTT+WSS` alongside the existing TCP and TLS listeners. The broker answers the HTTP upgrade,
   negotiates the `mqtt` subprotocol when offered, and carries MQTT packets in binary frames; ping,
   pong and close control frames are handled by the transport. `MQTT+WSS` uses the broker's configured
   TLS key and certificate. See the Setup guide for listener configuration.
+
+### Fixed
+
+- A refused SUBSCRIBE no longer installs the subscription or sends retained messages despite its
+  failure SUBACK. The LDAP/native-Permissions acceptance test covers this delivery boundary.
 
 ## 1.1.1 — 2026-11-11
 

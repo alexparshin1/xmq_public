@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 3
+#define XMQ_EXTENSION_ABI_MINOR 4
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -500,6 +500,17 @@ typedef struct xmq_authenticator
     xmq_auth_decision (*authenticate)(void* instance, const xmq_auth_request* request);
 } xmq_authenticator;
 
+/** ABI 1.4: synchronous sink for authenticated native XMQ group names, not ACL decisions.
+ * The broker copies each name before add_group returns. Return XMQ_OK on success.
+ * Only groups emitted by the authenticator returning ALLOW are retained. Empty membership
+ * is valid but native authorization then denies every topic. No local account groups are merged.
+ */
+typedef struct xmq_identity_sink
+{
+    void* context;
+    xmq_status (*add_group)(void* context, const xmq_str* group);
+} xmq_identity_sink;
+
 /** @brief What a client is trying to do with a topic. */
 typedef enum xmq_acl_action
 {
@@ -660,6 +671,12 @@ typedef struct xmq_extension
      * its end.
      */
     size_t setting_size;
+    /** Optional ABI 1.4 combined authentication and native-group resolution. When present,
+     * replaces authenticator.authenticate. A broker must size-check this appended field.
+     * Native identities require an explicit ALLOW from the broker's Permissions evaluator.
+     */
+    xmq_auth_decision (*authenticate_identity)(void* instance, const xmq_auth_request* request,
+                                               const xmq_identity_sink* sink);
 } xmq_extension;
 
 /**

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <algorithm>
 
 using namespace std;
 using namespace sptk;
@@ -24,6 +25,7 @@ protected:
         m_pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(file), 2);
         UserStore store(m_pool);
         store.createSchema();
+        store.addGroup({.m_name = "operators"});
         store.addAclRule({.m_groupName = "user:alice",
                           .m_action = "publish",
                           .m_deny = false,
@@ -59,6 +61,33 @@ TEST_F(AclRulesTests, aUserWithNoGroupRulesIsNotHandled)
 {
     EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("bob", "client-1", "sensors/temp", true));
     EXPECT_EQ(AclRules::Decision::NotHandled, m_rules.authorize("", "", "anything", true));
+}
+
+TEST_F(AclRulesTests, externalIdentityRequiresAnExplicitNativeAllow)
+{
+    EXPECT_EQ(AclRules::Decision::Allow,
+              m_rules.authorizeIdentity({"operators"}, "ldap/alice", "client", "plant/line1", false));
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorizeIdentity({"operators"}, "ldap/alice", "client", "plant/line1", true));
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorizeIdentity({"without-rules"}, "ldap/alice", "client", "anything", true));
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorizeIdentity({}, "ldap/alice", "client", "anything", true));
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorizeIdentity({"operators"}, "alice", "client", "sensors/temp", true))
+        << "A local account with the same name must not supply its own groups";
+}
+
+TEST_F(AclRulesTests, externalMembershipLosesAccessWhenTheMappedGroupIsDeleted)
+{
+    UserStore store(m_pool);
+    const auto groups = store.groups();
+    const auto found = ranges::find_if(groups, [](const auto& group) { return group.m_name == "operators"; });
+    ASSERT_NE(found, groups.end());
+    store.removeGroup(found->m_id);
+    m_rules.reload(m_pool, m_users);
+    EXPECT_EQ(AclRules::Decision::Deny,
+              m_rules.authorizeIdentity({"operators"}, "ldap/alice", "client", "plant/line1", false));
 }
 
 TEST_F(AclRulesTests, accountGroupsAreEvaluatedByTheirName)
