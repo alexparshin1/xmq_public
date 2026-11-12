@@ -233,11 +233,13 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
 
             <p>
                 Passwords travel in a bind, so the connection to the directory must be encrypted:
-                <code>ldaps://</code> from the start, or <code>ldap://</code> with StartTLS, which is
-                required on that scheme and cannot be turned off. Certificate and hostname checks are
-                mandatory. <code>ca_file</code> names the certificate authority that signed the
-                directory's certificate; leave it empty to use the system trust store. Referrals are
-                not followed, so credentials are not sent to a server nobody configured.
+                <b>LDAPS</b> from the first byte, or <b>StartTLS</b>, which upgrades a plain connection
+                before any password is sent and is refused if that upgrade fails. Certificate and
+                hostname checks are mandatory. <b>Directory CA certificate</b> names the authority that
+                signed the directory server's certificate — not this broker's own certificate, which
+                vouches for the broker and for nothing else. Leave it empty to use the system trust
+                store. Referrals are not followed, so credentials are not sent to a server nobody
+                configured.
             </p>
 
             <p>
@@ -250,7 +252,9 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             </p>
 
             <pre className="userManualCode">{`"settings": {
-  "uri": "ldaps://ldap.example.org:636",
+  "host": "ldap.example.org",
+  "port": "636",
+  "encryption": "ldaps",
   "search_base": "ou=people,dc=example,dc=org",
   "bind_dn": "cn=xmq-reader,ou=services,dc=example,dc=org",
   "bind_password": "REPLACE-ME",

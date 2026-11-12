@@ -44,7 +44,8 @@ int main(int argc, char** argv)
         host.struct_size = sizeof(host);
         host.setting = getSetting;
         host.log = logMessage;
-        settings = {{"uri", "ldaps://127.0.0.1:1"}, {"search_base", "dc=example,dc=org"}, {"timeout_seconds", "1"}};
+        settings = {{"host", "127.0.0.1"}, {"port", "1"}, {"encryption", "ldaps"},
+                    {"search_base", "dc=example,dc=org"}, {"timeout_seconds", "1"}};
         LdapAuthenticator extension(host);
         expect(extension.start(), "valid settings accepted");
         expect(auth(extension, "admin", "secret") == XMQ_AUTH_NOT_HANDLED, "local administrator bypasses LDAP");
@@ -55,10 +56,12 @@ int main(int argc, char** argv)
         expect(!extension.reload(), "empty namespace rejected");
         expect(auth(extension, "admin", "secret") == XMQ_AUTH_NOT_HANDLED, "failed reload preserves previous configuration");
         settings.erase("username_prefix");
-        if (argc == 3)
+        if (argc == 5)
         {
-            settings["uri"] = argv[1];
-            settings["ca_file"] = argv[2];
+            settings["host"] = argv[1];
+            settings["port"] = argv[2];
+            settings["encryption"] = argv[3];
+            settings["ca_file"] = argv[4];
             settings["bind_dn"] = "cn=admin,dc=example,dc=org";
             settings["bind_password"] = "test-admin";
             settings["group_mappings"] = "cn=publishers,dc=example,dc=org => Publishers\ncn=readers,dc=example,dc=org => Readers";
@@ -93,13 +96,12 @@ int main(int argc, char** argv)
             settings["ca_file"] = "/nonexistent-xmq-ldap-ca.pem";
             expect(extension.reload(), "untrusted CA settings");
             expect(auth(extension, "ldap/alice", "test-alice") == XMQ_AUTH_SUBSYSTEM_ERROR, "TLS trust failure never admits user");
-            settings["ca_file"] = argv[2];
-            auto wrongHostname = std::string(argv[1]);
-            wrongHostname.replace(wrongHostname.find("127.0.0.1"), 9, "localhost");
-            settings["uri"] = wrongHostname;
+            settings["ca_file"] = argv[4];
+            const std::string goodHost = argv[1];
+            settings["host"] = goodHost == "127.0.0.1" ? "localhost" : "127.0.0.1";
             expect(extension.reload(), "mismatched hostname settings");
             expect(auth(extension, "ldap/alice", "test-alice") == XMQ_AUTH_SUBSYSTEM_ERROR, "TLS hostname mismatch rejected");
-            settings["uri"] = argv[1];
+            settings["host"] = goodHost;
             expect(extension.reload(), "restore directory settings");
             expect(auth(extension, "ldap/alice", "test-alice") == XMQ_AUTH_ALLOW, "recovery without cached outage");
         }

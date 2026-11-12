@@ -277,7 +277,26 @@ public:
         try
         {
             auto config = std::make_shared<Config>();
-            config->uri = setting("uri");
+            // Host, port and encryption rather than a URI: the form asks for what an operator knows,
+            // and the scheme follows from the encryption choice instead of being typed by hand.
+            const auto host = setting("host");
+            if (host.empty())
+                throw std::runtime_error("LDAP host is required");
+            if (host.find_first_of(" \t/\\:") != std::string::npos ||
+                host.find("://") != std::string::npos)
+                throw std::runtime_error("LDAP host must be a bare host name, without a scheme, port or path");
+            const auto encryption = setting("encryption", "ldaps");
+            if (encryption != "ldaps" && encryption != "starttls")
+                throw std::runtime_error("LDAP encryption must be ldaps or starttls");
+            config->startTls = encryption == "starttls";
+            const auto portText = setting("port", config->startTls ? "389" : "636");
+            int        port = 0;
+            const auto portParsed = std::from_chars(portText.data(), portText.data() + portText.size(), port);
+            if (portParsed.ec != std::errc() || portParsed.ptr != portText.data() + portText.size() ||
+                port < 1 || port > 65535)
+                throw std::runtime_error("LDAP port must be a number between 1 and 65535");
+            config->uri = std::string(config->startTls ? "ldap://" : "ldaps://") + host + ":" +
+                          std::to_string(port);
             config->base = setting("search_base");
             config->bindDn = setting("bind_dn");
             config->bindPassword = setting("bind_password");
@@ -289,10 +308,6 @@ public:
             if (config->groupFilter.find("{dn}") == std::string::npos &&
                 config->groupFilter.find("{username}") == std::string::npos)
                 throw std::runtime_error("LDAP group_filter needs {dn} or {username}");
-            const auto startTls = setting("start_tls", "true");
-            if (startTls != "true" && startTls != "false")
-                throw std::runtime_error("LDAP start_tls must be true or false");
-            config->startTls = startTls == "true";
             const auto seconds = setting("timeout_seconds", "3");
             const auto parsed = std::from_chars(seconds.data(), seconds.data() + seconds.size(), config->timeout);
             if (parsed.ec != std::errc() || parsed.ptr != seconds.data() + seconds.size())
@@ -446,15 +461,16 @@ private:
 } // namespace
 
 const xmq_setting ldapSettings[] {
-    {.name="uri", .label="LDAP URI", .description="One ldap:// (StartTLS) or ldaps:// endpoint", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=1},
+    {.name="host", .label="LDAP host", .description="Host name of the directory server, without ldap://, a port or a path", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=1},
+    {.name="port", .label="LDAP port", .description="Port of the directory server. Empty uses 636 for LDAPS and 389 for StartTLS", .type=XMQ_SETTING_INTEGER, .default_value=nullptr, .choices=nullptr, .required=0},
+    {.name="encryption", .label="LDAP encryption", .description="LDAPS connects with TLS from the first byte; StartTLS upgrades a plain connection before any password is sent", .type=XMQ_SETTING_CHOICE, .default_value="ldaps", .choices="ldaps,starttls", .required=0},
+    {.name="ca_file", .label="Directory CA certificate", .description="The certificate authority that signed the directory server's certificate - not this broker's own certificate. Empty uses the system trust store", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
     {.name="search_base", .label="Search base DN", .description="Subtree containing users", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=1},
     {.name="bind_dn", .label="Search account DN", .description="Read-only search account; empty for anonymous search", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
     {.name="bind_password", .label="Search account password", .description="Password of the search account", .type=XMQ_SETTING_SECRET, .default_value=nullptr, .choices=nullptr, .required=0},
     {.name="user_filter", .label="User search filter", .description="RFC 4515 filter with exactly one {username} placeholder", .type=XMQ_SETTING_STRING, .default_value="(uid={username})", .choices=nullptr, .required=0},
     {.name="username_prefix", .label="LDAP username prefix", .description="Nonempty namespace; other usernames pass to local authentication", .type=XMQ_SETTING_STRING, .default_value="ldap/", .choices=nullptr, .required=0},
-    {.name="ca_file", .label="CA certificate file", .description="Trusted directory CA; empty uses system trust", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="start_tls", .label="StartTLS", .description="Mandatory for ldap://; ldaps:// already uses TLS", .type=XMQ_SETTING_CHOICE, .default_value="true", .choices="true,false", .required=0},
-    {.name="timeout_seconds", .label="Operation timeout", .description="Timeout per network operation, 1–30 seconds", .type=XMQ_SETTING_INTEGER, .default_value="3", .choices=nullptr, .required=0},
+    {.name="timeout_seconds", .label="Operation timeout (seconds)", .description="Timeout per network operation, 1-30 seconds", .type=XMQ_SETTING_INTEGER, .default_value="3", .choices=nullptr, .required=0},
     {.name="group_mappings", .label="LDAP to XMQ groups", .description="One LDAP group DN => existing XMQ group per line; at most 64", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
     {.name="group_filter", .label="Group membership filter", .description="Filter at each mapped group DN; {dn} is user DN, {username} is the unprefixed login", .type=XMQ_SETTING_STRING, .default_value="(member={dn})", .choices=nullptr, .required=0},
     {.name="cache_ttl_seconds", .label="Cache verified logins (seconds)", .description="How long a successful directory login and its groups are remembered. 0 disables the cache, so every CONNECT checks the directory and a revoked password stops working at once", .type=XMQ_SETTING_INTEGER, .default_value="60", .choices=nullptr, .required=0},

@@ -146,16 +146,16 @@ userPassword: bench-pass
 """ for index in range(1, benchmark_users + 1))
         run("docker", "exec", "-i", name, "ldapadd", "-x", "-H", "ldap://localhost",
             "-D", "cn=admin,dc=example,dc=org", "-w", "test-admin", input=ldif)
-        for internal, scheme in ((636, "ldaps"), (389, "ldap")):
+        for internal, encryption in ((636, "ldaps"), (389, "starttls")):
             port = run("docker", "port", name, f"{internal}/tcp", capture_output=True).stdout.strip().split(":")[-1]
-            run(binary, f"{scheme}://127.0.0.1:{port}", str(certs / "ca.crt"))
+            run(binary, "127.0.0.1", port, encryption, str(certs / "ca.crt"))
         print("OpenLDAP integration passed over LDAPS and StartTLS")
         if len(sys.argv) == 3:
             from broker import run_broker
             server = pathlib.Path(sys.argv[2]).resolve()
             library = pathlib.Path(__file__).resolve().parents[3] / "lib/libxmq_ldap.so"
             port = run("docker", "port", name, "636/tcp", capture_output=True).stdout.strip().split(":")[-1]
-            run_broker(server, library, f"ldaps://127.0.0.1:{port}", certs / "ca.crt", directory,
+            run_broker(server, library, "127.0.0.1", port, "ldaps", certs / "ca.crt", directory,
                        lambda: run("docker", "stop", name, stdout=subprocess.DEVNULL), serve=serve,
                        standard_ports=standard_ports,
                        benchmark=({"count": benchmark_users, "password": "bench-pass",

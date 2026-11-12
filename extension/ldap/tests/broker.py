@@ -125,7 +125,8 @@ def run_benchmark(port, count, password, rounds, concurrency, user_format="ldap/
     return rates
 
 
-def run_broker(binary, library, uri, ca_file, directory, outage, serve=False, standard_ports=False,
+def run_broker(binary, library, directory_host, directory_port, directory_encryption, ca_file,
+               directory, outage, serve=False, standard_ports=False,
                benchmark=None, cache_ttl=60):
     root = pathlib.Path(directory) / "broker"
     root.mkdir()
@@ -157,7 +158,8 @@ def run_broker(binary, library, uri, ca_file, directory, outage, serve=False, st
         "server_limits": {"send_threads": "1", "receive_threads": "1", "delivery_threads": "1"},
         "extensions": [
             {"name": "ldap", "library": str(library), "enabled": True, "required": True, "settings": {
-                "uri": uri, "search_base": "dc=example,dc=org", "bind_dn": "cn=admin,dc=example,dc=org",
+                "host": directory_host, "port": directory_port,
+                "encryption": directory_encryption, "search_base": "dc=example,dc=org", "bind_dn": "cn=admin,dc=example,dc=org",
                 "bind_password": "test-admin", "ca_file": str(ca_file), "timeout_seconds": "1",
                 "cache_ttl_seconds": str(cache_ttl),
                 "group_mappings": "cn=publishers,dc=example,dc=org => Publishers\n"

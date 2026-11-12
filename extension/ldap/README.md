@@ -99,7 +99,9 @@ installation path; `.dll`/`.dylib` instead of `.so` where appropriate):
     "enabled": true,
     "required": true,
     "settings": {
-      "uri": "ldaps://ldap.example.org:636",
+      "host": "ldap.example.org",
+      "port": "636",
+      "encryption": "ldaps",
       "search_base": "ou=people,dc=example,dc=org",
       "bind_dn": "cn=xmq-reader,ou=services,dc=example,dc=org",
       "bind_password": "REPLACE-ME",
@@ -120,9 +122,11 @@ installation path; `.dll`/`.dylib` instead of `.so` where appropriate):
 Protect the configuration containing the service password (owner-only permissions). Use a read-only
 search account limited to the user subtree, **not** the directory administrator. Empty `bind_dn`
 and `bind_password` select anonymous search; they must otherwise both be set.
-`ca_file` may be empty to use system trust. TLS certificate/hostname checks cannot be disabled.
-For StartTLS use `ldap://ldap.example.org:389`; `start_tls` defaults to `true` and must remain true
-for `ldap://`. Referrals are disabled to avoid sending credentials to another server.
+`host` is a bare host name; `port` empty means 636 for `ldaps` and 389 for `starttls`.
+`encryption` is `ldaps` (TLS from the first byte) or `starttls` (upgrade before the password is sent;
+a plain connection is refused). `ca_file` names the CA that signed the **directory's** certificate,
+not this broker's own `node.crt`; empty uses the system trust store. TLS certificate and hostname
+checks cannot be disabled. Referrals are disabled to avoid sending credentials to another server.
 
 Connect as `ldap/alice` with Alice's directory password. Only `alice` is substituted into the
 RFC 4515-escaped search filter. The prefix is mandatory and nonempty: it makes local versus directory
