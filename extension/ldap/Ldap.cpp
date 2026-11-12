@@ -4,11 +4,19 @@
 #include <ldap.h>
 
 #include <charconv>
+#include <array>
+#include <chrono>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
+#include <unordered_map>
+
+#include <openssl/crypto.h>
+#include <openssl/hmac.h>
+#include <openssl/rand.h>
 
 namespace {
 
@@ -41,6 +49,9 @@ struct Config
     int timeout = 3;
     std::vector<std::pair<std::string, std::string>> mappings;
     std::string groupFilter = "(member={dn})";
+    int cacheSeconds = 60;
+    int negativeCacheSeconds = 10;
+    size_t cacheEntries = 4096;
 };
 
 std::string trim(std::string value)
@@ -146,13 +157,120 @@ int bind(Session& session, const std::string& dn, const std::string& password)
                             &credential, nullptr, nullptr, nullptr);
 }
 
+class DecisionCache
+{
+public:
+    void configure(const int positives, const int negatives, const size_t maxEntries)
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_positive = std::chrono::seconds(std::max(0, positives));
+        m_negative = std::chrono::seconds(std::max(0, negatives));
+        m_maxEntries = std::max<size_t>(1, maxEntries);
+        m_entries.clear();
+        m_order.clear();
+    }
+
+    void clear()
+    {
+        const std::scoped_lock lock(m_mutex);
+        m_entries.clear();
+        m_order.clear();
+    }
+
+    bool find(const std::string& key, xmq_auth_decision& decision, std::vector<std::string>& groups)
+    {
+        const std::scoped_lock lock(m_mutex);
+        const auto found = m_entries.find(key);
+        if (found == m_entries.end()) return false;
+        if (found->second.first.expires <= std::chrono::steady_clock::now())
+        {
+            m_order.erase(found->second.second);
+            m_entries.erase(found);
+            return false;
+        }
+        m_order.splice(m_order.begin(), m_order, found->second.second);
+        decision = found->second.first.decision;
+        groups = found->second.first.groups;
+        return true;
+    }
+
+    /// ALLOW keeps its groups; a refusal is remembered only briefly so a corrected password is not
+    /// held out for the positive lifetime. SUBSYSTEM_ERROR is never stored: an outage must not
+    /// become a remembered answer in either direction.
+    void store(const std::string& key, const xmq_auth_decision decision, const std::vector<std::string>& groups)
+    {
+        const std::scoped_lock lock(m_mutex);
+        const auto lifetime = decision == XMQ_AUTH_ALLOW ? m_positive : m_negative;
+        if (lifetime.count() <= 0) return;
+        if (const auto existing = m_entries.find(key); existing != m_entries.end())
+        {
+            existing->second.first = {decision, groups, std::chrono::steady_clock::now() + lifetime};
+            m_order.splice(m_order.begin(), m_order, existing->second.second);
+            return;
+        }
+        if (m_entries.size() >= m_maxEntries) evict();
+        m_order.push_front(key);
+        m_entries.emplace(key, std::make_pair(CacheEntry {decision, groups,
+                                                          std::chrono::steady_clock::now() + lifetime},
+                                              m_order.begin()));
+    }
+
+private:
+    struct CacheEntry
+    {
+        xmq_auth_decision decision;
+        std::vector<std::string> groups;
+        std::chrono::steady_clock::time_point expires;
+    };
+
+    void evict()
+    {
+        // Expired first, then the least recently used: an identity that reconnects keeps its place.
+        const auto now = std::chrono::steady_clock::now();
+        for (auto entry = m_entries.begin(); entry != m_entries.end();)
+        {
+            if (entry->second.first.expires <= now)
+            {
+                m_order.erase(entry->second.second);
+                entry = m_entries.erase(entry);
+            }
+            else
+            {
+                ++entry;
+            }
+        }
+        if (!m_entries.empty())
+        {
+            m_entries.erase(m_order.back());
+            m_order.pop_back();
+        }
+    }
+
+    std::mutex m_mutex;
+    std::unordered_map<std::string, std::pair<CacheEntry, std::list<std::string>::iterator>> m_entries;
+    std::list<std::string> m_order;
+    std::chrono::seconds m_positive {60};
+    std::chrono::seconds m_negative {10};
+    size_t m_maxEntries {4096};
+};
+
 class LdapAuthenticator final : public xmq::XmqExtensionBase
 {
 public:
     using XmqExtensionBase::XmqExtensionBase;
     static constexpr bool NativeGroups = true;
 
-    bool start() override { return reload(); }
+    bool start() override
+    {
+        // A per-process salt, so a cached decision can be keyed by the password without keeping the
+        // password: a different broker process (or a restart) shares no keys with this one.
+        if (RAND_bytes(m_salt.data(), static_cast<int>(m_salt.size())) != 1)
+        {
+            m_salt.fill(0);
+            return false;
+        }
+        return reload();
+    }
 
     bool reload() override
     {
@@ -179,9 +297,24 @@ public:
             const auto parsed = std::from_chars(seconds.data(), seconds.data() + seconds.size(), config->timeout);
             if (parsed.ec != std::errc() || parsed.ptr != seconds.data() + seconds.size())
                 throw std::runtime_error("LDAP timeout_seconds must be an integer");
+            const auto number = [this](const char* name, const char* fallback) -> int
+            {
+                const auto text = setting(name, fallback);
+                int value = 0;
+                const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+                if (result.ec != std::errc() || result.ptr != text.data() + text.size())
+                    throw std::runtime_error(std::string("LDAP ") + name + " must be an integer");
+                return value;
+            };
+            config->cacheSeconds = std::clamp(number("cache_ttl_seconds", "60"), 0, 3600);
+            config->negativeCacheSeconds =
+                std::clamp(number("negative_cache_ttl_seconds", "10"), 0, 3600);
+            config->cacheEntries = static_cast<size_t>(std::clamp(number("cache_max_entries", "4096"), 1, 1000000));
             validate(*config);
             const std::lock_guard lock(m_mutex);
             m_config = std::move(config);
+            m_cache.configure(m_config->cacheSeconds, m_config->negativeCacheSeconds,
+                              m_config->cacheEntries);
             return true;
         }
         catch (const std::exception& error)
@@ -209,7 +342,23 @@ public:
         if (username.size() == config->prefix.size() || request.password.length == 0 || !request.password.data)
             return XMQ_AUTH_DENY; // Empty passwords can be accepted as unauthenticated binds by LDAP.
         const std::string password(request.password.data, request.password.length);
+        const std::string key = cacheKey(username, password);
+        if (!key.empty())
+        {
+            xmq_auth_decision cached {};
+            std::vector<std::string> cachedGroups;
+            if (m_cache.find(key, cached, cachedGroups))
+            {
+                groups = std::move(cachedGroups);
+                return cached;
+            }
+        }
         auto filter = config->filter;
+        const auto remember = [this, &key](const xmq_auth_decision decision)
+        {
+            if (!key.empty()) m_cache.store(key, decision, {});
+            return decision;
+        };
         filter.replace(filter.find("{username}"), 10, escapeFilter(username.substr(config->prefix.size())));
         try
         {
@@ -224,11 +373,11 @@ public:
                 filter.c_str(), attributes, 0, nullptr, nullptr, &timeout, 2, &raw);
             const std::unique_ptr<LDAPMessage, decltype(&ldap_msgfree)> result(raw, ldap_msgfree);
             // Multiple matches are ambiguous identities, never pick the first account.
-            if (code == LDAP_SIZELIMIT_EXCEEDED) return XMQ_AUTH_DENY;
+            if (code == LDAP_SIZELIMIT_EXCEEDED) return remember(XMQ_AUTH_DENY);
             check(code, "LDAP user search");
             const auto count = ldap_count_entries(search.handle, result.get());
-            if (count == 0) return XMQ_AUTH_NOT_HANDLED;
-            if (count != 1) return XMQ_AUTH_DENY;
+            if (count == 0) return remember(XMQ_AUTH_NOT_HANDLED);
+            if (count != 1) return remember(XMQ_AUTH_DENY);
             char* rawDn = ldap_get_dn(search.handle, ldap_first_entry(search.handle, result.get()));
             if (!rawDn) throw std::runtime_error("LDAP user search returned no DN");
             const std::string dn(rawDn);
@@ -236,7 +385,7 @@ public:
             Session user;
             connect(user, *config);
             const auto bindCode = bind(user, dn, password);
-            if (bindCode == LDAP_INVALID_CREDENTIALS) return XMQ_AUTH_DENY;
+            if (bindCode == LDAP_INVALID_CREDENTIALS) return remember(XMQ_AUTH_DENY);
             check(bindCode, "LDAP user bind");
             // Query membership only after the user's password was verified. Search as the
             // read-only service identity, on the same trusted directory, with no referrals.
@@ -254,6 +403,7 @@ public:
                     std::find(groups.begin(), groups.end(), nativeGroup) == groups.end())
                     groups.push_back(nativeGroup);
             }
+            if (!key.empty()) m_cache.store(key, XMQ_AUTH_ALLOW, groups);
             return XMQ_AUTH_ALLOW;
         }
         catch (const std::exception& error)
@@ -265,8 +415,33 @@ public:
     }
 
 private:
+    /// A decision is keyed by identity and a per-process HMAC of the password: a hit can be
+    /// answered without holding the password, and a changed password is a miss by construction.
+    std::string cacheKey(const std::string_view username, const std::string& password) const
+    {
+        if (std::all_of(m_salt.begin(), m_salt.end(), [](const auto byte) { return byte == 0; }))
+            return {}; // Entropy was unavailable at start; run without a cache rather than guess.
+        unsigned char digest[EVP_MAX_MD_SIZE];
+        unsigned int  length = 0;
+        if (HMAC(EVP_sha256(), m_salt.data(), static_cast<int>(m_salt.size()),
+                 reinterpret_cast<const unsigned char*>(password.data()), password.size(), digest,
+                 &length) == nullptr)
+            return {};
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string key(username);
+        key += '\0';
+        for (unsigned int index = 0; index < length; ++index)
+        {
+            key += hex[digest[index] >> 4];
+            key += hex[digest[index] & 15];
+        }
+        return key;
+    }
+
     std::mutex m_mutex;
     std::shared_ptr<const Config> m_config;
+    DecisionCache                 m_cache;
+    std::array<unsigned char, 32> m_salt {};
 };
 } // namespace
 
@@ -281,7 +456,10 @@ const xmq_setting ldapSettings[] {
     {.name="start_tls", .label="StartTLS", .description="Mandatory for ldap://; ldaps:// already uses TLS", .type=XMQ_SETTING_CHOICE, .default_value="true", .choices="true,false", .required=0},
     {.name="timeout_seconds", .label="Operation timeout", .description="Timeout per network operation, 1–30 seconds", .type=XMQ_SETTING_INTEGER, .default_value="3", .choices=nullptr, .required=0},
     {.name="group_mappings", .label="LDAP to XMQ groups", .description="One LDAP group DN => existing XMQ group per line; at most 64", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="group_filter", .label="Group membership filter", .description="Filter at each mapped group DN; {dn} is user DN, {username} is the unprefixed login", .type=XMQ_SETTING_STRING, .default_value="(member={dn})", .choices=nullptr, .required=0}
+    {.name="group_filter", .label="Group membership filter", .description="Filter at each mapped group DN; {dn} is user DN, {username} is the unprefixed login", .type=XMQ_SETTING_STRING, .default_value="(member={dn})", .choices=nullptr, .required=0},
+    {.name="cache_ttl_seconds", .label="Cache verified logins (seconds)", .description="How long a successful directory login and its groups are remembered. 0 disables the cache, so every CONNECT checks the directory and a revoked password stops working at once", .type=XMQ_SETTING_INTEGER, .default_value="60", .choices=nullptr, .required=0},
+    {.name="negative_cache_ttl_seconds", .label="Cache refused logins (seconds)", .description="How long a wrong password, an unknown account or an ambiguous search is remembered; 0 disables it. It limits password guessing at the cost of delaying a corrected password", .type=XMQ_SETTING_INTEGER, .default_value="10", .choices=nullptr, .required=0},
+    {.name="cache_max_entries", .label="Cached identities", .description="Upper bound on remembered logins, least recently used evicted first", .type=XMQ_SETTING_INTEGER, .default_value="4096", .choices=nullptr, .required=0}
 };
 XMQ_DEFINE_EXTENSION_DESCRIBED(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
     "LDAP bind authentication over verified TLS; explicit username namespace", ldapSettings)

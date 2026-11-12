@@ -18,8 +18,11 @@ Requires SPTK 5.6.20.
   OpenLDAP development libraries, `xmq_ldap` searches and binds over verified LDAPS/StartTLS and maps
   direct directory groups to existing XMQ groups. Directory identities use an explicit login prefix;
   their topic access requires an explicit Permissions allow, without local-account group fallback.
-  Extension ABI 1.4 adds combined authentication/membership; previous-size extension tables remain
-  supported. See `extension/ldap/README.md` for the isolated manual test stand and current limits.
+  Verified logins and their groups are cached for 60 seconds (`cache_ttl_seconds`, 0 disables) and
+  refusals for 10, keyed by a per-process keyed hash of the password; directory outages are never
+  cached. Extension ABI 1.4 adds combined authentication/membership; previous-size extension tables
+  remain supported. See `extension/ldap/README.md` for the isolated manual test stand and current
+  limits.
 
 - **MQTT over WebSocket and secure WebSocket listeners.** Add listeners with protocol `MQTT+WS` or
   `MQTT+WSS` alongside the existing TCP and TLS listeners. The broker answers the HTTP upgrade,

@@ -118,13 +118,15 @@ def run_benchmark(port, count, password, rounds, concurrency, user_format="ldap/
         print(f"LDAP CONNECT benchmark round {number}: {count} connects, concurrency "
               f"{concurrency}, {elapsed:.2f} s, {rate:.1f} CONNECT/s", flush=True)
     if len(rates) > 1:
-        print("LDAP CONNECT benchmark: first round {:.1f}, last round {:.1f} CONNECT/s "
-              "(equal within noise means no decision cache)".format(rates[0], rates[-1]), flush=True)
+        verdict = ("a cache is in effect" if rates[-1] > rates[0] * 1.5
+                   else "no decision cache is being used")
+        print("LDAP CONNECT benchmark: first round {:.1f}, last round {:.1f} CONNECT/s - {}"
+              .format(rates[0], rates[-1], verdict), flush=True)
     return rates
 
 
 def run_broker(binary, library, uri, ca_file, directory, outage, serve=False, standard_ports=False,
-               benchmark=None):
+               benchmark=None, cache_ttl=60):
     root = pathlib.Path(directory) / "broker"
     root.mkdir()
     if standard_ports:
@@ -157,6 +159,7 @@ def run_broker(binary, library, uri, ca_file, directory, outage, serve=False, st
             {"name": "ldap", "library": str(library), "enabled": True, "required": True, "settings": {
                 "uri": uri, "search_base": "dc=example,dc=org", "bind_dn": "cn=admin,dc=example,dc=org",
                 "bind_password": "test-admin", "ca_file": str(ca_file), "timeout_seconds": "1",
+                "cache_ttl_seconds": str(cache_ttl),
                 "group_mappings": "cn=publishers,dc=example,dc=org => Publishers\n"
                                   "cn=readers,dc=example,dc=org => Readers\n"
                                   "cn=Server Monitoring,dc=example,dc=org => Server Monitoring"}},
@@ -264,9 +267,16 @@ def run_broker(binary, library, uri, ca_file, directory, outage, serve=False, st
                         raise RuntimeError("test broker exited")
                     time.sleep(1)
             outage()
-            sockets.append(connect(port, "ldap/alice", "test-alice", (0x88, 3)))
+            if cache_ttl > 0:
+                # A decision made before the outage is still served from the cache.
+                sockets.append(connect(port, "ldap/alice", "test-alice"))
+            else:
+                sockets.append(connect(port, "ldap/alice", "test-alice", (0x88, 3)))
+            # An identity never seen before cannot be cached, so an outage must refuse it either way.
+            sockets.append(connect(port, "ldap/unseen", "test-unseen", (0x88, 3)))
             sockets.append(connect(port, "admin", "Test-local-admin7!"))
-            print("MQTT LDAP + mapped groups + native Permissions acceptance passed")
+            print(f"MQTT LDAP + mapped groups + native Permissions acceptance passed "
+                  f"(cache_ttl={cache_ttl})")
         except Exception:
             log.flush()
             log.seek(0)

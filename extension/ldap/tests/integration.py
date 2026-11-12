@@ -29,6 +29,7 @@ benchmark = "--benchmark" in sys.argv
 benchmark_users = option("--benchmark-users", 1000)
 benchmark_rounds = option("--benchmark-rounds", 2)
 benchmark_concurrency = option("--benchmark-concurrency", 32)
+cache_ttl = option("--cache-ttl", 60)
 for flag in ("--serve", "--standard-ports", "--benchmark"):
     if flag in sys.argv:
         sys.argv.remove(flag)
@@ -113,6 +114,13 @@ objectClass: groupOfNames
 cn: publishers
 member: uid=alice,dc=example,dc=org
 
+dn: uid=unseen,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: Unseen
+sn: Test
+uid: unseen
+userPassword: test-unseen
+
 dn: cn=Server Monitoring,dc=example,dc=org
 objectClass: groupOfNames
 cn: Server Monitoring
@@ -152,7 +160,8 @@ userPassword: bench-pass
                        standard_ports=standard_ports,
                        benchmark=({"count": benchmark_users, "password": "bench-pass",
                                    "rounds": benchmark_rounds,
-                                   "concurrency": benchmark_concurrency} if benchmark else None))
+                                   "concurrency": benchmark_concurrency} if benchmark else None),
+                       cache_ttl=cache_ttl)
     except Exception:
         subprocess.run(["docker", "logs", "--tail", "25", name])
         raise

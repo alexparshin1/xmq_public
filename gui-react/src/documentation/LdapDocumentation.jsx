@@ -160,9 +160,12 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             <h4 id="ldap-changes">How soon XMQ sees a change</h4>
 
             <p>
-                There is no decision cache yet: every CONNECT verifies the password and reads the
-                groups again. What follows is therefore the behaviour of this release rather than a
-                tuning detail.
+                A verified login and the groups read for it are cached for
+                <code>cache_ttl_seconds</code> (default 60), so a reconnect inside that window costs
+                no directory round trip. Refusals are cached separately and only for
+                <code>negative_cache_ttl_seconds</code> (default 10). Set the positive lifetime to
+                <code>0</code> to check the directory on every CONNECT; that is the setting to choose
+                when a revoked password must stop working immediately.
             </p>
 
             <table className="userManualTable">
@@ -175,13 +178,14 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 <tbody>
                 <tr>
                     <td>Password changed, or the account disabled in the directory</td>
-                    <td>At the next CONNECT: the bind is attempted then. A session already connected
-                        stays connected until it disconnects or is closed.</td>
+                    <td>At the next CONNECT, or when the cached decision expires — within one
+                        <code>cache_ttl_seconds</code>. A session already connected stays connected
+                        until it disconnects or is closed.</td>
                 </tr>
                 <tr>
                     <td>Account added to, or removed from, a mapped directory group</td>
-                    <td>At the next CONNECT. An existing session keeps the groups it connected with;
-                        reconnect to pick up the change.</td>
+                    <td>At the next CONNECT, or within one <code>cache_ttl_seconds</code>. An existing
+                        session keeps the groups it connected with.</td>
                 </tr>
                 <tr>
                     <td>Permission rules for a mapped XMQ group edited on the Permissions page</td>
@@ -199,24 +203,28 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 </tr>
                 <tr>
                     <td>Directory unreachable, certificate expired, service account refused</td>
-                    <td>New <code>ldap/</code> connections are refused while it lasts. Sessions already
-                        connected continue, and local accounts are unaffected.</td>
+                    <td>New <code>ldap/</code> connections are refused while it lasts, except identities
+                        admitted before the outage and still inside their cache lifetime. Sessions
+                        already connected continue, and local accounts are unaffected.</td>
                 </tr>
                 </tbody>
             </table>
 
             <p>
-                Because nothing is cached, a reconnect storm costs the directory a search, a bind and
-                one search per mapped group for every connection. Size the directory for that, or keep
-                the mapped list short. A bounded cache with a lifetime is planned.
+                An outage is never cached, so it can never turn into a remembered allow or a remembered
+                refusal. Cache keys are built from the username and a keyed hash of the password under a
+                per-process salt: the password itself is not kept, and a changed password is a miss by
+                construction — the previous password simply stops matching once its entry expires.
+                Reloading the extension settings clears the cache.
             </p>
 
             <p>
-                The same cost can be measured rather than guessed: the test stand shipped with the
-                extension has a benchmark mode that connects 1000 distinct directory users once each
-                at a fixed concurrency and reports CONNECT/s, then repeats the round. Until a cache
-                exists the two rounds are equal; that equality is what a later cache is expected to
-                break. See <code>extension/ldap/README.md</code> in the source tree.
+                The cost can be measured rather than guessed: the test stand shipped with the extension
+                has a benchmark mode that connects 1000 distinct directory users once each at a fixed
+                concurrency, reports CONNECT/s, and repeats the round. A cold round pays for every
+                directory operation; the second is served from the cache. On the development host that
+                was 794 → 13 549 CONNECT/s, while with the cache switched off both rounds stayed near
+                815–833. See <code>extension/ldap/README.md</code> in the source tree.
             </p>
         </section>
 
@@ -251,7 +259,10 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
   "ca_file": "/etc/xmq/directory-ca.crt",
   "timeout_seconds": "3",
   "group_filter": "(member={dn})",
-  "group_mappings": "cn=Server Monitoring,dc=example,dc=org => Server Monitoring"
+  "group_mappings": "cn=Server Monitoring,dc=example,dc=org => Server Monitoring",
+  "cache_ttl_seconds": "60",
+  "negative_cache_ttl_seconds": "10",
+  "cache_max_entries": "4096"
 }`}</pre>
 
             <p>
@@ -309,8 +320,7 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 reports — disabled or expired accounts, password-expiry warnings — is not interpreted
                 separately. No CRL or OCSP checking. Compatibility has been verified against OpenLDAP;
                 Active Directory has not yet been certified, and its schema variants are a separate
-                test. There is no cache, and no provisioning of directory users into the accounts
-                database.
+                test. There is no provisioning of directory users into the accounts database.
             </p>
         </section>
     </DocumentationPage>;

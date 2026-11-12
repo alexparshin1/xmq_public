@@ -46,19 +46,36 @@ one MQTT 5 CONNECT per user — TCP, CONNECT, CONNACK, DISCONNECT — at a fixed
 repeats the whole round. Each round is timed and reported as CONNECT/s:
 
 ```
-LDAP CONNECT benchmark round 1: 1000 connects, concurrency 32, 1.24 s, 804.6 CONNECT/s
-LDAP CONNECT benchmark round 2: 1000 connects, concurrency 32, 1.22 s, 818.5 CONNECT/s
+LDAP CONNECT benchmark round 1: 1000 connects, concurrency 32, 1.26 s, 794.0 CONNECT/s
+LDAP CONNECT benchmark round 2: 1000 connects, concurrency 32, 0.07 s, 13548.8 CONNECT/s
 ```
 
 Options: `--benchmark-users N` (default 1000), `--benchmark-rounds N` (default 2),
-`--benchmark-concurrency N` (default 32). The run is isolated: its own LDAP container and its own
-broker on a random loopback port, so a stand already serving on 1883 is not disturbed.
+`--benchmark-concurrency N` (default 32), `--cache-ttl N` (default 60, `0` disables the cache).
+The run is isolated: its own LDAP container and its own broker on a random loopback port, so a stand
+already serving on 1883 is not disturbed.
 
-There is **no decision cache in this release**, so the second round is expected to be the same as the
-first, and it is: every CONNECT repeats the search, the password bind, and one membership search per
-mapped group (three in this configuration, hence five directory operations per CONNECT). The numbers
-are a baseline, not a target, and depend on the host and on the directory — measure before and after
-adding a cache on the same machine and with the same concurrency.
+The first round is a cold cache and pays for every directory operation; the second round is served
+from the decision cache. On the development host that was 794 → 13 549 CONNECT/s at concurrency 32
+(about 17×), and with `--cache-ttl 0` both rounds stay near 815–833 CONNECT/s, which is what shows
+the difference comes from the cache and not from a warm directory.
+
+## Decision cache
+
+A successful login and the groups read for it are remembered for `cache_ttl_seconds` (default 60);
+a refusal is remembered for `negative_cache_ttl_seconds` (default 10), which limits password guessing
+without holding a corrected password out for long. Up to `cache_max_entries` identities are kept,
+least recently used evicted first.
+
+The key is the username plus an HMAC of the password under a per-process random salt: the password
+itself is not stored, a changed password is a miss by construction, and a restart shares no keys with
+the previous process. A directory outage is **never** cached, so it cannot become a remembered
+answer in either direction.
+
+The trade-off is deliberate and must be known: a password revoked in the directory, or a user
+removed from a mapped group, keeps working until the cached entry expires — at most one TTL.
+Set `cache_ttl_seconds` to `0` where that window is unacceptable; every CONNECT then checks the
+directory, and the cost is what the first benchmark round shows.
 
 Add `--serve` to keep the isolated stand running for MQTTX and GUI testing. The script prints its
 randomly allocated loopback MQTT/Web GUI ports and test credentials. Alice (`ldap/alice`, password
@@ -91,7 +108,10 @@ installation path; `.dll`/`.dylib` instead of `.so` where appropriate):
       "ca_file": "/path/to/directory-ca.crt",
       "timeout_seconds": "3",
       "group_filter": "(member={dn})",
-      "group_mappings": "cn=mqtt-publishers,ou=groups,dc=example,dc=org => Publishers\ncn=mqtt-readers,ou=groups,dc=example,dc=org => Readers"
+      "group_mappings": "cn=mqtt-publishers,ou=groups,dc=example,dc=org => Publishers\ncn=mqtt-readers,ou=groups,dc=example,dc=org => Readers",
+      "cache_ttl_seconds": "60",
+      "negative_cache_ttl_seconds": "10",
+      "cache_max_entries": "4096"
     }
   }]
 }
@@ -119,7 +139,8 @@ normal broker evaluator, preserving rule order and deny precedence. Local accoun
 never merged. Mapped groups with no rules and users without mapped groups deny by default, regardless
 of the ordinary default-deny switch. Missing directory group DNs fail closed as configuration/store
 errors. Permission edits apply to connected clients; directory membership and mapping changes apply
-at the next CONNECT. Directory users do not appear as local entries on the Users page.
+at the next CONNECT, or when the cached decision expires. Directory users do not appear as local
+entries on the Users page.
 
 This requires extension ABI 1.4. The broker accepts ABI 1.3 tables with no identity callback;
 older brokers reject the LDAP library instead of silently ignoring native membership.
@@ -139,12 +160,12 @@ are configured in more than one location. Authentication stops at the first defi
 Directory connectivity is checked at CONNECT, not extension startup. Network/operation timeouts
 apply separately to each step, not as one total CONNECT deadline. Every attempt opens independent
 search and user sessions so concurrent clients cannot change each other's bind identity. Reload
-swaps a validated configuration snapshot; invalid reload retains the previous settings.
-Logs report the operation and generic LDAP error only, not credentials, DNs or server diagnostics.
+swaps a validated configuration snapshot, clears the cache, and keeps the previous settings when the
+new ones are invalid. Logs report the operation and generic LDAP error only, not credentials, DNs or
+server diagnostics.
 
 ## Remaining work before release
 
-- Bounded positive/negative decision cache with TTL, password-safe cache keys and no outage caching.
 - More broker chain/ACL tests (persistent reconnects, policy reload), service-account least-privilege
   fixtures and slow-server tests.
 - Samba/Microsoft AD testing, nested-group semantics, account-disabled/expired policy.
