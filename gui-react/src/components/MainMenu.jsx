@@ -110,10 +110,6 @@ function buildGroups(connected) {
                 // one entry here that replaces the configuration rather than editing part of it.
                 "/setup": "Initial Setup",
                 "/settings": "Settings",
-                "/users": "Users",
-                "/usergroups": "Groups",
-                "/permissions": "Permissions",
-                "/import": "Import",
                 "/listeners": "Listeners",
                 "/sslkeys": "SSL Keys",
                 "/persistence": "Persistence",
@@ -121,9 +117,23 @@ function buildGroups(connected) {
                 "/logging": "Logging",
                 "/prometheus": "Prometheus",
                 "/service": "Service",
-                "/bridges": "Bridges",
-                "/cluster": "Cluster",
                 "/extensions": "Extensions"
+            }
+        },
+        {
+            title: "User Management",
+            items: {
+                "/users": "Users",
+                "/usergroups": "Groups",
+                "/permissions": "Permissions",
+                "/import": "Imports"
+            }
+        },
+        {
+            title: "Cluster",
+            items: {
+                "/bridges": "Bridges",
+                "/cluster": "Cluster"
             }
         },
         documentationGroup()

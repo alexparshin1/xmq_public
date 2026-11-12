@@ -56,9 +56,18 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, TopicCac
     auto*      readPosition = m_messageData.data();
     auto       availableBytes = payloadSize;
 
+    if (availableBytes < sizeof(uint16_t))
+    {
+        throw Exception("MQTT PUBLISH packet is missing the topic name length");
+    }
+
     const auto destinationSize = ntohs(*bit_cast<uint16_t*>(readPosition));
     readPosition += sizeof(uint16_t);
     availableBytes -= sizeof(uint16_t);
+    if (destinationSize == 0 || destinationSize > availableBytes)
+    {
+        throw Exception("MQTT PUBLISH packet has an invalid topic name length");
+    }
 
     const string_view destination(bit_cast<char*>(readPosition), destinationSize);
     // The session's last topic serves this one unless the publisher moved on: see TopicCache.
@@ -77,6 +86,10 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, TopicCac
     availableBytes -= destinationSize;
     if (fixedHeader.m_qos != Qos::Qos0)
     {
+        if (availableBytes < messageIdSize)
+        {
+            throw Exception("MQTT PUBLISH packet is missing its packet identifier");
+        }
         const auto messageId = ntohs(*bit_cast<uint16_t*>(readPosition));
         readPosition += sizeof(uint16_t);
         availableBytes -= sizeof(uint16_t);

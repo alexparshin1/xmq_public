@@ -15,14 +15,83 @@
 
 #include <sptk5/net/ServerConnection.h>
 
+#include "WebSocketTransport.h"
+
 namespace xmq {
 
 class ClientSession;
 
+/**
+ * @brief The listener type a configured protocol names.
+ *
+ * A WebSocket listener is a TCP or a TLS one underneath: the upgrade and the frames are the broker's
+ * own work, not the socket's. Saying so in the type keeps the encryption question in one place -
+ * ServerConnection::isEncrypted() - instead of adding a second dimension to every caller that only
+ * wanted to know whether keys are needed.
+ *
+ * @throws sptk::Exception for a protocol this release does not serve, rather than opening a
+ *         listener of some other kind on that port.
+ */
+[[nodiscard]] inline sptk::ServerConnection::Type connectionTypeForProtocol(const sptk::String& protocol)
+{
+    const auto name = protocol.toUpperCase();
+    if (name == "MQTT")
+    {
+        return sptk::ServerConnection::Type::TCP;
+    }
+    if (name == "MQTT+SSL")
+    {
+        return sptk::ServerConnection::Type::SSL;
+    }
+    if (name == "MQTT+WS")
+    {
+        return sptk::ServerConnection::Type::WS;
+    }
+    if (name == "MQTT+WSS")
+    {
+        return sptk::ServerConnection::Type::WSS;
+    }
+    throw sptk::Exception("Listener protocol '" + protocol +
+                          "' is not one of MQTT, MQTT+SSL, MQTT+WS and MQTT+WSS.");
+}
+
 class XMQ_EXPORT ServerConnectionExt : public sptk::ServerConnection
 {
 public:
-    using ServerConnection::ServerConnection;
+    ServerConnectionExt(const Type type, const sockaddr_in* connectionAddress)
+        : ServerConnection(type, connectionAddress)
+        , m_webSocket(isWebSocketType(type) ? std::make_shared<WebSocketTransport>() : nullptr)
+    {
+    }
+
+    ServerConnectionExt(sptk::FastTCPServer& server, const Type type, const sockaddr_in* connectionAddress)
+        : ServerConnection(server, type, connectionAddress)
+        , m_webSocket(isWebSocketType(type) ? std::make_shared<WebSocketTransport>() : nullptr)
+    {
+    }
+
+    /**
+     * @brief Whether a listener of this type speaks MQTT over WebSocket rather than MQTT directly.
+     */
+    [[nodiscard]] static constexpr bool isWebSocketType(const Type type)
+    {
+        return type == Type::WS || type == Type::WSS;
+    }
+
+    /// @brief Whether this connection speaks MQTT over WebSocket.
+    [[nodiscard]] bool isWebSocket() const
+    {
+        return m_webSocket != nullptr;
+    }
+
+    /**
+     * @brief The framing this connection carries, or nothing for a plain TCP or TLS connection.
+     */
+    [[nodiscard]] const std::shared_ptr<WebSocketTransport>& getWebSocket() const
+    {
+        return m_webSocket;
+    }
+
     SClientSession getClientSession() const
     {
         return m_clientSession;
@@ -77,6 +146,10 @@ public:
 
 private:
     std::shared_ptr<ClientSession> m_clientSession;
+    /// Framing for a WebSocket listener's connection, and nothing for any other kind. Owned by the
+    /// connection, because a reconnect hands the session a different connection with its own
+    /// handshake and its own frame boundaries.
+    std::shared_ptr<WebSocketTransport> m_webSocket;
     std::atomic_bool               m_isHangup {false}; ///< True if this connection hung up.
     std::atomic_bool               m_closing {false};  ///< Set by whichever thread claims the teardown.
 };

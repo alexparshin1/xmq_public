@@ -930,6 +930,12 @@ void validateConfigurationValues(const CServerConfiguration& configuration, Stri
         {
             throw invalid_argument("The configuration key '" + prefix + ".protocol' cannot be empty.");
         }
+        if (const auto protocol = listener.m_protocol.asString().toUpperCase();
+            protocol != "MQTT" && protocol != "MQTT+SSL" && protocol != "MQTT+WS" && protocol != "MQTT+WSS")
+        {
+            throw invalid_argument("The configuration key '" + prefix +
+                                   ".protocol' should be MQTT, MQTT+SSL, MQTT+WS or MQTT+WSS.");
+        }
         if (!IpWhitelist::isValid(listener.m_whitelist.asString()))
         {
             throw invalid_argument("The configuration key '" + prefix + ".whitelist' should be an empty or "

@@ -159,7 +159,23 @@ SocketWriteMetrics SocketWriteBuffer::send(std::unique_ptr<sptk::Buffer>& exchan
 
     if (const auto& socket = m_clientSession->getSocket())
     {
-        socket->write(*exchangeBuffer);
+        // A WebSocket connection sends the same MQTT bytes as a TCP one, one frame per write, so a
+        // frame is never split across two send workers and two frames never interleave.
+        const auto connection = m_clientSession->getConnection();
+        const auto webSocket = connection ? connection->getWebSocket() : nullptr;
+        if (webSocket)
+        {
+            Buffer wire;
+            webSocket->send(exchangeBuffer->data(), exchangeBuffer->bytes(), wire);
+            if (!wire.empty())
+            {
+                socket->write(wire);
+            }
+        }
+        else
+        {
+            socket->write(*exchangeBuffer);
+        }
     }
 
     return {bytes, messages, publishes};

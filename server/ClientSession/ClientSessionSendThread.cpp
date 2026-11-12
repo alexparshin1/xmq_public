@@ -100,6 +100,22 @@ void ClientSessionSendThread::processBatch(span<SClientSession> sessions)
             continue;
         }
 
+        // A WebSocket connection sends the same MQTT bytes as a TCP one, framed. The frame is built
+        // into the session's own exchange buffer, which this batch owns until writeAll() returns, so
+        // the pointer handed to the writer stays valid for the whole round and a frame is never
+        // split between two rounds.
+        if (const auto webSocket = connection->getWebSocket())
+        {
+            Buffer wire;
+            webSocket->send(exchangeBuffer->data(), exchangeBuffer->bytes(), wire);
+            *exchangeBuffer = std::move(wire);
+            if (exchangeBuffer->empty())
+            {
+                // Nothing was framed: the connection is closing, so its output is not for the wire.
+                continue;
+            }
+        }
+
         // The socket goes in as the owning reference it already is. Taking .get() here left the
         // batch holding a pointer whose owner died at the end of this iteration, and a session
         // torn down before the round was written took the socket with it.

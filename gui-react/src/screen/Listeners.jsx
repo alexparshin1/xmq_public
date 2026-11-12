@@ -22,14 +22,16 @@ export default class ListenersScreen extends React.Component {
                 headerName: "Id", field: "id", hide: true,
                 context: {hide: true, inputType: 'hidden'}
             },
-            {headerName: "Name", field: "name", width: 250, cellClass: "ViewCellLeftAligned"},
+            {
+                headerName: "Name", field: "name", width: 250, cellClass: "ViewCellLeftAligned"
+            },
             {
                 headerName: "Port", field: "port", type: 'numericColumn', width: 100,
                 context: {inputType: 'integer'}
             },
             {
                 headerName: "Protocol", field: "protocol", width: 150, cellClass: "ViewCellLeftAligned",
-                context: {inputType: 'select', options: ["MQTT", "MQTT+SSL"]}
+                context: {inputType: 'select', options: ["MQTT", "MQTT+SSL", "MQTT+WS", "MQTT+WSS"]}
             },
             {
                 headerName: "Bind IP address", field: "bind_ip", width: 180,
@@ -42,7 +44,7 @@ export default class ListenersScreen extends React.Component {
             },
             {
                 headerName: "Threads", field: "threads", type: 'numericColumn', width: 120,
-                context: {inputType: 'integer'}
+                context: {inputType: 'integer', required: false}
             },
             {
                 headerName: "Enabled", field: "enable", width: 110, cellClass: "ViewCellLeftAligned",
@@ -110,7 +112,9 @@ export default class ListenersScreen extends React.Component {
         const listener = {
             ...data,
             port: parseInt(data.port),
-            threads: parseInt(data.threads),
+            // Threads are optional in the listener API. Leave an empty field out of the request;
+            // the server defaults it to one accept thread.
+            ...(data.threads === "" || data.threads == null ? {} : {threads: parseInt(data.threads)}),
             enable: String(data.enable) === "true"
         };
 

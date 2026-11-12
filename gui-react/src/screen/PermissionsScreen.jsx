@@ -84,7 +84,7 @@ export default class PermissionsScreen extends React.Component {
             {headerName: "Applies to", field: "appliesTo", width: 220, minWidth: 120,
              resizable: true, cellClass: "ViewCellLeftAligned"},
             {headerName: "Policy, checked from the top", field: "rules", cellRenderer: PolicyCell,
-             flex: 1, minWidth: 400, resizable: true}
+             flex: 1, minWidth: 400, resizable: true, autoHeight: true}
         ],
         rows: [],
         subjectOptions: {groups: [], users: []},
@@ -332,7 +332,29 @@ export default class PermissionsScreen extends React.Component {
         if (!editor) {
             return;
         }
-        const problem = this.policyProblem(editor);
+
+        // Add Policy may target a subject that already has rules (for example, adding subscribe
+        // after publish). replace-policy replaces the subject's complete rule list, so include its
+        // existing rules when this is a new editor rather than an explicit edit. Editing an
+        // existing policy already starts with its full ordered rule list and should remain an exact
+        // replacement.
+        let entries = editor.entries;
+        if (!editor.original) {
+            const existing = this.policies().find(policy =>
+                policy.subject === editor.subject && policy.pattern === editor.pattern);
+            if (existing) {
+                entries = [
+                    ...existing.rules.map(rule => ({
+                        deny: rule.deny === true,
+                        action: rule.action,
+                        filter: rule.filter
+                    })),
+                    ...entries
+                ];
+            }
+        }
+        const policyToSave = {...editor, entries};
+        const problem = this.policyProblem(policyToSave);
         if (problem) {
             this.setState({policyEditor: {...editor, error: problem}});
             return;
@@ -343,7 +365,7 @@ export default class PermissionsScreen extends React.Component {
             action: "replace-policy",
             subject: editor.subject,
             subject_pattern: editor.pattern,
-            policy_rules: editor.entries.map(entry => ({
+            policy_rules: policyToSave.entries.map(entry => ({
                 // The subject is sent on every entry only because the schema requires it on an
                 // AclRule; the server takes the subject from the field above.
                 group: editor.subject,
