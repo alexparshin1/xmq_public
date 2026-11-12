@@ -31,7 +31,7 @@ export const documentationPages = [
         title: "LDAP Authentication",
         description: "Signing in with a directory account: the ldap/ namespace, directory groups mapped to XMQ groups, and when changes take effect.",
         anchors: ["ldap", "ldap-users", "ldap-groups", "ldap-permissions", "ldap-changes",
-                  "ldap-tls", "ldap-troubleshooting", "ldap-limitations"]},
+                  "ldap-ad", "ldap-tls", "ldap-troubleshooting", "ldap-limitations"]},
     {id: "mosquitto-import", label: "Mosquitto Import", path: "/xmq_doc_mosquitto_import",
         title: "Importing from Mosquitto",
         description: "Moving Mosquitto accounts and ACL rules across: password files, ACL files, dynamic security, conflicts and limitations.",

@@ -229,6 +229,63 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
         </section>
 
         <section>
+            <h4 id="ldap-ad">Active Directory</h4>
+
+            <p>
+                Set <b>Directory type</b> to <code>ad</code> and the defaults follow what Active
+                Directory expects: a login without <code>@</code> is looked up by
+                <code>sAMAccountName</code>, a login with <code>@</code> by
+                <code>userPrincipalName</code>, nested groups are followed, and the disabled flag of
+                the account is checked after a successful bind.
+            </p>
+
+            <table className="userManualTable">
+                <thead>
+                <tr>
+                    <th>Setting</th>
+                    <th>What <code>ad</code> changes</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td><code>User search filter</code>, empty</td>
+                    <td><code>(sAMAccountName={'{'}username{'}'})</code>, or
+                        <code>(userPrincipalName={'{'}username{'}'})</code> when the login contains
+                        <code>@</code>. A filter you write yourself is used as it is.</td>
+                </tr>
+                <tr>
+                    <td><code>Nested groups</code> (<code>auto</code>)</td>
+                    <td>Group membership is asked through the in-chain matching rule
+                        (<code>1.2.840.113556.1.4.1941</code>), so a user nested two groups deep is
+                        still a member of the mapped one. <code>no</code> reads direct membership
+                        only, which is what OpenLDAP understands.</td>
+                </tr>
+                <tr>
+                    <td><code>Check account state</code> (<code>auto</code>)</td>
+                    <td>After the password binds, the account's <code>userAccountControl</code> is read
+                        with the service account and an account whose <code>2</code> bit
+                        (ACCOUNTDISABLE) is set is refused, instead of relying on the bind alone.</td>
+                </tr>
+                </tbody>
+            </table>
+
+            <p>
+                The attribute and the bit are settings of their own
+                (<code>account_state_attribute</code>, <code>account_state_disabled_mask</code>), so a
+                directory with a different flag layout can be described without code. A value that is
+                not a number is read as "no opinion", never as "disabled": a misconfigured attribute
+                must not lock everybody out.
+            </p>
+
+            <p>
+                Active Directory support has <b>not yet been accepted against a real domain
+                controller</b>. The shipped stand verifies OpenLDAP end to end; the AD-specific
+                choices are covered by unit tests. Run the acceptance on a Samba AD DC or a Windows
+                Server VM before relying on it.
+            </p>
+        </section>
+
+        <section>
             <h4 id="ldap-tls">TLS and the search account</h4>
 
             <p>

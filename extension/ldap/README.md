@@ -60,6 +60,32 @@ from the decision cache. On the development host that was 794 → 13 549 CONNECT
 (about 17×), and with `--cache-ttl 0` both rounds stay near 815–833 CONNECT/s, which is what shows
 the difference comes from the cache and not from a warm directory.
 
+## Active Directory
+
+Set `directory_type` to `ad` and the defaults follow what AD expects: a login without `@` is looked
+up by `sAMAccountName`, a login with `@` by `userPrincipalName`, nested groups are followed through
+the in-chain matching rule (`1.2.840.113556.1.4.1941`), and the disabled bit of `userAccountControl`
+is checked after a successful bind.
+
+```json
+"directory_type": "ad",
+"search_base": "ou=people,dc=corp,dc=example,dc=com",
+"bind_dn": "cn=xmq-reader,ou=service,dc=corp,dc=example,dc=com",
+"bind_password": "REPLACE-ME",
+"group_mappings": "cn=MQTT Publishers,ou=groups,dc=corp,dc=example,dc=com => Publishers"
+```
+
+Each of those three behaviours has its own switch: `nested_groups` and `account_state_check` take
+`auto`, `yes` or `no`, and `auto` means "the AD way for `ad`, direct membership and no state check
+for `ldap`". `user_filter` and `group_filter` override the profile entirely if an installation needs
+a different attribute. The state check reads `account_state_attribute` (`userAccountControl`) and
+refuses an account whose flags contain `account_state_disabled_mask` (`2`, ACCOUNTDISABLE).
+
+AD compatibility is implemented but has **not** yet been accepted against a real domain
+controller: the disposable stand verifies OpenLDAP, and the AD-specific decisions (filter choice,
+nested-rule filter, disabled flag) are covered by unit tests. Run the acceptance on a Samba AD DC or
+a Windows Server VM before relying on it.
+
 ## Decision cache
 
 A successful login and the groups read for it are remembered for `cache_ttl_seconds` (default 60);

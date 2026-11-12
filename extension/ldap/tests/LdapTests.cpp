@@ -36,6 +36,30 @@ int main(int argc, char** argv)
         expect(escapeFilter("a*)(uid=*)\\") == "a\\2a\\29\\28uid=\\2a\\29\\5c", "filter injection escaping");
         expect(escapeFilter(std::string("x\0y", 3)) == "x\\00y", "NUL escaping");
         expect(parseMappings("cn=writers,dc=example,dc=org => Operators\n").size() == 1, "mapping parser");
+
+        // Directory profile: the default lookup follows the type, and an operator's filter wins.
+        Config plain;
+        expect(userSearchFilter(plain, "alice") == "(uid={username})", "ldap default filter");
+        Config ad;
+        ad.ad = true;
+        expect(userSearchFilter(ad, "alice") == "(sAMAccountName={username})", "AD short name");
+        expect(userSearchFilter(ad, "alice@corp.example") == "(userPrincipalName={username})", "AD UPN");
+        Config custom;
+        custom.ad = true;
+        custom.filter = "(cn={username})";
+        expect(userSearchFilter(custom, "alice") == "(cn={username})", "operator filter overrides the profile");
+
+        // Nested groups: the in-chain matching rule only when asked for.
+        Config direct;
+        expect(groupSearchFilter(direct) == "(member={dn})", "direct membership by default");
+        Config nested;
+        nested.nestedGroups = true;
+        expect(groupSearchFilter(nested) == "(member:1.2.840.113556.1.4.1941:={dn})", "nested membership");
+
+        // Account flags: 514 is ACCOUNTDISABLE|NORMAL_ACCOUNT, 512 is NORMAL_ACCOUNT.
+        expect(accountDisabled("514", 2), "disabled flag read");
+        expect(!accountDisabled("512", 2), "enabled account");
+        expect(!accountDisabled("not-a-number", 2), "unreadable state is not a refusal");
         Config invalid {.uri="ldap://localhost", .base="dc=example,dc=org", .filter="(uid={username})", .prefix="ldap/", .startTls=false};
         bool rejected = false;
         try { validate(invalid); } catch (...) { rejected = true; }
