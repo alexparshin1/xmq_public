@@ -5,6 +5,8 @@ import SetupDocumentation from "./SetupDocumentation";
 import PersistenceDocumentation from "./PersistenceDocumentation";
 import TestingDocumentation from "./TestingDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
+import ExtensionsDocumentation from "./ExtensionsDocumentation";
+import LdapDocumentation from "./LdapDocumentation";
 import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
 import DataIntegrationDocumentation from "./DataIntegrationDocumentation";
 import PrometheusDocumentation from "./PrometheusDocumentation";
@@ -19,6 +21,8 @@ const screens = {
     persistence: PersistenceDocumentation,
     testing: TestingDocumentation,
     permissions: PermissionsDocumentation,
+    extensions: ExtensionsDocumentation,
+    ldap: LdapDocumentation,
     "mosquitto-import": MosquittoImportDocumentation,
     "data-integration": DataIntegrationDocumentation,
     prometheus: PrometheusDocumentation,
