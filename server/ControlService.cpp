@@ -13,6 +13,7 @@
 */
 
 #include "ControlService.h"
+#include "ClientSession/ServerConnectionExt.h"
 
 #include "SelfSignedCertificate.h"
 #include "ServerController.h"
@@ -840,7 +841,13 @@ void ControlService::ListenerControl(const CListenerControl& input, CListenerCon
 
         const auto   action = input.m_action.asString();
         const auto   settings = getSettings();
-        const auto&  listener = input.m_listener;
+        auto         listener = input.m_listener;
+        // Thread count is optional on the wire. One accept thread is the safe default for a
+        // listener added through the control API when the caller does not specify it.
+        if (listener.m_threads.isNull())
+        {
+            listener.m_threads = 1;
+        }
         const auto   port = static_cast<uint16_t>(listener.m_port.asInteger());
         const string bindIp = listener.m_bind_ip.asString().empty() ? string("0.0.0.0") : listener.m_bind_ip.asString().c_str();
 
@@ -851,10 +858,10 @@ void ControlService::ListenerControl(const CListenerControl& input, CListenerCon
 
         if (action == "add" || action == "modify")
         {
-            settings->listenerControl(action, input.m_listener);
+            settings->listenerControl(action, listener);
             if (runningServer)
             {
-                const auto connectionType = listener.m_protocol.asString().toUpperCase() == "MQTT" ? ServerConnection::Type::TCP : ServerConnection::Type::SSL;
+                const auto connectionType = connectionTypeForProtocol(listener.m_protocol.asString());
                 runningServer->removeListener({bindIp, port});
                 // Disabling a listener takes effect at once: the port is dropped and not reopened.
                 if (listener.m_enable.isNull() || listener.m_enable.asBool())

@@ -138,7 +138,8 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
 
             <p>
                 Listeners are configured on the <b>Listeners</b> page. Each one is a port, a
-                protocol, and a thread count. The shipped configuration defines two:
+                protocol, and a thread count. The shipped configuration defines MQTT and MQTT+SSL;
+                MQTT+WS and MQTT+WSS are available as additional listeners:
             </p>
 
             <table className="userManualTable">
@@ -161,6 +162,16 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
                     <td>TLS, the standard secure MQTT port</td>
                 </tr>
                 <tr>
+                    <td>Custom</td>
+                    <td>MQTT+WS</td>
+                    <td>MQTT over WebSocket without TLS. Use behind a TLS-terminating proxy or on a trusted network.</td>
+                </tr>
+                <tr>
+                    <td>Custom</td>
+                    <td>MQTT+WSS</td>
+                    <td>MQTT over WebSocket with TLS. Requires the server key and certificate.</td>
+                </tr>
+                <tr>
                     <td>18883</td>
                     <td>HTTP</td>
                     <td>The configuration interface and its control API</td>
@@ -169,10 +180,11 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
             </table>
 
             <p>
-                These are the standard MQTT ports, so most clients need no port setting at all.
+                MQTT and MQTT+SSL use the standard MQTT ports, so most clients need no port setting at all.
                 If another broker on the same host already holds them, either stop it or move one
                 of the two: the Listeners page changes listener ports, while Settings also
-                provides the MQTT, MQTT+SSL and Web interface ports.
+                provides the MQTT, MQTT+SSL and Web interface ports. WebSocket listeners use the
+                custom port entered when they are added.
             </p>
 
             <p>

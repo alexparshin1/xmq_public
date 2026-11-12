@@ -1233,17 +1233,50 @@ SendReceiveResult ClientSession::receiveMessages()
         }
         else
         {
-            m_readBuffer.append(scratch.data(), received);
-            // A short read means a plain socket is drained: recv() hands over everything the
-            // kernel holds. It proves nothing on a TLS one, which returns a single record however
-            // large the buffer is, and leaves the rest in the kernel where EdgeTriggered epoll
-            // will not announce it again - it only fires on arrival, and those bytes arrived
-            // once already. Stopping there deadlocks a client that has filled its send buffer
-            // and is waiting for the broker to read, against a broker waiting for an event that
-            // cannot come: measured on 2026-09-08 as 4 messages of 500 delivered, with 4404
-            // bytes sitting in the socket's receive queue. So a TLS socket is read until it
-            // answers RECV_RETRY, which is what the branch above tests.
-            result.noMoreMessages = received < maxChunkBytes && !socket->readsInRecords();
+            // A WebSocket connection carries the same MQTT bytes as a TCP one, inside frames and
+            // after an HTTP upgrade. The transport turns what arrived into MQTT bytes; whatever it
+            // wants to answer - the 101 reply, a pong, the close frame that reports a violation,
+            // the echo of the peer's own close - goes out before this pass reads again.
+            const auto webSocket = connection ? connection->getWebSocket() : nullptr;
+            if (webSocket)
+            {
+                Buffer     mqttBytes;
+                Buffer     reply;
+                const auto status = webSocket->receive(scratch.data(), received, mqttBytes, reply);
+                if (!reply.empty())
+                {
+                    socket->write(reply);
+                }
+                m_readBuffer.append(mqttBytes.data(), mqttBytes.bytes());
+                if (status == WebSocketTransport::Status::Closed)
+                {
+                    // The connection is finished in the framing layer: either the peer sent a close
+                    // frame or it broke the protocol and was told so. Nothing after that is MQTT,
+                    // so the session ends with it, and it ends naming this connection - a client
+                    // that reconnects must not have this close land on its replacement.
+                    noteCloseSite(6);
+                    server().closeSession(shared(), false, connection);
+                    handleConnectionHangup();
+                    result.noMoreMessages = true;
+                    return result;
+                }
+
+                result.noMoreMessages = received < maxChunkBytes && !socket->readsInRecords();
+            }
+            else
+            {
+                m_readBuffer.append(scratch.data(), received);
+                // A short read means a plain socket is drained: recv() hands over everything the
+                // kernel holds. It proves nothing on a TLS one, which returns a single record however
+                // large the buffer is, and leaves the rest in the kernel where EdgeTriggered epoll
+                // will not announce it again - it only fires on arrival, and those bytes arrived
+                // once already. Stopping there deadlocks a client that has filled its send buffer
+                // and is waiting for the broker to read, against a broker waiting for an event that
+                // cannot come: measured on 2026-09-08 as 4 messages of 500 delivered, with 4404
+                // bytes sitting in the socket's receive queue. So a TLS socket is read until it
+                // answers RECV_RETRY, which is what the branch above tests.
+                result.noMoreMessages = received < maxChunkBytes && !socket->readsInRecords();
+            }
         }
 
         if (m_readBuffer.bytes() == 0)

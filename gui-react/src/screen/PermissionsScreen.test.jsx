@@ -102,6 +102,12 @@ test("Rules are grouped into one ordered policy per subject", () => {
     expect(policies[0].rules.map(rule => rule.filter)).toEqual(["sensors/#", "sensors/secret/#"]);
 });
 
+test("The policy column measures its content so multiple rules are not clipped", () => {
+    const screen = instance();
+    const policyColumn = screen.state.headers.find(column => column.field === "rules");
+    expect(policyColumn.autoHeight).toBe(true);
+});
+
 test("A pattern policy is titled as applying to all clients", () => {
     const screen = instance();
     screen.state.rows = [
@@ -157,6 +163,35 @@ test("Saving a policy sends the whole ordered list in one call", async () => {
         ]
     });
     expect(screen.state.policyEditor).toBeNull();
+});
+
+test("Adding another action to an existing subject preserves its current rules", async () => {
+    const ControlAPI = require("../ControlAPI").default;
+    const call = jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(
+        () => Promise.resolve({result: {success: true}, rules: []}));
+
+    const screen = instance();
+    screen.readRules = () => {};
+    screen.state.rows = [{
+        id: 1, group: "Default", pattern: false, order: 10,
+        deny: false, action: "publish", filter: "sensors/#"
+    }];
+    screen.state.policyEditor = {
+        subject: "Default", pattern: false, original: null, error: "",
+        entries: [{deny: false, action: "subscribe", filter: "sensors/#"}]
+    };
+
+    await screen.savePolicy();
+
+    expect(call).toHaveBeenCalledWith("PermissionsControl", {
+        action: "replace-policy",
+        subject: "Default",
+        subject_pattern: false,
+        policy_rules: [
+            {group: "Default", action: "publish", deny: false, filter: "sensors/#"},
+            {group: "Default", action: "subscribe", deny: false, filter: "sensors/#"}
+        ]
+    });
 });
 
 test("Rules and Test Access are tabs, and the test panel is not below the table", () => {

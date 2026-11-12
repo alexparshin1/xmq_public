@@ -46,12 +46,27 @@ test("opening a group closes the one that was open", () => {
 
 test("a group reopens on the page last used in it", () => {
     showMenu("/settings");
+    fireEvent.click(groupHeader("User Management"));
     fireEvent.click(screen.getByRole("link", {name: "Users"}));
     expect(path()).toBe("/users");
     fireEvent.click(groupHeader("Operation"));
     expect(path()).toBe("/dashboard");
-    fireEvent.click(groupHeader("Configuration"));
+    fireEvent.click(groupHeader("User Management"));
     expect(path()).toBe("/users");
+});
+
+test("user management and cluster pages are grouped under their own headers", () => {
+    showMenu("/users");
+    expect(groupHeader("User Management")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", {name: "Users"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Groups"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Permissions"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Imports"})).toHaveAttribute("href", "/import");
+
+    fireEvent.click(groupHeader("Cluster"));
+    expect(screen.getByRole("link", {name: "Bridges"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Cluster"})).toBeInTheDocument();
+    expect(screen.queryByRole("link", {name: "Users"})).not.toBeInTheDocument();
 });
 
 test("a URL opened directly expands the group that holds the page", () => {

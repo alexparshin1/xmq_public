@@ -12,6 +12,14 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.20.
 
+### Added
+
+- **MQTT over WebSocket and secure WebSocket listeners.** Add listeners with protocol `MQTT+WS` or
+  `MQTT+WSS` alongside the existing TCP and TLS listeners. The broker answers the HTTP upgrade,
+  negotiates the `mqtt` subprotocol when offered, and carries MQTT packets in binary frames; ping,
+  pong and close control frames are handled by the transport. `MQTT+WSS` uses the broker's configured
+  TLS key and certificate. See the Setup guide for listener configuration.
+
 ## 1.1.1 — 2026-11-11
 
 Requires SPTK 5.6.19.

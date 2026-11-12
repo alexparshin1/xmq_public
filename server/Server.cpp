@@ -652,10 +652,8 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
             continue;
         }
 
-        const auto connectionType = listener.m_protocol.asString().toUpperCase() == "MQTT"
-                                        ? ServerConnection::Type::TCP
-                                        : ServerConnection::Type::SSL;
-        if (!sslKeysLoaded && connectionType == ServerConnection::Type::SSL)
+        const auto connectionType = connectionTypeForProtocol(listener.m_protocol.asString());
+        if (!sslKeysLoaded && ServerConnection::isEncrypted(connectionType))
         {
             // This listener will not be opened, so its port is not required for this start.
             continue;
@@ -730,25 +728,27 @@ void Server::createMqttListeners(const shared_ptr<Settings>& settings, const boo
         }
 
         stringstream message;
+        const auto listenerThreads = listener.m_threads.isNull() ? 1 : listener.m_threads.asInteger();
         message << "Listening " << listener.m_protocol.asString().toUpperCase()
             << " on port " << listener.m_port.asInteger()
-            << " (" + listener.m_threads.asString() + " thread";
-        if (listener.m_threads.asInteger() > 1)
+            << " (" << listenerThreads << " thread";
+        if (listenerThreads > 1)
         {
             message << "s";
         }
         message << ").";
         logMessage(LogSubject::ServerEvents, startupMessagesLogPriority, message.str() + ".");
-        const auto connectionType = listener.m_protocol.asString().toUpperCase() == "MQTT" ? ServerConnection::Type::TCP : ServerConnection::Type::SSL;
-        if (!sslKeysLoaded && connectionType == ServerConnection::Type::SSL)
+        const auto connectionType = connectionTypeForProtocol(listener.m_protocol.asString());
+        if (!sslKeysLoaded && ServerConnection::isEncrypted(connectionType))
         {
-            logMessage(LogSubject::ServerEvents, LogPriority::Error, "MQTT+SSL listener is not created.");
+            logMessage(LogSubject::ServerEvents, LogPriority::Error,
+                       listener.m_protocol.asString().toUpperCase() + " listener is not created.");
         }
         else
         {
             const auto bindIP = listener.m_bind_ip.asString().empty() ? String("0.0.0.0") : listener.m_bind_ip.asString();
             Host       host{bindIP, static_cast<uint16_t>(listener.m_port.asInteger())};
-            addListener(connectionType, host, static_cast<uint16_t>(listener.m_threads.asInteger()));
+            addListener(connectionType, host, static_cast<uint16_t>(listenerThreads));
         }
     }
 
@@ -1279,7 +1279,24 @@ Buffer Server::sendConnectAckMessage(const SConnectMessage& connectMessage, Reas
     // the CONNACK is ready to go out.
     if (const auto& socket = clientSession->getSocket())
     {
-        socket->write(messageBuffer);
+        // On a WebSocket listener the CONNACK travels inside a frame. It is written here rather
+        // than queued because the CONNACK has to precede everything the client subscribes to, and
+        // the session is not yet being read for publishes.
+        const auto connection = clientSession->getConnection();
+        const auto webSocket = connection ? connection->getWebSocket() : nullptr;
+        if (webSocket)
+        {
+            Buffer wire;
+            webSocket->send(messageBuffer.data(), messageBuffer.bytes(), wire);
+            if (!wire.empty())
+            {
+                socket->write(wire);
+            }
+        }
+        else
+        {
+            socket->write(messageBuffer);
+        }
     }
     return messageBuffer;
 }

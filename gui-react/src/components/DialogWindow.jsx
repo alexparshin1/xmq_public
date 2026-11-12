@@ -303,7 +303,7 @@ export default class DialogWindow extends React.Component {
                       value={this.state.values[field.field] ?? ""}
                       onChange={(e) => this.previewValueChange(field, e.target.value)}
                       style={{width: this.inputWidth(field)}}
-                      required/>
+                      required={context.required !== false}/>
     }
 
 

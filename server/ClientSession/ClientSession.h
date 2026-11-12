@@ -203,7 +203,7 @@ public:
      * @brief The call site of the close that last removed this session's socket.
      *
      * 1 read failure, 2 keep-alive timeout, 3 end of DISCONNECT, 4 no CONNECT in time,
-     * 5 batched write failure. 0 means nothing has recorded one.
+     * 5 batched write failure, 6 WebSocket close frame. 0 means nothing has recorded one.
      */
     [[nodiscard]] int lastCloseSite() const
     {
