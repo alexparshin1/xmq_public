@@ -147,6 +147,11 @@ TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
     SqlSchemaCleanup schemaCleanup {basePool, schema, oldOptions ? oldOptions : "", oldOptions != nullptr};
     {
         const AutoDatabaseConnection connection(*basePool);
+        // The name is the PID, and the shared test database outlives the container: a run that was
+        // killed before its cleanup, or an earlier image whose test process had the same PID, leaves
+        // the schema behind. Dropping it here is the same thing the destructor would do.
+        Query drop(connection.connection(), "DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+        drop.exec();
         Query create(connection.connection(), "CREATE SCHEMA " + schema);
         create.exec();
     }
