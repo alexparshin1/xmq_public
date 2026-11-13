@@ -22,6 +22,7 @@ SET (xmq_files
   service/CExtension.cpp service/CExtension.h
   service/CExtensionControl.cpp service/CExtensionControl.h
   service/CExtensionControlResponse.cpp service/CExtensionControlResponse.h
+  service/CExtensionPreset.cpp service/CExtensionPreset.h
   service/CExtensionSetting.cpp service/CExtensionSetting.h
   service/CExtensionSettingValue.cpp service/CExtensionSettingValue.h
   service/CGetClientSessions.cpp service/CGetClientSessions.h

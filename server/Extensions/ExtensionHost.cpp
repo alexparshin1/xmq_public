@@ -60,6 +60,42 @@ const xmq_log_tap* logTapOf(const xmq_extension& table)
     return table.log_tap;
 }
 
+/// The starting points an extension declares, if it is new enough to declare any. An empty name or
+/// an entry without values is skipped rather than shown as a choice that does nothing.
+void describePresets(const xmq_extension& table, vector<ExtensionHost::PresetDescription>& into)
+{
+    if (table.struct_size < offsetof(xmq_extension, presets) + sizeof(table.presets) ||
+        table.presets == nullptr)
+    {
+        return;
+    }
+    for (size_t at = 0; at < table.preset_count; ++at)
+    {
+        const auto& declared = table.presets[at];
+        if (declared.name == nullptr || declared.values == nullptr)
+        {
+            continue;
+        }
+        ExtensionHost::PresetDescription preset;
+        preset.m_name = declared.name;
+        preset.m_label = declared.label == nullptr ? preset.m_name : declared.label;
+        preset.m_description = declared.description == nullptr ? "" : declared.description;
+        for (size_t valueAt = 0; valueAt < declared.value_count; ++valueAt)
+        {
+            const auto& value = declared.values[valueAt];
+            if (value.name == nullptr)
+            {
+                continue;
+            }
+            preset.m_values.emplace_back(value.name, value.value == nullptr ? "" : value.value);
+        }
+        if (!preset.m_values.empty())
+        {
+            into.push_back(std::move(preset));
+        }
+    }
+}
+
 /// Counts a call while it is inside an extension, so that switching that extension off waits for it
 /// rather than pulling stop() out from under it.
 class InFlight
@@ -799,9 +835,11 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return nullptr;
     }
 
-    // ABI 1.4 appends native identity authentication. Accept the previous table unchanged;
-    // the appended callback is read only after a size check. Reject unknown intermediate layouts.
+    // ABI 1.4 appends native identity authentication, 1.5 appends setting presets. Accept the
+    // previous tables unchanged; the appended fields are read only after a size check. Reject
+    // unknown intermediate layouts.
     if (loaded->m_table->struct_size != sizeof(xmq_extension) &&
+        loaded->m_table->struct_size != offsetof(xmq_extension, presets) &&
         loaded->m_table->struct_size != offsetof(xmq_extension, authenticate_identity))
     {
         m_logger.error(format("{}: describes itself with {} bytes where this broker knows {} - rebuild "
@@ -1178,6 +1216,7 @@ vector<ExtensionHost::Configured> ExtensionHost::discoverInstalled(vector<Config
                          .m_declared = true});
                 }
             }
+            describePresets(*description, discovered.m_description.m_presets);
             closeLibrary(handle);
 
             m_logger.debug([&candidate]
@@ -1715,6 +1754,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
                 one.m_settings.push_back(std::move(setting));
             }
         }
+        describePresets(*loaded->m_table, one.m_presets);
 
         // Whatever is left is set but undeclared - usually a misspelled key, which is the commonest
         // reason a setting quietly does nothing.

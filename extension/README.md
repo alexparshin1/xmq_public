@@ -96,9 +96,11 @@ broker than your own extension does.
 
 ## Configuring one
 
-Extensions are named in `xmq_extensions.conf`, beside `xmq_server.conf`. Nothing is discovered by
-scanning a directory: a broker that loads whatever is in a folder is a broker whose behaviour
-depends on what someone left there.
+Extensions are named in `xmq_extensions.conf`, beside `xmq_server.conf`. An extension is never loaded
+because it happens to lie in a folder: a broker that runs whatever is in a directory is a broker
+whose behaviour depends on what someone left there. What discovery does do is *list* the libraries
+sitting beside the configured ones on the Extensions page, as stopped, so one can be switched on
+from the page; enabling writes the entry that the next start reads.
 
 ```json
 {
@@ -116,6 +118,18 @@ depends on what someone left there.
 `name` must match the name the library declares, or the broker refuses to load it — otherwise the
 file names one extension and the broker runs another. Everything under `settings` is the
 extension's own, reachable through `setting("key")`.
+
+### Declaring settings and starting points
+
+An extension may declare its settings (`xmq_setting`) so the page shows labels, types, defaults and
+choices instead of a bare key/value box. Since ABI 1.5 it may also declare **presets**
+(`xmq_setting_preset`): named sets of setting values that belong together, offered as a "Set
+defaults" choice. The LDAP form's Active Directory and LDAP entries are presets.
+
+A preset only fills the form — nothing is saved and nothing reaches the extension until Apply — and
+the broker passes it through untouched. Declare one with `XMQ_DEFINE_EXTENSION_WITH_PRESETS`, listing
+only the settings that are part of the group; site-specific values, secrets and tuning do not belong
+in one. A preset that named a secret would be written in plain sight in the library.
 
 An extension that will not load, refuses the ABI version, or fails to start is reported in the
 broker's log and skipped. The broker starts either way. An extension is an addition to a broker,

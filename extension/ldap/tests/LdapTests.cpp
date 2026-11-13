@@ -2,8 +2,10 @@
 // Standalone harness: drives the same class and host ABI as the shared library.
 #include "../Ldap.cpp"
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <thread>
@@ -63,6 +65,49 @@ int main(int argc, char** argv)
         expect(accountDisabled("514", 2), "disabled flag read");
         expect(!accountDisabled("512", 2), "enabled account");
         expect(!accountDisabled("not-a-number", 2), "unreadable state is not a refusal");
+
+        // Presets: a button that fills the form must never fill it with something Apply refuses.
+        // Every name has to be a declared setting, every value valid for that setting's type, and
+        // no preset may carry a secret - it is written in the library, in plain sight.
+        {
+            std::map<std::string, const xmq_setting*> declared;
+            for (const auto& setting: ldapSettings)
+                declared[setting.name] = &setting;
+            const auto proceeds = [](const char* text)
+            {
+                return std::all_of(text, text + std::strlen(text),
+                                   [](const unsigned char symbol) { return std::isdigit(symbol) != 0; });
+            };
+            expect(sizeof(ldapPresets) / sizeof(ldapPresets[0]) == 2, "an AD and an LDAP preset");
+            for (const auto& preset: ldapPresets)
+            {
+                expect(preset.name != nullptr && preset.label != nullptr && preset.description != nullptr,
+                       "a preset describes itself");
+                expect(preset.values != nullptr && preset.value_count > 0, "a preset fills something");
+                for (size_t at = 0; at < preset.value_count; ++at)
+                {
+                    const auto& value = preset.values[at];
+                    const auto found = declared.find(value.name);
+                    expect(found != declared.end(), "a preset names a setting the extension declares");
+                    const auto& setting = *found->second;
+                    expect(setting.type != XMQ_SETTING_SECRET, "a preset never carries a secret");
+                    if (setting.type == XMQ_SETTING_CHOICE && !std::string_view(value.value).empty())
+                    {
+                        const std::string choices = std::string(",") + setting.choices + ",";
+                        expect(choices.find(std::string(",") + value.value + ",") != std::string::npos,
+                               "a preset chooses one of the declared options");
+                    }
+                    if (setting.type == XMQ_SETTING_INTEGER && !std::string_view(value.value).empty())
+                        expect(proceeds(value.value), "a preset gives an integer setting a number");
+                }
+            }
+            // Reading the table through the ABI is what the broker does; a mismatch here would
+            // leave the screen with no presets at all.
+            const auto* table = xmq_extension_describe(XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR);
+            expect(table != nullptr, "the extension describes itself at this ABI");
+            expect(table->preset_count == 2 && table->presets == ldapPresets,
+                   "the described table carries the presets");
+        }
 
         // The cache key: identity plus a keyed hash of the password, never the password itself.
         std::array<unsigned char, 32> salt {};

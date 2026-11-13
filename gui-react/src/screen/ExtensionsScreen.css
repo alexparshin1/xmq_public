@@ -226,3 +226,37 @@
     font-size: 12.5px;
     color: #666;
 }
+
+/* The starting-point control sits above the form and is deliberately lighter than a setting: it
+   changes nothing on its own, and a row styled like the others would read as one more value to
+   fill in. */
+.extensionPreset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e4e4e4;
+}
+
+.extensionPreset label {
+    font-weight: 600;
+}
+
+.extensionPreset select {
+    min-width: 200px;
+}
+
+.extensionPresetHelp {
+    flex-basis: 100%;
+    font-size: 12.5px;
+    color: #666;
+    max-width: 720px;
+}
+
+.extensionPresetNote {
+    display: block;
+    margin-top: 4px;
+    color: #333;
+}

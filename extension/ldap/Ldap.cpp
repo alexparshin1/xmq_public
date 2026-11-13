@@ -595,5 +595,35 @@ const xmq_setting ldapSettings[] {
     {.name="negative_cache_ttl_seconds", .label="Cache refused logins (seconds)", .description="How long a wrong password, an unknown account or an ambiguous search is remembered; 0 disables it. It limits password guessing at the cost of delaying a corrected password", .type=XMQ_SETTING_INTEGER, .default_value="10", .choices=nullptr, .required=0},
     {.name="cache_max_entries", .label="Cached identities", .description="Upper bound on remembered logins, least recently used evicted first", .type=XMQ_SETTING_INTEGER, .default_value="4096", .choices=nullptr, .required=0}
 };
-XMQ_DEFINE_EXTENSION_DESCRIBED(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
-    "LDAP bind authentication over verified TLS; explicit username namespace", ldapSettings)
+
+// Starting points rather than separate configurations: a directory type decides the search filter,
+// the group matching and the account check that belong with it, and a filter left over from a
+// previous directory silently overrides the profile. Only those fields are filled - host, search
+// base, the search account, the CA and the group mappings are the site's and are left as they are,
+// as are the timeouts and the cache, which are tuning rather than profile.
+const xmq_setting_value adPresetValues[] {
+    {.name="directory_type", .value="ad"},
+    {.name="encryption", .value="ldaps"},
+    {.name="port", .value="636"},
+    {.name="username_prefix", .value="ldap/"},
+    {.name="nested_groups", .value="auto"},
+    {.name="account_state_check", .value="auto"},
+    {.name="user_filter", .value=""},
+    {.name="group_filter", .value=""}
+};
+const xmq_setting_value ldapPresetValues[] {
+    {.name="directory_type", .value="ldap"},
+    {.name="encryption", .value="ldaps"},
+    {.name="port", .value="636"},
+    {.name="username_prefix", .value="ldap/"},
+    {.name="nested_groups", .value="auto"},
+    {.name="account_state_check", .value="auto"},
+    {.name="user_filter", .value=""},
+    {.name="group_filter", .value=""}
+};
+const xmq_setting_preset ldapPresets[] {
+    {.name="ad", .label="Active Directory", .description="Active Directory: login by sAMAccountName or user principal name, nested groups, and the account-state flag. Fills the directory type, LDAPS on 636, the ldap/ prefix and the profile switches; leaves host, search base, the search account, the CA, group mappings, timeouts and the cache as they are", .values=adPresetValues, .value_count=sizeof(adPresetValues) / sizeof(adPresetValues[0])},
+    {.name="ldap", .label="LDAP", .description="OpenLDAP and other LDAP servers: login by uid and direct group membership. Fills the directory type, LDAPS on 636, the ldap/ prefix and the profile switches; leaves host, search base, the search account, the CA, group mappings, timeouts and the cache as they are", .values=ldapPresetValues, .value_count=sizeof(ldapPresetValues) / sizeof(ldapPresetValues[0])}
+};
+XMQ_DEFINE_EXTENSION_WITH_PRESETS(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
+    "LDAP bind authentication over verified TLS; explicit username namespace", ldapSettings, ldapPresets)

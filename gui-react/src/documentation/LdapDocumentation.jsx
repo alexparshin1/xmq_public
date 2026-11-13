@@ -177,10 +177,17 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 </thead>
                 <tbody>
                 <tr>
-                    <td>Password changed, or the account disabled in the directory</td>
-                    <td>At the next CONNECT, or when the cached decision expires — within one
-                        <code>cache_ttl_seconds</code>. A session already connected stays connected
-                        until it disconnects or is closed.</td>
+                    <td>Password changed in the directory</td>
+                    <td>A login that presents the new password is checked with the directory at once.
+                        The previous password keeps matching a cached decision until that decision
+                        expires — within one <code>cache_ttl_seconds</code>. A session already
+                        connected stays connected until it disconnects or is closed.</td>
+                </tr>
+                <tr>
+                    <td>Account disabled in the directory</td>
+                    <td>When the cached decision expires — within one <code>cache_ttl_seconds</code>.
+                        The directory refuses the bind of a disabled account itself, so the wait is
+                        the cache lifetime, not a policy mistake.</td>
                 </tr>
                 <tr>
                     <td>Account added to, or removed from, a mapped directory group</td>
@@ -213,9 +220,17 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             <p>
                 An outage is never cached, so it can never turn into a remembered allow or a remembered
                 refusal. Cache keys are built from the username and a keyed hash of the password under a
-                per-process salt: the password itself is not kept, and a changed password is a miss by
-                construction — the previous password simply stops matching once its entry expires.
-                Reloading the extension settings clears the cache.
+                per-process salt: the password itself is not kept, a login presenting a different
+                password is a different key and is checked with the directory at once, and a restart
+                shares no keys with the previous process. Reloading the extension settings clears the
+                cache.
+            </p>
+
+            <p>
+                The cache cannot see that the directory changed its answer; the lifetime is what bounds
+                that. A password revoked or an account disabled at the directory keeps working until the
+                entry expires, at most one <code>cache_ttl_seconds</code>, which is why
+                <code>0</code> is the setting for a directory whose answers must apply immediately.
             </p>
 
             <p>
@@ -224,12 +239,24 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 concurrency, reports CONNECT/s, and repeats the round. A cold round pays for every
                 directory operation; the second is served from the cache. On the development host that
                 was 794 → 13 549 CONNECT/s, while with the cache switched off both rounds stayed near
-                815–833. See <code>extension/ldap/README.md</code> in the source tree.
+                815–833. On the Windows Server stand, where a directory round trip is cheaper, 500
+                CONNECTs at concurrency 8 went from 3 445 to 11 071 CONNECT/s. See
+                <code>extension/ldap/README.md</code> in the source tree.
             </p>
         </section>
 
         <section>
             <h4 id="ldap-ad">Active Directory</h4>
+
+            <p>
+                The quickest way is the <b>Set defaults</b> choice above the settings: pick
+                <b>Active Directory</b> and press <b>Preset</b>. It fills the directory type, LDAPS on
+                port 636, the <code>ldap/</code> prefix and the profile switches, and clears an
+                inherited search filter that would otherwise override the profile. It leaves the host,
+                search base, search account, CA, group mappings, timeouts and the cache alone, because
+                those are the site's. Nothing is saved until <b>Apply</b>, so the filled values stay
+                visible before they take effect.
+            </p>
 
             <p>
                 Set <b>Directory type</b> to <code>ad</code> and the defaults follow what Active

@@ -362,6 +362,16 @@ public:
         bool             m_declared {true};
     };
 
+    /// One declared starting point: a named set of settings values the screen can fill the form
+    /// from. Nothing is applied by choosing one - it fills fields the operator still reviews.
+    struct PresetDescription
+    {
+        std::string                                      m_name;
+        std::string                                      m_label;
+        std::string                                      m_description;
+        std::vector<std::pair<std::string, std::string>> m_values;
+    };
+
     /// Everything the interface shows about one extension.
     struct Description
     {
@@ -374,6 +384,7 @@ public:
         bool                            m_required {false};
         uint32_t                        m_capabilities {0};
         std::vector<SettingDescription> m_settings;
+        std::vector<PresetDescription>  m_presets;
         uint64_t                        m_eventsDelivered {0};
         uint64_t                        m_admitted {0};
         uint64_t                        m_refused {0};

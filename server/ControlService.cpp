@@ -531,6 +531,25 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
 
         into.m_settings.push_back(described);
     }
+
+    // A preset is a form-filling suggestion, not a configuration: it carries only names and values
+    // of settings the extension declares, and never a secret - the extension is responsible for
+    // that, and a preset that set one would have to hold it here.
+    for (const auto& preset: from.m_presets)
+    {
+        CExtensionPreset described;
+        described.m_name = preset.m_name;
+        described.m_label = preset.m_label;
+        described.m_description = preset.m_description;
+        for (const auto& [name, value]: preset.m_values)
+        {
+            CExtensionSettingValue one;
+            one.m_name = name;
+            one.m_value = value;
+            described.m_settings.push_back(one);
+        }
+        into.m_presets.push_back(described);
+    }
 }
 
 } // namespace

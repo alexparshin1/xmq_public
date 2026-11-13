@@ -62,6 +62,12 @@ the difference comes from the cache and not from a warm directory.
 
 ## Active Directory
 
+The Extensions page offers two starting points above the form — **Active Directory** and **LDAP** —
+that fill the directory type, LDAPS on port 636, the `ldap/` prefix and the profile switches, and
+clear a search filter left over from the other profile. They leave the host, search base, search
+account, CA, group mappings, timeouts and cache alone, and save nothing until Apply. The rest of this
+section is what the AD one sets, for a configuration written by hand.
+
 Set `directory_type` to `ad` and the defaults follow what AD expects: a login without `@` is looked
 up by `sAMAccountName`, a login with `@` by `userPrincipalName`, nested groups are followed through
 the in-chain matching rule (`1.2.840.113556.1.4.1941`), and the disabled bit of `userAccountControl`

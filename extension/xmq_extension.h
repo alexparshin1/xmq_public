@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 4
+#define XMQ_EXTENSION_ABI_MINOR 5
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -424,6 +424,35 @@ typedef struct xmq_setting
     const char*      pattern;
 } xmq_setting;
 
+/** @brief One declared value of a preset: a setting's name and the value the preset gives it. */
+typedef struct xmq_setting_value
+{
+    const char* name;  /**< A setting the same extension declares. */
+    const char* value; /**< What the preset puts in it. An empty string clears the setting. */
+} xmq_setting_value;
+
+/**
+ * @brief A named starting point for an extension's settings, offered as one choice in the
+ *         interface.
+ *
+ * Some settings are not independent of each other: a directory type decides which search filter,
+ * which group matching and which account check make sense, and getting one of them wrong leaves a
+ * form that saves cleanly and then admits nobody. A preset is the extension - the only side that
+ * knows its own settings - saying "these belong together", so the screen can fill the form from
+ * one choice and the operator still reviews and applies it.
+ *
+ * A preset only fills fields: nothing is saved, and nothing reaches the extension, until the form
+ * is applied. Values for settings the extension does not declare, and unknown names, are ignored.
+ */
+typedef struct xmq_setting_preset
+{
+    const char*              name;        /**< Stable id, e.g. "ad"; what the interface records. */
+    const char*              label;       /**< For a person, e.g. "Active Directory". */
+    const char*              description; /**< One line: what it fills, what it leaves alone. */
+    const xmq_setting_value* values;      /**< The settings it fills and with what. */
+    size_t                   value_count; /**< How many entries `values` holds. */
+} xmq_setting_preset;
+
 /** @brief What an extension implements. Declared, not inferred, so a capability cannot be
  *         forgotten silently and the broker need not call into extensions that have no opinion. */
 typedef enum xmq_capability
@@ -677,6 +706,15 @@ typedef struct xmq_extension
      */
     xmq_auth_decision (*authenticate_identity)(void* instance, const xmq_auth_request* request,
                                                const xmq_identity_sink* sink);
+
+    /**
+     * @brief ABI 1.5: starting points the interface may offer beside the settings form.
+     *
+     * NULL and zero when the extension offers none, and that is the ordinary case. A broker older
+     * than this field does not read it, and the extension still declares its settings as before.
+     */
+    const xmq_setting_preset* presets;
+    size_t                    preset_count;
 } xmq_extension;
 
 /**

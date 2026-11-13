@@ -24,6 +24,7 @@ export default class ExtensionsScreen extends React.Component {
         extensions: [],
         selected: null,   // the name of the extension being looked at
         edited: {},       // settings the operator has changed but not applied
+        preset: "",       // the starting point chosen from the extension's presets
         running: true,    // whether the MQTT server is up; extensions live inside it
         busy: false
     }
@@ -66,7 +67,7 @@ export default class ExtensionsScreen extends React.Component {
                     this.setState({busy: false});
                     return;
                 }
-                this.setState({extensions: data.list ? data.list : [], edited: {}, busy: false});
+                this.setState({extensions: data.list ? data.list : [], edited: {}, preset: "", busy: false});
                 if (message) {
                     // The title carries the verdict and the body carries what was done, because
                     // what the broker answers with is a list of lines - which file was written,
@@ -292,7 +293,7 @@ export default class ExtensionsScreen extends React.Component {
             {this.state.extensions.map(extension =>
                 <tr key={extension.name}
                     className={extension.name === this.state.selected ? "extensionRowSelected" : ""}
-                    onClick={() => this.setState({selected: extension.name, edited: {}})}>
+                    onClick={() => this.setState({selected: extension.name, edited: {}, preset: ""})}>
                     <td>{extension.name}</td>
                     <td>{extension.version || "—"}</td>
                     <td className={extension.running ? "extensionRunning" : "extensionStopped"}>
@@ -356,6 +357,63 @@ export default class ExtensionsScreen extends React.Component {
         return <div className="extensionForm">
             {rows.map(([label, value, help]) => this.renderRow(label, value, help))}
         </div>;
+    }
+
+    /**
+     * The extension's starting points, as one control above the form.
+     *
+     * A preset is the extension saying which of its settings belong together - a directory type and
+     * the matching filter, for instance. Choosing one only fills the fields: nothing is saved and
+     * nothing reaches the broker until Apply, so the operator still sees exactly what will be
+     * stored. Names the extension does not declare are ignored, and a preset can only set what the
+     * form already shows.
+     */
+    renderPresets(extension) {
+        const presets = extension.presets || [];
+        const chosen = presets.find(one => one.name === this.state.preset);
+        return <div className="extensionPreset">
+            <label htmlFor="extensionPresetChoice">Set defaults</label>
+            <select id="extensionPresetChoice" value={this.state.preset || ""}
+                    onChange={event => this.setState({preset: event.target.value})}>
+                <option value="">Choose a starting point</option>
+                {presets.map(preset =>
+                    <option key={preset.name} value={preset.name}>{preset.label || preset.name}</option>)}
+            </select>
+            <button type="button" className="extensionListButton" disabled={!chosen}
+                    onClick={this.applyPreset}>Preset</button>
+            {chosen
+                ? <div className="extensionPresetHelp">
+                    {chosen.description}
+                    <span className="extensionPresetNote">
+                        Fill the fields below, check them, then Apply.
+                    </span>
+                  </div>
+                : <div className="extensionPresetHelp">
+                    A starting point fills the settings that belong together; nothing is saved
+                    until Apply.
+                  </div>}
+        </div>;
+    }
+
+    /// Fills the form from the chosen preset. Only declared settings are touched, so a preset
+    /// written against a newer extension cannot add a key the form never shows.
+    applyPreset = () => {
+        const extension = this.selected();
+        const preset = extension && (extension.presets || [])
+            .find(one => one.name === this.state.preset);
+        if (!preset) {
+            return;
+        }
+        const declared = new Set((extension.settings || []).map(setting => setting.name));
+        this.setState(state => {
+            const edited = {...state.edited};
+            (preset.settings || []).forEach(value => {
+                if (declared.has(value.name)) {
+                    edited[value.name] = value.value === undefined ? "" : String(value.value);
+                }
+            });
+            return {edited};
+        });
     }
 
     renderSetting(setting) {
@@ -526,6 +584,7 @@ export default class ExtensionsScreen extends React.Component {
             <div className="extensionPanel">
                 <div className="extensionPanelTitle">Settings</div>
                 <div className="extensionPanelBody">
+                    {(extension.presets || []).length ? this.renderPresets(extension) : null}
                     {(extension.settings || []).length
                         ? <div className="extensionForm">
                             {(extension.settings || []).map(setting => this.renderSetting(setting))}

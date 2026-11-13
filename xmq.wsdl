@@ -673,6 +673,19 @@
                 </xsd:sequence>
             </xsd:complexType>
 
+            <!-- A starting point the interface can fill the settings form from. Declared by the
+                 extension, because only it knows which of its settings belong together; choosing
+                 one fills fields and applies nothing. -->
+            <xsd:complexType name="ExtensionPreset">
+                <xsd:sequence>
+                    <xsd:element name="name" type="xsd:string"/>
+                    <xsd:element name="label" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="settings" type="tns:ExtensionSettingValue"
+                                 maxOccurs="unbounded" minOccurs="0"/>
+                </xsd:sequence>
+            </xsd:complexType>
+
             <xsd:complexType name="Extension">
                 <xsd:sequence>
                     <xsd:element name="name" type="xsd:string"/>
@@ -706,6 +719,9 @@
                     <xsd:element name="logs_delivered" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="logs_dropped" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="settings" type="tns:ExtensionSetting"
+                                 maxOccurs="unbounded" minOccurs="0"/>
+                    <!-- Fills the form, applies nothing. Absent when the extension offers none. -->
+                    <xsd:element name="presets" type="tns:ExtensionPreset"
                                  maxOccurs="unbounded" minOccurs="0"/>
                 </xsd:sequence>
             </xsd:complexType>

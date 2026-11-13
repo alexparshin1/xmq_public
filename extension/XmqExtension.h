@@ -382,16 +382,32 @@ inline xmq_event_type eventType(const xmq_event& event)
                                        ExtensionCapabilities, ExtensionDescription, ExtensionSettings) \
     XMQ_DEFINE_EXTENSION_IMPL(ExtensionClass, ExtensionName, ExtensionVersion, ExtensionCapabilities, \
                               ExtensionDescription, (ExtensionSettings),                            \
-                              (sizeof(ExtensionSettings) / sizeof((ExtensionSettings)[0])))
+                              (sizeof(ExtensionSettings) / sizeof((ExtensionSettings)[0])),         \
+                              nullptr, 0)
+
+/**
+ * @brief The same, with starting points the interface can fill the form from.
+ *
+ * @param ExtensionPresets  A `static const xmq_setting_preset[]` at namespace scope, each entry
+ *                          pointing at its own `static const xmq_setting_value[]`.
+ */
+#define XMQ_DEFINE_EXTENSION_WITH_PRESETS(ExtensionClass, ExtensionName, ExtensionVersion,          \
+                                          ExtensionCapabilities, ExtensionDescription,              \
+                                          ExtensionSettings, ExtensionPresets)                      \
+    XMQ_DEFINE_EXTENSION_IMPL(ExtensionClass, ExtensionName, ExtensionVersion, ExtensionCapabilities, \
+                              ExtensionDescription, (ExtensionSettings),                            \
+                              (sizeof(ExtensionSettings) / sizeof((ExtensionSettings)[0])),         \
+                              (ExtensionPresets),                                                   \
+                              (sizeof(ExtensionPresets) / sizeof((ExtensionPresets)[0])))
 
 /// The same, for an extension that says nothing about itself beyond its name and version.
 #define XMQ_DEFINE_EXTENSION(ExtensionClass, ExtensionName, ExtensionVersion, ExtensionCapabilities) \
     XMQ_DEFINE_EXTENSION_IMPL(ExtensionClass, ExtensionName, ExtensionVersion, ExtensionCapabilities, \
-                              nullptr, nullptr, 0)
+                              nullptr, nullptr, 0, nullptr, 0)
 
 #define XMQ_DEFINE_EXTENSION_IMPL(ExtensionClass, ExtensionName, ExtensionVersion,                  \
                                   ExtensionCapabilities, ExtensionDescription, ExtensionSettings,   \
-                                  ExtensionSettingCount)                                            \
+                                  ExtensionSettingCount, ExtensionPresets, ExtensionPresetCount)   \
     namespace {                                                                                     \
     void* xmqExtensionCreate(const xmq_host* host)                                                  \
     {                                                                                               \
@@ -584,7 +600,9 @@ inline xmq_event_type eventType(const xmq_event& event)
             ((ExtensionCapabilities) &XMQ_CAP_MESSAGE_TAP) != 0 ? &xmqExtensionMessageTap : nullptr, \
         .log_tap = ((ExtensionCapabilities) &XMQ_CAP_LOG_TAP) != 0 ? &xmqExtensionLogTap : nullptr, \
         .setting_size = sizeof(xmq_setting),                                                         \
-        .authenticate_identity = ExtensionClass::NativeGroups ? xmqExtensionIdentity : nullptr};      \
+        .authenticate_identity = ExtensionClass::NativeGroups ? xmqExtensionIdentity : nullptr,      \
+        .presets = (ExtensionPresets),                                                               \
+        .preset_count = (ExtensionPresetCount)};                                                     \
     extern "C" XMQ_EXTENSION_EXPORT const xmq_extension* xmq_extension_describe(uint32_t abiMajor,   \
                                                                                uint32_t abiMinor)   \
     {                                                                                               \
