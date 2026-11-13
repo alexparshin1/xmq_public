@@ -80,6 +80,8 @@ void describePresets(const xmq_extension& table, vector<ExtensionHost::PresetDes
         preset.m_name = declared.name;
         preset.m_label = declared.label == nullptr ? preset.m_name : declared.label;
         preset.m_description = declared.description == nullptr ? "" : declared.description;
+        preset.m_choiceSetting = declared.choice_setting == nullptr ? "" : declared.choice_setting;
+        preset.m_choiceValue = declared.choice_value == nullptr ? "" : declared.choice_value;
         for (size_t valueAt = 0; valueAt < declared.value_count; ++valueAt)
         {
             const auto& value = declared.values[valueAt];

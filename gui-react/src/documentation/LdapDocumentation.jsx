@@ -249,14 +249,15 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             <h4 id="ldap-ad">Active Directory</h4>
 
             <p>
-                The quickest way is the <b>Set defaults</b> choice above the settings: pick
-                <b>Active Directory</b> and press <b>Preset</b>. It fills the directory type, LDAPS on
-                port 636, the <code>ldap/</code> prefix and the profile switches, and clears an
-                inherited search filter that would otherwise override the profile. It leaves the host,
-                search base, search account, CA, group mappings, timeouts and the cache alone, because
-                those are the site's. Nothing is saved until <b>Apply</b>, so the filled values stay
-                visible before they take effect, and the button says which fields it filled and which
-                already had those values.
+                The quickest way is to choose <b>Active Directory</b> as the directory type: the
+                profile that belongs with it is filled in at once, and the <b>Set defaults</b> choice
+                offers the same two profiles as a button. It sets the nested-group matching, the
+                account-state check with its attribute and mask, and clears an inherited search
+                filter that would otherwise override the profile. The address, search base, search
+                account, CA, group mappings, transport, prefix, timeouts and cache are left alone,
+                because those are the site's. Nothing is saved until <b>Apply</b>, so the filled
+                values stay visible before they take effect, and the form says which fields it filled
+                and which already had those values.
             </p>
 
             <p>

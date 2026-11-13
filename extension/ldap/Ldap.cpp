@@ -599,31 +599,31 @@ const xmq_setting ldapSettings[] {
 // Starting points rather than separate configurations: a directory type decides the search filter,
 // the group matching and the account check that belong with it, and a filter left over from a
 // previous directory silently overrides the profile. Only those fields are filled - host, search
-// base, the search account, the CA and the group mappings are the site's and are left as they are,
-// as are the timeouts and the cache, which are tuning rather than profile.
+// base, the search account, the CA, the group mappings, the transport, the prefix, the timeouts and
+// the cache are the site's and are left as they are. The explicit switches say what "auto" would
+// resolve to, so the difference between the two profiles is visible in the form rather than implied.
+// Each is linked to its directory type, so choosing the type applies it there and then.
 const xmq_setting_value adPresetValues[] {
     {.name="directory_type", .value="ad"},
-    {.name="encryption", .value="ldaps"},
-    {.name="port", .value="636"},
-    {.name="username_prefix", .value="ldap/"},
-    {.name="nested_groups", .value="auto"},
-    {.name="account_state_check", .value="auto"},
+    {.name="nested_groups", .value="yes"},
+    {.name="account_state_check", .value="yes"},
+    {.name="account_state_attribute", .value="userAccountControl"},
+    {.name="account_state_disabled_mask", .value="2"},
     {.name="user_filter", .value=""},
     {.name="group_filter", .value=""}
 };
 const xmq_setting_value ldapPresetValues[] {
     {.name="directory_type", .value="ldap"},
-    {.name="encryption", .value="ldaps"},
-    {.name="port", .value="636"},
-    {.name="username_prefix", .value="ldap/"},
-    {.name="nested_groups", .value="auto"},
-    {.name="account_state_check", .value="auto"},
+    {.name="nested_groups", .value="no"},
+    {.name="account_state_check", .value="no"},
+    {.name="account_state_attribute", .value="userAccountControl"},
+    {.name="account_state_disabled_mask", .value="2"},
     {.name="user_filter", .value=""},
     {.name="group_filter", .value=""}
 };
 const xmq_setting_preset ldapPresets[] {
-    {.name="ad", .label="Active Directory", .description="Active Directory: login by sAMAccountName or user principal name, nested groups, and the account-state flag. Fills the directory type, LDAPS on 636, the ldap/ prefix and the profile switches; leaves host, search base, the search account, the CA, group mappings, timeouts and the cache as they are", .values=adPresetValues, .value_count=sizeof(adPresetValues) / sizeof(adPresetValues[0])},
-    {.name="ldap", .label="LDAP", .description="OpenLDAP and other LDAP servers: login by uid and direct group membership. Fills the directory type, LDAPS on 636, the ldap/ prefix and the profile switches; leaves host, search base, the search account, the CA, group mappings, timeouts and the cache as they are", .values=ldapPresetValues, .value_count=sizeof(ldapPresetValues) / sizeof(ldapPresetValues[0])}
+    {.name="ad", .label="Active Directory", .description="Active Directory: login by sAMAccountName or user principal name, nested groups through the in-chain matching rule, and the account-state flag. Fills the directory type and the profile switches and clears an inherited search filter; leaves the address, search base, search account, CA, group mappings, transport, prefix, timeouts and cache as they are", .values=adPresetValues, .value_count=sizeof(adPresetValues) / sizeof(adPresetValues[0]), .choice_setting="directory_type", .choice_value="ad"},
+    {.name="ldap", .label="LDAP", .description="OpenLDAP and other LDAP servers: login by uid and direct group membership. Fills the directory type and the profile switches and clears an inherited search filter; leaves the address, search base, search account, CA, group mappings, transport, prefix, timeouts and cache as they are", .values=ldapPresetValues, .value_count=sizeof(ldapPresetValues) / sizeof(ldapPresetValues[0]), .choice_setting="directory_type", .choice_value="ldap"}
 };
 XMQ_DEFINE_EXTENSION_WITH_PRESETS(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
     "LDAP and Active Directory authentication over verified TLS; explicit username namespace",

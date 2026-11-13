@@ -681,6 +681,10 @@
                     <xsd:element name="name" type="xsd:string"/>
                     <xsd:element name="label" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- When both are set, this preset is the profile for that option of that
+                         choice, and the screen applies it as soon as the option is chosen. -->
+                    <xsd:element name="choice_setting" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="choice_value" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="settings" type="tns:ExtensionSettingValue"
                                  maxOccurs="unbounded" minOccurs="0"/>
                 </xsd:sequence>

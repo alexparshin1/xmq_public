@@ -100,6 +100,19 @@ int main(int argc, char** argv)
                     if (setting.type == XMQ_SETTING_INTEGER && !std::string_view(value.value).empty())
                         expect(proceeds(value.value), "a preset gives an integer setting a number");
                 }
+                // A profile linked to a choice has to name a real option of a real choice setting,
+                // or selecting that option would fill the form from nothing.
+                expect((preset.choice_setting == nullptr) == (preset.choice_value == nullptr),
+                       "a linked preset names both the choice and the option");
+                if (preset.choice_setting != nullptr)
+                {
+                    const auto found = declared.find(preset.choice_setting);
+                    expect(found != declared.end() && found->second->type == XMQ_SETTING_CHOICE,
+                           "a linked preset points at a declared choice");
+                    const std::string choices = std::string(",") + found->second->choices + ",";
+                    expect(choices.find(std::string(",") + preset.choice_value + ",") != std::string::npos,
+                           "a linked preset names one of the declared options");
+                }
             }
             // Reading the table through the ABI is what the broker does; a mismatch here would
             // leave the screen with no presets at all.

@@ -131,6 +131,12 @@ the broker passes it through untouched. Declare one with `XMQ_DEFINE_EXTENSION_W
 only the settings that are part of the group; site-specific values, secrets and tuning do not belong
 in one. A preset that named a secret would be written in plain sight in the library.
 
+A preset may also be the profile for one option of a choice setting: set `choice_setting` and
+`choice_value` and the page applies it when that option is chosen. That is how a mode's settings
+become visible at the moment the mode is picked, instead of being implied by an `auto` value. Keep
+such a preset to what the mode decides — picking a choice back and forth must not rewrite the
+server address or the transport as a side effect.
+
 An extension that will not load, refuses the ABI version, or fails to start is reported in the
 broker's log and skipped. The broker starts either way. An extension is an addition to a broker,
 never a condition for one.

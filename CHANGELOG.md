@@ -17,11 +17,15 @@ Requires SPTK 5.6.20.
 - **Starting points for extension settings.** An extension can now declare presets — named sets of
   settings values that belong together — and the Extensions page offers them as a "Set defaults"
   choice with a Preset button. Choosing one fills the form only: nothing is saved until Apply, so
-  what will be stored stays visible. The LDAP form offers **Active Directory** and **LDAP**
-  starting points, which fill the directory type, LDAPS on port 636, the login prefix and the
-  profile switches, and clear an inherited search filter that would otherwise override the profile;
-  host, search base, the search account, the CA, group mappings, timeouts and the cache are left
-  alone. ABI 1.5 appends the preset table; extensions built against 1.4 remain supported.
+  what will be stored stays visible, and the button reports what it filled and what already had
+  those values. A preset may be linked to one option of a choice setting, and is then applied when
+  that option is picked — so the difference between two modes shows in the fields instead of
+  hiding behind `auto`. The LDAP form offers **Active Directory** and **LDAP** this way: the
+  directory type, the nested-group matching, the account-state check and its attribute and mask
+  follow the choice, and an inherited search filter is cleared because it would otherwise override
+  the profile. The address, search base, search account, CA, group mappings, transport, login
+  prefix, timeouts and cache are the site's and are left alone. ABI 1.5 appends the preset table;
+  extensions built against 1.4 remain supported.
 
 - **Every installed extension is listed, whether or not it is configured.** The Extensions page now
   shows libraries found beside the configured ones as stopped, with the version and description they

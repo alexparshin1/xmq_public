@@ -541,6 +541,8 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
         described.m_name = preset.m_name;
         described.m_label = preset.m_label;
         described.m_description = preset.m_description;
+        described.m_choice_setting = preset.m_choiceSetting;
+        described.m_choice_value = preset.m_choiceValue;
         for (const auto& [name, value]: preset.m_values)
         {
             CExtensionSettingValue one;

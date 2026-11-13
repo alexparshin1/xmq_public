@@ -451,6 +451,20 @@ typedef struct xmq_setting_preset
     const char*              description; /**< One line: what it fills, what it leaves alone. */
     const xmq_setting_value* values;      /**< The settings it fills and with what. */
     size_t                   value_count; /**< How many entries `values` holds. */
+
+    /**
+     * @brief The choice this preset is the profile for, or NULL.
+     *
+     * `choice_setting` names one of the extension's own choice settings and `choice_value` one of
+     * its options. When both are set, the interface applies this preset as soon as that option is
+     * chosen, so selecting a mode - a directory type, a deployment shape - visibly brings the
+     * settings that belong with it. A preset with no choice is offered in the list only.
+     *
+     * Keep such a preset to what the mode actually decides. A choice the operator can flick back
+     * and forth must not silently rewrite the server address or the transport as a side effect.
+     */
+    const char* choice_setting;
+    const char* choice_value;
 } xmq_setting_preset;
 
 /** @brief What an extension implements. Declared, not inferred, so a capability cannot be

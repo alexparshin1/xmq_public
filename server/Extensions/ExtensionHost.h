@@ -369,6 +369,8 @@ public:
         std::string                                      m_name;
         std::string                                      m_label;
         std::string                                      m_description;
+        std::string                                      m_choiceSetting; ///< Empty: list only.
+        std::string                                      m_choiceValue;
         std::vector<std::pair<std::string, std::string>> m_values;
     };
 

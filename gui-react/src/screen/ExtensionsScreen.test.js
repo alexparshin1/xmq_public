@@ -25,6 +25,8 @@ const extension = {
         {name: "encryption", label: "LDAP encryption", type: "choice", choices: "ldaps,starttls",
             value: "ldaps", declared: true},
         {name: "port", label: "LDAP port", type: "integer", value: "389", declared: true},
+        {name: "nested_groups", label: "Nested groups", type: "choice", choices: "auto,yes,no",
+            value: "auto", declared: true},
         {name: "user_filter", label: "User search filter", type: "string",
             value: "(uid={username})", declared: true}
     ],
@@ -32,10 +34,13 @@ const extension = {
         name: "ad",
         label: "Active Directory",
         description: "Active Directory: login by sAMAccountName or user principal name.",
+        choice_setting: "directory_type",
+        choice_value: "ad",
         settings: [
             {name: "directory_type", value: "ad"},
             {name: "encryption", value: "ldaps"},
             {name: "port", value: "636"},
+            {name: "nested_groups", value: "yes"},
             {name: "user_filter", value: ""},
             // A preset written against a newer extension: the screen must ignore what it cannot show.
             {name: "something_new", value: "ignored"}
@@ -96,7 +101,7 @@ test("a preset fills the form and leaves the fields it does not name alone", asy
 
     // An operator has to be able to tell a fill that changed three fields from a button that did
     // nothing: both leave the form looking almost the same.
-    expect(screen.getByText(/Filled: Directory type, LDAP port, User search filter/))
+    expect(screen.getByText(/Filled: Directory type, LDAP port, Nested groups, User search filter/))
         .toBeInTheDocument();
     expect(screen.getByText(/Already at these values: LDAP encryption/)).toBeInTheDocument();
 });
@@ -121,8 +126,22 @@ test("choosing a preset applies nothing: only Apply writes, and it writes what i
         expect(settings.host).toBe("dc1.example.org");
         // The undeclared name in the preset never reaches the broker.
         expect(Object.keys(settings).sort())
-            .toEqual(["directory_type", "encryption", "host", "port", "user_filter"]);
+            .toEqual(["directory_type", "encryption", "host", "nested_groups", "port",
+                      "user_filter"]);
     });
+});
+
+test("choosing a directory type brings the profile that belongs with it", async () => {
+    await openExtension();
+
+    // No Preset button: selecting the type is itself the statement of which profile applies.
+    fireEvent.change(controlOf("Directory type"), {target: {value: "ad"}});
+
+    expect(controlOf("Directory type").value).toBe("ad");
+    expect(controlOf("Nested groups").value).toBe("yes");
+    expect(controlOf("LDAP host").value).toBe("dc1.example.org");
+    expect(screen.getByText(/Filled: Directory type, LDAP port, Nested groups/))
+        .toBeInTheDocument();
 });
 
 test("an extension without presets gets no starting-point control", async () => {

@@ -420,12 +420,16 @@ export default class ExtensionsScreen extends React.Component {
         const extension = this.selected();
         const preset = extension && (extension.presets || [])
             .find(one => one.name === this.state.preset);
-        if (!preset) {
-            return;
+        if (preset) {
+            this.fillFromPreset(preset, {}, false);
         }
+    }
+
+    fillFromPreset = (preset, alsoEdited, selectPreset) => {
+        const extension = this.selected();
         const declared = new Map((extension.settings || [])
             .map(setting => [setting.name, setting]));
-        const edited = {...this.state.edited};
+        const edited = {...this.state.edited, ...alsoEdited};
         const filled = [];
         const unchanged = [];
         (preset.settings || []).forEach(value => {
@@ -442,7 +446,30 @@ export default class ExtensionsScreen extends React.Component {
             edited[value.name] = wanted;
             filled.push(label);
         });
-        this.setState({edited, presetResult: {filled, unchanged}});
+        this.setState(state => ({
+            edited,
+            presetResult: {filled, unchanged},
+            preset: selectPreset ? preset.name : state.preset
+        }));
+    }
+
+    /**
+     * A choice that names a profile brings the settings that belong with it.
+     *
+     * A directory type decides the filter, the group matching and the account check; leaving them
+     * on "auto" hides that, and the form then looks identical for two modes that behave
+     * differently. Applying the linked preset makes the difference visible where the choice is
+     * made, and the operator still applies the result.
+     */
+    onChoiceChange = (setting, value) => {
+        const extension = this.selected();
+        const profile = (extension && (extension.presets || [])).find(one =>
+            one.choice_setting === setting.name && one.choice_value === value);
+        if (!profile) {
+            this.onSettingChange(setting.name, value);
+            return;
+        }
+        this.fillFromPreset(profile, {[setting.name]: value}, true);
     }
 
     renderSetting(setting) {
@@ -451,7 +478,8 @@ export default class ExtensionsScreen extends React.Component {
 
         let control;
         if (setting.type === "choice") {
-            control = <select value={value} onChange={change}>
+            control = <select value={value}
+                              onChange={event => this.onChoiceChange(setting, event.target.value)}>
                 {/* The stored value first, even when the extension no longer offers it: a value
                     silently replaced by the first of the list is a setting changed without asking. */}
                 {value && !(setting.choices || "").split(",").map(one => one.trim()).includes(value)
