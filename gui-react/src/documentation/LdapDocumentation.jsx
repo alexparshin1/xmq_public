@@ -278,10 +278,11 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             </p>
 
             <p>
-                Active Directory support has <b>not yet been accepted against a real domain
-                controller</b>. The shipped stand verifies OpenLDAP end to end; the AD-specific
-                choices are covered by unit tests. Run the acceptance on a Samba AD DC or a Windows
-                Server VM before relying on it.
+                Active Directory support has been checked against a <b>Samba AD DC</b>, which serves the
+                real AD schema: a throwaway domain verifies login by <code>sAMAccountName</code> and by
+                user principal name, a mapped group reached through a nested group, and the refusal of
+                a disabled account. A Windows Server domain controller has not yet been used, so run
+                the same acceptance there before promising support for a particular AD version.
             </p>
         </section>
 

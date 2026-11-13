@@ -81,10 +81,42 @@ for `ldap`". `user_filter` and `group_filter` override the profile entirely if a
 a different attribute. The state check reads `account_state_attribute` (`userAccountControl`) and
 refuses an account whose flags contain `account_state_disabled_mask` (`2`, ACCOUNTDISABLE).
 
-AD compatibility is implemented but has **not** yet been accepted against a real domain
-controller: the disposable stand verifies OpenLDAP, and the AD-specific decisions (filter choice,
-nested-rule filter, disabled flag) are covered by unit tests. Run the acceptance on a Samba AD DC or
-a Windows Server VM before relying on it.
+AD compatibility has been checked against a **Samba AD DC**, which serves the real AD schema: the
+harness `extension/ldap/tests/samba_ad.py` provisions a throwaway domain, then verifies login by
+`sAMAccountName`, login by `userPrincipalName`, a mapped group reached through a nested group by the
+in-chain rule, and the refusal of a disabled account. A Windows Server domain controller has not yet
+been used; run the same acceptance there before promising support for a particular AD version.
+
+The harness needs Docker and passwordless `sudo` on the machine where the broker runs: libldap
+verifies the certificate against the name it was given, so the script adds a temporary `/etc/hosts`
+entry for the directory's name and removes it afterwards. The domain is created with `NOCOMPLEXITY`
+and test passwords; nothing outside the throwaway container and that one hosts line is touched.
+
+Note that AD refuses the bind of a disabled account itself, so the account-state check is a second
+guard for directories that do not. The flag parsing is covered by unit tests either way.
+
+## AD acceptance against a Samba AD DC
+
+```sh
+python3 extension/ldap/tests/samba_ad.py build/xmq_server
+```
+
+This needs Docker and passwordless `sudo` (see below). It provisions a throwaway
+`nowsci/samba-domain` container, creates `alice`, `bob` and a disabled `carol`, the groups
+`Server Monitoring`, `MQTT Inner` and `MQTT Operators` (with `MQTT Inner` nested inside
+`MQTT Operators`), replaces Samba's temporary TLS certificate with one signed by a throwaway CA and
+named `dc1.example.org`, and starts the broker with `directory_type=ad`. It then checks:
+
+- `ldap/alice` logs in by `sAMAccountName` and publishes to the mapped topic;
+- `ldap/bob@example.org` logs in by user principal name and receives it;
+- `ldap/alice` may subscribe to a topic granted to `MQTT Operators`, which it reaches only through
+  the nested group;
+- `ldap/carol` is refused (AD refuses the bind of a disabled account; the state check is the second
+  guard for directories that do not).
+
+Because libldap verifies the certificate against the name it connects to, the script adds a
+temporary `/etc/hosts` entry for `dc1.example.org` and removes it afterwards. The container is
+removed on exit as well.
 
 ## Decision cache
 
