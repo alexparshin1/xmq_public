@@ -532,15 +532,17 @@ TEST_F(WebhookTests, aValueThatDoesNotMatchItsDeclaredFormatIsRefused)
     // The format reaches the interface with the setting, so the field can refuse a wrong value
     // before the request is made.
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    const auto timeout = ranges::find_if(described[0].m_settings, [](const auto& setting)
+    const auto webhook = ranges::find_if(described, [](const auto& entry)
+                                         { return entry.m_name == "webhook"; });
+    ASSERT_NE(described.end(), webhook);
+    const auto timeout = ranges::find_if(webhook->m_settings, [](const auto& setting)
                                          { return setting.m_name == "timeout_ms"; });
-    ASSERT_NE(described[0].m_settings.end(), timeout);
+    ASSERT_NE(webhook->m_settings.end(), timeout);
     EXPECT_EQ("[1-9][0-9]{0,5}", timeout->m_pattern);
 
-    const auto sources = ranges::find_if(described[0].m_settings, [](const auto& setting)
+    const auto sources = ranges::find_if(webhook->m_settings, [](const auto& setting)
                                          { return setting.m_name == "sources"; });
-    ASSERT_NE(described[0].m_settings.end(), sources);
+    ASSERT_NE(webhook->m_settings.end(), sources);
     EXPECT_EQ("Send log,Send messages,Send log and messages", sources->m_choices);
     EXPECT_EQ("Send messages", sources->m_defaultValue);
 
@@ -621,10 +623,12 @@ TEST_F(WebhookTests, aListSettingIsCheckedItemByItem)
     ASSERT_TRUE(host.tapping());
 
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    const auto filter = ranges::find_if(described[0].m_settings, [](const auto& setting)
-                                        { return setting.m_name == "topic_filter"; });
-    ASSERT_NE(described[0].m_settings.end(), filter);
+    const auto webhook = ranges::find_if(described, [](const auto& entry)
+                                         { return entry.m_name == "webhook"; });
+    ASSERT_NE(described.end(), webhook);
+    const auto filter = ranges::find_if(webhook->m_settings, [](const auto& setting)
+                                         { return setting.m_name == "topic_filter"; });
+    ASSERT_NE(webhook->m_settings.end(), filter);
     EXPECT_EQ(XMQ_SETTING_LIST, filter->m_type);
 
     // The interface's path: writeSettings() is what the Extensions page reaches through

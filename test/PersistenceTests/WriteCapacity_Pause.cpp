@@ -83,6 +83,8 @@ TEST_F(XMQ_PersistenceTests, WriteCapacity_PausedPublisherLosesNothing)
                                               }
                                           });
     subscriber->subscribe(topicName);
+    ASSERT_TRUE(subscriber->waitForSubscribeAck(5s))
+        << "The subscription must be active before the publisher starts";
 
     const auto pausesBefore = MessageDelivery::writeCapacityPauses();
 
@@ -120,7 +122,7 @@ TEST_F(XMQ_PersistenceTests, WriteBehind_OfflineSubscriberRecordsAreWritten)
     {
         const auto subscriber = connectClient(subscriberClientId, false);
         subscriber->subscribe(topicName);
-        this_thread::sleep_for(100ms);
+        ASSERT_TRUE(subscriber->waitForSubscribeAck(5s));
         subscriber->disconnect();
     }
 
