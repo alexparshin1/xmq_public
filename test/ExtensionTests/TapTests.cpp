@@ -118,10 +118,16 @@ TEST_F(TapTests, dropsWhatExceedsTheTapPayloadLimit)
 
     // Counted, because a drop is silent by design: the queue is bounded so the broker never waits,
     // and this counter is the only way to learn that a tap is losing messages.
+    // Found by name: the extension directory holds the rest of the suite's fixtures too, and
+    // discovery lists every one of them as stopped.
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    EXPECT_EQ(0U, described[0].m_messagesDelivered);
-    EXPECT_EQ(1U, described[0].m_messagesDropped);
+    const auto found = ranges::find_if(described, [](const auto& one)
+    {
+        return one.m_name == "tap-recorder";
+    });
+    ASSERT_NE(found, described.end());
+    EXPECT_EQ(0U, found->m_messagesDelivered);
+    EXPECT_EQ(1U, found->m_messagesDropped);
 
     host.stop();
 }
@@ -137,9 +143,13 @@ TEST_F(TapTests, countsWhatTheTapDelivered)
     EXPECT_FALSE(waitForContent(1).empty());
 
     const auto described = host.describe();
-    ASSERT_EQ(1U, described.size());
-    EXPECT_EQ(1U, described[0].m_messagesDelivered);
-    EXPECT_EQ(0U, described[0].m_messagesDropped);
+    const auto found = ranges::find_if(described, [](const auto& one)
+    {
+        return one.m_name == "tap-recorder";
+    });
+    ASSERT_NE(found, described.end());
+    EXPECT_EQ(1U, found->m_messagesDelivered);
+    EXPECT_EQ(0U, found->m_messagesDropped);
 
     host.stop();
 }
