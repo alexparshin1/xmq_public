@@ -22,6 +22,9 @@ const extension = {
             declared: true},
         {name: "directory_type", label: "Directory type", type: "choice", choices: "ldap,ad",
             value: "ldap", declared: true},
+        {name: "encryption", label: "LDAP encryption", type: "choice", choices: "ldaps,starttls",
+            value: "ldaps", declared: true},
+        {name: "port", label: "LDAP port", type: "integer", value: "389", declared: true},
         {name: "user_filter", label: "User search filter", type: "string",
             value: "(uid={username})", declared: true}
     ],
@@ -31,6 +34,8 @@ const extension = {
         description: "Active Directory: login by sAMAccountName or user principal name.",
         settings: [
             {name: "directory_type", value: "ad"},
+            {name: "encryption", value: "ldaps"},
+            {name: "port", value: "636"},
             {name: "user_filter", value: ""},
             // A preset written against a newer extension: the screen must ignore what it cannot show.
             {name: "something_new", value: "ignored"}
@@ -64,7 +69,10 @@ const openExtension = async () => {
 };
 
 const controlOf = (label) => {
-    const row = screen.getByText(label, {exact: false}).closest(".extensionRow");
+    // By its own row rather than the first text match: the preset summary names the same settings,
+    // and a lookup by text would find the sentence instead of the field.
+    const row = [...document.querySelectorAll(".extensionRow")]
+        .find(one => (one.querySelector("label")?.textContent || "").startsWith(label));
     return row.querySelector("select, input");
 };
 
@@ -80,9 +88,17 @@ test("a preset fills the form and leaves the fields it does not name alone", asy
     chosenPreset();
 
     expect(controlOf("Directory type").value).toBe("ad");
+    expect(controlOf("LDAP port").value).toBe("636");
+    expect(controlOf("LDAP encryption").value).toBe("ldaps");
     expect(controlOf("LDAP host").value).toBe("dc1.example.org");
     // Cleared rather than left at the uid filter, which would silently override the AD profile.
     expect(controlOf("User search filter").value).toBe("");
+
+    // An operator has to be able to tell a fill that changed three fields from a button that did
+    // nothing: both leave the form looking almost the same.
+    expect(screen.getByText(/Filled: Directory type, LDAP port, User search filter/))
+        .toBeInTheDocument();
+    expect(screen.getByText(/Already at these values: LDAP encryption/)).toBeInTheDocument();
 });
 
 test("choosing a preset applies nothing: only Apply writes, and it writes what is shown", async () => {
@@ -100,10 +116,12 @@ test("choosing a preset applies nothing: only Apply writes, and it writes what i
         expect(call).toBeTruthy();
         const settings = Object.fromEntries(call[1].settings.map(one => [one.name, one.value]));
         expect(settings.directory_type).toBe("ad");
+        expect(settings.port).toBe("636");
         expect(settings.user_filter).toBe("");
         expect(settings.host).toBe("dc1.example.org");
         // The undeclared name in the preset never reaches the broker.
-        expect(Object.keys(settings).sort()).toEqual(["directory_type", "host", "user_filter"]);
+        expect(Object.keys(settings).sort())
+            .toEqual(["directory_type", "encryption", "host", "port", "user_filter"]);
     });
 });
 

@@ -626,4 +626,5 @@ const xmq_setting_preset ldapPresets[] {
     {.name="ldap", .label="LDAP", .description="OpenLDAP and other LDAP servers: login by uid and direct group membership. Fills the directory type, LDAPS on 636, the ldap/ prefix and the profile switches; leaves host, search base, the search account, the CA, group mappings, timeouts and the cache as they are", .values=ldapPresetValues, .value_count=sizeof(ldapPresetValues) / sizeof(ldapPresetValues[0])}
 };
 XMQ_DEFINE_EXTENSION_WITH_PRESETS(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
-    "LDAP bind authentication over verified TLS; explicit username namespace", ldapSettings, ldapPresets)
+    "LDAP and Active Directory authentication over verified TLS; explicit username namespace",
+    ldapSettings, ldapPresets)

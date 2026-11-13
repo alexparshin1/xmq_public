@@ -255,7 +255,8 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 inherited search filter that would otherwise override the profile. It leaves the host,
                 search base, search account, CA, group mappings, timeouts and the cache alone, because
                 those are the site's. Nothing is saved until <b>Apply</b>, so the filled values stay
-                visible before they take effect.
+                visible before they take effect, and the button says which fields it filled and which
+                already had those values.
             </p>
 
             <p>

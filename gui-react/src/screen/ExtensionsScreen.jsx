@@ -25,6 +25,7 @@ export default class ExtensionsScreen extends React.Component {
         selected: null,   // the name of the extension being looked at
         edited: {},       // settings the operator has changed but not applied
         preset: "",       // the starting point chosen from the extension's presets
+        presetResult: null, // what pressing Preset filled, and what was already right
         running: true,    // whether the MQTT server is up; extensions live inside it
         busy: false
     }
@@ -67,7 +68,8 @@ export default class ExtensionsScreen extends React.Component {
                     this.setState({busy: false});
                     return;
                 }
-                this.setState({extensions: data.list ? data.list : [], edited: {}, preset: "", busy: false});
+                this.setState({extensions: data.list ? data.list : [], edited: {}, preset: "",
+                       presetResult: null, busy: false});
                 if (message) {
                     // The title carries the verdict and the body carries what was done, because
                     // what the broker answers with is a list of lines - which file was written,
@@ -293,7 +295,8 @@ export default class ExtensionsScreen extends React.Component {
             {this.state.extensions.map(extension =>
                 <tr key={extension.name}
                     className={extension.name === this.state.selected ? "extensionRowSelected" : ""}
-                    onClick={() => this.setState({selected: extension.name, edited: {}, preset: ""})}>
+                    onClick={() => this.setState({selected: extension.name, edited: {}, preset: "",
+                                  presetResult: null})}>
                     <td>{extension.name}</td>
                     <td>{extension.version || "—"}</td>
                     <td className={extension.running ? "extensionRunning" : "extensionStopped"}>
@@ -371,10 +374,11 @@ export default class ExtensionsScreen extends React.Component {
     renderPresets(extension) {
         const presets = extension.presets || [];
         const chosen = presets.find(one => one.name === this.state.preset);
+        const result = this.state.presetResult;
         return <div className="extensionPreset">
             <label htmlFor="extensionPresetChoice">Set defaults</label>
             <select id="extensionPresetChoice" value={this.state.preset || ""}
-                    onChange={event => this.setState({preset: event.target.value})}>
+                    onChange={event => this.setState({preset: event.target.value, presetResult: null})}>
                 <option value="">Choose a starting point</option>
                 {presets.map(preset =>
                     <option key={preset.name} value={preset.name}>{preset.label || preset.name}</option>)}
@@ -384,9 +388,22 @@ export default class ExtensionsScreen extends React.Component {
             {chosen
                 ? <div className="extensionPresetHelp">
                     {chosen.description}
-                    <span className="extensionPresetNote">
-                        Fill the fields below, check them, then Apply.
-                    </span>
+                    {/* Says what the button just did. A preset that only restates values the form
+                        already holds looks like a button that does nothing, and "filled nothing"
+                        is the wrong conclusion to draw from it. */}
+                    {result
+                        ? <span className="extensionPresetResult">
+                            {result.filled.length
+                                ? "Filled: " + result.filled.join(", ") + ". "
+                                : "Every setting it names already had this value. "}
+                            {result.unchanged.length
+                                ? "Already at these values: " + result.unchanged.join(", ") + ". "
+                                : ""}
+                            Nothing is saved until Apply.
+                          </span>
+                        : <span className="extensionPresetNote">
+                            Fill the fields below, check them, then Apply.
+                          </span>}
                   </div>
                 : <div className="extensionPresetHelp">
                     A starting point fills the settings that belong together; nothing is saved
@@ -396,7 +413,9 @@ export default class ExtensionsScreen extends React.Component {
     }
 
     /// Fills the form from the chosen preset. Only declared settings are touched, so a preset
-    /// written against a newer extension cannot add a key the form never shows.
+    /// written against a newer extension cannot add a key the form never shows. What changed and
+    /// what was already right are both reported: the buttons that change nothing are the ones an
+    /// operator needs to understand.
     applyPreset = () => {
         const extension = this.selected();
         const preset = extension && (extension.presets || [])
@@ -404,16 +423,26 @@ export default class ExtensionsScreen extends React.Component {
         if (!preset) {
             return;
         }
-        const declared = new Set((extension.settings || []).map(setting => setting.name));
-        this.setState(state => {
-            const edited = {...state.edited};
-            (preset.settings || []).forEach(value => {
-                if (declared.has(value.name)) {
-                    edited[value.name] = value.value === undefined ? "" : String(value.value);
-                }
-            });
-            return {edited};
+        const declared = new Map((extension.settings || [])
+            .map(setting => [setting.name, setting]));
+        const edited = {...this.state.edited};
+        const filled = [];
+        const unchanged = [];
+        (preset.settings || []).forEach(value => {
+            const setting = declared.get(value.name);
+            if (!setting) {
+                return;
+            }
+            const wanted = value.value === undefined ? "" : String(value.value);
+            const label = setting.label || setting.name;
+            if (this.valueOf(setting) === wanted) {
+                unchanged.push(label);
+                return;
+            }
+            edited[value.name] = wanted;
+            filled.push(label);
         });
+        this.setState({edited, presetResult: {filled, unchanged}});
     }
 
     renderSetting(setting) {
