@@ -54,6 +54,9 @@ install_manifest.txt
 *.o
 *.o.d
 
+# Test harnesses built in-source beside an extension's sources, like xmq_jwt_tests.
+extension/*/xmq_*_tests
+
 # Editors and the load tests' own scratch output.
 .idea/
 .externalToolBuilders/

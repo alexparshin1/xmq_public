@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "Signature",
+      "description": "Only the configured algorithm is accepted, so a token cannot choose its own. HS256 verifies a shared secret; RS256 and ES256 a public key or the issuer's key set.",
+      "fields": [
+        {"name": "algorithm"},
+        {"name": "secret", "visible_when": {"setting": "algorithm", "values": ["HS256"]}},
+        {"name": "public_key", "visible_when": {"setting": "algorithm", "values": ["RS256", "ES256"]}},
+        {"name": "jwks_url", "visible_when": {"setting": "algorithm", "values": ["RS256", "ES256"]}},
+        {"name": "jwks_ca_file", "visible_when": {"setting": "algorithm", "values": ["RS256", "ES256"]}}
+      ]
+    },
+    {
+      "title": "Issuer and claims",
+      "description": "Every token must carry this issuer exactly. The identity comes from the username claim and is presented with the prefix; the token then has to agree with the MQTT username.",
+      "fields": [
+        {"name": "issuer"},
+        {"name": "audience"},
+        {"name": "username_claim"},
+        {"name": "groups_claim"},
+        {"name": "username_prefix"}
+      ]
+    },
+    {
+      "title": "Groups",
+      "description": "One 'claim value => existing XMQ group' per line. Empty passes the claim values through as group names, and native Permissions fail closed for a token that maps to nothing.",
+      "fields": [
+        {"name": "group_mappings", "widget": "multiline"}
+      ]
+    },
+    {
+      "title": "Token checks and cache",
+      "description": "exp is required. A verified token is remembered for the positive lifetime, a refusal for the negative one; an unavailable key set is never remembered.",
+      "fields": [
+        {"name": "clock_skew_seconds"},
+        {"name": "timeout_seconds"},
+        {"name": "cache_ttl_seconds"},
+        {"name": "negative_cache_ttl_seconds"},
+        {"name": "cache_max_entries"}
+      ]
+    }
+  ]
+}

@@ -65,6 +65,8 @@ export default function ExtensionsDocumentation() {
                 The three extensions an installation may have configured are the accounts database
                 (<code>user-database</code>), the HTTP(S) webhook, and — where it was built — the LDAP
                 authenticator. See <Link to="/xmq_doc_ldap">LDAP Authentication</Link> for that one.
+                The JWT authenticator ships built and adds one more way to answer a CONNECT; see
+                <Link to="/xmq_doc_jwt">JWT Authentication</Link>.
             </p>
         </section>
 

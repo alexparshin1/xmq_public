@@ -7,6 +7,7 @@ import TestingDocumentation from "./TestingDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
 import ExtensionsDocumentation from "./ExtensionsDocumentation";
 import LdapDocumentation from "./LdapDocumentation";
+import JwtDocumentation from "./JwtDocumentation";
 import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
 import DataIntegrationDocumentation from "./DataIntegrationDocumentation";
 import PrometheusDocumentation from "./PrometheusDocumentation";
@@ -23,6 +24,7 @@ const screens = {
     permissions: PermissionsDocumentation,
     extensions: ExtensionsDocumentation,
     ldap: LdapDocumentation,
+    jwt: JwtDocumentation,
     "mosquitto-import": MosquittoImportDocumentation,
     "data-integration": DataIntegrationDocumentation,
     prometheus: PrometheusDocumentation,

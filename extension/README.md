@@ -99,6 +99,10 @@ settings that are validated before they are accepted, and an outage told apart f
 password. It is built through `XMQ_ADD_EXTENSION` like everything else and reaches no more of the
 broker than your own extension does.
 
+Two optional authenticators ship beside it, and both are readable examples of their own: `ldap/`
+checks a password against a directory and maps its groups, and `jwt/` verifies a token locally and
+takes the identity and the groups from its claims. Each has a README and a `.ui.json` form.
+
 ## Configuring one
 
 Extensions are named in `xmq_extensions.conf`, beside `xmq_server.conf`. An extension is never loaded

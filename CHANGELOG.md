@@ -14,6 +14,21 @@ Requires SPTK 5.6.20.
 
 ### Added
 
+- **Optional JWT authentication (experimental).** `xmq_jwt` authenticates a client whose MQTT
+  password is a JSON Web Token from the customer's identity provider, checking the signature
+  locally instead of making a directory round trip per connection. HS256 with a shared secret,
+  RS256 and ES256 with a configured PEM key or the issuer's JWKS endpoint, fetched over verified
+  TLS and refreshed when a token names a key it does not hold. Only the configured algorithm is
+  accepted; `exp` is required, and `iss` and `aud` are checked against the configured values. The
+  identity comes from a configurable claim, must match the `jwt/<name>` username the client sends,
+  and groups from a string or array claim — including dotted paths such as
+  `realm_access.roles` — are mapped to existing XMQ groups, with native Permissions failing
+  closed for a token that maps to nothing. Verified tokens and refusals are cached separately for
+  60 and 10 seconds, keyed by the identity and a keyed hash of the token, and a key-set outage is
+  never cached. The extension ships a declarative form and a manual page; settings, cache
+  behaviour and the form may change before the mode is declared stable. See
+  `extension/jwt/README.md`.
+
 - **Declarative extension forms, without scripts.** An optional `<library>.ui.json` supplies
   sections, conditional visibility/availability, multiline fields and name-to-value presets.
   Invalid or incompatible descriptions fall back to the ordinary settings form. Hidden fields
