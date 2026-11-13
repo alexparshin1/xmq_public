@@ -11,6 +11,11 @@ C in a base class, and the boundary stays C underneath.
 
 ## Start with the generator
 
+For optional sections, conditional fields and name-to-value presets without JavaScript, see
+[Declarative extension forms](UI.md). Ship `<library filename>.ui.json` beside your library; neither
+the broker nor React needs extension-specific modifications. The LDAP directory is also a standalone
+SDK-only build example.
+
 `new-extension.py`, installed beside these headers, writes a project that builds and loads before
 you have written a line of it — the CMake, the class, the entry point, the configuration entry to
 paste, and a README of its own. Every decision that is yours is a `TODO` saying what the choice is

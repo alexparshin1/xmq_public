@@ -14,6 +14,12 @@ Requires SPTK 5.6.20.
 
 ### Added
 
+- **Declarative extension forms, without scripts.** An optional `<library>.ui.json` supplies
+  sections, conditional visibility/availability, multiline fields and name-to-value presets.
+  Invalid or incompatible descriptions fall back to the ordinary settings form. Hidden fields
+  retain their values; nothing is saved until Apply. LDAP ships the first form and can also be
+  built outside the broker tree against the installed extension SDK alone.
+
 - **Starting points for extension settings.** An extension can now declare presets — named sets of
   settings values that belong together — and the Extensions page offers them as a "Set defaults"
   choice with a Preset button. Choosing one fills the form only: nothing is saved until Apply, so

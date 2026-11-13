@@ -387,6 +387,8 @@ public:
         uint32_t                        m_capabilities {0};
         std::vector<SettingDescription> m_settings;
         std::vector<PresetDescription>  m_presets;
+        std::string                     m_uiDefinition; ///< Optional <library>.ui.json, never executable.
+        std::string                     m_uiError;
         uint64_t                        m_eventsDelivered {0};
         uint64_t                        m_admitted {0};
         uint64_t                        m_refused {0};

@@ -809,6 +809,35 @@ TEST_F(XMQ_ExtensionHostTests, aRequiredExtensionIsNotSwitchedOffFromTheInterfac
     host.stop();
 }
 
+TEST_F(XMQ_ExtensionHostTests, aUiDescriptionTravelsBesideTheLibraryAndIsSizeLimited)
+{
+    const auto directory = uniqueTemporary("ui");
+    filesystem::create_directories(directory);
+    auto entry = configured();
+    entry.m_library = directory / testExtensionLibrary().filename();
+    filesystem::copy_file(testExtensionLibrary(), entry.m_library);
+    {
+        ExtensionHost host(m_logEngine, "test");
+        host.start({entry});
+        const auto description = [&host]
+        {
+            const auto entries = host.describe();
+            return *ranges::find_if(entries, [](const auto& one) { return one.m_name == "event-log"; });
+        };
+        EXPECT_TRUE(description().m_uiDefinition.empty());
+        const auto uiFile = entry.m_library.string() + ".ui.json";
+        const string ui = R"({"version":1,"sections":[]})";
+        { ofstream file(uiFile); file << ui; }
+        EXPECT_EQ(ui, description().m_uiDefinition);
+        EXPECT_TRUE(description().m_uiError.empty());
+        { ofstream file(uiFile); file << string(65537, 'x'); }
+        EXPECT_TRUE(description().m_uiDefinition.empty());
+        EXPECT_FALSE(description().m_uiError.empty());
+    }
+    error_code error;
+    filesystem::remove_all(directory, error);
+}
+
 TEST_F(XMQ_ExtensionHostTests, describesItselfForTheInterface)
 {
     auto withTypo = configured();

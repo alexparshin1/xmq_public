@@ -86,6 +86,61 @@ const chosenPreset = () => {
     fireEvent.click(screen.getByRole("button", {name: "Preset"}));
 };
 
+test("a sidecar form switches visible fields without saving or losing their values", async () => {
+    listed = [{...extension, ui_definition: JSON.stringify({version: 1,
+        sections: [{title: "Directory profile", fields: [
+            {name: "directory_type"},
+            {name: "host", visible_when: {setting: "directory_type", values: ["ad"]}},
+            {name: "user_filter", widget: "multiline"}
+        ]}],
+        presets: [{name: "ad", label: "AD profile", choice_setting: "directory_type",
+                   choice_value: "ad", values: {directory_type: "ad", nested_groups: "yes"}}]
+    })}];
+    await openExtension();
+    expect(screen.getByText("Directory profile")).toBeInTheDocument();
+    expect(document.querySelector("textarea").value).toBe("(uid={username})");
+    expect([...document.querySelectorAll(".extensionRow label")]
+        .some(label => label.textContent.startsWith("LDAP host"))).toBe(false);
+    fireEvent.change(controlOf("Directory type"), {target: {value: "ad"}});
+    expect(controlOf("LDAP host").value).toBe("dc1.example.org");
+    expect(controlOf("Nested groups").value).toBe("yes");
+    fireEvent.change(controlOf("Directory type"), {target: {value: "ldap"}});
+    fireEvent.click(screen.getByRole("button", {name: "Apply"}));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("ExtensionControl",
+        expect.objectContaining({action: "set", settings: expect.arrayContaining([
+            {name: "host", value: "dc1.example.org"}
+        ])})));
+});
+
+test("a broken UI sidecar leaves the ordinary form available with a warning", async () => {
+    listed = [{...extension, ui_definition: '{"version":99,"sections":[]}'}];
+    await openExtension();
+    expect(screen.getByRole("alert")).toHaveTextContent("Unsupported UI description version");
+    expect(controlOf("LDAP host").value).toBe("dc1.example.org");
+});
+
+test("a disabled field retains edits and is submitted rather than silently cleared", async () => {
+    listed = [{...extension, ui_definition: JSON.stringify({version: 1,
+        sections: [{title: "Connection", fields: [
+            {name: "directory_type"},
+            {name: "host", enabled_when: {setting: "directory_type", values: ["ad"]}}
+        ]}]
+    })}];
+    await openExtension();
+    expect(controlOf("LDAP host")).toBeDisabled();
+    fireEvent.change(controlOf("Directory type"), {target: {value: "ad"}});
+    expect(controlOf("LDAP host")).not.toBeDisabled();
+    fireEvent.change(controlOf("LDAP host"), {target: {value: "dc2.example.org"}});
+    fireEvent.change(controlOf("Directory type"), {target: {value: "ldap"}});
+    expect(controlOf("LDAP host")).toBeDisabled();
+    expect(controlOf("LDAP host").value).toBe("dc2.example.org");
+    fireEvent.click(screen.getByRole("button", {name: "Apply"}));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith("ExtensionControl",
+        expect.objectContaining({action: "set", settings: expect.arrayContaining([
+            {name: "host", value: "dc2.example.org"}
+        ])})));
+});
+
 test("a preset fills the form and leaves the fields it does not name alone", async () => {
     await openExtension();
 

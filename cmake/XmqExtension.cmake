@@ -24,7 +24,7 @@
 # and rather than a query service in the ABI, which would put the broker on that path.
 #
 FUNCTION(XMQ_ADD_EXTENSION extensionName)
-    CMAKE_PARSE_ARGUMENTS(EXTENSION "SPTK;OPENSSL" "" "SOURCES" ${ARGN})
+    CMAKE_PARSE_ARGUMENTS(EXTENSION "SPTK;OPENSSL" "UI" "SOURCES" ${ARGN})
 
     IF (NOT EXTENSION_SOURCES)
         MESSAGE(FATAL_ERROR "XMQ_ADD_EXTENSION(${extensionName}) needs SOURCES")
@@ -101,6 +101,18 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
     ENDIF ()
 
     ADD_LIBRARY(${extensionName} SHARED ${EXTENSION_SOURCES})
+    IF (EXTENSION_UI)
+        ADD_CUSTOM_COMMAND(TARGET ${extensionName} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${EXTENSION_UI}"
+                        "$<TARGET_FILE:${extensionName}>.ui.json")
+        # Also refresh when only the JSON changes (no relink is needed).
+        ADD_CUSTOM_TARGET(${extensionName}_ui ALL
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${EXTENSION_UI}"
+                        "$<TARGET_FILE:${extensionName}>.ui.json"
+                DEPENDS ${extensionName})
+        INSTALL(FILES "${EXTENSION_UI}" DESTINATION lib/xmq-extensions
+                RENAME "${CMAKE_SHARED_LIBRARY_PREFIX}${extensionName}${CMAKE_SHARED_LIBRARY_SUFFIX}.ui.json")
+    ENDIF ()
 
     # PRIVATE and exclusive: set, not appended, so nothing the enclosing directory added survives.
     SET_TARGET_PROPERTIES(${extensionName} PROPERTIES

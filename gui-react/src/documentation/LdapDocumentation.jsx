@@ -29,6 +29,13 @@ export default function LdapDocumentation() {
                 its extension configuration. Loading it, and the settings that go with it, is
                 described on the <Link to="/xmq_doc_extensions">Extensions</Link> page.
             </p>
+            <p>
+                The library's companion <code>.ui.json</code> file organizes the form into connection,
+                lookup, groups and cache sections. Choosing a directory profile fills its settings;
+                account-state details are hidden when the check is disabled, without discarding their
+                values. Nothing is saved until Apply. If the form description is unavailable or
+                incompatible, the ordinary settings form remains usable.
+            </p>
         </section>
 
         <section>

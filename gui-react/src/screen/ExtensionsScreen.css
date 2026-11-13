@@ -266,3 +266,23 @@
     margin-top: 4px;
     color: #333;
 }
+.extensionFieldControl {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+}
+
+.extensionFieldControl:disabled {
+    opacity: 0.6;
+}
+
+.extensionFieldControl textarea {
+    box-sizing: border-box;
+    width: 100%;
+    resize: vertical;
+}
+
+.extensionFormSection h3 {
+    margin: 20px 0 12px;
+}

@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "Directory connection",
+      "fields": [
+        {"name": "directory_type"},
+        {"name": "host"},
+        {"name": "port"},
+        {"name": "encryption"},
+        {"name": "ca_file"},
+        {"name": "timeout_seconds"}
+      ]
+    },
+    {
+      "title": "User lookup",
+      "fields": [
+        {"name": "search_base"},
+        {"name": "bind_dn"},
+        {"name": "bind_password"},
+        {"name": "username_prefix"},
+        {"name": "user_filter"}
+      ]
+    },
+    {
+      "title": "Groups and account state",
+      "description": "The directory profile fills the switches below. Hidden fields retain their values; Apply is always required.",
+      "fields": [
+        {"name": "group_mappings", "widget": "multiline"},
+        {"name": "nested_groups"},
+        {"name": "group_filter"},
+        {"name": "account_state_check"},
+        {"name": "account_state_attribute", "visible_when": {"setting": "account_state_check", "values": ["yes", "auto"]}},
+        {"name": "account_state_disabled_mask", "visible_when": {"setting": "account_state_check", "values": ["yes", "auto"]}}
+      ]
+    },
+    {
+      "title": "Authentication cache",
+      "fields": [
+        {"name": "cache_ttl_seconds"},
+        {"name": "negative_cache_ttl_seconds"},
+        {"name": "cache_max_entries"}
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "ad",
+      "label": "Active Directory",
+      "description": "Login by sAMAccountName or user principal name, nested groups and account-state checks. Connection settings and credentials are not changed.",
+      "choice_setting": "directory_type",
+      "choice_value": "ad",
+      "values": {
+        "directory_type": "ad",
+        "nested_groups": "yes",
+        "account_state_check": "yes",
+        "account_state_attribute": "userAccountControl",
+        "account_state_disabled_mask": "2",
+        "user_filter": "",
+        "group_filter": ""
+      }
+    },
+    {
+      "name": "ldap",
+      "label": "LDAP",
+      "description": "OpenLDAP and other LDAP directories: login by uid and direct group membership. Connection settings and credentials are not changed.",
+      "choice_setting": "directory_type",
+      "choice_value": "ldap",
+      "values": {
+        "directory_type": "ldap",
+        "nested_groups": "no",
+        "account_state_check": "no",
+        "account_state_attribute": "userAccountControl",
+        "account_state_disabled_mask": "2",
+        "user_filter": "",
+        "group_filter": ""
+      }
+    }
+  ]
+}

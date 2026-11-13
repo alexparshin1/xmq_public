@@ -757,7 +757,7 @@ ADD_SUBDIRECTORY(extension/webhook)
 
 # The extension interface. These two headers are the whole of what an extension compiles against;
 # nothing else of the broker is needed, and nothing else should be relied on.
-INSTALL(FILES extension/xmq_extension.h extension/XmqExtension.h extension/README.md
+INSTALL(FILES extension/xmq_extension.h extension/XmqExtension.h extension/README.md extension/UI.md
         DESTINATION include/xmq/extension)
 
 # The project generator goes beside them, and finds them from its own location: installed at

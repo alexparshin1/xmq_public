@@ -1795,6 +1795,33 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
     {
         described.push_back(discovered.m_description);
     }
+    // Presentation travels with the library, not with broker-specific code. Read at most 64 KiB;
+    // the browser validates the versioned schema and falls back to the ABI-generated form.
+    for (auto& one: described)
+    {
+        const filesystem::path uiFile(one.m_library.string() + ".ui.json");
+        error_code error;
+        if (!filesystem::exists(uiFile, error))
+        {
+            continue;
+        }
+        const auto size = filesystem::file_size(uiFile, error);
+        if (error || size > 65536)
+        {
+            one.m_uiError = "The extension UI description is unreadable or exceeds 64 KiB.";
+            continue;
+        }
+        ifstream input(uiFile, ios::binary);
+        string text(65537, '\0');
+        input.read(text.data(), static_cast<streamsize>(text.size()));
+        text.resize(static_cast<size_t>(input.gcount()));
+        if (input.bad() || text.size() > 65536 || !input.eof())
+        {
+            one.m_uiError = "The extension UI description could not be read completely.";
+            continue;
+        }
+        one.m_uiDefinition = std::move(text);
+    }
     return described;
 }
 

@@ -493,6 +493,8 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_description = from.m_description;
     into.m_library = from.m_library.string();
     into.m_source = from.m_source.string();
+    into.m_ui_definition = from.m_uiDefinition;
+    into.m_ui_error = from.m_uiError;
     into.m_running = from.m_running;
     into.m_required = from.m_required;
     into.m_observer = (from.m_capabilities & XMQ_CAP_OBSERVER) != 0;

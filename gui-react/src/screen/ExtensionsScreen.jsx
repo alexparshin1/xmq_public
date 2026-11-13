@@ -6,6 +6,7 @@ import "./ExtensionsScreen.css";
 import PageTitle from "../components/PageTitle";
 import HelpButton from "../components/HelpButton";
 import PasswordInput from "../components/PasswordInput";
+import {extensionForm, conditionMatches} from "../components/ExtensionForm";
 
 /**
  * Extensions screen: every extension the broker has, and one page each.
@@ -372,7 +373,7 @@ export default class ExtensionsScreen extends React.Component {
      * form already shows.
      */
     renderPresets(extension) {
-        const presets = extension.presets || [];
+        const presets = this.presetsOf(extension);
         const chosen = presets.find(one => one.name === this.state.preset);
         const result = this.state.presetResult;
         return <div className="extensionPreset">
@@ -418,7 +419,7 @@ export default class ExtensionsScreen extends React.Component {
     /// operator needs to understand.
     applyPreset = () => {
         const extension = this.selected();
-        const preset = extension && (extension.presets || [])
+        const preset = extension && this.presetsOf(extension)
             .find(one => one.name === this.state.preset);
         if (preset) {
             this.fillFromPreset(preset, {}, false);
@@ -434,7 +435,7 @@ export default class ExtensionsScreen extends React.Component {
         const unchanged = [];
         (preset.settings || []).forEach(value => {
             const setting = declared.get(value.name);
-            if (!setting) {
+            if (!setting || setting.type === "secret" || setting.declared === false) {
                 return;
             }
             const wanted = value.value === undefined ? "" : String(value.value);
@@ -463,7 +464,7 @@ export default class ExtensionsScreen extends React.Component {
      */
     onChoiceChange = (setting, value) => {
         const extension = this.selected();
-        const profile = (extension && (extension.presets || [])).find(one =>
+        const profile = (extension ? this.presetsOf(extension) : []).find(one =>
             one.choice_setting === setting.name && one.choice_value === value);
         if (!profile) {
             this.onSettingChange(setting.name, value);
@@ -472,7 +473,38 @@ export default class ExtensionsScreen extends React.Component {
         this.fillFromPreset(profile, {[setting.name]: value}, true);
     }
 
-    renderSetting(setting) {
+    presetsOf(extension) {
+        const {form} = extensionForm(extension);
+        return form && form.presets !== undefined ? form.presets : extension.presets || [];
+    }
+
+    renderFields(extension) {
+        const {form, error} = extensionForm(extension);
+        const settings = extension.settings || [];
+        const byName = new Map(settings.map(setting => [setting.name, setting]));
+        const valueOf = name => this.valueOf(byName.get(name));
+        const listed = new Set();
+        const sections = form ? form.sections.map((section, index) => {
+            const fields = section.fields.map(field => {
+                listed.add(field.name);
+                return conditionMatches(field.visible_when, valueOf)
+                    ? this.renderSetting(byName.get(field.name), field,
+                                         !conditionMatches(field.enabled_when, valueOf)) : null;
+            }).filter(Boolean);
+            return fields.length ? <section className="extensionFormSection" key={index}>
+                <h3>{section.title}</h3>
+                {section.description ? <p className="extensionNote">{section.description}</p> : null}
+                {fields}
+            </section> : null;
+        }) : [];
+        return <div className="extensionForm">
+            {error ? <p role="alert" className="extensionValueError">{error}</p> : null}
+            {sections}
+            {settings.filter(setting => !listed.has(setting.name)).map(setting => this.renderSetting(setting))}
+        </div>;
+    }
+
+    renderSetting(setting, presentation = {}, disabled = false) {
         const value = this.valueOf(setting);
         const change = event => this.onSettingChange(setting.name, event.target.value);
 
@@ -525,6 +557,8 @@ export default class ExtensionsScreen extends React.Component {
             // The broker never sends a secret, only whether one is set. Leaving the mask alone
             // leaves the stored value alone; typing over it replaces it.
             control = <PasswordInput value={value} onChange={change} placeholder="not set"/>;
+        } else if (presentation.widget === "multiline") {
+            control = <textarea rows={4} value={value} onChange={change}/>;
         } else {
             control = <input type="text" value={value} onChange={change}
                              pattern={setting.pattern || undefined}
@@ -563,7 +597,7 @@ export default class ExtensionsScreen extends React.Component {
                 {setting.required ? <b className="extensionRequired"> *</b> : null}:
             </label>
             <div className={matches ? "extensionValue" : "extensionValue extensionValueInvalid"}>
-                {control}
+                <fieldset className="extensionFieldControl" disabled={disabled}>{control}</fieldset>
                 {matches ? null
                     : <div className="extensionValueError">
                         This value does not match the format: {setting.pattern}
@@ -641,11 +675,9 @@ export default class ExtensionsScreen extends React.Component {
             <div className="extensionPanel">
                 <div className="extensionPanelTitle">Settings</div>
                 <div className="extensionPanelBody">
-                    {(extension.presets || []).length ? this.renderPresets(extension) : null}
+                    {this.presetsOf(extension).length ? this.renderPresets(extension) : null}
                     {(extension.settings || []).length
-                        ? <div className="extensionForm">
-                            {(extension.settings || []).map(setting => this.renderSetting(setting))}
-                        </div>
+                        ? this.renderFields(extension)
                         : <p className="extensionNote">
                             This extension declares no settings and none are configured for it.
                         </p>}

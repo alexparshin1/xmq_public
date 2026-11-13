@@ -699,6 +699,8 @@
                     <!-- Which file the entry came from: the single file or one fragment among
                          several is not something an operator should have to hunt for. -->
                     <xsd:element name="source" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="ui_definition" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="ui_error" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="running" type="xsd:boolean"/>
                     <!-- The broker does not serve MQTT without a required extension, so it gets no
                          enable or disable button: that would be a way to stop serving that does not
