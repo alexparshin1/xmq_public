@@ -1,9 +1,12 @@
 /* Copyright (c) 2026 Alexey Parshin. MPL-2.0. */
 // Standalone harness: drives the same class and host ABI as the shared library.
 #include "../Ldap.cpp"
+#include <array>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <map>
+#include <thread>
 
 namespace {
 std::map<std::string, std::string> settings;
@@ -60,6 +63,62 @@ int main(int argc, char** argv)
         expect(accountDisabled("514", 2), "disabled flag read");
         expect(!accountDisabled("512", 2), "enabled account");
         expect(!accountDisabled("not-a-number", 2), "unreadable state is not a refusal");
+
+        // The cache key: identity plus a keyed hash of the password, never the password itself.
+        std::array<unsigned char, 32> salt {};
+        salt.fill(7);
+        const auto key = decisionKey(salt, "ldap/alice", "secret");
+        expect(!key.empty() && key == decisionKey(salt, "ldap/alice", "secret"), "same login, same key");
+        expect(key != decisionKey(salt, "ldap/alice", "secret2"), "a changed password is a different key");
+        expect(key != decisionKey(salt, "ldap/bob", "secret"), "another identity is a different key");
+        expect(key.find("secret") == std::string::npos, "the key does not carry the password");
+        expect(decisionKey(std::array<unsigned char, 32> {}, "ldap/alice", "secret").empty(),
+               "without entropy there is no key, so nothing is cached");
+
+        // Decision cache: lifetimes, the outage rule, and the eviction order.
+        {
+            DecisionCache cache;
+            xmq_auth_decision decision {};
+            std::vector<std::string> groups;
+            cache.configure(60, 10, 4096);
+            cache.store("allow", XMQ_AUTH_ALLOW, {"Operators"});
+            expect(cache.find("allow", decision, groups) && decision == XMQ_AUTH_ALLOW && groups.size() == 1,
+                   "an allow is remembered with its groups");
+            cache.store("deny", XMQ_AUTH_DENY, {});
+            expect(cache.find("deny", decision, groups) && decision == XMQ_AUTH_DENY, "a refusal is remembered");
+            cache.store("outage", XMQ_AUTH_SUBSYSTEM_ERROR, {});
+            expect(!cache.find("outage", decision, groups), "an outage is never remembered");
+
+            // A zero lifetime disables that direction only.
+            cache.configure(0, 10, 4096);
+            cache.store("fresh", XMQ_AUTH_ALLOW, {});
+            expect(!cache.find("fresh", decision, groups), "zero positive lifetime caches no allow");
+            cache.store("wrong", XMQ_AUTH_DENY, {});
+            expect(cache.find("wrong", decision, groups), "refusals keep their own lifetime");
+
+            // Least recently used goes first, and a hit keeps an entry alive.
+            cache.configure(60, 10, 2);
+            cache.store("x", XMQ_AUTH_ALLOW, {});
+            cache.store("y", XMQ_AUTH_ALLOW, {});
+            expect(cache.find("x", decision, groups), "precondition: both entries are present");
+            cache.store("z", XMQ_AUTH_ALLOW, {});
+            expect(cache.find("x", decision, groups) && !cache.find("y", decision, groups) &&
+                   cache.find("z", decision, groups), "the least recently used entry is evicted");
+
+            // Reload replaces the cache, so a changed directory policy is not held out.
+            cache.configure(60, 10, 4096);
+            expect(!cache.find("z", decision, groups), "configuring a new policy drops remembered decisions");
+
+            // Expiry: both directions fall out of the cache on their own lifetime.
+            cache.configure(1, 1, 4096);
+            cache.store("young-allow", XMQ_AUTH_ALLOW, {});
+            cache.store("young-deny", XMQ_AUTH_DENY, {});
+            expect(cache.find("young-allow", decision, groups) && cache.find("young-deny", decision, groups),
+                   "precondition: young entries hit");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+            expect(!cache.find("young-allow", decision, groups) && !cache.find("young-deny", decision, groups),
+                   "expired entries miss and are dropped");
+        }
         Config invalid {.uri="ldap://localhost", .base="dc=example,dc=org", .filter="(uid={username})", .prefix="ldap/", .startTls=false};
         bool rejected = false;
         try { validate(invalid); } catch (...) { rejected = true; }

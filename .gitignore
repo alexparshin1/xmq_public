@@ -72,3 +72,7 @@ LoadTest/.aws/
 server.pid
 test.message
 test.xml
+
+# Python bytecode from the test harnesses
+__pycache__/
+*.pyc

@@ -153,14 +153,19 @@ without holding a corrected password out for long. Up to `cache_max_entries` ide
 least recently used evicted first.
 
 The key is the username plus an HMAC of the password under a per-process random salt: the password
-itself is not stored, a changed password is a miss by construction, and a restart shares no keys with
-the previous process. A directory outage is **never** cached, so it cannot become a remembered
-answer in either direction.
+itself is not stored, a login that presents a different password is a different key and is checked
+with the directory at once, and a restart shares no keys with the previous process. A directory
+outage is **never** cached, so it cannot become a remembered answer in either direction.
 
 The trade-off is deliberate and must be known: a password revoked in the directory, or a user
-removed from a mapped group, keeps working until the cached entry expires — at most one TTL.
-Set `cache_ttl_seconds` to `0` where that window is unacceptable; every CONNECT then checks the
+removed from a mapped group, keeps working until the cached entry expires — at most one TTL. The
+cache cannot tell that the directory's answer changed; the lifetime is what bounds it. Set
+`cache_ttl_seconds` to `0` where that window is unacceptable; every CONNECT then checks the
 directory, and the cost is what the first benchmark round shows.
+
+Measured on the Windows Server stand with 500 CONNECTs at concurrency 8: 3445 CONNECT/s on the cold
+round and 11071 CONNECT/s once the cache answered, and a two-second lifetime, changed at the
+directory, still held the old password for that long and then refused it.
 
 Add `--serve` to keep the isolated stand running for MQTTX and GUI testing. The script prints its
 randomly allocated loopback MQTT/Web GUI ports and test credentials. Alice (`ldap/alice`, password

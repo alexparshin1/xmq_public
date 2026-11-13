@@ -43,6 +43,9 @@ def main():
     parser.add_argument("--search-base", default=GROUPS_SEARCH_BASE)
     parser.add_argument("--upn", default="ldap/bob@example.org", help="login name checked alongside ldap/alice")
     parser.add_argument("--disabled", default="carol", help="short name of the disabled account")
+    parser.add_argument("--cache-check", action="store_true",
+                        help="also time repeated logins, to show the decision cache answering")
+    parser.add_argument("--cache-rounds", type=int, default=200, help="CONNECTs per round (default 200)")
     parser.add_argument("--host-address", default=None,
                         help="address to put in the temporary /etc/hosts entry (default: resolve --host)")
     parser.add_argument("--no-hosts-entry", action="store_true",
@@ -79,6 +82,15 @@ def main():
                 directory.verify(port, arguments.upn, arguments.disabled)
                 print("Windows AD acceptance passed: sAMAccountName, UPN, nested groups, "
                       "disabled account")
+                if arguments.cache_check:
+                    # A login the checks above never made, so the first round is genuinely cold:
+                    # verify() uses bob's user principal name, not his short name.
+                    rates = directory.cache_rounds(port, "ldap/bob", "Xmq-Accept-2!",
+                                                   per_round=arguments.cache_rounds)
+                    if len(rates) > 1 and rates[-1] <= rates[0]:
+                        raise SystemExit("the decision cache did not speed repeated logins up")
+                    print("Windows AD cache check passed: first round {:.1f}, last round {:.1f} "
+                          "CONNECT/s".format(rates[0], rates[-1]))
             except Exception:
                 log.flush()
                 log.seek(0)

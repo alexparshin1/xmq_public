@@ -97,6 +97,32 @@ def start_broker(binary, library, port, settings, database, listener="Directory"
     raise RuntimeError("broker did not open its port")
 
 
+def cache_rounds(port, username, password, rounds=2, per_round=200, concurrency=8):
+    """Time repeated CONNECTs for one identity; the first round reaches the directory.
+
+    The cache is keyed by the login and a hash of the password, so the same identity and password
+    only reach the directory once per lifetime. A later round much faster than the first means the
+    cache answered instead.
+    """
+    import concurrent.futures
+    import time
+
+    from broker import connect_once
+
+    rates = []
+    for number in range(1, rounds + 1):
+        started = time.monotonic()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
+            for future in [pool.submit(connect_once, port, username, password)
+                           for _ in range(per_round)]:
+                future.result()
+        elapsed = time.monotonic() - started
+        rates.append(per_round / elapsed)
+        print(f"cache round {number}: {per_round} connects, concurrency {concurrency}, "
+              f"{elapsed:.2f} s, {rates[-1]:.1f} CONNECT/s", flush=True)
+    return rates
+
+
 def verify(port, upn, disabled):
     """Run the checks that only an AD schema can prove, against a broker already listening."""
     sockets = []

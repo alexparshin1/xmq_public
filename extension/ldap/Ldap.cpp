@@ -201,6 +201,33 @@ int bind(Session& session, const std::string& dn, const std::string& password)
                             &credential, nullptr, nullptr, nullptr);
 }
 
+/// A decision is keyed by identity and a per-process HMAC of the password: a hit can be answered
+/// without holding the password, and a login that presents a different password is a different key,
+/// so it is checked with the directory at once. A password changed at the directory is not visible
+/// while an entry lives: the cache cannot know, and the lifetime bounds how long that lasts.
+/// An empty key means "no cache": entropy was unavailable at start, so remember nothing.
+std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::string_view username,
+                        const std::string& password)
+{
+    if (std::all_of(salt.begin(), salt.end(), [](const auto byte) { return byte == 0; }))
+        return {};
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int  length = 0;
+    if (HMAC(EVP_sha256(), salt.data(), static_cast<int>(salt.size()),
+             reinterpret_cast<const unsigned char*>(password.data()), password.size(), digest,
+             &length) == nullptr)
+        return {};
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string key(username);
+    key += '\0';
+    for (unsigned int index = 0; index < length; ++index)
+    {
+        key += hex[digest[index] >> 4];
+        key += hex[digest[index] & 15];
+    }
+    return key;
+}
+
 class DecisionCache
 {
 public:
@@ -240,9 +267,11 @@ public:
 
     /// ALLOW keeps its groups; a refusal is remembered only briefly so a corrected password is not
     /// held out for the positive lifetime. SUBSYSTEM_ERROR is never stored: an outage must not
-    /// become a remembered answer in either direction.
+    /// become a remembered answer in either direction. The guard is here as well as at the call
+    /// sites, so a future caller cannot turn an outage into a cached verdict by accident.
     void store(const std::string& key, const xmq_auth_decision decision, const std::vector<std::string>& groups)
     {
+        if (decision == XMQ_AUTH_SUBSYSTEM_ERROR) return;
         const std::scoped_lock lock(m_mutex);
         const auto lifetime = decision == XMQ_AUTH_ALLOW ? m_positive : m_negative;
         if (lifetime.count() <= 0) return;
@@ -534,23 +563,7 @@ private:
     /// answered without holding the password, and a changed password is a miss by construction.
     std::string cacheKey(const std::string_view username, const std::string& password) const
     {
-        if (std::all_of(m_salt.begin(), m_salt.end(), [](const auto byte) { return byte == 0; }))
-            return {}; // Entropy was unavailable at start; run without a cache rather than guess.
-        unsigned char digest[EVP_MAX_MD_SIZE];
-        unsigned int  length = 0;
-        if (HMAC(EVP_sha256(), m_salt.data(), static_cast<int>(m_salt.size()),
-                 reinterpret_cast<const unsigned char*>(password.data()), password.size(), digest,
-                 &length) == nullptr)
-            return {};
-        static constexpr char hex[] = "0123456789abcdef";
-        std::string key(username);
-        key += '\0';
-        for (unsigned int index = 0; index < length; ++index)
-        {
-            key += hex[digest[index] >> 4];
-            key += hex[digest[index] & 15];
-        }
-        return key;
+        return decisionKey(m_salt, username, password);
     }
 
     std::mutex m_mutex;
