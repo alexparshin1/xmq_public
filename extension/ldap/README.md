@@ -81,13 +81,13 @@ for `ldap`". `user_filter` and `group_filter` override the profile entirely if a
 a different attribute. The state check reads `account_state_attribute` (`userAccountControl`) and
 refuses an account whose flags contain `account_state_disabled_mask` (`2`, ACCOUNTDISABLE).
 
-AD compatibility has been checked against a **Samba AD DC**, which serves the real AD schema: the
-harness `extension/ldap/tests/samba_ad.py` provisions a throwaway domain, then verifies login by
-`sAMAccountName`, login by `userPrincipalName`, a mapped group reached through a nested group by the
-in-chain rule, and the refusal of a disabled account. A Windows Server domain controller has not yet
-been used; run the same acceptance there before promising support for a particular AD version.
+AD compatibility has been checked against two real AD implementations: a **Samba AD DC** and a
+**Windows Server 2026** domain controller, both serving the AD schema. `extension/ldap/tests/samba_ad.py`
+provisions a throwaway Samba domain and `extension/ldap/tests/windows_ad.py` runs against a controller
+you already have. Both verify login by `sAMAccountName`, login by `userPrincipalName`, a mapped group
+reached through a nested group by the in-chain rule, and the refusal of a disabled account.
 
-The harness needs Docker and passwordless `sudo` on the machine where the broker runs: libldap
+The Samba harness needs Docker and passwordless `sudo` on the machine where the broker runs: libldap
 verifies the certificate against the name it was given, so the script adds a temporary `/etc/hosts`
 entry for the directory's name and removes it afterwards. The domain is created with `NOCOMPLEXITY`
 and test passwords; nothing outside the throwaway container and that one hosts line is touched.
@@ -95,13 +95,39 @@ and test passwords; nothing outside the throwaway container and that one hosts l
 Note that AD refuses the bind of a disabled account itself, so the account-state check is a second
 guard for directories that do not. The flag parsing is covered by unit tests either way.
 
+## AD acceptance against a Windows Server domain controller
+
+```sh
+python3 extension/ldap/tests/windows_ad.py build/xmq_server \
+    --host dc1.example.org --host-address 10.1.1.18 \
+    --ca ca.pem \
+    --bind-dn 'cn=Administrator,cn=Users,dc=example,dc=org' \
+    --bind-password 'REPLACE-ME'
+```
+
+The controller needs the same fixtures the Samba harness creates: users `alice`, `bob` and a
+disabled `carol` (passwords `Xmq-Accept-1!`, `Xmq-Accept-2!`, `Xmq-Accept-3!`), and the groups
+`Server Monitoring` (`alice`, `bob`), `MQTT Inner` (`alice`) and `MQTT Operators`, which contains
+`MQTT Inner`. `--ca` is the CA certificate that signed the controller's LDAPS certificate; a
+disposable test domain can simply publish its own self-signed CA for that. The harness starts its
+own broker on a free port in a temporary directory and checks the same four points as the Samba
+one.
+
+A freshly promoted controller on a private network has no LDAPS certificate at all (port 636 listens
+but the handshake fails) until one is installed. On the test machine that was done with
+`New-SelfSignedCertificate` for a throwaway CA, signing a server certificate with the controller's
+FQDN in the subject alternative name, imported into `LocalMachine\My` and its CA into
+`LocalMachine\Root`, followed by a restart of the NTDS service. The service must be started in order —
+NTDS first, then DNS, then Netlogon — because the AD-integrated DNS zone cannot load before the
+directory does.
+
 ## AD acceptance against a Samba AD DC
 
 ```sh
 python3 extension/ldap/tests/samba_ad.py build/xmq_server
 ```
 
-This needs Docker and passwordless `sudo` (see below). It provisions a throwaway
+This needs Docker and passwordless `sudo` (see above). It provisions a throwaway
 `nowsci/samba-domain` container, creates `alice`, `bob` and a disabled `carol`, the groups
 `Server Monitoring`, `MQTT Inner` and `MQTT Operators` (with `MQTT Inner` nested inside
 `MQTT Operators`), replaces Samba's temporary TLS certificate with one signed by a throwaway CA and

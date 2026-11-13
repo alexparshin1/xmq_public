@@ -278,11 +278,10 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
             </p>
 
             <p>
-                Active Directory support has been checked against a <b>Samba AD DC</b>, which serves the
-                real AD schema: a throwaway domain verifies login by <code>sAMAccountName</code> and by
-                user principal name, a mapped group reached through a nested group, and the refusal of
-                a disabled account. A Windows Server domain controller has not yet been used, so run
-                the same acceptance there before promising support for a particular AD version.
+                Active Directory support has been checked against a <b>Samba AD DC</b> and a
+                <b>Windows Server 2026</b> domain controller, both serving the real AD schema. Both
+                stands verify login by <code>sAMAccountName</code> and by user principal name, a
+                mapped group reached through a nested group, and the refusal of a disabled account.
             </p>
         </section>
 

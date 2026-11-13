@@ -30,7 +30,8 @@ Requires SPTK 5.6.20.
   sAMAccountName or user principal name, follows nested groups through the in-chain matching rule,
   and refuses an account whose `userAccountControl` disabled bit is set. Extension ABI 1.4 adds
   combined authentication/membership; previous-size extension tables remain supported. See
-  `extension/ldap/README.md` for the isolated manual test stand and current limits.
+  `extension/ldap/README.md` for the isolated manual test stand and current limits. The AD profile is
+  accepted against a Samba AD DC and a Windows Server 2026 domain controller.
 
 - **MQTT over WebSocket and secure WebSocket listeners.** Add listeners with protocol `MQTT+WS` or
   `MQTT+WSS` alongside the existing TCP and TLS listeners. The broker answers the HTTP upgrade,
