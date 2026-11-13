@@ -5,3 +5,7 @@
 libspdb5.so.5.6.20
 libsputil5.so.5.6.20
 libspwsdl5.so.5.6.20
+# 1.1.2: the packaged LDAP authenticator links the system OpenLDAP client library - it is an
+# optional extension, but the package ships it and every installation now pulls the library in.
+libldap.so.2
+liblber.so.2
