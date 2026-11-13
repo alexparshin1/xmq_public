@@ -117,9 +117,10 @@ A freshly promoted controller on a private network has no LDAPS certificate at a
 but the handshake fails) until one is installed. On the test machine that was done with
 `New-SelfSignedCertificate` for a throwaway CA, signing a server certificate with the controller's
 FQDN in the subject alternative name, imported into `LocalMachine\My` and its CA into
-`LocalMachine\Root`, followed by a restart of the NTDS service. The service must be started in order —
-NTDS first, then DNS, then Netlogon — because the AD-integrated DNS zone cannot load before the
-directory does.
+`LocalMachine\Root`, followed by a restart of the NTDS service. Restarting the directory service by
+hand has to be done in order — NTDS first, then DNS, then Netlogon — because the AD-integrated DNS
+zone cannot load before the directory does; a normal reboot starts them correctly on its own, which
+was confirmed on this machine after the certificate was in place.
 
 ## AD acceptance against a Samba AD DC
 
