@@ -240,6 +240,16 @@ SMessage MessageReader::readPublish(Packet&& packet, const FixedHeader& messageH
         }
     }
 
+    // A PUBLISH with no topic is only legal when an alias named above resolved it; anything else
+    // would be a message delivered to no topic at all.
+    if (publishMessage->destination()->empty())
+    {
+        throw ProtocolException(getProtocolVersion(),
+                                getProtocolVersion() == ProtocolVersion::MqttV5 ? ReasonCode::ProtocolError
+                                                                                : ReasonCode::MalformedPacket,
+                                "PUBLISH has no topic and no topic alias");
+    }
+
     if (const auto messageProperties = publishMessage->getProperties())
     {
         using enum LatencyPhase;

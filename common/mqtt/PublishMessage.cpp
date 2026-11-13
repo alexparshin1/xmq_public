@@ -64,22 +64,32 @@ mqtt::PublishMessage::PublishMessage(const STopicManager& topicManager, TopicCac
     const auto destinationSize = ntohs(*bit_cast<uint16_t*>(readPosition));
     readPosition += sizeof(uint16_t);
     availableBytes -= sizeof(uint16_t);
-    if (destinationSize == 0 || destinationSize > availableBytes)
+    if (destinationSize > availableBytes)
     {
         throw Exception("MQTT PUBLISH packet has an invalid topic name length");
+    }
+    if (destinationSize == 0)
+    {
+        // MQTT 5 lets a PUBLISH carry no topic at all when a topic alias names the destination;
+        // the reader resolves that after the properties are known, and refuses the message if the
+        // alias names nothing. Nothing is cached meanwhile: there is no name to match later.
+        m_destination = TopicManager::emptyTopic();
     }
 
     const string_view destination(bit_cast<char*>(readPosition), destinationSize);
     // The session's last topic serves this one unless the publisher moved on: see TopicCache.
-    if (topicCache.m_topic != nullptr && destination == topicCache.m_name)
+    if (destinationSize != 0)
     {
-        m_destination = topicCache.m_topic;
-    }
-    else
-    {
-        m_destination = topicManager->getTopic(destination);
-        topicCache.m_name.assign(destination);
-        topicCache.m_topic = m_destination;
+        if (topicCache.m_topic != nullptr && destination == topicCache.m_name)
+        {
+            m_destination = topicCache.m_topic;
+        }
+        else
+        {
+            m_destination = topicManager->getTopic(destination);
+            topicCache.m_name.assign(destination);
+            topicCache.m_topic = m_destination;
+        }
     }
 
     readPosition += destinationSize;
