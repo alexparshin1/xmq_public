@@ -16,6 +16,7 @@ IF (WIN32)
             ${CMAKE_CURRENT_LIST_DIR}/LdapPlatform.cpp OPENSSL
             UI "${CMAKE_CURRENT_LIST_DIR}/ldap.ui.json")
     TARGET_LINK_LIBRARIES(xmq_ldap wldap32 crypt32)
+    TARGET_COMPILE_DEFINITIONS(xmq_ldap PRIVATE NOMINMAX)
     INSTALL(TARGETS xmq_ldap LIBRARY DESTINATION lib/xmq-extensions
             RUNTIME DESTINATION lib/xmq-extensions)
 ELSE ()

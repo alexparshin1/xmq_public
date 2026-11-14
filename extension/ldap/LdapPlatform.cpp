@@ -28,7 +28,7 @@ int open(Session& session, const std::string_view host, const unsigned short por
 int startTls(Session& session, const unsigned) { return ldap_start_tls_s(session.handle, nullptr, nullptr); }
 int bind(Session& session, const std::string_view dn, const std::string_view password)
 {
-    berval credential {password.size(), const_cast<char*>(password.data())};
+    berval credential {static_cast<ULONG>(password.size()), const_cast<char*>(password.data())};
     const std::string name(dn);
     return ldap_sasl_bind_s(session.handle, dn.empty() ? nullptr : name.c_str(), LDAP_SASL_SIMPLE,
                             &credential, nullptr, nullptr, nullptr);
@@ -66,6 +66,7 @@ std::string attribute(Session& session, LDAPMessage* entry, const std::string_vi
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <limits>
 #include <vector>
 #include <wincrypt.h>
 
@@ -246,6 +247,7 @@ int startTls(Session& session, const unsigned)
 int bind(Session& session, const std::string_view dn, const std::string_view password)
 {
     const auto name = utf16(dn);
+    if (password.size() > std::numeric_limits<ULONG>::max()) return LDAP_PARAM_ERROR;
     berval credential {password.size(), const_cast<char*>(password.data())};
     return ldap_sasl_bind_sW(session.handle, dn.empty() ? nullptr : const_cast<PWCHAR>(name.c_str()),
                              const_cast<PWCHAR>(L""), &credential, nullptr, nullptr, nullptr);
@@ -257,7 +259,7 @@ int search(Session& session, const std::string_view base, const int scope, const
     const auto baseWide = utf16(base), filterWide = utf16(filter);
     std::vector<std::wstring> owned;
     for (size_t i = 0; attributes && attributes[i]; ++i) owned.push_back(utf16(attributes[i]));
-    attrs.clear();
+    std::vector<PWCHAR> attrs;
     for (auto& item : owned) attrs.push_back(item.data());
     attrs.push_back(nullptr);
     l_timeval timeout {static_cast<long>(timeoutSeconds), 0};
