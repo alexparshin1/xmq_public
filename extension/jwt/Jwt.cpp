@@ -39,6 +39,10 @@
 
 #ifndef _WIN32
 #include <sys/socket.h>
+#else
+#ifdef max
+#undef max
+#endif
 #endif
 
 #include <chrono>
@@ -67,22 +71,22 @@ struct Mapping
 
 struct Config
 {
-    std::string          algorithm {"RS256"};
+    std::string          algorithm{"RS256"};
     std::string          secret;
     std::string          publicKeyPem;
     std::string          jwksUrl;
     std::string          jwksCaFile;
     std::string          issuer;
     std::string          audience;
-    std::string          usernameClaim {"preferred_username"};
-    std::string          groupsClaim {"groups"};
+    std::string          usernameClaim{"preferred_username"};
+    std::string          groupsClaim{"groups"};
     std::string          prefix;
     std::vector<Mapping> mappings;
-    int                  skewSeconds {30};
-    int                  timeoutSeconds {5};
-    int                  cacheSeconds {60};
-    int                  negativeCacheSeconds {10};
-    size_t               cacheEntries {4096};
+    int                  skewSeconds{30};
+    int                  timeoutSeconds{5};
+    int                  cacheSeconds{60};
+    int                  negativeCacheSeconds{10};
+    size_t               cacheEntries{4096};
 };
 
 /// "claim value => XMQ group" per line, the same shape the LDAP extension uses for directory
@@ -103,8 +107,9 @@ std::vector<Mapping> parseMappings(const std::string& text)
         {
             const auto first = value.find_first_not_of(" \t\r");
             const auto last = value.find_last_not_of(" \t\r");
-            return first == std::string_view::npos ? std::string{}
-                                                   : std::string(value.substr(first, last - first + 1));
+            return first == std::string_view::npos
+                       ? std::string{}
+                       : std::string(value.substr(first, last - first + 1));
         };
         const auto claimValue = trim(std::string_view(line).substr(0, separator));
         const auto group = trim(std::string_view(line).substr(separator + 2));
@@ -122,7 +127,7 @@ void validate(const Config& config)
         throw std::runtime_error("JWT algorithm must be HS256, RS256 or ES256");
     if (config.issuer.empty())
         throw std::runtime_error("JWT issuer is required: without it any token signed by these keys "
-                                 "would be accepted from anywhere");
+            "would be accepted from anywhere");
     if (config.usernameClaim.empty())
         throw std::runtime_error("JWT username_claim must not be empty");
     if (config.algorithm == "HS256")
@@ -156,8 +161,9 @@ bool plainHttpAllowed(const std::string& url)
     }
     const auto hostStart = url.find("://") + 3;
     const auto hostEnd = url.find_first_of(":/", hostStart);
-    const auto host = url.substr(hostStart, hostEnd == std::string::npos ? std::string::npos
-                                                                        : hostEnd - hostStart);
+    const auto host = url.substr(hostStart, hostEnd == std::string::npos
+                                                ? std::string::npos
+                                                : hostEnd - hostStart);
     return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
 }
 
@@ -168,15 +174,15 @@ bool plainHttpAllowed(const std::string& url)
 
 struct KeySet
 {
-    std::vector<Jwk> keys;
+    std::vector<Jwk>  keys;
     Clock::time_point fetched;
 };
 
 /// A GET over TLS with the certificate verified against the system store or the configured CA, and
 /// the host name checked against the certificate. Written out rather than pulled from a library so
 /// that the extension needs nothing but OpenSSL and the ABI.
-std::optional<std::string> httpsGet(const std::string& url, const std::string& caFile,
-                                    const int timeoutSeconds, std::string& error)
+std::optional<std::string> httpsGet(const std::string& url, const std::string&      caFile,
+                                    const int          timeoutSeconds, std::string& error)
 {
     const auto schemeEnd = url.find("://");
     if (schemeEnd == std::string::npos)
@@ -193,8 +199,8 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
     const auto authorityStart = schemeEnd + 3;
     const auto pathStart = url.find('/', authorityStart);
     const auto authority = url.substr(authorityStart, pathStart == std::string::npos
-                                                           ? std::string::npos
-                                                           : pathStart - authorityStart);
+                                                          ? std::string::npos
+                                                          : pathStart - authorityStart);
     const auto path = pathStart == std::string::npos ? std::string("/") : url.substr(pathStart);
     if (authority.empty())
     {
@@ -204,7 +210,7 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
     auto host = authority;
     auto port = scheme == "https" ? std::string("443") : std::string("80");
     if (const auto colon = authority.rfind(':'); colon != std::string::npos &&
-                                                  authority.find(']') == std::string::npos)
+                                                 authority.find(']') == std::string::npos)
     {
         host = authority.substr(0, colon);
         port = authority.substr(colon + 1);
@@ -222,7 +228,7 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
             return std::nullopt;
         }
         const std::unique_ptr<BIO, decltype(&BIO_free_all)> bio(plain, BIO_free_all);
-        const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
+        const std::string                                   request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
                                     "\r\nAccept: application/json\r\nConnection: close\r\n\r\n";
         if (BIO_write(bio.get(), request.data(), static_cast<int>(request.size())) !=
             static_cast<int>(request.size()))
@@ -230,8 +236,8 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
             error = "the JWKS request could not be sent";
             return std::nullopt;
         }
-        std::string response;
-        std::array<char, 4096> buffer {};
+        std::string            response;
+        std::array<char, 4096> buffer{};
         while (true)
         {
             const auto read = BIO_read(bio.get(), buffer.data(), static_cast<int>(buffer.size()));
@@ -286,7 +292,7 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
         return std::nullopt;
     }
     const std::unique_ptr<BIO, decltype(&BIO_free_all)> bio(rawBio, BIO_free_all);
-    SSL* ssl = nullptr;
+    SSL*                                                ssl = nullptr;
     BIO_get_ssl(bio.get(), &ssl);
     if (ssl == nullptr)
     {
@@ -316,7 +322,7 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
     const int descriptor = BIO_get_fd(bio.get(), nullptr);
     if (descriptor >= 0)
     {
-        timeval limit {timeoutSeconds, 0};
+        timeval limit{timeoutSeconds, 0};
         setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
         setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &limit, sizeof(limit));
     }
@@ -330,8 +336,8 @@ std::optional<std::string> httpsGet(const std::string& url, const std::string& c
         error = "the JWKS request could not be sent";
         return std::nullopt;
     }
-    std::string response;
-    std::array<char, 4096> buffer {};
+    std::string            response;
+    std::array<char, 4096> buffer{};
     while (true)
     {
         const auto read = BIO_read(bio.get(), buffer.data(), static_cast<int>(buffer.size()));
@@ -381,11 +387,11 @@ public:
     /// `error` is filled when the set could not be obtained at all, which is an outage rather than
     /// a refusal.
     PkeyPtr key(const Config& config, const std::string& algorithm, const std::string& keyId,
-                std::string& error)
+                std::string&  error)
     {
         // A configured key is the whole set and has no id to match: the token's kid is not ours
         // to check against a key the operator pasted in.
-        const auto wanted = config.publicKeyPem.empty() ? keyId : std::string {};
+        const auto wanted = config.publicKeyPem.empty() ? keyId : std::string{};
         {
             const std::scoped_lock lock(m_mutex);
             if (m_keys && Clock::now() - m_keys->fetched < m_lifetime)
@@ -447,11 +453,11 @@ private:
                 return false;
             }
             const std::scoped_lock lock(m_mutex);
-            m_keys = KeySet {{Jwk {"", config.algorithm, key}}, Clock::now()};
+            m_keys = KeySet{{Jwk{"", config.algorithm, key}}, Clock::now()};
             return true;
         }
         std::string transportError;
-        const auto body = httpsGet(config.jwksUrl, config.jwksCaFile, config.timeoutSeconds,
+        const auto  body = httpsGet(config.jwksUrl, config.jwksCaFile, config.timeoutSeconds,
                                    transportError);
         if (!body)
         {
@@ -471,12 +477,12 @@ private:
             return false;
         }
         const std::scoped_lock lock(m_mutex);
-        m_keys = KeySet {std::move(keys), Clock::now()};
+        m_keys = KeySet{std::move(keys), Clock::now()};
         return true;
     }
 
-    std::mutex          m_mutex;
-    std::chrono::seconds m_lifetime {300};
+    std::mutex            m_mutex;
+    std::chrono::seconds  m_lifetime{300};
     std::optional<KeySet> m_keys;
 };
 
@@ -487,8 +493,8 @@ private:
 
 struct CacheEntry
 {
-    Clock::time_point expires;
-    xmq_auth_decision decision;
+    Clock::time_point        expires;
+    xmq_auth_decision        decision;
     std::vector<std::string> groups;
 };
 
@@ -526,7 +532,7 @@ public:
     }
 
     /// An outage is never stored: it must not become a remembered answer in either direction.
-    void store(const std::string& key, const xmq_auth_decision decision,
+    void store(const std::string&              key, const xmq_auth_decision decision,
                const std::vector<std::string>& groups)
     {
         if (decision == XMQ_AUTH_SUBSYSTEM_ERROR)
@@ -563,31 +569,31 @@ public:
             m_order.pop_back();
         }
         m_order.push_front(key);
-        m_entries.emplace(key, Entry {now + lifetime, decision, groups, m_order.begin()});
+        m_entries.emplace(key, Entry{now + lifetime, decision, groups, m_order.begin()});
     }
 
 private:
     struct Entry
     {
-        Clock::time_point        expires;
-        xmq_auth_decision        decision;
-        std::vector<std::string> groups;
+        Clock::time_point                expires;
+        xmq_auth_decision                decision;
+        std::vector<std::string>         groups;
         std::list<std::string>::iterator order;
     };
 
-    std::mutex m_mutex;
+    std::mutex                             m_mutex;
     std::unordered_map<std::string, Entry> m_entries;
     std::list<std::string>                 m_order;
-    std::chrono::seconds                   m_positive {60};
-    std::chrono::seconds                   m_negative {10};
-    size_t                                 m_maxEntries {4096};
+    std::chrono::seconds                   m_positive{60};
+    std::chrono::seconds                   m_negative{10};
+    size_t                                 m_maxEntries{4096};
 };
 
 /// A decision is keyed by the presented identity and a keyed hash of the token: the cache never
 /// holds the credential itself, a restarted broker shares no keys with the previous process, and a
 /// token tried under another name misses instead of reusing the answer for the first name.
 std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::string_view username,
-                        const std::string& token)
+                        const std::string&                   token)
 {
     if (std::all_of(salt.begin(), salt.end(), [](const auto byte) { return byte == 0; }))
     {
@@ -732,12 +738,15 @@ public:
         return authenticateWithGroups(request, ignored);
     }
 
-    xmq_auth_decision authenticateWithGroups(const xmq_auth_request& request,
+    xmq_auth_decision authenticateWithGroups(const xmq_auth_request&   request,
                                              std::vector<std::string>& groups) override
     {
         groups.clear();
         std::shared_ptr<const Config> config;
-        { const std::scoped_lock lock(m_mutex); config = m_config; }
+        {
+            const std::scoped_lock lock(m_mutex);
+            config = m_config;
+        }
         if (!config)
         {
             return XMQ_AUTH_SUBSYSTEM_ERROR;
@@ -756,7 +765,7 @@ public:
         const auto key = decisionKey(m_salt, presentedName, tokenText);
         if (!key.empty())
         {
-            xmq_auth_decision       cached {};
+            xmq_auth_decision        cached{};
             std::vector<std::string> cachedGroups;
             if (m_cache.find(key, cached, cachedGroups))
             {
@@ -777,7 +786,7 @@ public:
         if (algorithm != config->algorithm)
         {
             log(XMQ_LOG_WARNING, "rejected a token that asks for " + algorithm + ", not " +
-                                     config->algorithm);
+                                 config->algorithm);
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
@@ -813,8 +822,8 @@ public:
             }
         }
 
-        const auto now = std::time(nullptr);
-        const auto skew = static_cast<int64_t>(config->skewSeconds);
+        const auto  now = std::time(nullptr);
+        const auto  skew = static_cast<int64_t>(config->skewSeconds);
         const auto* expiryValue = token->claims.find("exp");
         if (expiryValue == nullptr || expiryValue->type != Json::Type::Number)
         {
@@ -857,7 +866,7 @@ public:
         if (presentedName != config->prefix + identity)
         {
             log(XMQ_LOG_WARNING, "rejected a token for " + identity + " presented as " +
-                                     std::string(presentedName));
+                                 std::string(presentedName));
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
@@ -872,7 +881,7 @@ public:
             for (const auto& mapping: config->mappings)
             {
                 if (std::find(claimedGroups.begin(), claimedGroups.end(), mapping.claimValue) ==
-                        claimedGroups.end())
+                    claimedGroups.end())
                 {
                     continue;
                 }
@@ -906,29 +915,29 @@ private:
     std::shared_ptr<const Config> m_config;
     DecisionCache                 m_cache;
     JwksCache                     m_jwks;
-    std::array<unsigned char, 32> m_salt {};
+    std::array<unsigned char, 32> m_salt{};
 };
 } // namespace
 
-const xmq_setting jwtSettings[] {
-    {.name="algorithm", .label="Signature algorithm", .description="HS256 verifies a shared secret; RS256 an RSA public key; ES256 a P-256 public key. Only the configured algorithm is accepted, so a token cannot choose its own", .type=XMQ_SETTING_CHOICE, .default_value="RS256", .choices="RS256,ES256,HS256", .required=0},
-    {.name="secret", .label="Shared secret", .description="The HMAC secret for HS256, as the identity provider has it. Not used by RS256 or ES256", .type=XMQ_SETTING_SECRET, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="public_key", .label="Public key (PEM)", .description="PEM public key for RS256 or ES256. Leave empty to take the keys from jwks_url instead", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="jwks_url", .label="JWKS URL", .description="The issuer's JSON Web Key Set, fetched over verified TLS and refreshed when a token names a key it does not hold", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="jwks_ca_file", .label="JWKS CA certificate", .description="The CA that signed the JWKS server's certificate - not the token signing key. Empty uses the system trust store", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="issuer", .label="Issuer", .description="The exact iss claim every accepted token must carry, for example https://keycloak.example.org/realms/xmq", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=1},
-    {.name="audience", .label="Audience", .description="The aud claim a token must name. Empty accepts any audience, which is weaker: leave it set wherever the provider issues one", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="username_claim", .label="Username claim", .description="Claim that carries the identity; a dotted path is allowed, for example preferred_username", .type=XMQ_SETTING_STRING, .default_value="preferred_username", .choices=nullptr, .required=0},
-    {.name="groups_claim", .label="Groups claim", .description="Claim that carries group or role names, as a string or an array; a dotted path is allowed, for example realm_access.roles", .type=XMQ_SETTING_STRING, .default_value="groups", .choices=nullptr, .required=0},
-    {.name="username_prefix", .label="Username prefix", .description="Prefix the identity from the token is presented with, so a token cannot stand in for a local account of the same name. The client sends this as its MQTT username and the token as its password; empty requires the claim to be sent as it is", .type=XMQ_SETTING_STRING, .default_value="jwt/", .choices=nullptr, .required=0},
-    {.name="group_mappings", .label="Claims to XMQ groups", .description="One 'claim value => existing XMQ group' per line. Empty passes the claim values through as group names", .type=XMQ_SETTING_STRING, .default_value=nullptr, .choices=nullptr, .required=0},
-    {.name="clock_skew_seconds", .label="Clock skew (seconds)", .description="How far a token's exp and nbf may disagree with this host's clock", .type=XMQ_SETTING_INTEGER, .default_value="30", .choices=nullptr, .required=0},
-    {.name="timeout_seconds", .label="Operation timeout (seconds)", .description="Timeout for fetching the key set", .type=XMQ_SETTING_INTEGER, .default_value="5", .choices=nullptr, .required=0},
-    {.name="cache_ttl_seconds", .label="Cache verified tokens (seconds)", .description="How long a verified token and its groups are remembered. 0 disables the cache", .type=XMQ_SETTING_INTEGER, .default_value="60", .choices=nullptr, .required=0},
-    {.name="negative_cache_ttl_seconds", .label="Cache refused tokens (seconds)", .description="How long a refused token is remembered; 0 disables it", .type=XMQ_SETTING_INTEGER, .default_value="10", .choices=nullptr, .required=0},
-    {.name="cache_max_entries", .label="Cached tokens", .description="Upper bound on remembered tokens, least recently used evicted first", .type=XMQ_SETTING_INTEGER, .default_value="4096", .choices=nullptr, .required=0}
+const xmq_setting jwtSettings[]{
+    {.name = "algorithm", .label = "Signature algorithm", .description = "HS256 verifies a shared secret; RS256 an RSA public key; ES256 a P-256 public key. Only the configured algorithm is accepted, so a token cannot choose its own", .type = XMQ_SETTING_CHOICE, .default_value = "RS256", .choices = "RS256,ES256,HS256", .required = 0},
+    {.name = "secret", .label = "Shared secret", .description = "The HMAC secret for HS256, as the identity provider has it. Not used by RS256 or ES256", .type = XMQ_SETTING_SECRET, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "public_key", .label = "Public key (PEM)", .description = "PEM public key for RS256 or ES256. Leave empty to take the keys from jwks_url instead", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "jwks_url", .label = "JWKS URL", .description = "The issuer's JSON Web Key Set, fetched over verified TLS and refreshed when a token names a key it does not hold", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "jwks_ca_file", .label = "JWKS CA certificate", .description = "The CA that signed the JWKS server's certificate - not the token signing key. Empty uses the system trust store", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "issuer", .label = "Issuer", .description = "The exact iss claim every accepted token must carry, for example https://keycloak.example.org/realms/xmq", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 1},
+    {.name = "audience", .label = "Audience", .description = "The aud claim a token must name. Empty accepts any audience, which is weaker: leave it set wherever the provider issues one", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "username_claim", .label = "Username claim", .description = "Claim that carries the identity; a dotted path is allowed, for example preferred_username", .type = XMQ_SETTING_STRING, .default_value = "preferred_username", .choices = nullptr, .required = 0},
+    {.name = "groups_claim", .label = "Groups claim", .description = "Claim that carries group or role names, as a string or an array; a dotted path is allowed, for example realm_access.roles", .type = XMQ_SETTING_STRING, .default_value = "groups", .choices = nullptr, .required = 0},
+    {.name = "username_prefix", .label = "Username prefix", .description = "Prefix the identity from the token is presented with, so a token cannot stand in for a local account of the same name. The client sends this as its MQTT username and the token as its password; empty requires the claim to be sent as it is", .type = XMQ_SETTING_STRING, .default_value = "jwt/", .choices = nullptr, .required = 0},
+    {.name = "group_mappings", .label = "Claims to XMQ groups", .description = "One 'claim value => existing XMQ group' per line. Empty passes the claim values through as group names", .type = XMQ_SETTING_STRING, .default_value = nullptr, .choices = nullptr, .required = 0},
+    {.name = "clock_skew_seconds", .label = "Clock skew (seconds)", .description = "How far a token's exp and nbf may disagree with this host's clock", .type = XMQ_SETTING_INTEGER, .default_value = "30", .choices = nullptr, .required = 0},
+    {.name = "timeout_seconds", .label = "Operation timeout (seconds)", .description = "Timeout for fetching the key set", .type = XMQ_SETTING_INTEGER, .default_value = "5", .choices = nullptr, .required = 0},
+    {.name = "cache_ttl_seconds", .label = "Cache verified tokens (seconds)", .description = "How long a verified token and its groups are remembered. 0 disables the cache", .type = XMQ_SETTING_INTEGER, .default_value = "60", .choices = nullptr, .required = 0},
+    {.name = "negative_cache_ttl_seconds", .label = "Cache refused tokens (seconds)", .description = "How long a refused token is remembered; 0 disables it", .type = XMQ_SETTING_INTEGER, .default_value = "10", .choices = nullptr, .required = 0},
+    {.name = "cache_max_entries", .label = "Cached tokens", .description = "Upper bound on remembered tokens, least recently used evicted first", .type = XMQ_SETTING_INTEGER, .default_value = "4096", .choices = nullptr, .required = 0}
 };
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(JwtAuthenticator, "jwt", "0.1", XMQ_CAP_AUTHENTICATOR,
-    "JSON Web Token authentication (HS256, RS256, ES256) with claims mapped to XMQ groups",
-    jwtSettings)
+                               "JSON Web Token authentication (HS256, RS256, ES256) with claims mapped to XMQ groups",
+                               jwtSettings)
