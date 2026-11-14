@@ -28,7 +28,7 @@ int open(Session& session, const std::string_view host, const unsigned short por
 int startTls(Session& session, const unsigned) { return ldap_start_tls_s(session.handle, nullptr, nullptr); }
 int bind(Session& session, const std::string_view dn, const std::string_view password)
 {
-    berval credential {static_cast<ULONG>(password.size()), const_cast<char*>(password.data())};
+    berval credential {password.size(), const_cast<char*>(password.data())};
     const std::string name(dn);
     return ldap_sasl_bind_s(session.handle, dn.empty() ? nullptr : name.c_str(), LDAP_SASL_SIMPLE,
                             &credential, nullptr, nullptr, nullptr);
