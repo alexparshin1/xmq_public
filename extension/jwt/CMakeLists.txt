@@ -28,7 +28,7 @@ IF (OPENSSL_FOUND)
     ADD_EXECUTABLE(xmq_jwt_tests EXCLUDE_FROM_ALL tests/JwtTests.cpp)
     TARGET_INCLUDE_DIRECTORIES(xmq_jwt_tests PRIVATE ${XMQ_EXTENSION_INCLUDE_DIR}
             ${CMAKE_CURRENT_LIST_DIR})
-    TARGET_LINK_LIBRARIES(xmq_jwt_tests OpenSSL::Crypto)
+    TARGET_LINK_LIBRARIES(xmq_jwt_tests OpenSSL::Crypto OpenSSL::SSL)
 
     # Hide deprecated declarations rather than silencing their warnings: accidentally reintroducing
     # a legacy RSA/EC_KEY call must fail compilation, including in the standalone test harness.
