@@ -17,6 +17,8 @@ FIND_PACKAGE(OpenSSL 3.0 QUIET)
 IF (OPENSSL_FOUND)
     XMQ_ADD_EXTENSION(xmq_jwt SOURCES ${CMAKE_CURRENT_LIST_DIR}/Jwt.cpp OPENSSL
             UI "${CMAKE_CURRENT_LIST_DIR}/jwt.ui.json")
+    # JWKS is fetched using OpenSSL's TLS BIO, not just libcrypto.
+    TARGET_LINK_LIBRARIES(xmq_jwt OpenSSL::SSL)
     IF (WIN32)
         TARGET_COMPILE_DEFINITIONS(xmq_jwt PRIVATE NOMINMAX)
     ENDIF ()

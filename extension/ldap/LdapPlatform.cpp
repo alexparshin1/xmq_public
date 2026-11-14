@@ -248,7 +248,7 @@ int bind(Session& session, const std::string_view dn, const std::string_view pas
 {
     const auto name = utf16(dn);
     if (password.size() > std::numeric_limits<ULONG>::max()) return LDAP_PARAM_ERROR;
-    berval credential {password.size(), const_cast<char*>(password.data())};
+    berval credential {static_cast<ULONG>(password.size()), const_cast<char*>(password.data())};
     return ldap_sasl_bind_sW(session.handle, dn.empty() ? nullptr : const_cast<PWCHAR>(name.c_str()),
                              const_cast<PWCHAR>(L""), &credential, nullptr, nullptr, nullptr);
 }
