@@ -1,12 +1,19 @@
 # LDAP authenticator — first implementation
 
-Optional `xmq_ldap` extension, built when OpenLDAP development headers and libraries are available
-(`libldap-dev` on Debian). It authenticates MQTT CONNECT with a search followed by a password bind.
-It maps verified directory membership onto native XMQ groups; topic Permissions stay in the broker.
-It does not create local copies of directory users or change administrative login.
-Microsoft AD compatibility has **not** yet been tested.
+Optional `xmq_ldap` extension. Unix builds use OpenLDAP (`libldap-dev` on Debian); Windows builds
+use the Windows SDK's WinLDAP (`wldap32`) and Windows certificate APIs, so the installer has no
+third-party LDAP runtime dependency. It authenticates MQTT CONNECT with a search followed by a
+password bind. It maps verified directory membership onto native XMQ groups; topic Permissions stay
+in the broker. It does not create local copies of directory users or change administrative login.
+Windows/MSVC support is being validated against the Windows farm build.
 
 ## Build and test
+
+On Windows, build with the XMQ Visual Studio solution/CMake configuration; WinLDAP is supplied by
+the Windows SDK. LDAPS and StartTLS both require a valid server chain and matching host name. An
+empty `ca_file` uses the Windows system trust store; when `ca_file` is set, it is used as the
+exclusive root for that connection. The file may contain one PEM or DER CA certificate. LDAP
+settings and search filters are UTF-8; WinLDAP calls use its UTF-16 API internally.
 
 In the configured XMQ tree:
 

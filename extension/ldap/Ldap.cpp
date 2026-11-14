@@ -1,7 +1,7 @@
 /* XMQ LDAP authenticator. Copyright (c) 2026 Alexey Parshin.
  * Mozilla Public License 2.0: https://mozilla.org/MPL/2.0/ */
 #include <extension/XmqExtension.h>
-#include <ldap.h>
+#include "LdapPlatform.h"
 
 #include <charconv>
 #include <array>
@@ -46,7 +46,8 @@ std::string escapeFilter(std::string_view value)
 
 struct Config
 {
-    std::string uri, base, bindDn, bindPassword, filter, prefix, caFile;
+    std::string uri, host, base, bindDn, bindPassword, filter, prefix, caFile;
+    unsigned short port = 636;
     bool startTls = true;
     int timeout = 3;
     std::vector<std::pair<std::string, std::string>> mappings;
@@ -116,10 +117,7 @@ std::vector<std::pair<std::string, std::string>> parseMappings(const std::string
         if (separator == std::string::npos) throw std::runtime_error("LDAP group_mappings needs DN => XMQ-group, one per line");
         auto dn = trim(line.substr(0, separator));
         auto group = trim(line.substr(separator + 2));
-        LDAPDN parsed = nullptr;
-        const auto valid = ldap_str2dn(dn.c_str(), &parsed, LDAP_DN_FORMAT_LDAPV3);
-        if (parsed) ldap_dnfree(parsed);
-        if (valid != LDAP_SUCCESS || dn.empty() || group.empty() || group.size() > 80 ||
+        if (!ldap_platform::validDn(dn) || dn.empty() || group.empty() || group.size() > 80 ||
             group.starts_with("user:") || group == "anonymous" || group.find('\0') != std::string::npos ||
             dn.find('\0') != std::string::npos || result.size() >= 64)
             throw std::runtime_error("LDAP group mapping has an invalid DN/group or exceeds 64 mappings");
@@ -159,46 +157,25 @@ void validate(const Config& config)
         throw std::runtime_error("LDAP timeout_seconds must be between 1 and 30");
 }
 
-struct Session
-{
-    LDAP* handle = nullptr;
-    ~Session() { if (handle) ldap_unbind_ext_s(handle, nullptr, nullptr); }
-    Session() = default;
-    Session(const Session&) = delete;
-    Session& operator=(const Session&) = delete;
-};
+using Session = ldap_platform::Session;
 
 void check(int code, const char* operation)
 {
     if (code != LDAP_SUCCESS)
-        throw std::runtime_error(std::string(operation) + ": " + ldap_err2string(code));
+        throw std::runtime_error(std::string(operation) + ": " + ldap_platform::error(code));
 }
 
 void connect(Session& session, const Config& config)
 {
-    check(ldap_initialize(&session.handle, config.uri.c_str()), "LDAP initialize");
-    int version = LDAP_VERSION3;
-    check(ldap_set_option(session.handle, LDAP_OPT_PROTOCOL_VERSION, &version), "LDAP version");
-    check(ldap_set_option(session.handle, LDAP_OPT_REFERRALS, LDAP_OPT_OFF), "LDAP referrals");
-    timeval timeout {config.timeout, 0};
-    check(ldap_set_option(session.handle, LDAP_OPT_NETWORK_TIMEOUT, &timeout), "LDAP network timeout");
-    check(ldap_set_option(session.handle, LDAP_OPT_TIMEOUT, &timeout), "LDAP operation timeout");
-    int demand = LDAP_OPT_X_TLS_DEMAND;
-    check(ldap_set_option(session.handle, LDAP_OPT_X_TLS_REQUIRE_CERT, &demand), "LDAP certificate verification");
-    if (!config.caFile.empty())
-        check(ldap_set_option(session.handle, LDAP_OPT_X_TLS_CACERTFILE, config.caFile.c_str()), "LDAP CA file");
-    // Per-session context: never change the process-wide TLS policy of other extensions.
-    int freshContext = 0;
-    check(ldap_set_option(session.handle, LDAP_OPT_X_TLS_NEWCTX, &freshContext), "LDAP TLS context");
-    if (config.uri.starts_with("ldap://"))
-        check(ldap_start_tls_s(session.handle, nullptr, nullptr), "LDAP StartTLS");
+    check(ldap_platform::open(session, config.host, config.port, !config.startTls,
+                              static_cast<unsigned>(config.timeout), config.caFile), "LDAP initialize/TLS policy");
+    if (config.startTls)
+        check(ldap_platform::startTls(session, static_cast<unsigned>(config.timeout)), "LDAP StartTLS");
 }
 
 int bind(Session& session, const std::string& dn, const std::string& password)
 {
-    berval credential {password.size(), const_cast<char*>(password.data())};
-    return ldap_sasl_bind_s(session.handle, dn.empty() ? nullptr : dn.c_str(), LDAP_SASL_SIMPLE,
-                            &credential, nullptr, nullptr, nullptr);
+    return ldap_platform::bind(session, dn, password);
 }
 
 /// A decision is keyed by identity and a per-process HMAC of the password: a hit can be answered
@@ -370,6 +347,8 @@ public:
                 throw std::runtime_error("LDAP port must be a number between 1 and 65535");
             config->uri = std::string(config->startTls ? "ldap://" : "ldaps://") + host + ":" +
                           std::to_string(port);
+            config->host = host;
+            config->port = static_cast<unsigned short>(port);
             config->base = setting("search_base");
             config->bindDn = setting("bind_dn");
             config->bindPassword = setting("bind_password");
@@ -479,22 +458,19 @@ public:
             connect(search, *config);
             check(bind(search, config->bindDn, config->bindPassword), "LDAP search-account bind");
             LDAPMessage* raw = nullptr;
-            timeval timeout {config->timeout, 0};
             char noAttributes[] = "1.1";
             char* attributes[] = {noAttributes, nullptr};
-            const auto code = ldap_search_ext_s(search.handle, config->base.c_str(), LDAP_SCOPE_SUBTREE,
-                filter.c_str(), attributes, 0, nullptr, nullptr, &timeout, 2, &raw);
-            const std::unique_ptr<LDAPMessage, decltype(&ldap_msgfree)> result(raw, ldap_msgfree);
+            const auto code = ldap_platform::search(search, config->base, LDAP_SCOPE_SUBTREE,
+                filter, attributes, 2, static_cast<unsigned>(config->timeout), &raw);
+            const std::unique_ptr<LDAPMessage, decltype(&ldap_platform::freeMessage)> result(raw, ldap_platform::freeMessage);
             // Multiple matches are ambiguous identities, never pick the first account.
             if (code == LDAP_SIZELIMIT_EXCEEDED) return remember(XMQ_AUTH_DENY);
             check(code, "LDAP user search");
-            const auto count = ldap_count_entries(search.handle, result.get());
+            const auto count = ldap_platform::countEntries(search, result.get());
             if (count == 0) return remember(XMQ_AUTH_NOT_HANDLED);
             if (count != 1) return remember(XMQ_AUTH_DENY);
-            char* rawDn = ldap_get_dn(search.handle, ldap_first_entry(search.handle, result.get()));
-            if (!rawDn) throw std::runtime_error("LDAP user search returned no DN");
-            const std::string dn(rawDn);
-            ldap_memfree(rawDn);
+            const std::string dn = ldap_platform::entryDn(search, ldap_platform::firstEntry(search, result.get()));
+            if (dn.empty()) throw std::runtime_error("LDAP user search returned no DN");
             Session user;
             connect(user, *config);
             const auto bindCode = bind(user, dn, password);
@@ -511,21 +487,17 @@ public:
                 std::snprintf(stateAttribute, sizeof(stateAttribute), "%s",
                               config->accountStateAttribute.c_str());
                 char* stateAttributes[] = {stateAttribute, nullptr};
-                const auto stateCode = ldap_search_ext_s(search.handle, dn.c_str(), LDAP_SCOPE_BASE,
-                    "(objectClass=*)", stateAttributes, 0, nullptr, nullptr, &timeout, 1, &stateRaw);
-                const std::unique_ptr<LDAPMessage, decltype(&ldap_msgfree)> state(stateRaw, ldap_msgfree);
+                const auto stateCode = ldap_platform::search(search, dn, LDAP_SCOPE_BASE,
+                    "(objectClass=*)", stateAttributes, 1, static_cast<unsigned>(config->timeout), &stateRaw);
+                const std::unique_ptr<LDAPMessage, decltype(&ldap_platform::freeMessage)> state(stateRaw, ldap_platform::freeMessage);
                 check(stateCode, "LDAP account state search");
-                if (ldap_count_entries(search.handle, state.get()) == 1)
+                if (ldap_platform::countEntries(search, state.get()) == 1)
                 {
-                    auto* entry = ldap_first_entry(search.handle, state.get());
-                    berval** values = ldap_get_values_len(search.handle, entry,
-                                                          config->accountStateAttribute.c_str());
-                    if (values != nullptr && values[0] != nullptr)
+                    auto* entry = ldap_platform::firstEntry(search, state.get());
+                    const auto value = ldap_platform::attribute(search, entry, config->accountStateAttribute);
+                    if (!value.empty())
                     {
-                        const auto disabled = accountDisabled(
-                            std::string_view(values[0]->bv_val, static_cast<size_t>(values[0]->bv_len)),
-                            config->accountStateDisabledMask);
-                        ldap_value_free_len(values);
+                        const auto disabled = accountDisabled(value, config->accountStateDisabledMask);
                         if (disabled) return remember(XMQ_AUTH_DENY);
                     }
                 }
@@ -539,11 +511,11 @@ public:
             for (const auto& [groupDn, nativeGroup]: config->mappings)
             {
                 LDAPMessage* membershipRaw = nullptr;
-                const auto status = ldap_search_ext_s(search.handle, groupDn.c_str(), LDAP_SCOPE_BASE,
-                    groupFilter.c_str(), attributes, 0, nullptr, nullptr, &timeout, 1, &membershipRaw);
-                const std::unique_ptr<LDAPMessage, decltype(&ldap_msgfree)> membership(membershipRaw, ldap_msgfree);
+                const auto status = ldap_platform::search(search, groupDn, LDAP_SCOPE_BASE,
+                    groupFilter, attributes, 1, static_cast<unsigned>(config->timeout), &membershipRaw);
+                const std::unique_ptr<LDAPMessage, decltype(&ldap_platform::freeMessage)> membership(membershipRaw, ldap_platform::freeMessage);
                 check(status, "LDAP group membership search");
-                if (ldap_count_entries(search.handle, membership.get()) == 1 &&
+                if (ldap_platform::countEntries(search, membership.get()) == 1 &&
                     std::find(groups.begin(), groups.end(), nativeGroup) == groups.end())
                     groups.push_back(nativeGroup);
             }

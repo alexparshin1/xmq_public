@@ -10,24 +10,34 @@ IF (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 ENDIF ()
 
 # Optional: ordinary broker builds do not acquire a mandatory LDAP dependency.
-FIND_PATH(LDAP_INCLUDE_DIR ldap.h)
-FIND_LIBRARY(LDAP_LIBRARY NAMES ldap)
-FIND_LIBRARY(LDAP_LBER_LIBRARY NAMES lber)
 FIND_PACKAGE(OpenSSL REQUIRED)
-IF (LDAP_INCLUDE_DIR AND LDAP_LIBRARY AND LDAP_LBER_LIBRARY)
-    XMQ_ADD_EXTENSION(xmq_ldap SOURCES ${CMAKE_CURRENT_LIST_DIR}/Ldap.cpp OPENSSL
+IF (WIN32)
+    XMQ_ADD_EXTENSION(xmq_ldap SOURCES ${CMAKE_CURRENT_LIST_DIR}/Ldap.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/LdapPlatform.cpp OPENSSL
             UI "${CMAKE_CURRENT_LIST_DIR}/ldap.ui.json")
-    TARGET_INCLUDE_DIRECTORIES(xmq_ldap PRIVATE ${LDAP_INCLUDE_DIR})
-    TARGET_LINK_LIBRARIES(xmq_ldap ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY})
+    TARGET_LINK_LIBRARIES(xmq_ldap wldap32 crypt32)
     INSTALL(TARGETS xmq_ldap LIBRARY DESTINATION lib/xmq-extensions
             RUNTIME DESTINATION lib/xmq-extensions)
-    ADD_EXECUTABLE(xmq_ldap_tests EXCLUDE_FROM_ALL tests/LdapTests.cpp)
-    TARGET_INCLUDE_DIRECTORIES(xmq_ldap_tests PRIVATE ${XMQ_EXTENSION_INCLUDE_DIR} ${PROJECT_SOURCE_DIR} ${LDAP_INCLUDE_DIR})
-    TARGET_LINK_LIBRARIES(xmq_ldap_tests ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY}
-            OpenSSL::Crypto)
 ELSE ()
-    IF (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-        MESSAGE(FATAL_ERROR "LDAP development headers and libldap/liblber are required")
+    FIND_PATH(LDAP_INCLUDE_DIR ldap.h)
+    FIND_LIBRARY(LDAP_LIBRARY NAMES ldap)
+    FIND_LIBRARY(LDAP_LBER_LIBRARY NAMES lber)
+    IF (LDAP_INCLUDE_DIR AND LDAP_LIBRARY AND LDAP_LBER_LIBRARY)
+        XMQ_ADD_EXTENSION(xmq_ldap SOURCES ${CMAKE_CURRENT_LIST_DIR}/Ldap.cpp
+                ${CMAKE_CURRENT_LIST_DIR}/LdapPlatform.cpp OPENSSL
+                UI "${CMAKE_CURRENT_LIST_DIR}/ldap.ui.json")
+        TARGET_INCLUDE_DIRECTORIES(xmq_ldap PRIVATE ${LDAP_INCLUDE_DIR})
+        TARGET_LINK_LIBRARIES(xmq_ldap ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY})
+        INSTALL(TARGETS xmq_ldap LIBRARY DESTINATION lib/xmq-extensions
+                RUNTIME DESTINATION lib/xmq-extensions)
+        ADD_EXECUTABLE(xmq_ldap_tests EXCLUDE_FROM_ALL tests/LdapTests.cpp)
+        TARGET_SOURCES(xmq_ldap_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/LdapPlatform.cpp)
+        TARGET_INCLUDE_DIRECTORIES(xmq_ldap_tests PRIVATE ${XMQ_EXTENSION_INCLUDE_DIR} ${CMAKE_CURRENT_LIST_DIR} ${LDAP_INCLUDE_DIR})
+        TARGET_LINK_LIBRARIES(xmq_ldap_tests ${LDAP_LIBRARY} ${LDAP_LBER_LIBRARY} OpenSSL::Crypto)
+    ELSE ()
+        IF (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+            MESSAGE(FATAL_ERROR "LDAP development headers and libldap/liblber are required")
+        ENDIF ()
+        MESSAGE(STATUS "LDAP development library not found: xmq_ldap extension is not built")
     ENDIF ()
-    MESSAGE(STATUS "LDAP development library not found: xmq_ldap extension is not built")
 ENDIF ()
