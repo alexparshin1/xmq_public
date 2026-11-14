@@ -37,11 +37,36 @@
 
 namespace {
 
+using PkeyPtr = std::shared_ptr<EVP_PKEY>;
+
+struct Jwk
+{
+    std::string keyId;
+    std::string algorithm;
+    PkeyPtr key;
+};
+
+/// XMQ's JWK/OpenSSL adapter. SPTK owns JSON/base64url and JWT verification; key import stays here.
+class XmqJwkCodec final
+{
+public:
+    static std::string publicKeyPem(EVP_PKEY* key)
+    {
+        if (!key) throw std::runtime_error("JWT public key is missing");
+        const std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new(BIO_s_mem()), BIO_free);
+        if (!bio || PEM_write_bio_PUBKEY(bio.get(), key) != 1)
+            throw std::runtime_error("JWT key serialization failed");
+        char* data = nullptr;
+        const long length = BIO_get_mem_data(bio.get(), &data);
+        if (length <= 0 || !data)
+            throw std::runtime_error("JWT key serialization failed");
+        return {data, static_cast<size_t>(length)};
+    }
 // ---------------------------------------------------------------------------------------------
 // base64url, which is base64 with two characters changed and no padding.
 // ---------------------------------------------------------------------------------------------
 
-std::optional<std::string> base64UrlDecode(const std::string_view text)
+static std::optional<std::string> base64UrlDecode(const std::string_view text)
 {
     const std::string encoded(text);
     try
@@ -62,9 +87,7 @@ std::optional<std::string> base64UrlDecode(const std::string_view text)
 // Keys: a shared secret, a configured public key, or whatever the issuer's key set currently says.
 // ---------------------------------------------------------------------------------------------
 
-using PkeyPtr = std::shared_ptr<EVP_PKEY>;
-
-PkeyPtr publicKeyFromPem(const std::string& pem)
+static PkeyPtr publicKeyFromPem(const std::string& pem)
 {
     BIO* raw = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
     if (raw == nullptr)
@@ -78,7 +101,7 @@ PkeyPtr publicKeyFromPem(const std::string& pem)
 
 /// Import a provider-managed public key. OpenSSL 3 owns the representation: constructing RSA or
 /// EC_KEY objects and assigning them to EVP_PKEY bypasses providers and uses deprecated APIs.
-PkeyPtr publicKeyFromParameters(const char* algorithm, OSSL_PARAM* parameters)
+static PkeyPtr publicKeyFromParameters(const char* algorithm, OSSL_PARAM* parameters)
 {
     const std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> context(
         EVP_PKEY_CTX_new_from_name(nullptr, algorithm, nullptr), EVP_PKEY_CTX_free);
@@ -103,7 +126,7 @@ PkeyPtr publicKeyFromParameters(const char* algorithm, OSSL_PARAM* parameters)
 }
 
 /// An RSA public key from the JWK fields `n` and `e`.
-PkeyPtr rsaKeyFromJwk(const std::string_view modulus, const std::string_view exponent)
+static PkeyPtr rsaKeyFromJwk(const std::string_view modulus, const std::string_view exponent)
 {
     const auto n = base64UrlDecode(modulus);
     const auto e = base64UrlDecode(exponent);
@@ -137,7 +160,7 @@ PkeyPtr rsaKeyFromJwk(const std::string_view modulus, const std::string_view exp
 }
 
 /// A P-256 public key from the JWK fields `x` and `y`; other curves are not ES256.
-PkeyPtr ecKeyFromJwk(const std::string_view curve, const std::string_view x, const std::string_view y)
+static PkeyPtr ecKeyFromJwk(const std::string_view curve, const std::string_view x, const std::string_view y)
 {
     if (curve != "P-256")
     {
@@ -163,24 +186,16 @@ PkeyPtr ecKeyFromJwk(const std::string_view curve, const std::string_view x, con
     return publicKeyFromParameters("EC", parameters);
 }
 
-struct Jwk
-{
-    std::string keyId;
-    std::string algorithm; ///< `alg` from the key, when it says.
-    PkeyPtr     key;
-};
-
-std::string jwkString(const sptk::xdoc::SNode& node, const char* name)
+static std::string jwkString(const sptk::xdoc::SNode& node, const char* name)
 {
     if (!node || node->type() != sptk::xdoc::Node::Type::Object)
         return {};
     const auto child = node->findFirst(name, sptk::xdoc::SearchMode::ImmediateChild);
-    return child && child->type() == sptk::xdoc::Node::Type::Text
-               ? std::string(child->getString())
-               : std::string{};
+    const auto value = child ? child->textValue() : std::nullopt;
+    return value ? std::string(*value) : std::string{};
 }
 
-std::vector<Jwk> keysFromJwks(const sptk::xdoc::SNode& document)
+static std::vector<Jwk> keysFromJwks(const sptk::xdoc::SNode& document)
 {
     std::vector<Jwk> keys;
     if (!document || document->type() != sptk::xdoc::Node::Type::Object)
@@ -221,6 +236,6 @@ std::vector<Jwk> keysFromJwks(const sptk::xdoc::SNode& document)
     }
     return keys;
 }
-
+};
 
 } // namespace

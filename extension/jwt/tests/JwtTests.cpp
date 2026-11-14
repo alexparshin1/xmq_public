@@ -243,14 +243,37 @@ int main()
 {
     try
     {
+        {
+            const auto mappings = parseMappings(
+                "\n Operators \t=> MQTT Operators \r\ninvalid\n=>missing\nmissing=> \n"
+                "Readers=>MQTT Readers\n");
+            expect(mappings.size() == 2, "group mappings ignore incomplete lines");
+            expect(mappings[0].claimValue == "Operators" && mappings[0].group == "MQTT Operators",
+                   "SPTK trims group mapping whitespace and CRLF");
+            expect(mappings[1].claimValue == "Readers" && mappings[1].group == "MQTT Readers",
+                   "SPTK splits group mapping lines");
+        }
+
+        // SPTK owns URL parsing; XMQ only applies the loopback HTTP policy.
+        {
+            expect(plainHttpAllowed("http://127.0.0.1:8080/jwks"), "loopback HTTP is allowed");
+            expect(plainHttpAllowed("http://[::1]/jwks"), "IPv6 loopback parses correctly");
+            expect(!plainHttpAllowed("http://issuer.example/jwks"), "remote HTTP is refused");
+            expect(!plainHttpAllowed("http://localhost:65536/jwks"), "oversized port is refused");
+            expect(!plainHttpAllowed("http://localhost:80x/jwks"), "non-numeric port is refused");
+            std::string error;
+            expect(!httpsGet("https://localhost:65536/jwks", "", 1, error),
+                   "invalid URL is refused before networking");
+        }
+
         // base64url: the URL-safe alphabet, no padding, and a padding-bit check that refuses a
         // re-encoded value a signer never produced.
         {
-            expect(base64UrlDecode("SGVsbG8") == std::string("Hello"), "base64url without padding");
-            expect(base64UrlDecode("aGVsbG8td29ybGQ") == std::string("hello-world"),
+            expect(XmqJwkCodec::base64UrlDecode("SGVsbG8") == std::string("Hello"), "base64url without padding");
+            expect(XmqJwkCodec::base64UrlDecode("aGVsbG8td29ybGQ") == std::string("hello-world"),
                    "base64url alphabet");
-            expect(!base64UrlDecode("a+b/").has_value(), "base64url refuses the padded alphabet");
-            expect(base64UrlDecode("AA") == std::string(1, '\0'), "zero bytes survive");
+            expect(!XmqJwkCodec::base64UrlDecode("a+b/").has_value(), "base64url refuses the padded alphabet");
+            expect(XmqJwkCodec::base64UrlDecode("AA") == std::string(1, '\0'), "zero bytes survive");
         }
 
         // A password without JWT's three-part shape remains available to the rest of the chain.
@@ -259,6 +282,31 @@ int main()
             expect(!hasJwtShape("a.b"), "two parts are not a token");
             expect(!hasJwtShape("a.b.c.d"), "four parts are not a token");
             expect(hasJwtShape("a.b.c"), "three parts are routed to SPTK::JWT");
+        }
+
+        // The XMQ policy wrapper never exposes an unverified identity, including after reuse.
+        {
+            Config config;
+            config.algorithm = "HS256";
+            config.issuer = "https://idp.example.org/realms/xmq";
+            config.audience = "xmq";
+            const Signer signer {.algorithm = "HS256", .secret = "test-secret"};
+            const auto token = makeToken(R"({"alg":"HS256","kid":"test-key"})", claimsWith(""), signer);
+            XmqJwt jwt;
+            jwt.parse(token);
+            expect(jwt.keyId() == "test-key", "header is available for key selection");
+            expect(!jwt.accepts(config) && jwt.identity(config).empty() && jwt.groups(config).empty(),
+                   "parsed claims are not an authenticated identity");
+            jwt.verify("test-secret", "HS256");
+            expect(jwt.accepts(config) && jwt.identity(config) == "alice",
+                   "verified claims can be evaluated by the XMQ policy");
+            jwt.parse(token);
+            expect(!jwt.accepts(config) && jwt.identity(config).empty(),
+                   "parsing another token resets verification");
+            bool refused = false;
+            try { jwt.verify("wrong-secret", "HS256"); }
+            catch (const std::exception&) { refused = true; }
+            expect(refused && jwt.identity(config).empty(), "failed verification exposes no identity");
         }
 
         // HS256 through the extension itself: the identity must match the token, and a tampered
@@ -407,7 +455,7 @@ int main()
             const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> rsa(generateRsa(), EVP_PKEY_free);
             sptk::xdoc::Document document;
             document.load(sptk::Buffer(jwksFor(rsa.get(), "k1")));
-            const auto keys = keysFromJwks(document.root());
+            const auto keys = XmqJwkCodec::keysFromJwks(document.root());
             expect(keys.size() == 1 && keys[0].keyId == "k1" && keys[0].key,
                    "an RSA JWK becomes a key");
             const Signer signer {.algorithm = "RS256", .key = rsa.get()};
@@ -418,7 +466,7 @@ int main()
                    "SPTK verifies a token against the JWK");
             sptk::xdoc::Document emptySet;
             emptySet.load(sptk::Buffer("{\"keys\":[]}"));
-            expect(keysFromJwks(emptySet.root()).empty(), "an empty JWKS holds nothing");
+            expect(XmqJwkCodec::keysFromJwks(emptySet.root()).empty(), "an empty JWKS holds nothing");
         }
 
         // EC JWK import uses provider parameters too: the raw point must still be P-256 and on
@@ -433,7 +481,7 @@ int main()
                    "an EC provider exports an uncompressed P-256 point");
             const auto x = base64UrlEncode(std::string_view(reinterpret_cast<const char*>(point.data() + 1), 32));
             const auto y = base64UrlEncode(std::string_view(reinterpret_cast<const char*>(point.data() + 33), 32));
-            const auto key = ecKeyFromJwk("P-256", x, y);
+            const auto key = XmqJwkCodec::ecKeyFromJwk("P-256", x, y);
             expect(static_cast<bool>(key), "a P-256 JWK imports through the provider");
             const Signer signer {.algorithm = "ES256", .key = ec.get()};
             const auto token = makeToken(R"({"alg":"ES256"})", claimsWith(""), signer);
@@ -441,17 +489,17 @@ int main()
             verifier.decode(token.c_str(), publicPem(key.get()), sptk::JWT::Algorithm::ES256);
             expect(verifier.get_alg() == sptk::JWT::Algorithm::ES256,
                    "SPTK verifies ES256 with the imported EC JWK");
-            expect(!ecKeyFromJwk("P-384", x, y), "another curve is refused");
-            expect(!ecKeyFromJwk("P-256", "AA", y), "a short coordinate is refused");
+            expect(!XmqJwkCodec::ecKeyFromJwk("P-384", x, y), "another curve is refused");
+            expect(!XmqJwkCodec::ecKeyFromJwk("P-256", "AA", y), "a short coordinate is refused");
             const auto zero = base64UrlEncode(std::string(32, '\0'));
-            expect(!ecKeyFromJwk("P-256", zero, zero), "a point outside the curve is refused");
-            expect(!rsaKeyFromJwk("", "AQAB"), "an absent RSA modulus is refused");
-            expect(!rsaKeyFromJwk("AA", "AA"), "invalid RSA parameters are refused");
+            expect(!XmqJwkCodec::ecKeyFromJwk("P-256", zero, zero), "a point outside the curve is refused");
+            expect(!XmqJwkCodec::rsaKeyFromJwk("", "AQAB"), "an absent RSA modulus is refused");
+            expect(!XmqJwkCodec::rsaKeyFromJwk("AA", "AA"), "invalid RSA parameters are refused");
         }
 
         // The decision cache: lifetimes both ways, an outage never stored, and reload clearing it.
         {
-            DecisionCache cache;
+            XmqDecisionCache cache;
             xmq_auth_decision decision {};
             std::vector<std::string> groups;
             cache.configure(60, 10, 4096);
@@ -484,16 +532,16 @@ int main()
         {
             std::array<unsigned char, 32> salt {};
             salt.fill(9);
-            const auto key = decisionKey(salt, "jwt/alice", "header.payload.signature");
+            const auto key = XmqCredentialKey::make(salt, "jwt/alice", "header.payload.signature");
             expect(!key.empty() &&
-                       key == decisionKey(salt, "jwt/alice", "header.payload.signature"),
+                       key == XmqCredentialKey::make(salt, "jwt/alice", "header.payload.signature"),
                    "the same token gives the same key");
-            expect(key != decisionKey(salt, "jwt/alice", "header.payload.other"),
+            expect(key != XmqCredentialKey::make(salt, "jwt/alice", "header.payload.other"),
                    "another token, another key");
-            expect(key != decisionKey(salt, "jwt/bob", "header.payload.signature"),
+            expect(key != XmqCredentialKey::make(salt, "jwt/bob", "header.payload.signature"),
                    "another identity, another key");
             expect(key.find("payload") == std::string::npos, "the key does not carry the token");
-            expect(decisionKey(std::array<unsigned char, 32> {}, "jwt/alice", "token").empty(),
+            expect(XmqCredentialKey::make(std::array<unsigned char, 32> {}, "jwt/alice", "token").empty(),
                    "without entropy nothing is cached");
         }
 

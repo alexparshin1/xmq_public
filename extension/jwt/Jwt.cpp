@@ -38,6 +38,10 @@
 #include "extension/XmqExtension.h"
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+#include <sptk5/net/HttpConnect.h>
+#include <sptk5/net/SSLSocket.h>
+#include <sptk5/net/URL.h>
+#include <sptk5/Strings.h>
 
 #ifndef _WIN32
 #include <sys/socket.h>
@@ -107,25 +111,16 @@ struct Config
 std::vector<Mapping> parseMappings(const std::string& text)
 {
     std::vector<Mapping> mappings;
-    std::istringstream   stream(text);
-    std::string          line;
-    while (std::getline(stream, line))
+    const sptk::Strings lines(sptk::String(text), "\n");
+    for (const auto& line : lines)
     {
         const auto separator = line.find("=>");
         if (separator == std::string::npos)
         {
             continue;
         }
-        const auto trim = [](std::string_view value)
-        {
-            const auto first = value.find_first_not_of(" \t\r");
-            const auto last = value.find_last_not_of(" \t\r");
-            return first == std::string_view::npos
-                       ? std::string{}
-                       : std::string(value.substr(first, last - first + 1));
-        };
-        const auto claimValue = trim(std::string_view(line).substr(0, separator));
-        const auto group = trim(std::string_view(line).substr(separator + 2));
+        const auto claimValue = sptk::String(line.substr(0, separator)).trim();
+        const auto group = sptk::String(line.substr(separator + 2)).trim();
         if (!claimValue.empty() && !group.empty())
         {
             mappings.push_back({claimValue, group});
@@ -168,16 +163,19 @@ void validate(const Config& config)
 /// and where a local test stand lives. Everything else has to be TLS with a verified certificate.
 bool plainHttpAllowed(const std::string& url)
 {
-    if (!url.starts_with("http://"))
+    try
     {
-        return true;
+        const sptk::URL parsed(url);
+        if (parsed.protocol() != "http")
+            return parsed.protocol() == "https";
+        const auto [host, port] = parsed.hostAndPort();
+        return parsed.username().empty() && parsed.password().empty() &&
+               (host == "localhost" || host == "127.0.0.1" || host == "::1");
     }
-    const auto hostStart = url.find("://") + 3;
-    const auto hostEnd = url.find_first_of(":/", hostStart);
-    const auto host = url.substr(hostStart, hostEnd == std::string::npos
-                                                ? std::string::npos
-                                                : hostEnd - hostStart);
-    return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
+    catch (const std::exception&)
+    {
+        return false;
+    }
 }
 
 /// Keep ordinary MQTT passwords in the rest of the authenticator chain. Actual token parsing,
@@ -201,196 +199,71 @@ struct KeySet
     Clock::time_point fetched;
 };
 
-/// A GET over TLS with the certificate verified against the system store or the configured CA, and
-/// the host name checked against the certificate. Written out rather than pulled from a library so
-/// that the extension needs nothing but OpenSSL and the ABI.
+/// SPTK owns HTTP framing, bounded reads and verified TLS. Name resolution is synchronous in SPTK:
+/// time spent there counts against the budget, but cannot itself be interrupted by this deadline.
 std::optional<std::string> httpsGet(const std::string& url, const std::string&      caFile,
                                     const int          timeoutSeconds, std::string& error)
 {
-    const auto schemeEnd = url.find("://");
-    if (schemeEnd == std::string::npos)
+    error.clear();
+    try
     {
-        error = "JWKS URL has no scheme";
-        return std::nullopt;
-    }
-    const auto scheme = url.substr(0, schemeEnd);
-    if (scheme != "https" && scheme != "http")
-    {
-        error = "JWKS URL must be https";
-        return std::nullopt;
-    }
-    const auto authorityStart = schemeEnd + 3;
-    const auto pathStart = url.find('/', authorityStart);
-    const auto authority = url.substr(authorityStart, pathStart == std::string::npos
-                                                          ? std::string::npos
-                                                          : pathStart - authorityStart);
-    const auto path = pathStart == std::string::npos ? std::string("/") : url.substr(pathStart);
-    if (authority.empty())
-    {
-        error = "JWKS URL has no host";
-        return std::nullopt;
-    }
-    auto host = authority;
-    auto port = scheme == "https" ? std::string("443") : std::string("80");
-    if (const auto colon = authority.rfind(':'); colon != std::string::npos &&
-                                                 authority.find(']') == std::string::npos)
-    {
-        host = authority.substr(0, colon);
-        port = authority.substr(colon + 1);
-    }
+        if (timeoutSeconds <= 0)
+            throw std::runtime_error("invalid JWKS timeout");
+        const sptk::URL parsed(url);
+        const auto scheme = parsed.protocol();
+        if (scheme != "https" && scheme != "http")
+            throw std::runtime_error("JWKS URL must use HTTP or HTTPS");
+        auto [host, port] = parsed.hostAndPort();
+        if (host.empty() || !parsed.username().empty() || !parsed.password().empty())
+            throw std::runtime_error("JWKS URL requires a host without credentials");
+        if (host.find(':') != std::string::npos)
+            throw std::runtime_error("IPv6 is not supported by SPTK TCP connect");
+        if (port == 0)
+            port = scheme == "https" ? 443 : 80;
+        if (!plainHttpAllowed(url))
+            throw std::runtime_error("JWKS URL must use HTTPS outside loopback");
+        const auto path = parsed.requestTarget();
 
-    // Loopback plain HTTP is a documented exception; everything else goes through the TLS path
-    // below with the certificate and the host name verified.
-    if (scheme == "http")
-    {
-        BIO* plain = BIO_new_connect((host + ":" + port).c_str());
-        if (plain == nullptr || BIO_do_connect(plain) != 1)
+        const auto deadline = Clock::now() + std::chrono::seconds(timeoutSeconds);
+        const auto remaining = [&]()
         {
-            BIO_free_all(plain);
-            error = "JWKS host did not answer: " + host + ":" + port;
-            return std::nullopt;
-        }
-        const std::unique_ptr<BIO, decltype(&BIO_free_all)> bio(plain, BIO_free_all);
-        const std::string                                   request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
-                                    "\r\nAccept: application/json\r\nConnection: close\r\n\r\n";
-        if (BIO_write(bio.get(), request.data(), static_cast<int>(request.size())) !=
-            static_cast<int>(request.size()))
+            const auto time = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
+            if (time.count() <= 0)
+                throw std::runtime_error("JWKS request deadline exceeded");
+            return time;
+        };
+        std::shared_ptr<sptk::TCPSocket> socket;
+        if (scheme == "https")
         {
-            error = "the JWKS request could not be sent";
-            return std::nullopt;
+            auto tls = std::make_shared<sptk::SSLSocket>();
+            tls->configureClientVerification(sptk::String(host), sptk::String(caFile));
+            socket = std::move(tls);
         }
-        std::string            response;
-        std::array<char, 4096> buffer{};
-        while (true)
-        {
-            const auto read = BIO_read(bio.get(), buffer.data(), static_cast<int>(buffer.size()));
-            if (read <= 0)
-            {
-                break;
-            }
-            response.append(buffer.data(), static_cast<size_t>(read));
-            if (response.size() > 4 * 1024 * 1024)
-            {
-                error = "the JWKS answer is unreasonably large";
-                return std::nullopt;
-            }
-        }
-        const auto headerEnd = response.find("\r\n\r\n");
-        if (headerEnd == std::string::npos ||
-            response.substr(0, response.find("\r\n")).find(" 200 ") == std::string::npos)
-        {
-            error = "the JWKS endpoint did not answer 200";
-            return std::nullopt;
-        }
-        return response.substr(headerEnd + 4);
+        else
+            socket = std::make_shared<sptk::TCPSocket>();
+        socket->open(sptk::Host(host, static_cast<uint16_t>(port)),
+                     sptk::Socket::OpenMode::CONNECT, false, remaining());
+        sptk::HttpConnect request(socket);
+        request.setResponseLimits(64 * 1024, 4 * 1024 * 1024);
+        request.requestHeaders()["Accept"] = "application/json";
+        request.requestHeaders()["Accept-Encoding"] = "identity";
+        request.requestHeaders()["Connection"] = "close";
+        sptk::Buffer body;
+        const auto status = request.cmd_get(sptk::String(path), sptk::HttpParams(), body,
+                                           nullptr, remaining());
+        socket->close();
+        if (status != 200)
+            throw std::runtime_error("JWKS endpoint answered HTTP " + std::to_string(status));
+        return body.bytes() ? std::string(body.c_str(), body.bytes()) : std::string{};
     }
-
-    SSL_CTX* rawContext = SSL_CTX_new(TLS_client_method());
-    if (rawContext == nullptr)
+    catch (const std::exception& exception)
     {
-        error = "TLS context could not be created";
+        error = exception.what();
         return std::nullopt;
     }
-    const std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)> context(rawContext, SSL_CTX_free);
-    SSL_CTX_set_min_proto_version(context.get(), TLS1_2_VERSION);
-    SSL_CTX_set_verify(context.get(), SSL_VERIFY_PEER, nullptr);
-    if (!caFile.empty())
-    {
-        if (SSL_CTX_load_verify_locations(context.get(), caFile.c_str(), nullptr) != 1)
-        {
-            error = "JWKS CA certificate could not be loaded: " + caFile;
-            return std::nullopt;
-        }
-    }
-    else if (SSL_CTX_set_default_verify_paths(context.get()) != 1)
-    {
-        error = "the system CA store could not be loaded";
-        return std::nullopt;
-    }
-
-    BIO* rawBio = BIO_new_ssl_connect(context.get());
-    if (rawBio == nullptr)
-    {
-        error = "TLS connection could not be created";
-        return std::nullopt;
-    }
-    const std::unique_ptr<BIO, decltype(&BIO_free_all)> bio(rawBio, BIO_free_all);
-    SSL*                                                ssl = nullptr;
-    BIO_get_ssl(bio.get(), &ssl);
-    if (ssl == nullptr)
-    {
-        error = "TLS connection has no SSL handle";
-        return std::nullopt;
-    }
-    SSL_set_tlsext_host_name(ssl, host.c_str());
-    SSL_set1_host(ssl, host.c_str());
-    const auto endpoint = host + ":" + port;
-    BIO_set_conn_hostname(bio.get(), endpoint.c_str());
-    if (BIO_do_connect(bio.get()) != 1)
-    {
-        error = "JWKS host did not answer: " + endpoint;
-        return std::nullopt;
-    }
-    if (SSL_get_verify_result(ssl) != X509_V_OK)
-    {
-        error = "JWKS certificate did not verify: " +
-                std::string(X509_verify_cert_error_string(SSL_get_verify_result(ssl)));
-        return std::nullopt;
-    }
-
-    // The timeout is applied to the socket after connecting: the handshake itself has no deadline,
-    // which is a limitation worth knowing rather than a promise of one. Winsock wants a DWORD and
-    // this block is POSIX-only, so a Windows build keeps the transport's own timeout.
-#ifndef _WIN32
-    const int descriptor = BIO_get_fd(bio.get(), nullptr);
-    if (descriptor >= 0)
-    {
-        timeval limit{timeoutSeconds, 0};
-        setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
-        setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &limit, sizeof(limit));
-    }
-#endif
-
-    const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
-                                "\r\nAccept: application/json\r\nConnection: close\r\n\r\n";
-    if (BIO_write(bio.get(), request.data(), static_cast<int>(request.size())) !=
-        static_cast<int>(request.size()))
-    {
-        error = "the JWKS request could not be sent";
-        return std::nullopt;
-    }
-    std::string            response;
-    std::array<char, 4096> buffer{};
-    while (true)
-    {
-        const auto read = BIO_read(bio.get(), buffer.data(), static_cast<int>(buffer.size()));
-        if (read <= 0)
-        {
-            break;
-        }
-        response.append(buffer.data(), static_cast<size_t>(read));
-        if (response.size() > 4 * 1024 * 1024)
-        {
-            error = "the JWKS answer is unreasonably large";
-            return std::nullopt;
-        }
-    }
-    const auto headerEnd = response.find("\r\n\r\n");
-    if (headerEnd == std::string::npos)
-    {
-        error = "the JWKS answer has no HTTP headers";
-        return std::nullopt;
-    }
-    const auto status = response.substr(0, response.find("\r\n"));
-    if (status.find(" 200 ") == std::string::npos)
-    {
-        error = "the JWKS endpoint answered: " + status;
-        return std::nullopt;
-    }
-    return response.substr(headerEnd + 4);
 }
 
-class JwksCache
+class XmqJwksProvider
 {
 public:
     void configure(const int lifetimeSeconds)
@@ -469,7 +342,7 @@ private:
         if (!config.publicKeyPem.empty())
         {
             // A configured key needs no network: it is the whole set.
-            const auto key = publicKeyFromPem(config.publicKeyPem);
+            const auto key = XmqJwkCodec::publicKeyFromPem(config.publicKeyPem);
             if (!key)
             {
                 error = "the configured public key could not be read";
@@ -502,7 +375,7 @@ private:
             error = "the JWKS answer is not a JSON object";
             return false;
         }
-        auto keys = keysFromJwks(document.root());
+        auto keys = XmqJwkCodec::keysFromJwks(document.root());
         if (keys.empty())
         {
             error = "the JWKS answer holds no signing keys";
@@ -530,7 +403,7 @@ struct CacheEntry
     std::vector<std::string> groups;
 };
 
-class DecisionCache
+class XmqDecisionCache
 {
 public:
     void configure(const int positives, const int negatives, const size_t maxEntries)
@@ -624,7 +497,10 @@ private:
 /// A decision is keyed by the presented identity and a keyed hash of the token: the cache never
 /// holds the credential itself, a restarted broker shares no keys with the previous process, and a
 /// token tried under another name misses instead of reusing the answer for the first name.
-std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::string_view username,
+class XmqCredentialKey final
+{
+public:
+static std::string make(const std::array<unsigned char, 32>& salt, const std::string_view username,
                         const std::string&                   token)
 {
     if (std::all_of(salt.begin(), salt.end(), [](const auto byte) { return byte == 0; }))
@@ -649,6 +525,7 @@ std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::st
     }
     return key;
 }
+};
 
 // ---------------------------------------------------------------------------------------------
 // Claims.
@@ -656,79 +533,125 @@ std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::st
 
 using Claims = sptk::xdoc::SNode;
 
-sptk::xdoc::SNode findClaim(const sptk::xdoc::SNode& root, const std::string_view path)
+class XmqClaims final
 {
-    auto node = root;
+public:
+static sptk::xdoc::SNode find(const sptk::xdoc::SNode& root, const std::string_view path)
+{
+    if (!root || root->type() != sptk::xdoc::Node::Type::Object)
+        return {};
+    std::vector<sptk::String> names;
     size_t start = 0;
-    while (node && start <= path.size())
+    while (start <= path.size())
     {
         const auto end = path.find('.', start);
         const auto part = path.substr(start, end == std::string_view::npos ? path.size() - start
                                                                            : end - start);
-        if (node->type() != sptk::xdoc::Node::Type::Object)
+        if (part.empty())
             return {};
-        node = node->findFirst(sptk::String(part.data(), part.size()),
-                               sptk::xdoc::SearchMode::ImmediateChild);
+        names.emplace_back(part.data(), part.size());
         if (end == std::string_view::npos)
-            return node;
+            break;
         start = end + 1;
     }
-    return {};
+    const auto nodes = root->select(sptk::xdoc::Node::childXPath(names));
+    return nodes.empty() ? sptk::xdoc::SNode{} : nodes.front();
 }
 
-std::string claimString(const Claims& claims, const std::string_view path)
+static std::string string(const Claims& claims, const std::string_view path)
 {
-    const auto node = findClaim(claims, path);
-    return node && node->type() == sptk::xdoc::Node::Type::Text
-               ? std::string(node->getString())
-               : std::string{};
+    const auto node = find(claims, path);
+    const auto value = node ? node->textValue() : std::nullopt;
+    return value ? std::string(*value) : std::string{};
 }
 
-bool claimNumber(const Claims& claims, const std::string_view path, int64_t& result)
+static bool number(const Claims& claims, const std::string_view path, int64_t& result)
 {
-    const auto node = findClaim(claims, path);
-    if (!node || node->type() != sptk::xdoc::Node::Type::Number)
+    const auto node = find(claims, path);
+    const auto value = node ? node->integerValue() : std::nullopt;
+    if (!value)
         return false;
-    result = static_cast<int64_t>(node->getNumber());
+    result = *value;
     return true;
 }
 
-std::vector<std::string> claimStrings(const Claims& claims, const std::string_view path)
+static std::vector<std::string> strings(const Claims& claims, const std::string_view path)
 {
-    const auto node = findClaim(claims, path);
+    const auto node = find(claims, path);
     if (!node)
         return {};
-    if (node->type() == sptk::xdoc::Node::Type::Text)
-        return {std::string(node->getString())};
     std::vector<std::string> values;
-    if (node->type() == sptk::xdoc::Node::Type::Array)
-    {
-        for (const auto& item : node->nodes())
-        {
-            if (item->type() == sptk::xdoc::Node::Type::Text)
-                values.emplace_back(item->getString());
-        }
-    }
+    for (const auto& value : node->textValues())
+        values.emplace_back(value);
     return values;
 }
 
-bool claimAudienceMatches(const Claims& claims, const std::string& expected)
+static bool audienceMatches(const Claims& claims, const std::string& expected)
 {
-    const auto node = findClaim(claims, "aud");
-    if (!node)
-        return false;
-    if (node->type() == sptk::xdoc::Node::Type::Text)
-        return node->getString() == expected;
-    if (node->type() == sptk::xdoc::Node::Type::Array)
-    {
-        for (const auto& item : node->nodes())
-        {
-            if (item->type() == sptk::xdoc::Node::Type::Text && item->getString() == expected)
-                return true;
-        }
-    }
-    return false;
+    const auto values = strings(claims, "aud");
+    return std::find(values.begin(), values.end(), expected) != values.end();
 }
+};
+
+/// Composition prevents callers from decoding a new token and accidentally treating unverified
+/// grants as an authenticated identity. Only the protected header is exposed before verification.
+class XmqJwt final
+{
+public:
+    void parse(const std::string& token)
+    {
+        m_verified = false;
+        m_token = token;
+        m_jwt = sptk::JWT{};
+        m_jwt.decode(m_token.c_str(), "", &m_header);
+    }
+
+    std::string algorithm() const { return XmqClaims::string(m_header.root(), "alg"); }
+    std::string keyId() const { return XmqClaims::string(m_header.root(), "kid"); }
+
+    void verify(const std::string& key, const std::string& algorithm)
+    {
+        m_verified = false;
+        if (key.empty())
+            throw std::runtime_error("JWT verification requires a key");
+        const auto expected = sptk::JWT::str_alg(algorithm.c_str());
+        if (expected == sptk::JWT::Algorithm::INVAL || expected == sptk::JWT::Algorithm::NONE ||
+            this->algorithm() != algorithm)
+            throw std::runtime_error("JWT algorithm does not match policy");
+        m_jwt.decode(m_token.c_str(), sptk::String(key), expected);
+        m_verified = true;
+    }
+
+    bool accepts(const Config& config) const
+    {
+        if (!m_verified) return false;
+        const auto claims = m_jwt.grants.root();
+        const auto now = static_cast<int64_t>(std::time(nullptr));
+        const auto skew = static_cast<int64_t>(config.skewSeconds);
+        int64_t expiry = 0, notBefore = 0;
+        return XmqClaims::number(claims, "exp", expiry) && expiry > now - skew &&
+               (!XmqClaims::number(claims, "nbf", notBefore) || notBefore <= now + skew) &&
+               XmqClaims::string(claims, "iss") == config.issuer &&
+               (config.audience.empty() || XmqClaims::audienceMatches(claims, config.audience));
+    }
+
+    std::string identity(const Config& config) const
+    {
+        return m_verified ? XmqClaims::string(m_jwt.grants.root(), config.usernameClaim) : std::string{};
+    }
+
+    std::vector<std::string> groups(const Config& config) const
+    {
+        return m_verified ? XmqClaims::strings(m_jwt.grants.root(), config.groupsClaim)
+                          : std::vector<std::string>{};
+    }
+
+private:
+    sptk::JWT m_jwt;
+    sptk::xdoc::Document m_header;
+    std::string m_token;
+    bool m_verified {false};
+};
 } // namespace
 
 // ---------------------------------------------------------------------------------------------
@@ -736,20 +659,6 @@ bool claimAudienceMatches(const Claims& claims, const std::string& expected)
 // ---------------------------------------------------------------------------------------------
 
 namespace {
-
-std::string publicKeyPem(EVP_PKEY* key)
-{
-    BIO* rawBio = BIO_new(BIO_s_mem());
-    if (!rawBio) throw std::runtime_error("SPTK JWT key serialization failed");
-    const std::unique_ptr<BIO, decltype(&BIO_free)> bio(rawBio, BIO_free);
-    if (PEM_write_bio_PUBKEY(bio.get(), key) != 1)
-        throw std::runtime_error("SPTK JWT key serialization failed");
-    char* data = nullptr;
-    const long length = BIO_get_mem_data(bio.get(), &data);
-    if (length <= 0 || !data)
-        throw std::runtime_error("SPTK JWT key serialization failed");
-    return {data, static_cast<size_t>(length)};
-}
 
 class JwtAuthenticator final : public xmq::XmqExtensionBase
 {
@@ -849,7 +758,7 @@ public:
         }
         const std::string_view presentedName(request.username.data ? request.username.data : "",
                                              request.username.length);
-        const auto key = decisionKey(m_salt, presentedName, tokenText);
+        const auto key = XmqCredentialKey::make(m_salt, presentedName, tokenText);
         if (!key.empty())
         {
             xmq_auth_decision        cached{};
@@ -861,20 +770,19 @@ public:
             }
         }
 
-        sptk::JWT decodedToken;
-        sptk::xdoc::Document decodedHeader;
+        XmqJwt decodedToken;
         try
         {
             // Obtain the protected header's kid before choosing a JWKS key. Signature verification
             // happens in a second decode after that key has been selected.
-            decodedToken.decode(tokenText.c_str(), "", &decodedHeader);
+            decodedToken.parse(tokenText);
         }
         catch (const std::exception&)
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        const auto algorithm = claimString(decodedHeader.root(), "alg");
+        const auto algorithm = decodedToken.algorithm();
         // Exactly the configured algorithm: accepting whatever the token asks for is how an
         // attacker turns RS256 into HS256 and signs with the public key as the secret.
         if (algorithm != config->algorithm)
@@ -894,7 +802,7 @@ public:
         }
         else
         {
-            const auto keyId = claimString(decodedHeader.root(), "kid");
+            const auto keyId = decodedToken.keyId();
             signingKey = m_jwks.key(*config, config->algorithm, keyId, error);
             if (!signingKey)
             {
@@ -904,7 +812,7 @@ public:
             }
             try
             {
-                verificationKey = publicKeyPem(signingKey.get());
+                verificationKey = XmqJwkCodec::publicKeyPem(signingKey.get());
             }
             catch (const std::exception& exception)
             {
@@ -912,12 +820,9 @@ public:
                 return XMQ_AUTH_SUBSYSTEM_ERROR;
             }
         }
-        Claims claims;
         try
         {
-            const auto expectedAlgorithm = sptk::JWT::str_alg(config->algorithm.c_str());
-            decodedToken.decode(tokenText.c_str(), sptk::String(verificationKey), expectedAlgorithm);
-            claims = decodedToken.grants.root();
+            decodedToken.verify(verificationKey, config->algorithm);
         }
         catch (const std::exception&)
         {
@@ -925,38 +830,13 @@ public:
             return XMQ_AUTH_DENY;
         }
 
-        const auto  now = std::time(nullptr);
-        const auto  skew = static_cast<int64_t>(config->skewSeconds);
-        int64_t expiry = 0;
-        if (!claimNumber(claims, "exp", expiry))
-        {
-            // A token with no expiry is a password that never changes.
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-            return XMQ_AUTH_DENY;
-        }
-        if (expiry + skew <= now)
-        {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-            return XMQ_AUTH_DENY;
-        }
-        int64_t notBefore = 0;
-        if (claimNumber(claims, "nbf", notBefore) && notBefore > now + skew)
-        {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-            return XMQ_AUTH_DENY;
-        }
-        if (claimString(claims, "iss") != config->issuer)
-        {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-            return XMQ_AUTH_DENY;
-        }
-        if (!config->audience.empty() && !claimAudienceMatches(claims, config->audience))
+        if (!decodedToken.accepts(*config))
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
-        const auto identity = claimString(claims, config->usernameClaim);
+        const auto identity = decodedToken.identity(*config);
         if (identity.empty())
         {
             log(XMQ_LOG_WARNING, "rejected a token with no " + config->usernameClaim + " claim");
@@ -975,7 +855,7 @@ public:
             return XMQ_AUTH_DENY;
         }
 
-        const auto claimedGroups = claimStrings(claims, config->groupsClaim);
+        const auto claimedGroups = decodedToken.groups(*config);
         if (config->mappings.empty())
         {
             groups = claimedGroups;
@@ -1017,8 +897,8 @@ private:
 
     mutable std::mutex            m_mutex;
     std::shared_ptr<const Config> m_config;
-    DecisionCache                 m_cache;
-    JwksCache                     m_jwks;
+    XmqDecisionCache              m_cache;
+    XmqJwksProvider                m_jwks;
     std::array<unsigned char, 32> m_salt{};
 };
 } // namespace
