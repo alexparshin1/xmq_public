@@ -22,6 +22,8 @@
 
 namespace {
 
+constexpr char base64Alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
 std::map<std::string, std::string> settings;
 
 void logMessage(void*, xmq_log_priority, const char* message)
@@ -221,6 +223,15 @@ xmq_auth_decision auth(JwtAuthenticator& extension, const std::string& username,
     return extension.authenticate(request);
 }
 
+xmq_auth_decision authWithGroups(JwtAuthenticator& extension, const std::string& username,
+                                 const std::string& password, std::vector<std::string>& groups)
+{
+    xmq_auth_request request {};
+    request.username = {username.data(), username.size()};
+    request.password = {password.data(), password.size()};
+    return extension.authenticateWithGroups(request, groups);
+}
+
 int64_t epoch(const int offset)
 {
     return static_cast<int64_t>(std::time(nullptr)) + offset;
@@ -242,27 +253,12 @@ int main()
             expect(base64UrlDecode("AA") == std::string(1, '\0'), "zero bytes survive");
         }
 
-        // JSON: nested objects, arrays, escapes, numbers; and refusal rather than a half answer.
+        // A password without JWT's three-part shape remains available to the rest of the chain.
         {
-            const auto document = parseJson(
-                "{\"a\":{\"b\":[1,\"two\",true,null]},\"c\":\"x\\u00e9y\",\"n\":-12.5}");
-            expect(document.has_value(), "json parses");
-            expect(document->stringAt("a.b") == "", "an array is not a string");
-            expect(document->stringsAt("a.b") == std::vector<std::string> {"two"},
-                   "strings come out of an array");
-            expect(document->stringAt("c") == std::string("x\xc3\xa9y"), "an escaped code point");
-            expect(document->find("n")->number == -12.5, "a number keeps its value and sign");
-            expect(!parseJson("{\"a\":1").has_value(), "an unfinished object is refused");
-            expect(!parseJson("[] trailing").has_value(), "trailing text is refused");
-            expect(!parseJson(std::string(64, '[')).has_value(), "a nesting bomb is refused");
-        }
-
-        // A token that is not three base64url parts is not ours: the chain keeps its local accounts.
-        {
-            expect(!looksLikeToken("hunter2"), "a password is not a token");
-            expect(!looksLikeToken("a.b"), "two parts are not a token");
-            expect(!looksLikeToken("a.b.c.d"), "four parts are not a token");
-            expect(looksLikeToken("a.b.c"), "three base64url parts look like a token");
+            expect(!hasJwtShape("hunter2"), "a password is not a token");
+            expect(!hasJwtShape("a.b"), "two parts are not a token");
+            expect(!hasJwtShape("a.b.c.d"), "four parts are not a token");
+            expect(hasJwtShape("a.b.c"), "three parts are routed to SPTK::JWT");
         }
 
         // HS256 through the extension itself: the identity must match the token, and a tampered
@@ -347,6 +343,37 @@ int main()
                    "a token chooses neither the algorithm nor the key");
         }
 
+        // SPTK's parsed xdoc claims preserve direct-vs-nested lookup, string arrays and audience
+        // arrays while the extension keeps claim selection configurable.
+        {
+            settings = {{"algorithm", "HS256"}, {"secret", "test-secret"},
+                        {"issuer", "https://idp.example.org/realms/xmq"},
+                        {"audience", "xmq"},
+                        {"username_claim", "identity.preferred"},
+                        {"groups_claim", "realm_access.roles"}};
+            const Signer signer {.algorithm = "HS256", .secret = "test-secret"};
+            const std::string claims =
+                "{\"iss\":\"https://idp.example.org/realms/xmq\","
+                "\"aud\":[\"other\",\"xmq\"],"
+                "\"identity\":{\"preferred\":\"alice\"},"
+                "\"realm_access\":{\"roles\":[\"Operators\",\"Readers\",7]},"
+                "\"exp\":" + std::to_string(epoch(300)) + "}";
+            const auto token = makeToken(R"({"alg":"HS256","typ":"JWT"})", claims, signer);
+
+            xmq_host host {};
+            host.struct_size = sizeof(host);
+            host.setting = getSetting;
+            host.log = logMessage;
+            JwtAuthenticator extension(host);
+            expect(extension.start(), "nested claim settings accepted");
+            std::vector<std::string> groups;
+            expect(authWithGroups(extension, "jwt/alice", token, groups) == XMQ_AUTH_ALLOW,
+                   "nested identity and audience array claims are accepted");
+            expect(groups == std::vector<std::string>({"Operators", "Readers"}),
+                   "string members of nested group arrays are returned");
+            extension.stop();
+        }
+
         // RS256 and ES256 with a configured public key.
         {
             const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> rsa(generateRsa(), EVP_PKEY_free);
@@ -378,18 +405,20 @@ int main()
         // rather than an empty answer.
         {
             const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> rsa(generateRsa(), EVP_PKEY_free);
-            const auto document = parseJson(jwksFor(rsa.get(), "k1"));
-            expect(document.has_value(), "a JWKS document parses");
-            const auto keys = keysFromJwks(*document);
+            sptk::xdoc::Document document;
+            document.load(sptk::Buffer(jwksFor(rsa.get(), "k1")));
+            const auto keys = keysFromJwks(document.root());
             expect(keys.size() == 1 && keys[0].keyId == "k1" && keys[0].key,
                    "an RSA JWK becomes a key");
             const Signer signer {.algorithm = "RS256", .key = rsa.get()};
             const auto   token = makeToken(R"({"alg":"RS256","kid":"k1"})", claimsWith(""), signer);
-            const auto   parsed = splitToken(token);
-            expect(parsed.has_value(), "the token splits");
-            expect(verifyRs256(keys[0].key.get(), parsed->signingInput, parsed->signature),
-                   "a token verifies against the JWK");
-            expect(!keysFromJwks(*parseJson("{\"keys\":[]}")).size(), "an empty JWKS holds nothing");
+            sptk::JWT verifier;
+            verifier.decode(token.c_str(), publicPem(keys[0].key.get()), sptk::JWT::Algorithm::RS256);
+            expect(verifier.get_alg() == sptk::JWT::Algorithm::RS256,
+                   "SPTK verifies a token against the JWK");
+            sptk::xdoc::Document emptySet;
+            emptySet.load(sptk::Buffer("{\"keys\":[]}"));
+            expect(keysFromJwks(emptySet.root()).empty(), "an empty JWKS holds nothing");
         }
 
         // EC JWK import uses provider parameters too: the raw point must still be P-256 and on
@@ -407,9 +436,11 @@ int main()
             const auto key = ecKeyFromJwk("P-256", x, y);
             expect(static_cast<bool>(key), "a P-256 JWK imports through the provider");
             const Signer signer {.algorithm = "ES256", .key = ec.get()};
-            const auto token = splitToken(makeToken(R"({"alg":"ES256"})", claimsWith(""), signer));
-            expect(token && verifyEs256(key.get(), token->signingInput, token->signature),
-                   "the imported EC JWK verifies ES256");
+            const auto token = makeToken(R"({"alg":"ES256"})", claimsWith(""), signer);
+            sptk::JWT verifier;
+            verifier.decode(token.c_str(), publicPem(key.get()), sptk::JWT::Algorithm::ES256);
+            expect(verifier.get_alg() == sptk::JWT::Algorithm::ES256,
+                   "SPTK verifies ES256 with the imported EC JWK");
             expect(!ecKeyFromJwk("P-384", x, y), "another curve is refused");
             expect(!ecKeyFromJwk("P-256", "AA", y), "a short coordinate is refused");
             const auto zero = base64UrlEncode(std::string(32, '\0'));

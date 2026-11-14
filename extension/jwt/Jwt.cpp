@@ -36,6 +36,8 @@
 #include "JwtVerify.h"
 
 #include "extension/XmqExtension.h"
+#include <openssl/hmac.h>
+#include <openssl/rand.h>
 
 #ifndef _WIN32
 #include <sys/socket.h>
@@ -45,10 +47,21 @@
 #endif
 #endif
 
+#include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstring>
 #include <ctime>
+#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace {
 
@@ -165,6 +178,16 @@ bool plainHttpAllowed(const std::string& url)
                                                 ? std::string::npos
                                                 : hostEnd - hostStart);
     return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
+}
+
+/// Keep ordinary MQTT passwords in the rest of the authenticator chain. Actual token parsing,
+/// base64url validation and signature verification are delegated to SPTK::JWT.
+bool hasJwtShape(const std::string_view password)
+{
+    const auto first = password.find('.');
+    const auto second = first == std::string_view::npos ? first : password.find('.', first + 1);
+    return first != std::string_view::npos && first != 0 && second != std::string_view::npos &&
+           second != first + 1 && password.find('.', second + 1) == std::string_view::npos;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -464,13 +487,22 @@ private:
             error = transportError;
             return false;
         }
-        const auto document = parseJson(*body);
-        if (!document || document->type != Json::Type::Object)
+        sptk::xdoc::Document document;
+        try
+        {
+            document.load(sptk::Buffer(*body));
+        }
+        catch (const std::exception&)
+        {
+            error = "the JWKS answer is not valid JSON";
+            return false;
+        }
+        if (document.root()->type() != sptk::xdoc::Node::Type::Object)
         {
             error = "the JWKS answer is not a JSON object";
             return false;
         }
-        auto keys = keysFromJwks(*document);
+        auto keys = keysFromJwks(document.root());
         if (keys.empty())
         {
             error = "the JWKS answer holds no signing keys";
@@ -622,40 +654,81 @@ std::string decisionKey(const std::array<unsigned char, 32>& salt, const std::st
 // Claims.
 // ---------------------------------------------------------------------------------------------
 
-int64_t numberAt(const Json& claims, const char* name)
+using Claims = sptk::xdoc::SNode;
+
+sptk::xdoc::SNode findClaim(const sptk::xdoc::SNode& root, const std::string_view path)
 {
-    const auto* value = claims.find(name);
-    if (value == nullptr || value->type != Json::Type::Number)
+    auto node = root;
+    size_t start = 0;
+    while (node && start <= path.size())
     {
-        return 0;
+        const auto end = path.find('.', start);
+        const auto part = path.substr(start, end == std::string_view::npos ? path.size() - start
+                                                                           : end - start);
+        if (node->type() != sptk::xdoc::Node::Type::Object)
+            return {};
+        node = node->findFirst(sptk::String(part.data(), part.size()),
+                               sptk::xdoc::SearchMode::ImmediateChild);
+        if (end == std::string_view::npos)
+            return node;
+        start = end + 1;
     }
-    return static_cast<int64_t>(value->number);
+    return {};
 }
 
-bool audienceMatches(const Json& claims, const std::string& audience)
+std::string claimString(const Claims& claims, const std::string_view path)
 {
-    const auto* value = claims.find("aud");
-    if (value == nullptr)
-    {
+    const auto node = findClaim(claims, path);
+    return node && node->type() == sptk::xdoc::Node::Type::Text
+               ? std::string(node->getString())
+               : std::string{};
+}
+
+bool claimNumber(const Claims& claims, const std::string_view path, int64_t& result)
+{
+    const auto node = findClaim(claims, path);
+    if (!node || node->type() != sptk::xdoc::Node::Type::Number)
         return false;
-    }
-    if (value->type == Json::Type::String)
+    result = static_cast<int64_t>(node->getNumber());
+    return true;
+}
+
+std::vector<std::string> claimStrings(const Claims& claims, const std::string_view path)
+{
+    const auto node = findClaim(claims, path);
+    if (!node)
+        return {};
+    if (node->type() == sptk::xdoc::Node::Type::Text)
+        return {std::string(node->getString())};
+    std::vector<std::string> values;
+    if (node->type() == sptk::xdoc::Node::Type::Array)
     {
-        return value->text == audience;
-    }
-    if (value->type == Json::Type::Array)
-    {
-        for (const auto& item: value->items)
+        for (const auto& item : node->nodes())
         {
-            if (item.type == Json::Type::String && item.text == audience)
-            {
+            if (item->type() == sptk::xdoc::Node::Type::Text)
+                values.emplace_back(item->getString());
+        }
+    }
+    return values;
+}
+
+bool claimAudienceMatches(const Claims& claims, const std::string& expected)
+{
+    const auto node = findClaim(claims, "aud");
+    if (!node)
+        return false;
+    if (node->type() == sptk::xdoc::Node::Type::Text)
+        return node->getString() == expected;
+    if (node->type() == sptk::xdoc::Node::Type::Array)
+    {
+        for (const auto& item : node->nodes())
+        {
+            if (item->type() == sptk::xdoc::Node::Type::Text && item->getString() == expected)
                 return true;
-            }
         }
     }
     return false;
 }
-
 } // namespace
 
 // ---------------------------------------------------------------------------------------------
@@ -663,6 +736,20 @@ bool audienceMatches(const Json& claims, const std::string& audience)
 // ---------------------------------------------------------------------------------------------
 
 namespace {
+
+std::string publicKeyPem(EVP_PKEY* key)
+{
+    BIO* rawBio = BIO_new(BIO_s_mem());
+    if (!rawBio) throw std::runtime_error("SPTK JWT key serialization failed");
+    const std::unique_ptr<BIO, decltype(&BIO_free)> bio(rawBio, BIO_free);
+    if (PEM_write_bio_PUBKEY(bio.get(), key) != 1)
+        throw std::runtime_error("SPTK JWT key serialization failed");
+    char* data = nullptr;
+    const long length = BIO_get_mem_data(bio.get(), &data);
+    if (length <= 0 || !data)
+        throw std::runtime_error("SPTK JWT key serialization failed");
+    return {data, static_cast<size_t>(length)};
+}
 
 class JwtAuthenticator final : public xmq::XmqExtensionBase
 {
@@ -756,7 +843,7 @@ public:
             return XMQ_AUTH_NOT_HANDLED;
         }
         const std::string tokenText(request.password.data, request.password.length);
-        if (!looksLikeToken(tokenText))
+        if (!hasJwtShape(tokenText))
         {
             return XMQ_AUTH_NOT_HANDLED;
         }
@@ -774,13 +861,20 @@ public:
             }
         }
 
-        const auto token = splitToken(tokenText);
-        if (!token)
+        sptk::JWT decodedToken;
+        sptk::xdoc::Document decodedHeader;
+        try
+        {
+            // Obtain the protected header's kid before choosing a JWKS key. Signature verification
+            // happens in a second decode after that key has been selected.
+            decodedToken.decode(tokenText.c_str(), "", &decodedHeader);
+        }
+        catch (const std::exception&)
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        const auto algorithm = token->header.stringAt("alg");
+        const auto algorithm = claimString(decodedHeader.root(), "alg");
         // Exactly the configured algorithm: accepting whatever the token asks for is how an
         // attacker turns RS256 into HS256 and signs with the public key as the secret.
         if (algorithm != config->algorithm)
@@ -793,66 +887,76 @@ public:
 
         std::string error;
         PkeyPtr     signingKey;
+        std::string verificationKey;
         if (config->algorithm == "HS256")
         {
-            if (!verifyHs256(config->secret, token->signingInput, token->signature))
-            {
-                if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-                return XMQ_AUTH_DENY;
-            }
+            verificationKey = config->secret;
         }
         else
         {
-            signingKey = m_jwks.key(*config, config->algorithm, token->header.stringAt("kid"), error);
+            const auto keyId = claimString(decodedHeader.root(), "kid");
+            signingKey = m_jwks.key(*config, config->algorithm, keyId, error);
             if (!signingKey)
             {
-                // The key set could not be read: an outage, not a refusal, and never remembered.
+                // A missing/unavailable JWKS is a subsystem failure, not a bad password.
                 log(XMQ_LOG_ERROR, "JWT key set: " + error);
                 return XMQ_AUTH_SUBSYSTEM_ERROR;
             }
-            const bool verified = config->algorithm == "RS256"
-                                      ? verifyRs256(signingKey.get(), token->signingInput,
-                                                    token->signature)
-                                      : verifyEs256(signingKey.get(), token->signingInput,
-                                                    token->signature);
-            if (!verified)
+            try
             {
-                if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
-                return XMQ_AUTH_DENY;
+                verificationKey = publicKeyPem(signingKey.get());
             }
+            catch (const std::exception& exception)
+            {
+                log(XMQ_LOG_ERROR, exception.what());
+                return XMQ_AUTH_SUBSYSTEM_ERROR;
+            }
+        }
+        Claims claims;
+        try
+        {
+            const auto expectedAlgorithm = sptk::JWT::str_alg(config->algorithm.c_str());
+            decodedToken.decode(tokenText.c_str(), sptk::String(verificationKey), expectedAlgorithm);
+            claims = decodedToken.grants.root();
+        }
+        catch (const std::exception&)
+        {
+            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            return XMQ_AUTH_DENY;
         }
 
         const auto  now = std::time(nullptr);
         const auto  skew = static_cast<int64_t>(config->skewSeconds);
-        const auto* expiryValue = token->claims.find("exp");
-        if (expiryValue == nullptr || expiryValue->type != Json::Type::Number)
+        int64_t expiry = 0;
+        if (!claimNumber(claims, "exp", expiry))
         {
             // A token with no expiry is a password that never changes.
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        if (numberAt(token->claims, "exp") + skew <= now)
+        if (expiry + skew <= now)
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        if (token->claims.find("nbf") != nullptr && numberAt(token->claims, "nbf") > now + skew)
+        int64_t notBefore = 0;
+        if (claimNumber(claims, "nbf", notBefore) && notBefore > now + skew)
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        if (token->claims.stringAt("iss") != config->issuer)
+        if (claimString(claims, "iss") != config->issuer)
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
-        if (!config->audience.empty() && !audienceMatches(token->claims, config->audience))
+        if (!config->audience.empty() && !claimAudienceMatches(claims, config->audience))
         {
             if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
-        const auto identity = token->claims.stringAt(config->usernameClaim);
+        const auto identity = claimString(claims, config->usernameClaim);
         if (identity.empty())
         {
             log(XMQ_LOG_WARNING, "rejected a token with no " + config->usernameClaim + " claim");
@@ -871,7 +975,7 @@ public:
             return XMQ_AUTH_DENY;
         }
 
-        const auto claimedGroups = token->claims.stringsAt(config->groupsClaim);
+        const auto claimedGroups = claimStrings(claims, config->groupsClaim);
         if (config->mappings.empty())
         {
             groups = claimedGroups;
