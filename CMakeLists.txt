@@ -754,6 +754,7 @@ ENDIF ()
 ADD_SUBDIRECTORY(extension/user-database)
 ADD_SUBDIRECTORY(extension/ldap)
 ADD_SUBDIRECTORY(extension/jwt)
+ADD_SUBDIRECTORY(extension/http-auth)
 ADD_SUBDIRECTORY(extension/webhook)
 
 # The extension interface. These two headers are the whole of what an extension compiles against;

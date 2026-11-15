@@ -47,10 +47,11 @@ def receive(sock):
     raise RuntimeError("invalid MQTT remaining length")
 
 
-def connect(port, username, password, expected=0):
+def connect(port, username, password, expected=0, client_id=None):
     sock = socket.create_connection(("127.0.0.1", port), timeout=10)
     send(sock, 0x10, string("MQTT") + bytes([5, 0xC2, 0, 30, 0]) +
-         string("ldap-test-" + str(time.monotonic_ns())) + string(username) + string(password))
+         string(client_id or ("ldap-test-" + str(time.monotonic_ns()))) +
+         string(username) + string(password))
     header, answer = receive(sock)
     accepted = expected if isinstance(expected, tuple) else (expected,)
     assert header == 0x20 and answer[1] in accepted, ("CONNACK", header, answer, expected)

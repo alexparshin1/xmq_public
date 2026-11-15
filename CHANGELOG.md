@@ -28,6 +28,25 @@ Requires SPTK 5.6.20.
   never cached. The extension ships a declarative form and a manual page; settings, cache
   behaviour and the form may change before the mode is declared stable. See
   `extension/jwt/README.md`.
+  JWT and JWKS transport use the paired SPTK 5.6.20; local MQTT acceptance against Keycloak covers
+  group permissions, expiry, signing-key rotation and provider outage with decision caching off.
+  Verification is offline: there is no provider-side token revocation check, and cached ALLOW
+  decisions are not bounded by token expiry.
+
+- **Optional generic HTTP authentication (experimental).** `xmq_http_auth` asks a configurable
+  HTTP(S) service whether a client may connect and takes its groups from the answer. The service
+  receives the username (with the configurable `http/` prefix stripped), password, client id, peer
+  address, MQTT protocol version and whether MQTT is encrypted, and answers `allow` with an optional
+  group list, `deny` or `not_handled`; `401`/`403` mean deny. Returned names are used directly as
+  XMQ groups, so topic permissions stay in native Permissions and the service never sees a topic.
+  HTTPS verifies the certificate chain and host name and requires TLS 1.2; plain HTTP is accepted
+  only on loopback. Connect, TLS handshake and HTTP I/O share one deadline, the answer is limited
+  to 64 KiB, redirects and compressed responses are rejected, and concurrent requests are bounded.
+  ALLOW and DENY decisions are cached separately for 60 and 10 seconds under a keyed hash of the
+  credentials; malformed answers, timeouts and outages are never cached and are refused as server
+  unavailable rather than admitted. `not_handled` passes the client to the next authenticator in
+  configuration order. Ships a declarative form, a README and an isolated broker stand; the mode is
+  experimental and its settings may change. See `extension/http-auth/README.md`.
 
 - **Declarative extension forms, without scripts.** An optional `<library>.ui.json` supplies
   sections, conditional visibility/availability, multiline fields and name-to-value presets.
@@ -74,6 +93,9 @@ Requires SPTK 5.6.20.
   TLS key and certificate. See the Setup guide for listener configuration.
 
 ### Fixed
+
+- Authentication refusals now use MQTT 5 CONNACK reason code `0x86` for MQTT 5 clients rather than
+  the legacy `0x04`; MQTT 3.x clients retain their protocol's return code.
 
 - **A PUBLISH that named its topic only through a topic alias was refused.** MQTT 5 allows the topic
   name to be empty when a topic alias established earlier on the same connection names it; the

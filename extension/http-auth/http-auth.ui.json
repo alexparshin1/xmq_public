@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "Service",
+      "description": "The endpoint receives a JSON POST with the username, password, client id, peer address, protocol version and whether MQTT is encrypted. HTTPS is required outside loopback; a custom CA replaces system trust for this endpoint only.",
+      "fields": [
+        {"name": "url"},
+        {"name": "ca_file"},
+        {"name": "bearer_token"},
+        {"name": "username_prefix"}
+      ]
+    },
+    {
+      "title": "Limits and decision cache",
+      "description": "One deadline covers connect, TLS and HTTP. Only allow and deny answers are cached, under a keyed hash of the whole request; malformed answers, timeouts and outages are refused and never remembered. An outage cannot become a remembered admission or refusal.",
+      "fields": [
+        {"name": "timeout_seconds"},
+        {"name": "max_inflight"},
+        {"name": "cache_ttl_seconds"},
+        {"name": "negative_cache_ttl_seconds"},
+        {"name": "cache_max_entries"}
+      ]
+    }
+  ]
+}

@@ -99,9 +99,15 @@ settings that are validated before they are accepted, and an outage told apart f
 password. It is built through `XMQ_ADD_EXTENSION` like everything else and reaches no more of the
 broker than your own extension does.
 
-Two optional authenticators ship beside it, and both are readable examples of their own: `ldap/`
-checks a password against a directory and maps its groups, and `jwt/` verifies a token locally and
-takes the identity and the groups from its claims. Each has a README and a `.ui.json` form.
+Three optional authenticators ship beside it, all readable examples of their own: `ldap/` checks a
+password against a directory and maps its groups, `jwt/` verifies a token locally and takes the
+identity and the groups from its claims, and `http-auth/` asks an HTTP service for a decision and
+its group list. Each has a README and a `.ui.json` form.
+
+`http-auth/` is the one to read when the accounts live in a company service rather than a
+directory: it shows a blocking authenticator with a deadline, a bounded decision cache keyed by a
+keyed hash of the credentials, and the distinction between "wrong password" and "cannot ask" that
+must never collapse into admission.
 
 ## Configuring one
 
