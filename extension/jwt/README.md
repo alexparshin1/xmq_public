@@ -8,8 +8,10 @@ the client is and what it may be.
 The MQTT username carries the identity. With the default `username_prefix` the client sends
 `jwt/<name>` and the token must say the same `<name>` in its username claim; the token alone is the
 credential. A password that is not three dot-separated base64url parts is not this extension's
-business — it answers `NOT_HANDLED` and the chain continues, so local accounts keep working beside
-it. Token-shaped but malformed credentials are refused rather than passed to another authenticator.
+business — it answers `NOT_HANDLED`, and the next authenticator in `xmq_extensions.conf` is asked.
+Put `user-database` or `ldap` after it if other accounts must share the broker; a name that no
+authenticator claims is refused. Token-shaped but malformed credentials are refused rather than
+passed on.
 
 ## Build and runtime dependencies
 

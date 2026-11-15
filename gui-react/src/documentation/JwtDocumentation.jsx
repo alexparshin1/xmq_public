@@ -52,8 +52,11 @@ export default function JwtDocumentation() {
                 The prefix keeps a token from standing in for a local account of the same name, and it
                 is what lets the extension tell its clients from everybody else's. A password that is
                 not three dot-separated base64url parts is not this extension's business: it answers
-                <em>not handled</em> and the chain continues, so local accounts keep working beside it.
-                A username without the prefix is not handled either.
+                <em>not handled</em>, and the next authenticator in configuration order is asked.
+                Put <code>user-database</code> or <code>ldap</code> after it if other accounts must
+                share the broker: a name that no authenticator claims is refused, and anonymous
+                access is a separate broker setting. A username without the prefix is not handled
+                either.
             </p>
 
             <pre className="userManualCode">{`mosquitto_pub -h broker -p 1883 \\
