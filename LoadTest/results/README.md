@@ -11,13 +11,16 @@ results/
 (`FlashMQ-1.27.1`). `<test>` is the scenario name. Each file holds the run's header - broker,
 version, host, client, date, notes - and that test's table, or the line saying it failed.
 
+**One directory per version.** Re-testing a version replaces its directory whole; do not accumulate
+parallel runs of one version. A directory that would mix two campaigns is worse than a missing one:
+a scenario the new run did not have would keep its old table, and nothing downstream can tell.
+
 **AWS results are required when a release changes the major or minor version, or when it moves the
 measured path.** A patch release that leaves the path alone is published without them; `release.sh`
 on the build farm decides by version number and takes `--hotpath` for a patch that does move it.
 The bench results are our own baseline on our own hardware, never part of a release.
 
 A change is checked for regressions against the previous version's `Bench/<version>/` files.
-A later run of the same version replaces its files.
 
 ## Filing a run
 
@@ -26,4 +29,5 @@ A later run of the same version replaces its files.
 ./file_results.py --env Bench results/raw/<run>/record.txt
 ```
 
-`file_results.py` refuses to replace files already filed unless given `--force`.
+`file_results.py` refuses a version whose directory already holds results unless given `--force`,
+which removes that directory before writing the new run.

@@ -12,12 +12,16 @@ The tree is what a release is checked against: release.sh refuses a version that
 here for the AWS set and the Bench set. A record written by run_scenario_set.sh --record is the
 input; the raw per-run logs stay in results/raw/, which is not kept in git.
 
+Filing a version that is already there replaces its directory whole rather than the files this
+record happens to hold: one directory per version, never two campaigns mixed in one.
+
     ./file_results.py --env Bench results/raw/2026-10-04-xmq-0.9.19-bench/record.txt
 """
 
 import argparse
 import pathlib
 import re
+import shutil
 import sys
 
 RESULTS = pathlib.Path(__file__).resolve().parent / "results"
@@ -70,7 +74,8 @@ def field(header, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--env", required=True, choices=["AWS", "Bench"], help="Where the set ran.")
-    parser.add_argument("--force", action="store_true", help="Replace results already filed.")
+    parser.add_argument("--force", action="store_true",
+                        help="Replace the version's whole directory of results.")
     parser.add_argument("--broker", help="Broker name, when the record's Server: line is wrong - "
                                          "records of other brokers were once written as XMQ.")
     parser.add_argument("record", type=pathlib.Path, help="Record written by run_scenario_set.sh --record.")
@@ -89,18 +94,19 @@ def main():
     # "XMQ (anything)" is still XMQ; any other broker carries its name into the directory.
     broker = broker.split("(")[0].strip().replace(" ", "-")
     directory = RESULTS / args.env / (version if broker == "XMQ" else f"{broker}-{version}")
+
+    # One directory per version, and a re-test of that version replaces it whole. Replacing file
+    # by file left a directory that mixed two campaigns: a scenario the new run did not have kept
+    # its old table, and the release check cannot see that - it only asks that each file is not
+    # empty. A directory that already exists is therefore refused without --force, and removed
+    # with it.
+    if directory.is_dir() and any(directory.iterdir()):
+        if not args.force:
+            sys.exit(f"{directory} already holds results; --force replaces the whole directory")
+        shutil.rmtree(directory)
     directory.mkdir(parents=True, exist_ok=True)
 
-    # Every target is checked before any is written. Checked one at a time inside the write loop,
-    # the first file that already existed ended the run with the files before it already replaced:
-    # a version filed twice left a directory of tables from two different campaigns, and the
-    # release check cannot see that - it only asks that each file is not empty.
-    targets = []
-    for name, table in tests.items():
-        target = directory / f"{name}.txt"
-        if target.exists() and not args.force:
-            sys.exit(f"{target} exists; --force replaces it")
-        targets.append((target, table))
+    targets = [(directory / f"{name}.txt", table) for name, table in tests.items()]
 
     for target, table in targets:
         # Written beside the target and moved onto it, so a filing interrupted partway leaves the
