@@ -97,6 +97,11 @@ Requires SPTK 5.6.20.
 - Authentication refusals now use MQTT 5 CONNACK reason code `0x86` for MQTT 5 clients rather than
   the legacy `0x04`; MQTT 3.x clients retain their protocol's return code.
 
+- **The Windows build of the JWT extension did not link.** JWK key import called SPTK's base64url
+  decoder, a free function without the Windows DLL export marker, so `xmq_jwt` failed with an
+  unresolved external while every other platform linked. The decoding is now done in the extension,
+  with the same refusal of the padded alphabet and of leftover padding bits.
+
 - **A PUBLISH that named its topic only through a topic alias was refused.** MQTT 5 allows the topic
   name to be empty when a topic alias established earlier on the same connection names it; the
   broker rejected the packet while parsing the name, before it could look the alias up, and dropped

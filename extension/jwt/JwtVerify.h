@@ -66,21 +66,62 @@ public:
 // base64url, which is base64 with two characters changed and no padding.
 // ---------------------------------------------------------------------------------------------
 
-static std::optional<std::string> base64UrlDecode(const std::string_view text)
+static std::optional<std::string> base64UrlDecode(const std::string_view body)
 {
-    const std::string encoded(text);
-    try
+    // Decoded here rather than through the SPTK helper: that function is a free function without
+    // the DLL export marker, so a Windows build of this extension cannot link against it. The JWK
+    // fields are the only place this extension needs base64url, and RFC 4648's alphabet is short
+    // enough to spell out.
+    //
+    // The URL-safe alphabet only, and no padding: a padded value is what a re-encoder produces,
+    // not what a signer could have emitted, and accepting it would let two spellings of one key
+    // reach different code paths.
+    std::string decoded;
+    decoded.reserve(body.size() * 3 / 4);
+    unsigned int accumulator = 0;
+    int          bits = 0;
+    for (const char ch: body)
     {
-        sptk::Buffer decoded;
-        sptk::jwt_b64_decode(decoded, encoded.c_str());
-        if (decoded.bytes() == 0)
-            return std::string{};
-        return std::string(reinterpret_cast<const char*>(decoded.data()), decoded.bytes());
+        unsigned int value = 0;
+        if (ch >= 'A' && ch <= 'Z')
+        {
+            value = static_cast<unsigned int>(ch - 'A');
+        }
+        else if (ch >= 'a' && ch <= 'z')
+        {
+            value = static_cast<unsigned int>(ch - 'a') + 26U;
+        }
+        else if (ch >= '0' && ch <= '9')
+        {
+            value = static_cast<unsigned int>(ch - '0') + 52U;
+        }
+        else if (ch == '-')
+        {
+            value = 62U;
+        }
+        else if (ch == '_')
+        {
+            value = 63U;
+        }
+        else
+        {
+            return std::nullopt;
+        }
+        accumulator = (accumulator << 6U) | value;
+        bits += 6;
+        if (bits >= 8)
+        {
+            bits -= 8;
+            decoded.push_back(static_cast<char>((accumulator >> bits) & 0xFFU));
+        }
     }
-    catch (const std::exception&)
+    // A group of six leftover bits cannot come from any whole byte, and leftover bits that are
+    // not zero mean the value was cut short rather than padded.
+    if (bits >= 6 || (accumulator & ((1U << bits) - 1U)) != 0)
     {
         return std::nullopt;
     }
+    return decoded;
 }
 
 // ---------------------------------------------------------------------------------------------
