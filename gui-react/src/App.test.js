@@ -3,7 +3,7 @@ import {fireEvent, render, screen, within} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
 import App from "./App";
 import ControlAPI from "./ControlAPI";
-import {documentationPages} from "./documentation/pages";
+import {documentationPages, documentationPagesIn} from "./documentation/pages";
 
 beforeEach(() => {
     ControlAPI.token = "";
@@ -12,8 +12,9 @@ beforeEach(() => {
 test.each(documentationPages)("Documentation $label is available without signing in", page => {
     render(<MemoryRouter initialEntries={[page.path]}><App/></MemoryRouter>);
     expect(screen.getByRole("heading", {level: 1, name: page.title})).toBeInTheDocument();
-    const menu = screen.getByText("Documentation").parentElement;
-    for (const entry of documentationPages) {
+    const group = page.menu || "Documentation";
+    const menu = screen.getByRole("button", {name: group}).parentElement;
+    for (const entry of documentationPagesIn(group)) {
         expect(within(menu).getByRole("link", {name: entry.label})).toHaveAttribute("href", entry.path);
     }
 });

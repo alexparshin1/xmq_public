@@ -6,11 +6,12 @@ import PersistenceDocumentation from "./PersistenceDocumentation";
 import TestingDocumentation from "./TestingDocumentation";
 import PermissionsDocumentation from "./PermissionsDocumentation";
 import ExtensionsDocumentation from "./ExtensionsDocumentation";
+import UserDatabaseDocumentation from "./UserDatabaseDocumentation";
 import LdapDocumentation from "./LdapDocumentation";
 import JwtDocumentation from "./JwtDocumentation";
 import HttpAuthDocumentation from "./HttpAuthDocumentation";
+import WebhookDocumentation from "./WebhookDocumentation";
 import MosquittoImportDocumentation from "./MosquittoImportDocumentation";
-import DataIntegrationDocumentation from "./DataIntegrationDocumentation";
 import PrometheusDocumentation from "./PrometheusDocumentation";
 import ClusterDocumentation from "./ClusterDocumentation";
 import LoadBalancerDocumentation from "./LoadBalancerDocumentation";
@@ -24,11 +25,12 @@ const screens = {
     testing: TestingDocumentation,
     permissions: PermissionsDocumentation,
     extensions: ExtensionsDocumentation,
+    "user-database": UserDatabaseDocumentation,
     ldap: LdapDocumentation,
     jwt: JwtDocumentation,
     "http-auth": HttpAuthDocumentation,
+    webhook: WebhookDocumentation,
     "mosquitto-import": MosquittoImportDocumentation,
-    "data-integration": DataIntegrationDocumentation,
     prometheus: PrometheusDocumentation,
     cluster: ClusterDocumentation,
     sizing: SizingDocumentation,

@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {useLocation, useNavigate} from "react-router-dom";
 import ControlAPI from "../ControlAPI";
 import AccordionGroup from "./AccordionGroup";
-import {documentationPages} from "../documentation/pages";
+import {documentationPagesIn} from "../documentation/pages";
 
 /**
  * @brief The main menu, an accordion in the manner of the XMQ web site.
@@ -95,7 +95,7 @@ function buildGroups(connected) {
         items: {"/login": "Login"}
     };
     if (!connected) {
-        return [loginGroup, documentationGroup()];
+        return [loginGroup, documentationGroup(), extensionsGroup()];
     }
 
     // Its own group: the dashboard is where the server is watched and operated, which is a
@@ -136,13 +136,29 @@ function buildGroups(connected) {
                 "/cluster": "Cluster"
             }
         },
-        documentationGroup()
+        documentationGroup(),
+        extensionsGroup()
     ];
 }
 
 function documentationGroup() {
     return {
         title: "Documentation",
-        items: Object.fromEntries(documentationPages.map(page => [page.path, page.label]))
+        items: Object.fromEntries(documentationPagesIn("Documentation").map(page => [page.path, page.label]))
+    };
+}
+
+/**
+ * @brief One page per shipped extension, beside the manual.
+ *
+ * Its own group because the extension pages are read as a set - what each one does to a CONNECT or
+ * to accepted traffic - rather than in the order of an installation. Signed out they are as
+ * reachable as the manual: the decision to use a directory or an HTTP service is made before there
+ * is anything to sign in to.
+ */
+function extensionsGroup() {
+    return {
+        title: "Extensions",
+        items: Object.fromEntries(documentationPagesIn("Extensions").map(page => [page.path, page.label]))
     };
 }

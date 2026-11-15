@@ -23,38 +23,43 @@ export const documentationPages = [
         title: "Topic Permissions",
         description: "Rules for who may publish or subscribe to what, importing Mosquitto ACLs, and the known limitations.",
         anchors: ["permissions", "permissions-import", "permissions-csv", "permissions-limitations"]},
-    {id: "extensions", label: "Extensions", path: "/xmq_doc_extensions",
+    {id: "extensions", label: "Extensions", path: "/xmq_doc_extensions", menu: "Extensions",
         title: "Extensions",
         description: "What an extension may do, where it is configured, and how its settings and secrets are handled.",
         anchors: ["extensions", "extensions-configuration", "extensions-settings", "extensions-limits"]},
-    {id: "ldap", label: "LDAP", path: "/xmq_doc_ldap",
+    {id: "user-database", label: "User Database", path: "/xmq_doc_user_database", menu: "Extensions",
+        title: "User Database Authentication",
+        description: "Signing in against the broker's own SQL account database: the four answers, the password formats, and what the one-minute cache means.",
+        anchors: ["user-database", "user-database-answers", "user-database-database",
+                  "user-database-passwords", "user-database-settings", "user-database-cache",
+                  "user-database-order", "user-database-limits"]},
+    {id: "ldap", label: "LDAP", path: "/xmq_doc_ldap", menu: "Extensions",
         title: "LDAP Authentication",
         description: "Signing in with a directory account: the ldap/ namespace, directory groups mapped to XMQ groups, and when changes take effect.",
         anchors: ["ldap", "ldap-users", "ldap-groups", "ldap-permissions", "ldap-changes",
                   "ldap-ad", "ldap-tls", "ldap-troubleshooting", "ldap-limitations"]},
-    {id: "jwt", label: "JWT", path: "/xmq_doc_jwt",
+    {id: "jwt", label: "JWT", path: "/xmq_doc_jwt", menu: "Extensions",
         title: "JWT Authentication",
         description: "Signing in with an identity-provider token: local verification, the jwt/ namespace, claim-derived groups, caching and revocation limits.",
         anchors: ["jwt", "jwt-token", "jwt-algorithms", "jwt-claims", "jwt-groups",
                   "jwt-changes", "jwt-tls", "jwt-limitations"]},
-    {id: "http-auth", label: "HTTP Authentication", path: "/xmq_doc_http_auth",
+    {id: "http-auth", label: "HTTP Authentication", path: "/xmq_doc_http_auth", menu: "Extensions",
         title: "HTTP Authentication",
         description: "Asking a company service whether a client may connect: the JSON request and answer, group permissions, caching and TLS limits.",
         anchors: ["http-auth", "http-auth-request", "http-auth-answers", "http-auth-groups",
                   "http-auth-cache", "http-auth-tls", "http-auth-limits"]},
+    {id: "webhook", label: "Webhook", path: "/xmq_doc_webhook", menu: "Extensions",
+        title: "Webhook and Data Integration",
+        description: "Posting accepted MQTT messages and broker log records to one HTTP(S) endpoint: sources, body templates, the HMAC signature and the delivery limits.",
+        anchors: ["webhook", "webhook-enable", "webhook-sources", "webhook-payload",
+                  "webhook-template", "webhook-signature", "webhook-settings",
+                  "webhook-delivery", "webhook-limits"]},
     {id: "mosquitto-import", label: "Mosquitto Import", path: "/xmq_doc_mosquitto_import",
         title: "Importing from Mosquitto",
         description: "Moving Mosquitto accounts and ACL rules across: password files, ACL files, dynamic security, conflicts and limitations.",
         anchors: ["mosquitto-import", "mosquitto-import-files", "mosquitto-import-plan",
                   "mosquitto-import-passwords", "mosquitto-import-acl", "mosquitto-import-dynsec",
                   "mosquitto-import-csv", "mosquitto-import-limitations"]},
-    {id: "data-integration", label: "Data Integration", path: "/xmq_doc_data_integration",
-        title: "Data Integration",
-        description: "Posting accepted MQTT messages and broker log records to HTTP(S) endpoints: sources, settings, and what it costs.",
-        anchors: ["data-integration", "data-integration-enable", "data-integration-sources",
-                  "data-integration-payload", "data-integration-settings",
-                  "data-integration-destinations", "data-integration-performance",
-                  "data-integration-security", "data-integration-delivery"]},
     {id: "prometheus", label: "Prometheus", path: "/xmq_doc_prometheus",
         title: "Prometheus Metrics",
         description: "Exposing broker, queue and host metrics to Prometheus: enabling the endpoint, scraping it, and optional basic authentication.",
@@ -76,4 +81,11 @@ export const documentationPages = [
 
 export function documentationPage(id) {
     return documentationPages.find(page => page.id === id);
+}
+
+/// The manual is split into two menu groups. Everything without a menu belongs to Documentation;
+/// the extension pages get their own group, one page per shipped extension, because they are read
+/// as a set rather than in the order of an installation.
+export function documentationPagesIn(menu) {
+    return documentationPages.filter(page => (page.menu || "Documentation") === menu);
 }
