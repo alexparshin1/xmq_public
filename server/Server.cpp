@@ -1953,7 +1953,8 @@ ReasonCode Server::authenticate(const string& clientId,
             m_extensions.publishError(LogSubject::Connect, "refused", "Refused by an extension",
                                       clientId, username,
                                       {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
-            return ReasonCode::ErrorAuthenticationFailed;
+            return protocolVersion == ProtocolVersion::MqttV5
+                       ? ReasonCode::AuthenticationFailed : ReasonCode::ErrorAuthenticationFailed;
 
         case ExtensionHost::AuthDecision::Unavailable:
             // Nobody could be asked. Admitting the client would mean admitting everyone for as
@@ -2005,7 +2006,8 @@ ReasonCode Server::authenticate(const string& clientId,
                     m_extensions.publishError(
                         LogSubject::Connect, "anonymous_refused", "Anonymous connections are not allowed",
                         clientId, username, {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
-                    return ReasonCode::ErrorAuthenticationFailed;
+                    return protocolVersion == ProtocolVersion::MqttV5
+                               ? ReasonCode::AuthenticationFailed : ReasonCode::ErrorAuthenticationFailed;
                 }
                 break;
             }
@@ -2028,7 +2030,8 @@ ReasonCode Server::authenticate(const string& clientId,
                 "Invalid username or password", clientId, username,
                 {{ExtensionHost::remoteAddressAttribute, remoteAddress}});
 
-            return ReasonCode::ErrorAuthenticationFailed;
+            return protocolVersion == ProtocolVersion::MqttV5
+                       ? ReasonCode::AuthenticationFailed : ReasonCode::ErrorAuthenticationFailed;
     }
 
     const auto logDebugMessages = loggerHas(LogPriority::Debug);

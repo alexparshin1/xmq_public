@@ -292,7 +292,9 @@ TEST_P(XMQ_ServerTests, Connection_AuthenticatonFailed)
 
     client->disconnect();
 
-    EXPECT_EQ(ReasonCode::ErrorAuthenticationFailed, responseCode);
+    EXPECT_EQ(protocolVersion == ProtocolVersion::MqttV5
+                  ? ReasonCode::AuthenticationFailed : ReasonCode::ErrorAuthenticationFailed,
+              responseCode);
 }
 
 /**
