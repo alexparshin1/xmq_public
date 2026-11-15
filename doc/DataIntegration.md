@@ -83,8 +83,9 @@ retry. A queue full test proves publishing is not blocked. A stopped extension d
 
 ### DI-7. Documentation
 
-`[x]` A Data Integration page under Documentation: what is sent, the signature, retries, the drop
-counter and the security of the endpoint secret.
+`[x]` A Webhook page under Extensions in the manual: what is sent, the signature, retries, the drop
+counter and the security of the endpoint secret. It was first published as "Data Integration"; the
+page and its Extensions-menu entry now carry the extension's own name.
 
 ### DI-8. Build and packaging
 
