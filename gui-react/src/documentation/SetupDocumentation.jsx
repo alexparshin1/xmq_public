@@ -1,4 +1,5 @@
 import React from "react";
+import {Link} from "react-router-dom";
 import DocumentationPage from "./DocumentationPage";
 
 export default function SetupDocumentation() {
@@ -109,7 +110,9 @@ export default function SetupDocumentation() {
                 <code>xmq_server.conf.template</code>, or from its own defaults if the template is
                 gone too, and comes up on the ports above. A fresh local accounts database has an
                 <code>admin</code> account with no password until Initial Setup is completed. No
-                usable password is installed by the package.
+                usable password is installed by the package. The extension that verifies those
+                accounts, and the cache in front of it, is described in
+                <Link to="/xmq_doc_user_database">User Database Authentication</Link>.
             </p>
 
             <h5>When the interface will not start</h5>

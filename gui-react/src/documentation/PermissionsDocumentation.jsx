@@ -11,7 +11,10 @@ export default function PermissionsDocumentation() {
                 Topic permissions answer one question: may this account publish or subscribe to
                 this topic? They are kept in the accounts database with the accounts and groups, so
                 every node of a cluster applies the same rules, and they are edited on the
-                <b>Permissions</b> page in the configuration interface.
+                <b>Permissions</b> page in the configuration interface. Verifying a password is a
+                different question, answered by the authenticator in front of the same database -
+                see <Link to="/xmq_doc_user_database">User Database Authentication</Link> - and
+                these rules apply to whatever groups the connection ends up with.
             </p>
 
             <p>
