@@ -12,8 +12,11 @@ The tree is what a release is checked against: release.sh refuses a version that
 here for the AWS set and the Bench set. A record written by run_scenario_set.sh --record is the
 input; the raw per-run logs stay in results/raw/, which is not kept in git.
 
-Filing a version that is already there replaces its directory whole rather than the files this
-record happens to hold: one directory per version, never two campaigns mixed in one.
+Filing a successful campaign replaces its directory whole rather than the files this record
+happens to hold: one directory per version, never two campaigns mixed in one. Review the results
+for regression against the previous version before filing; if there is a noticeable regression,
+fix it and run the campaign again instead. A record that says a scenario failed is refused while
+a directory is there, because a broken campaign must not destroy the numbers a good one left.
 
     ./file_results.py --env Bench results/raw/2026-10-04-xmq-0.9.19-bench/record.txt
 """
@@ -52,9 +55,10 @@ def parse(record_text):
             tests[current].append(line)
 
     # A test that failed has no table, only its line in the summary - and a failure is a result
-    # worth keeping as much as a latency is.
+    # worth keeping as much as a latency is. The reason is "failed (exit 1)", "setup failed" or
+    # "restart failed", and every one of them says the scenario produced nothing.
     for line in lines:
-        match = re.match(r"^\s+(\S+)\s+(failed.*)$", line)
+        match = re.match(r"^\s+(\S+)\s+((?:setup |restart )?failed.*)$", line)
         if match and match.group(1) not in tests:
             tests[match.group(1)] = [f"Scenario: {match.group(1)}", match.group(2)]
 
@@ -62,6 +66,12 @@ def parse(record_text):
         while table and not table[-1].strip():
             table.pop()
     return header, tests
+
+
+def failures(tests):
+    """The tests whose summary row says the scenario produced no measurement."""
+    return [name for name, table in tests.items()
+            if len(table) == 2 and re.match(r"(?:setup |restart )?failed\b", table[1])]
 
 
 def field(header, name):
@@ -75,7 +85,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--env", required=True, choices=["AWS", "Bench"], help="Where the set ran.")
     parser.add_argument("--force", action="store_true",
-                        help="Replace the version's whole directory of results.")
+                        help="File even a record with a failed scenario, replacing the version's "
+                             "whole directory of results.")
     parser.add_argument("--broker", help="Broker name, when the record's Server: line is wrong - "
                                          "records of other brokers were once written as XMQ.")
     parser.add_argument("record", type=pathlib.Path, help="Record written by run_scenario_set.sh --record.")
@@ -98,12 +109,20 @@ def main():
     # One directory per version, and a re-test of that version replaces it whole. Replacing file
     # by file left a directory that mixed two campaigns: a scenario the new run did not have kept
     # its old table, and the release check cannot see that - it only asks that each file is not
-    # empty. A directory that already exists is therefore refused without --force, and removed
-    # with it.
+    # empty.
+    #
+    # A successful campaign replaces what is there: after its results have been checked for
+    # regression, that is what re-testing a version is. One that lost a scenario does not, because
+    # a broker that could not run the set would otherwise wipe the numbers a working one left, and
+    # the loss would be silent. --force files such a record anyway, for keeping a failure that is
+    # worth keeping.
+    failed = failures(tests)
     if directory.is_dir() and any(directory.iterdir()):
-        if not args.force:
-            sys.exit(f"{directory} already holds results; --force replaces the whole directory")
+        if failed and not args.force:
+            sys.exit(f"{directory} already holds results, and this record failed "
+                     f"{', '.join(failed)}; fix it and run the set again")
         shutil.rmtree(directory)
+        print(f"replaced {directory.relative_to(RESULTS.parent)}")
     directory.mkdir(parents=True, exist_ok=True)
 
     targets = [(directory / f"{name}.txt", table) for name, table in tests.items()]
