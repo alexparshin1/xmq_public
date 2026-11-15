@@ -2162,10 +2162,25 @@ CPersistence Settings::persistenceControl(const string& action, const CPersisten
 
 CSSLKeys Settings::sslKeysControl(const string& action, const CSSLKeys& sslKeys)
 {
+    if (action != "set")
+    {
+        const ReadLock lock(m_mutex);
+        return m_connections.m_ssl_keys;
+    }
     const WriteLock lock(m_mutex);
 
     if (action == "set")
     {
+        const auto field = sslKeys.m_identity_field.asString();
+        if (!field.empty() && field != "off" && field != "cn" && field != "san_uri" && field != "san_email")
+        {
+            throw Exception("Unknown client certificate identity field");
+        }
+        if (((!field.empty() && field != "off") || !sslKeys.m_crlfile.asString().empty()) &&
+            (sslKeys.m_verify_depth.asInteger() <= 0 || sslKeys.m_cafile.asString().empty()))
+        {
+            throw Exception("Certificate identity and CRL policies require a CA file and positive verify depth");
+        }
         m_connections.m_ssl_keys = sslKeys;
         saveConfigurationUnlocked();
     }

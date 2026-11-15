@@ -25,13 +25,15 @@ export default class SSLKeysScreen extends React.Component {
         installed: {
             cafile: "",
             keyfile: "",
-            certfile: ""
+            certfile: "",
+            crlfile: ""
         },
         // Content of the files chosen in this session, keyed the same way. Only these are sent.
         uploaded: {},
         // Names of the chosen files, for showing what is about to be installed.
         chosenNames: {},
         verify_depth: 0,
+        identity_field: "off",
 
         // The same three things for the interface's own certificate, plus what that certificate
         // says about itself - subject, expiry and fingerprint, as the server reads them.
@@ -88,9 +90,11 @@ export default class SSLKeysScreen extends React.Component {
                 installed: {
                     cafile: keys.cafile ? keys.cafile : "",
                     keyfile: keys.keyfile ? keys.keyfile : "",
-                    certfile: keys.certfile ? keys.certfile : ""
+                    certfile: keys.certfile ? keys.certfile : "",
+                    crlfile: keys.crlfile || ""
                 },
-                verify_depth: keys.verify_depth ? keys.verify_depth : 0
+                verify_depth: keys.verify_depth ? keys.verify_depth : 0,
+                identity_field: keys.identity_field || "off"
             });
         }
 
@@ -113,11 +117,6 @@ export default class SSLKeysScreen extends React.Component {
 
     installKeys() {
         const uploaded = this.state.uploaded;
-        if (Object.keys(uploaded).length === 0) {
-            errorWindow("Choose at least one certificate or key file to install.");
-            return;
-        }
-
         ControlAPI.asyncMakeAPICall("SSLKeysControl", {
             action: "set",
             keys: {
@@ -125,7 +124,9 @@ export default class SSLKeysScreen extends React.Component {
                 cafile: uploaded.cafile ? uploaded.cafile : "",
                 keyfile: uploaded.keyfile ? uploaded.keyfile : "",
                 certfile: uploaded.certfile ? uploaded.certfile : "",
-                verify_depth: String(this.state.verify_depth)
+                verify_depth: String(this.state.verify_depth),
+                identity_field: this.state.identity_field,
+                crlfile: uploaded.crlfile || ""
             }
         }).then(result => {
             if (result === null) {
@@ -283,7 +284,7 @@ export default class SSLKeysScreen extends React.Component {
     renderSslKey(label, fieldName, helpKey = null) {
         return <div className="inputScreenRow">
             <label htmlFor={fieldName} className="inputScreenLabel">{label}:</label>
-            <FileLoad name={fieldName} accept=".crt,.key,.pem,.cert"
+            <FileLoad name={fieldName} accept=".crt,.key,.pem,.cert,.crl"
                       onLoad={(fileName, fileContent) =>
                           this.onFileChosen(fieldName, fileName, fileContent)}/>
             <HelpButton helpKey={helpKey}/>
@@ -321,6 +322,19 @@ export default class SSLKeysScreen extends React.Component {
             {this.renderSslKey("Server CA certificate", "cafile")}
             {this.renderSslKey("Server key", "keyfile")}
             {this.renderSslKey("Server certificate", "certfile")}
+            {this.renderSslKey("Client CRL bundle", "crlfile", "ssl_keys.crlfile")}
+
+            <div className="inputScreenRow">
+                <label htmlFor="identity_field" className="inputScreenLabel">Client identity:</label>
+                <select id="identity_field" value={this.state.identity_field}
+                        onChange={e => this.setState({identity_field: e.target.value})}>
+                    <option value="off">Off (password authentication only)</option>
+                    <option value="cn">Subject CN</option>
+                    <option value="san_uri">SAN URI</option>
+                    <option value="san_email">SAN email</option>
+                </select>
+                <HelpButton helpKey="ssl_keys.identity_field"/>
+            </div>
 
             <div className="inputScreenRow">
                 <label htmlFor="verify_depth" className="inputScreenLabel">Verify depth:</label>
@@ -334,7 +348,7 @@ export default class SSLKeysScreen extends React.Component {
             <div className="inputScreenRow">
                 <label className="inputScreenLabel"/>
                 <button className="inputScreenSaveButton" onClick={e => this.installKeys()}>
-                    Install Keys
+                    Apply
                 </button>
             </div>
 

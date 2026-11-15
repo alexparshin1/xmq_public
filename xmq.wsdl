@@ -397,6 +397,8 @@
                     </xsd:element>
                     <xsd:element name="certfile" type="xsd:string"/>
                     <xsd:element name="verify_depth" type="xsd:string"/>
+                    <xsd:element name="identity_field" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="crlfile" type="xsd:string" minOccurs="0"/>
                 </xsd:sequence>
             </xsd:complexType>
 

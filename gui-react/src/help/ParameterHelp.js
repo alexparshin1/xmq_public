@@ -189,13 +189,35 @@ const ParameterHelp = {
             "How far up a client's certificate chain the server will follow when verifying it.",
             "0 turns client certificate verification off entirely: clients are not asked for a " +
             "certificate, and the TLS listener only proves the server's own identity. Above 0, " +
-            "clients must present a certificate that the CA certificate above validates, within " +
-            "this many intermediate signers."
+            "the broker requests and verifies a supplied certificate. Certificate identity or CRL " +
+            "policy makes a certificate mandatory at MQTT CONNECT."
         ],
         range: "0 .. 10",
         suggested: "0, unless clients authenticate by certificate"
     },
 
+    "ssl_keys.identity_field": {
+        title: "Certificate-bound MQTT identity",
+        text: [
+            "When enabled, every MQTT client must use TLS and present a valid client certificate. " +
+            "Exactly one selected CN or SAN value must match the MQTT username, case-sensitively. " +
+            "Missing or ambiguous identities are refused; there is no fallback to another field.",
+            "This binds the existing authentication and topic ACLs to the certificate. " +
+            "It does not replace the password or authentication extension. Configure a CA file " +
+            "and a positive verify depth. The policy also applies to bridge and cluster clients."
+        ]
+    },
+    "ssl_keys.crlfile": {
+        title: "Client certificate revocation",
+        text: [
+            "Upload a PEM bundle of CRLs for all issuers in the client chain. At each MQTT CONNECT " +
+            "the broker verifies the client chain and current CRLs. Missing, expired, untrusted " +
+            "or invalid lists refuse the connection; a revoked certificate is never admitted.",
+            "Replace the bundle before nextUpdate. Existing connections are not disconnected " +
+            "automatically. There is no OCSP or automatic CRL download. An empty upload keeps " +
+            "the installed file; removing CRL enforcement requires clearing crlfile in configuration."
+        ]
+    },
     "web_service.encrypted": {
         title: "Serve over HTTPS",
         text: [

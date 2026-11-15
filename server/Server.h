@@ -324,6 +324,7 @@ public:
      * @return Reason code.
      */
     [[nodiscard]] ReasonCode handleConnectMessage(const SClientSession& newClientSession, const SConnectMessage& connectMessage);
+    ReasonCode continueConnectAuthentication(const SClientSession& newClientSession, const SConnectMessage& connectMessage);
 
     /**
      * @brief Everything a CONNECT does once it is known whether the client may connect.

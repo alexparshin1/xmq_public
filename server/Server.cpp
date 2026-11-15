@@ -18,6 +18,7 @@
 #include "Settings/UriSecret.h"
 
 #include <sptk5/net/SSLSocket.h>
+#include "CertificateIdentity.h"
 
 #include "Bridge/Bridge.h"
 #include "ClientSession/ClientSession.h"
@@ -1333,8 +1334,48 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
         newClientSession->setProtocol(newProtocol);
     }
 
-    const auto& clientId = connectMessageParameters->getClientId();
+    // A policy refusal must never fall through to another authenticator or take over a session.
+    const auto keys = getSettings()->sslKeysControl("get", CSSLKeys{});
+    const auto identityField = keys.m_identity_field.asString();
+    const auto crlFile = keys.m_crlfile.asString();
+    if (reasonCode == ReasonCode::Success &&
+        ((!identityField.empty() && identityField != "off") || !crlFile.empty()))
+    {
+        newClientSession->setAuthenticationPending(true);
+        // Reading trust files and verifying signatures must not stall a receive worker.
+        runConnectCompletion([this, newClientSession, connectMessage, socket, keys, crlFile, identityField]
+        {
+            try
+            {
+                const auto tls = dynamic_pointer_cast<SSLSocket>(socket);
+                verifyCertificateIdentity(tls ? std::string(tls->peerCertificateChainPem()) : std::string{},
+                                          keys.m_cafile.asString(), crlFile, identityField,
+                                          connectMessage->getUsername(), keys.m_verify_depth.asInteger());
+            }
+            catch (const std::exception& error)
+            {
+                logMessage(LogSubject::Connect, LogPriority::Warning,
+                           std::string("Certificate policy refused CONNECT: ") + error.what());
+                m_extensions.publishError(LogSubject::Connect, "certificate_refused", error.what(),
+                                          connectMessage->getParameters()->getClientId(), connectMessage->getUsername());
+                connectMessage->setReasonCode(connectMessage->getParameters()->m_protocolVersion == ProtocolVersion::MqttV5
+                                                  ? ReasonCode::AuthenticationFailed : ReasonCode::ErrorAuthenticationFailed);
+                completePendingConnect(newClientSession, connectMessage, ExtensionHost::AuthDecision::NotHandled);
+                return;
+            }
+            continueConnectAuthentication(newClientSession, connectMessage);
+        });
+        return ReasonCode::Success;
+    }
+    return continueConnectAuthentication(newClientSession, connectMessage);
+}
 
+ReasonCode Server::continueConnectAuthentication(const SClientSession& newClientSession, const SConnectMessage& connectMessage)
+{
+    const auto reasonCode = connectMessage->getReasonCode();
+    const auto& parameters = connectMessage->getParameters();
+    const auto protocolVersion = parameters->m_protocolVersion;
+    const auto& clientId = parameters->getClientId();
     if (reasonCode == ReasonCode::Success && (m_extensions.authenticating() || m_extensions.authorizing()))
     {
         // The extensions are asked on a thread of their own and the answer arrives later, so this
@@ -1392,7 +1433,8 @@ ReasonCode Server::handleConnectMessage(const SClientSession& newClientSession, 
         return ReasonCode::Success;
     }
 
-    if (reasonCode == ReasonCode::Success && needsSessionLookup(connectMessage))
+    if (reasonCode == ReasonCode::Success &&
+        (needsSessionLookup(connectMessage) || newClientSession->authenticationPending()))
     {
         // Left pending the same way as for an extension: nothing more is read from this client
         // until the CONNECT is finished, and this receive thread does not wait for Redis.

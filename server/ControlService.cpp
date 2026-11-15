@@ -2459,6 +2459,9 @@ void ControlService::SSLKeysControl(const CSSLKeysControl& input, CSSLKeysContro
             const auto serverCertFileName = writeCertificate(keysDirectory, "server.crt",
                                                              input.m_keys.m_certfile.asString(),
                                                              currentKeys.m_certfile.asString());
+            const auto crlFileName = writeCertificate(keysDirectory, "clients.crl.pem",
+                                                       input.m_keys.m_crlfile.asString(),
+                                                       currentKeys.m_crlfile.asString());
 
             auto verifyDepth = input.m_keys.m_verify_depth.asInteger();
             auto verifyMode = verifyDepth ? SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE : SSL_VERIFY_NONE;
@@ -2467,6 +2470,7 @@ void ControlService::SSLKeysControl(const CSSLKeysControl& input, CSSLKeysContro
             storedKeys.m_cafile = serverCAFileName;
             storedKeys.m_keyfile = serverKeyFileName;
             storedKeys.m_certfile = serverCertFileName;
+            storedKeys.m_crlfile = crlFileName;
             settings.sslKeysControl(input.m_action, storedKeys);
             const auto sslKeys = make_shared<SSLKeys>(serverKeyFileName.c_str(),
                                                       serverCertFileName, "",

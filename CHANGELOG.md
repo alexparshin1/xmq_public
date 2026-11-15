@@ -10,9 +10,20 @@ are not upgrading anything, and most releases do not get one.
 
 ## 1.1.2 — unreleased
 
-Requires SPTK 5.6.20.
+Requires SPTK 5.6.21.
 
 ### Added
+
+- **Certificate-bound MQTT identities and client CRLs (experimental).** In the broker SSL keys,
+  `identity_field=cn`, `san_uri` or `san_email` requires exactly one selected certificate value
+  matching the MQTT username. `crlfile` enables full-chain CRL verification at every CONNECT;
+  revoked certificates and missing, invalid or expired CRLs fail closed. Both policies require
+  TLS, a CA file and positive verify depth, and apply to every MQTT listener, bridges and cluster
+  links included. Existing password/extension authentication and native topic permissions remain
+  in force; this is not passwordless authentication. Defaults preserve existing behaviour.
+  SPTK 5.6.21 supplies a locked PEM snapshot of the peer certificate chain. See
+  `doc/CertificateIdentity.md` for deployment and limitations: no OCSP, automatic CRL retrieval
+  or disconnection of already connected clients.
 
 - **Optional JWT authentication (experimental).** `xmq_jwt` authenticates a client whose MQTT
   password is a JSON Web Token from the customer's identity provider, checking the signature

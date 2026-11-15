@@ -219,11 +219,28 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
                 <li><b>CA certificate</b> is needed only to verify client certificates.</li>
                 <li>
                     <b>Verify depth</b> of 0 means clients are not asked for a certificate: the TLS
-                    listener proves the server's identity and no more. Above 0, a client must
-                    present a certificate that the CA certificate validates, within that many
-                    intermediate signers.
+                    listener proves the server's identity and no more. Above 0, the broker asks
+                    for a certificate and verifies it when supplied. The identity and CRL policies
+                    below make a client certificate mandatory at MQTT CONNECT.
                 </li>
             </ul>
+
+            <p>
+                Experimental <b>Client identity</b> binding selects the subject CN, SAN URI or SAN email.
+                Exactly one selected value must match the MQTT username, case-sensitively; missing or
+                ambiguous values are refused. Existing password/token authentication and topic permissions
+                still apply. This is certificate-bound authentication, not passwordless login.
+            </p>
+            <p>
+                A <b>Client CRL bundle</b> enables full-chain revocation checks at every MQTT CONNECT.
+                Upload current, signed PEM CRLs for all issuers in the chain. Missing, invalid or expired
+                CRLs fail closed. Replace the bundle on every node before it expires. There is no
+                automatic download or OCSP, and already connected clients are not evicted.
+                Enabling either policy requires a CA and positive verify depth, and applies to
+                <b> every MQTT connection on this node</b>, including bridges and cluster peers.
+                Plain TCP/WS cannot bypass it. Untouched uploads keep existing files; to disable CRL
+                enforcement, clear <code>connections.ssl_keys.crlfile</code> in configuration and restart.
+            </p>
 
             <p>
                 If the keys are missing or fail to load, the server logs an error, skips the
