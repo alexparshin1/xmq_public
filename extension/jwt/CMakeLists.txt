@@ -29,7 +29,7 @@ IF (OPENSSL_FOUND)
     ENDIF ()
     XMQ_ADD_EXTENSION(xmq_jwt SOURCES ${CMAKE_CURRENT_LIST_DIR}/Jwt.cpp OPENSSL
             UI "${CMAKE_CURRENT_LIST_DIR}/jwt.ui.json")
-    # JWKS is fetched using OpenSSL's TLS BIO, not just libcrypto.
+    # SPTK owns HTTPS transport; this extension also directly imports PEM/JWK keys with OpenSSL.
     TARGET_LINK_LIBRARIES(xmq_jwt OpenSSL::SSL)
     TARGET_INCLUDE_DIRECTORIES(xmq_jwt PRIVATE "${SPTK_INCLUDE_DIR}")
     TARGET_LINK_LIBRARIES(xmq_jwt "${SPTK_LIBRARY_CORE}")

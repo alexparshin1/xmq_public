@@ -218,14 +218,17 @@ mqtt-publishers => Publishers`}</pre>
                 <tbody>
                 <tr>
                     <td>Token expires</td>
-                    <td>At its <code>exp</code>, but no earlier than the cached decision expires — the
-                        two are checked together, so a token cannot outlive its own expiry.</td>
+                    <td>Expiry is checked on a cache miss. A cached ALLOW can outlive
+                        <code>exp</code> plus clock skew until its TTL elapses. Set
+                        <code>cache_ttl_seconds=0</code> to check every CONNECT. Existing sessions
+                        are not disconnected at token expiry.</td>
                 </tr>
                 <tr>
                     <td>Token revoked or an account disabled</td>
-                    <td>When the cached decision expires, within one <code>cache_ttl_seconds</code>.
-                        Set it to <code>0</code> where immediate revocation matters; the cost is a
-                        signature check per CONNECT, still local and with no network.</td>
+                    <td>Not checked with the provider: there is no introspection or revocation list.
+                        An issued token can remain usable until its expiry, and a cached ALLOW can
+                        extend admission further. Disabling the cache does not provide immediate
+                        revocation.</td>
                 </tr>
                 <tr>
                     <td>Groups or roles changed in the token</td>
@@ -234,13 +237,15 @@ mqtt-publishers => Publishers`}</pre>
                 </tr>
                 <tr>
                     <td>Provider rotates its signing key</td>
-                    <td>A token naming the new key refreshes the key set at once; otherwise within
-                        five minutes.</td>
+                    <td>On a decision-cache miss, a token naming an unknown key refreshes the key
+                        set. Otherwise a key lookup refreshes it once the five-minute key-cache
+                        lifetime has elapsed; there is no background refresh.</td>
                 </tr>
                 <tr>
                     <td>Key set endpoint unreachable</td>
-                    <td>The CONNECT is refused as a subsystem error — never remembered, so an outage
-                        cannot become a remembered answer.</td>
+                    <td>A cached ALLOW or a valid token with a fresh cached signing key can still
+                        work. If fetching is necessary and fails, CONNECT is refused as a subsystem
+                        error; that error is not cached.</td>
                 </tr>
                 </tbody>
             </table>
@@ -254,8 +259,8 @@ mqtt-publishers => Publishers`}</pre>
                 verified against the system trust store, or against <code>jwks_ca_file</code> when the
                 issuer's key set is served by an internal CA, and the host name is checked against the
                 certificate. Plain <code>http://</code> is accepted only on loopback
-                (<code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>), where a local test
-                stand lives and another machine cannot intercept it.
+                (<code>localhost</code>, <code>127.0.0.1</code>). IPv6 URLs, including
+                <code>::1</code>, are currently rejected by the IPv4-only connect path.
             </p>
 
             <p>
@@ -270,10 +275,9 @@ mqtt-publishers => Publishers`}</pre>
 
             <ul>
                 <li>
-                    Revocation is as prompt as the cache lifetime. Tokens are checked locally and the
-                    issuer is not asked per connection, so a token revoked at the provider keeps
-                    working until its cached decision expires, at most one
-                    <code>cache_ttl_seconds</code>.
+                    Tokens are checked locally: provider-side revocation and account disabling are
+                    not checked, even when decision caching is disabled. Cache TTL is not capped
+                    by token expiry.
                 </li>
                 <li>
                     Only HS256, RS256 and ES256 are accepted. <code>none</code> is not an algorithm
@@ -285,8 +289,15 @@ mqtt-publishers => Publishers`}</pre>
                     policies on the mapped group, or as a pattern rule.
                 </li>
                 <li>
-                    The key-set fetch has a socket timeout (<code>timeout_seconds</code>, default 5) but
-                    no separate deadline for the TLS handshake.
+                    The key-set fetch shares <code>timeout_seconds</code> (default 5) across connect,
+                    TLS handshake and HTTP I/O. Synchronous DNS resolution cannot be interrupted
+                    and can exceed that budget.
+                </li>
+                <li>
+                    SPTK 5.6.20 is required together with OpenSSL 3 or newer. TLS requires at least
+                    version 1.2. JWKS responses are limited to 64 KiB of headers and 4 MiB of body;
+                    only HTTP 200 is accepted, redirects and compressed responses are not supported.
+                    JSON nesting is limited to 32 levels.
                 </li>
                 <li>
                     The extension is experimental: the settings, the cache behaviour and the
