@@ -1,0 +1,8 @@
+# Wiring check, not a measurement: one short scenario, ~2 minutes, to prove the stand runs a
+# bench profile at all - restart command, wait-for, stats sampling, record writing. The numbers
+# it produces are not comparable with a full set and must not be filed or published; files this
+# scene lands in results/raw/ only.
+#
+#   ./stand_run.sh --version X.Y.Z --bench-dir bench-X.Y.Z --set Scenario-Set-Smoke.txt
+
+500K-Connections-5000-rate.json
