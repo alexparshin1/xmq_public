@@ -184,32 +184,73 @@ Authorization: Bearer <token>
 }
 ```
 
+### Where the deployment values come from
+
+None of the deployment-specific values are in this document: the node name,
+the node host, the three ports, the Redis host and database number, the user
+database URI, and the administrator and cluster passwords. They belong to the
+deployment, and a setup that invents them is refused or, worse, succeeds against
+the wrong accounts.
+
+For the home stand they are kept in `~/xmq-stand.env` on the host where the
+setup runs — `thinker10` and `thinker11` both have a copy, mode 600, not in
+version control. Load them before building the request:
+
+```bash
+set -a; . "$HOME/xmq-stand.env"; set +a
+```
+
+| Variable | JSON field |
+|---|---|
+| `XMQ_ADMIN_PASSWORD` | `admin_password` |
+| `XMQ_CLUSTER_PASSWORD` | `cluster_password` |
+| `XMQ_NODE_NAME` | `node_name` |
+| `XMQ_NODE_HOST` | `node_host` |
+| `XMQ_MQTT_PORT` | `mqtt_port` |
+| `XMQ_MQTT_SSL_PORT` | `mqtt_ssl_port` |
+| `XMQ_WEB_SERVICE_PORT` | `web_service_port` |
+| `XMQ_REDIS_HOST`, `XMQ_REDIS_PORT`, `XMQ_REDIS_DATABASE` | `redis_host`, `redis_port`, `redis_database` |
+| `XMQ_DATABASE_URI` | `database_uri` |
+
+`redis_username` and `redis_password` stay empty for that Redis. If the file is
+missing, stop and ask for the values — do not substitute defaults, and do not
+choose a password yourself: on a shared accounts database the passwords must be
+the ones already stored there (see *Password rules and shared accounts* below).
+
 A runnable equivalent, run on the XMQ host. Build the body with `jq` so the
 JSON stays valid, submit it, and delete the file afterwards — it holds every
 password in clear text:
 
 ```bash
 BASE_URL=https://127.0.0.1:18883
+set -a; . "$HOME/xmq-stand.env"; set +a
+
 TOKEN=$(curl --silent --show-error --insecure \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":""}' "$BASE_URL/Login" | jq -er '.token')
 
-jq -n '{
+jq -n --arg admin "$XMQ_ADMIN_PASSWORD" --arg cluster "$XMQ_CLUSTER_PASSWORD" \
+      --arg node "$XMQ_NODE_NAME" --arg host "$XMQ_NODE_HOST" \
+      --argjson mqtt "$XMQ_MQTT_PORT" --argjson ssl "$XMQ_MQTT_SSL_PORT" \
+      --argjson web "$XMQ_WEB_SERVICE_PORT" \
+      --arg redis_host "$XMQ_REDIS_HOST" --argjson redis_port "$XMQ_REDIS_PORT" \
+      --argjson redis_db "$XMQ_REDIS_DATABASE" --arg db_uri "$XMQ_DATABASE_URI" \
+  '{
   action: "set",
   setup: {
-    admin_password: "<new-admin-password>",
-    cluster_password: "<cluster-password>",
-    node_name: "<node-name>",
-    node_host: "<advertised-host-or-address>",
-    mqtt_port: 1883,
-    mqtt_ssl_port: 8883,
-    web_service_port: 18883,
-    redis_host: "<redis-host>",
-    redis_port: 6379,
-    redis_database: 0,
+    admin_password: $admin,
+    cluster_password: $cluster,
+    node_name: $node,
+    node_host: $host,
+    mqtt_port: $mqtt,
+    mqtt_ssl_port: $ssl,
+    web_service_port: $web,
+    redis_host: $redis_host,
+    redis_port: $redis_port,
+    redis_database: $redis_db,
     redis_username: "",
     redis_password: "",
-    database_uri: "<database-uri>"
+    database_uri: $db_uri
   }
 }' > /tmp/xmq_setup.json
 
@@ -255,7 +296,8 @@ number from 0 through 16. Redis username and password are optional; if a
 username is supplied, a password is required. XMQ checks the Redis connection
 as part of applying the setup.
 
-For the `thinker11` setup described in this runbook, use:
+For the `thinker11` setup described in this runbook, the values are the ones in
+`~/xmq-stand.env`:
 
 ```text
 redis://theater:6379/1
@@ -263,7 +305,8 @@ redis://theater:6379/1
 
 In the `InitialSetupControl` JSON, represent this URI as
 `redis_host: "theater"`, `redis_port: 6379`, `redis_database: 1`, and empty
-`redis_username` and `redis_password` fields.
+`redis_username` and `redis_password` fields. Take the host and database number
+from `XMQ_REDIS_HOST` and `XMQ_REDIS_DATABASE` rather than retyping them.
 
 To disable Redis, use an empty `redis_host`, with `redis_port` and
 `redis_database` set to `0`:
@@ -292,12 +335,16 @@ configure the same database and Redis storage on every node, and use the same
 administrator and cluster passwords on every node. Initial Setup does **not**
 join a cluster.
 
-For the `thinker11` setup described in this runbook, use this PostgreSQL URI
-exactly as supplied:
+For the `thinker11` setup described in this runbook the URI is
+`XMQ_DATABASE_URI` in `~/xmq-stand.env`:
 
 ```text
 postgresql://xmq:secret@theater:5432/xmq
 ```
+
+The database is shared with `theater`, so the `admin` and `cluster` passwords
+supplied in the same request are checked against the accounts already stored
+there — they are not written over them.
 
 ## 4. Verify completion
 
@@ -368,13 +415,24 @@ database password.
 
 ### Deployment values for `thinker11`
 
-For the `thinker11` deployment in this runbook, use node name and advertised
-host `thinker11`, with MQTT, MQTT+SSL, and web interface ports `1883`, `8883`,
-and `18883`, respectively. Use Redis URI `redis://theater:6379/1` and
-PostgreSQL URI `postgresql://xmq:secret@theater:5432` — the database name is
-omitted, and libpq then connects to a database named after the user, `xmq`.
-`postgresql://xmq:secret@theater:5432/xmq` names that same database explicitly
-and is equally valid; pick one spelling and use it unchanged on every node.
+The values for this deployment — node name and host, ports, Redis, database URI
+and both account passwords — are kept in `~/xmq-stand.env` on `thinker10` and
+`thinker11` (mode 600, not in version control) rather than in this document.
+Source it before building the request:
+
+```bash
+set -a; . "$HOME/xmq-stand.env"; set +a
+```
+
+For `thinker11` those values are node name and advertised host `thinker11`, with
+MQTT, MQTT+SSL, and web interface ports `1883`, `8883`, and `18883`; Redis
+`redis://theater:6379/1`; and PostgreSQL `postgresql://xmq:secret@theater:5432`
+— the database name is omitted, and libpq then connects to a database named
+after the user, `xmq`. `postgresql://xmq:secret@theater:5432/xmq` names that
+same database explicitly and is equally valid; pick one spelling and use it
+unchanged on every node. Both account passwords are the ones the shared
+database already holds — `Secret#123` for `admin` and `cluster` — and are not
+chosen by whoever runs the setup.
 
 That node has no systemd unit and runs XMQ from `~/.local/bin/xmq_server`, so
 the reset is started detached with `nohup`, as shown in step 1. A successful
@@ -392,6 +450,17 @@ and the log then carries:
 ```
 
 ## Common pitfalls
+
+- **Inventing the passwords:** this document does not contain them, on purpose.
+  On the home stand they are in `~/xmq-stand.env`; anywhere else they come from
+  the shared accounts database that already holds `admin` and `cluster`. A
+  password chosen by the agent is refused with
+  `The admin password does not match the one in the shared database`, and on a
+  local SQLite deployment it silently replaces the accounts.
+- **Retyping deployment values from this document:** the hostnames, ports, Redis
+  database number and URIs in the examples are the stand's; a run that copies
+  them into another deployment configures the wrong one. Read them from the
+  environment file, or ask.
 
 - **Calling the wrong endpoint:** use `POST /InitialSetupControl` with
   `{"action":"set","setup":{...}}`; do not send individual password or URI

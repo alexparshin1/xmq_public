@@ -1,5 +1,21 @@
 # Working notes for agents in this repository
 
+## XMQ Initial Setup on a host
+
+The procedure is `doc/InitialSetup.md`. The deployment values it needs - node
+name and host, ports, Redis, database URI, and the `admin` and `cluster`
+passwords - are not in the document: they are in `~/xmq-stand.env` on thinker10
+and thinker11 (mode 600, not in version control). Load that file, do not invent
+a password, and do not substitute defaults from the examples:
+
+```bash
+set -a; . "$HOME/xmq-stand.env"; set +a
+```
+
+On a shared accounts database the passwords must be the ones already stored
+there; a chosen one is refused with `The admin password does not match the one
+in the shared database`.
+
 ## Home load-test stand
 
 The bench set runs with one command, from `LoadTest` on thinker10:
