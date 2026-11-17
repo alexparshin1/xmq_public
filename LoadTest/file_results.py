@@ -15,8 +15,15 @@ input; the raw per-run logs stay in results/raw/, which is not kept in git.
 Filing a successful campaign replaces its directory whole rather than the files this record
 happens to hold: one directory per version, never two campaigns mixed in one. Review the results
 for regression against the previous version before filing; if there is a noticeable regression,
-fix it and run the campaign again instead. A record that says a scenario failed is refused while
-a directory is there, because a broken campaign must not destroy the numbers a good one left.
+fix it and run the campaign again instead.
+
+A campaign of XMQ that says a scenario failed is refused, whether or not a directory is there.
+XMQ results are read for two things - a regression check against the previous version, and the
+baseline the next version is measured against - and a campaign missing a scenario serves neither:
+the missing number would read as "no change" in a comparison and as "not measured" in a baseline.
+Nothing is lost by refusing it: the record and its logs stay in results/raw/<run>/, which is where
+a failure is looked at. A record of another broker is filed as it stands, because there a failed
+scenario is the finding - the broker could not run it - and that is what the comparison needs.
 
     ./file_results.py --env Bench results/raw/2026-10-04-xmq-0.9.19-bench/record.txt
 """
@@ -84,9 +91,6 @@ def field(header, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--env", required=True, choices=["AWS", "Bench"], help="Where the set ran.")
-    parser.add_argument("--force", action="store_true",
-                        help="File even a record with a failed scenario, replacing the version's "
-                             "whole directory of results.")
     parser.add_argument("--broker", help="Broker name, when the record's Server: line is wrong - "
                                          "records of other brokers were once written as XMQ.")
     parser.add_argument("record", type=pathlib.Path, help="Record written by run_scenario_set.sh --record.")
@@ -111,16 +115,17 @@ def main():
     # its old table, and the release check cannot see that - it only asks that each file is not
     # empty.
     #
-    # A successful campaign replaces what is there: after its results have been checked for
-    # regression, that is what re-testing a version is. One that lost a scenario does not, because
-    # a broker that could not run the set would otherwise wipe the numbers a working one left, and
-    # the loss would be silent. --force files such a record anyway, for keeping a failure that is
-    # worth keeping.
+    # An XMQ campaign that lost a scenario is not filed at all, not even over an older directory of
+    # the same version: its numbers are compared with the previous version and become the baseline
+    # for the next one, and a hole in them is wrong in both. The record stays in results/raw/ with
+    # its logs, which is where it is read. Another broker is filed as it stands: "cannot run this
+    # scenario" is a result of its own, and the comparison tables are built from it.
     failed = failures(tests)
+    if failed and broker == "XMQ":
+        sys.exit(f"{args.record}: {', '.join(failed)} failed; an XMQ campaign missing a scenario is "
+                 f"not filed - fix it and run the set again. The record and its logs stay in "
+                 f"{args.record.parent}")
     if directory.is_dir() and any(directory.iterdir()):
-        if failed and not args.force:
-            sys.exit(f"{directory} already holds results, and this record failed "
-                     f"{', '.join(failed)}; fix it and run the set again")
         shutil.rmtree(directory)
         print(f"replaced {directory.relative_to(RESULTS.parent)}")
     directory.mkdir(parents=True, exist_ok=True)

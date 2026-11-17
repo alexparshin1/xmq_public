@@ -21,8 +21,8 @@ in the shared database`.
 The bench set runs with one command, from `LoadTest` on thinker10:
 
 ```bash
-./stand_run.sh --version <XMQ version> --bench-dir bench-<name>   # full set, ~40 min
-./stand_run.sh ... --set Scenario-Set-Smoke.txt --stop-other-brokers   # ~2 min wiring check
+./stand_run.sh --version <XMQ version>            # full set, ~40 min; profile bench-<version>
+./stand_run.sh ... --set Scenario-Set-Smoke.txt   # ~2 min wiring check
 ```
 
 Read `LoadTest/STAND-RUNBOOK.md` before running anything on the stand. Do not call

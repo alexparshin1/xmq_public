@@ -12,6 +12,8 @@ mirrored to the website: it names our hosts, our accounts and our paths.
 - **theater** - cluster tests only, not part of this set.
 
 The systemd `xmq_server` unit must not be running on thinker11: the bench broker owns port 1883.
+`stand_run.sh` stops it when it finds it active - through `systemctl`, because the unit's
+`Restart=always` would bring a killed process back - and notes that in the record.
 
 ## The broker must be configured
 
@@ -38,18 +40,78 @@ submits against a broker already sitting in the pre-setup state. There is no sep
 script: `initial_setup --reset-only` stops after the reset, and that node has no accounts, no
 Redis and no user database, so every login is refused until Initial Setup runs.
 
+## The bench profile
+
+`~/bench-<something>/` on thinker11 is the whole of what the run measures, and it is not in version
+control: create it there. It holds three things, and a profile missing any of them is a set that
+fails forty minutes later rather than at the start.
+
+**1. `xmq_server.conf`.** Copy the node's configuration, e.g.
+`cp ~/.local/etc/xmq/xmq_server.conf ~/bench-1.1.2/`. On a node whose accounts live in PostgreSQL
+the broker keeps most settings in the database and rewrites this file to the file-only keys on
+startup, so a short file is not a damaged one; `xmq_server.conf.lastgood` beside it is the version
+that was there before that rewrite.
+
+**2. `restart.sh`.** Run before every scenario, over ssh, so it must start the broker and return
+rather than hold the channel. Killing without starting is the failure to avoid: the port wait then
+reports `thinker11:1883 never accepted` for every scenario and nothing is measured.
+
+```bash
+#!/bin/bash
+# Standalone bench profile for XMQ 1.1.2: restart the broker before a scenario.
+set -u
+profile_dir="$HOME/bench-1.1.2"
+bin="$HOME/.local/bin/xmq_server"
+conf="$profile_dir/xmq_server.conf"
+
+pkill -9 -x xmq_server 2>/dev/null || true
+for _ in $(seq 1 20); do
+    pgrep -x xmq_server >/dev/null 2>&1 || break
+    sleep 0.5
+done
+pgrep -x xmq_server >/dev/null 2>&1 && exit 1
+
+cd "$profile_dir" || exit 1
+: > "$profile_dir/xmq_server.out"
+( setsid nohup "$bin" -c "$conf" >>"$profile_dir/xmq_server.out" 2>&1 </dev/null & )
+sleep 2
+pgrep -x xmq_server >/dev/null 2>&1 || {
+    tail -5 "$profile_dir/xmq_server.out" >&2; exit 1; }
+exit 0
+```
+
+The `setsid nohup ... </dev/null` in a subshell is what lets the ssh command return; a plain
+background job keeps the channel open and `stand_run.sh` hangs at the restart.
+
+**3. `xmq_extensions.d`.** The broker reads `xmq_extensions.conf` and `xmq_extensions.d` *beside
+its own configuration file*, not from `~/.local/etc/xmq`. The profile has its own configuration, so
+without this it has no authenticator: with `allow_anonymous` false the broker listens, the port wait
+passes, every client is refused, and the log says
+`No extension authenticates and anonymous connections are not allowed`. Point the profile at the
+installed fragments rather than copying them:
+
+```bash
+ln -sfn ~/.local/etc/xmq/xmq_extensions.d ~/bench-1.1.2/xmq_extensions.d
+```
+
+`stand_run.sh` refuses a profile that has none of this while anonymous connections are off.
+
 ## The one command
 
 From `~/workspace/xmq_public/LoadTest` on thinker10:
 
 ```bash
-./stand_run.sh --version 1.1.2 --bench-dir bench-1.1.2
+./stand_run.sh --version 1.1.2
 ```
 
-`--version` is the XMQ version the run measures; `--bench-dir` is the profile on thinker11 that
-holds `restart.sh`. Those two are the only inputs that change between runs. Everything else -
-restart command, wait for 1883, CPU/RSS sampling, client NIC, source subnet and address range,
-record path, log directory - is fixed in the script.
+`--version` is the XMQ version the run measures, and it is the one input that changes between
+runs: the bench profile on thinker11 is taken to be `bench-<version>` (here `bench-1.1.2`), it
+goes into the record header, and it names both the log directory under `results/raw/` and the
+results directory `--file` files under. Pass `--bench-dir` only when the profile is not named
+after the version. The broker account defaults to `user` with password `Secret#123`; both are
+overridden with `--user` and `--password`. Everything else - restart command, wait for 1883,
+CPU/RSS sampling, client NIC, source subnet and address range, record path - is fixed in the
+script.
 
 Add `--file` to file the record into `LoadTest/results/Bench/<version>/` after a successful run.
 Filing replaces a version's directory, so compare against the previous version's numbers first.
@@ -57,13 +119,13 @@ Filing replaces a version's directory, so compare against the previous version's
 Check the plan without starting anything:
 
 ```bash
-./stand_run.sh --version 1.1.2 --bench-dir bench-1.1.2 --dry-run
+./stand_run.sh --version 1.1.2 --dry-run
 ```
 
 Prove the wiring in about two minutes, before committing forty:
 
 ```bash
-./stand_run.sh --version 1.1.2 --bench-dir bench-1.1.2 --set Scenario-Set-Smoke.txt --stop-other-brokers
+./stand_run.sh --version 1.1.2 --set Scenario-Set-Smoke.txt
 ```
 
 That set is one short scenario and exists only to show that restart, readiness wait, stats
@@ -90,7 +152,7 @@ A forty-minute set cannot be held inside one tool call, and this host runs the m
 be holding it. `agent_run.sh` starts the same `stand_run.sh` detached and returns at once:
 
 ```bash
-./agent_run.sh --version 1.1.2 --bench-dir bench-1.1.2 --file
+./agent_run.sh --version 1.1.2 --file
 ```
 
 It prints the log, a `.status` file that receives the exit code and duration when the set ends,
@@ -103,14 +165,18 @@ record should be read afterwards, not watched.
 
 ## What it refuses to do
 
-- **It does not invent a profile.** If `~/bench-<dir>/restart.sh` is missing on thinker11 the
-  script stops before starting anything. Build and install the version on thinker11 first
-  (`cmake . && make -j8 install` in `~/workspace/xmq`), then create or copy the bench directory.
+- **It does not invent a profile.** The profile name is derived from the version, `bench-<version>`,
+  but the directory itself must exist and hold `restart.sh`, `xmq_server.conf` and an extension
+  config; if any of those is missing on thinker11 the script stops before starting anything. Build
+  and install the version on thinker11 first (`cmake . && make -j8 install` in `~/workspace/xmq`),
+  then create or copy the bench directory.
 - **It does not run two sets at once.** `xmq_scn` already running means exit 1.
-- **It does not silently stop another broker.** A broker on thinker11 that is not this profile -
-  the systemd unit, or one left from `~/.local/bin` - would own 1883 and the record would name a
-  version that was never running. The run refuses and names the process; `--stop-other-brokers`
-  stops it, and the record gets a note saying so.
+- **It does not leave another broker on 1883, and does not hide that it stopped one.** A broker on
+  thinker11 that is not this profile - the systemd unit, or one left from `~/.local/bin` - would own
+  1883, and the record would name a version that was never running. It is stopped before the run,
+  through `systemctl` when the unit owns it (`Restart=always` brings a killed process back), and the
+  record gets a note saying so. `--keep-other-brokers` turns that into a refusal instead, naming the
+  process.
 - **It does not file a failed set.** Non-zero exit leaves the logs in `results/raw/` and prints
   the tail of the record.
 - **It does not call `run_scenario_set.sh` directly.** Do not reimplement the invocation: the
@@ -122,12 +188,14 @@ record should be read afterwards, not watched.
 | Symptom | Meaning | What to do |
 |---|---|---|
 | `no executable ~/bench-*/restart.sh` | profile not built or wrong name | `ls -d ~/bench-*` on thinker11, pass the right one |
+| `... has no authenticator` | profile has no `xmq_extensions.d` beside its config | `ln -sfn ~/.local/etc/xmq/xmq_extensions.d ~/bench-*/` |
+| `<host>:1883 never accepted` on every scenario | `restart.sh` killed the broker without starting it | see "The bench profile" above |
 | `xmq_scn is already running` | another set is in progress | wait or `pgrep -af xmq_scn` |
-| `another broker is running on ... would answer on 1883` | non-bench broker owns the port | rerun with `--stop-other-brokers` |
+| `another broker is running ... would answer on 1883` | `--keep-other-brokers` in use, non-bench broker owns the port | drop the flag to have it stopped, or stop it yourself |
 | `did not carry a pub/sub round-trip` | broker came up but not serving | read `~/bench-*/xmq_server.log` on thinker11 |
 | `WARNING: N address(es) ... need 29` | source addresses not bound | `./make_ip_addresses.sh --iface enp86s0 --subnet 10.1.1 --first 150 --count 29` |
 | scenario prints no `median` line | run aborted mid-way | look at `<scenario>.log` in the run directory |
-| `file_results.py refused the record` | record has a failed scenario | do not force it; rerun the set |
+| `file_results.py refused the record` | XMQ record has a failed scenario; a campaign missing one is not filed | fix the failure and rerun the set; the record stays in `results/raw/` |
 
 Preflight failures are reported, not enforced: the client always fails
 `ports per source address` for the 500K scenario on this hardware, and the server fails
