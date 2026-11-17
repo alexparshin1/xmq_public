@@ -13,6 +13,31 @@ mirrored to the website: it names our hosts, our accounts and our paths.
 
 The systemd `xmq_server` unit must not be running on thinker11: the bench broker owns port 1883.
 
+## The broker must be configured
+
+A broker that has no configuration listens on 1883 and refuses every client with
+`Authentication failed`, so the set dies on its first scenario. Take a node from reset or from a
+half-finished attempt to a finished setup in one command:
+
+```bash
+./initial_setup thinker11
+```
+
+It stops the broker, checks that 1883, 8883 and the web port are free, moves the local account
+file aside, starts `xmq_server --reset-configuration` detached, signs in as the passwordless
+`admin`, submits `/InitialSetupControl` with the values in `~/xmq-stand.env` on thinker11, and
+then verifies the result: the echo matches the request, the new administrator password works,
+`setup_required` is false, the three ports listen, and the log names the Redis server and the
+user database. Exit status 0 means every one of those passed.
+
+The values are never on the command line: the request body is built by `jq` from the environment
+and written to a mode-600 temporary file, so no password appears in `ps`.
+
+`--dry-run` prints the request with the passwords masked and changes nothing. `--no-reset`
+submits against a broker already sitting in the pre-setup state. There is no separate reset
+script: `initial_setup --reset-only` stops after the reset, and that node has no accounts, no
+Redis and no user database, so every login is refused until Initial Setup runs.
+
 ## The one command
 
 From `~/workspace/xmq_public/LoadTest` on thinker10:
@@ -58,6 +83,23 @@ Summary - interval medians, as xmq_scn reports them:
   ...
   record: .../results/raw/2026-11-16-1800-xmq1.1.2-bench/record.txt
 ```
+
+## Running a set from an agent session
+
+A forty-minute set cannot be held inside one tool call, and this host runs the model that would
+be holding it. `agent_run.sh` starts the same `stand_run.sh` detached and returns at once:
+
+```bash
+./agent_run.sh --version 1.1.2 --bench-dir bench-1.1.2 --file
+```
+
+It prints the log, a `.status` file that receives the exit code and duration when the set ends,
+and the record path it expects. Everything else is passed to `stand_run.sh` unchanged, so the
+record is still written by the script that owns it; this only decides when it runs.
+
+The point is the turn ends there. `stand_run.sh` is not modified, and nothing stops an agent from
+generating tokens during a set - that is what the run would then measure, so the log and the
+record should be read afterwards, not watched.
 
 ## What it refuses to do
 

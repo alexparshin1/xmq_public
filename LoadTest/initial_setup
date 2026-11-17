@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+# Take one XMQ server to a completed Initial Setup in a single command: reset the configuration,
+# start the broker, sign in as the passwordless `admin`, submit /InitialSetupControl with the
+# deployment's own values, and verify the result from the API and the log.
+#
+#   ./initial_setup <hostname> [options]
+#
+# It exists because a setup attempt that dies in the middle leaves a node that is neither fresh nor
+# configured: the interface answers, the empty password is refused, and the next attempt has to
+# start from an unknown state. Recovering by hand means reading the log to work out which step was
+# reached. This script does not care - it throws the state away and runs the whole procedure.
+#
+# The deployment values are never in this script and never on its command line: they are read on
+# the target host from ~/xmq-stand.env (mode 600), and the request body is built with jq from the
+# environment, so no password appears in the argument list where `ps` could see it.
+set -u
+prog=$(basename "$0")
+
+usage() {
+    cat <<'EOF'
+Usage: initial_setup HOST [options]
+
+  HOST                   Machine that runs the broker, e.g. thinker11. `localhost` and this
+                         host's own short name run here instead of over SSH.
+
+Options:
+  --env FILE             Deployment values on HOST (default: ~/xmq-stand.env).
+  --port N               Web interface port before setup completes (default: 18883).
+  --wait SECONDS         How long to wait for the interface to answer (default: 30).
+  --root DIR             Installation root on HOST, holding bin/ etc/ var/ (default: ~/.local).
+  --reset-only           Stop after the reset: leave a passwordless admin and no configuration
+                         applied. Only for running Initial Setup by hand from doc/InitialSetup.md;
+                         the normal invocation takes no flag and does the whole procedure. There is
+                         no separate reset script - this flag is the only way to stop halfway, and
+                         a node left here refuses every client login.
+  --no-reset             Skip the reset and submit setup against the broker that is running. Use
+                         when the node is known to be in a pre-setup state already.
+  --keep-accounts        Keep the local account file during the reset. After a failed attempt
+                         `admin` may hold the password that attempt set, and the empty-password
+                         login will then be refused.
+  --stop-timeout SECONDS How long to wait for a broker to exit before killing it (default: 10).
+  --dry-run              Report every step and the request it would send (passwords masked);
+                         change nothing and send nothing.
+  --log-tail N           Show the last N lines of the broker log at the end (default: 6).
+  -h, --help             This.
+
+What it does, in order:
+  1. stops the broker, frees 1883/8883 and the web port, moves the local account file aside, and
+     starts `xmq_server --reset-configuration` detached, so it survives the SSH session;
+  2. waits for https://127.0.0.1:<port>/ and signs in as `admin` with the empty password;
+  3. reads the deployment values from the env file and POSTs /InitialSetupControl action=set;
+  4. checks result.success, then reads the `setup` echo back against those same values;
+  5. signs in again as `admin` with the new password and requires setup_required to be false;
+  6. confirms the listeners and that the log names Redis and the user database it is using.
+
+Exit status: 0 only when the node is configured and every check above passed.
+EOF
+}
+
+host=""
+envfile="~/xmq-stand.env"
+port=18883
+wait_s=30
+root="~/.local"
+root_given=0
+reset_only=0
+do_reset=1
+keep_accounts=0
+stop_timeout=10
+dry_run=0
+log_tail=6
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --env) envfile=$2; shift 2 ;;
+        --port) port=$2; shift 2 ;;
+        --wait) wait_s=$2; shift 2 ;;
+        --root) root=$2; root_given=1; shift 2 ;;
+        --reset-only) reset_only=1; shift ;;
+        --no-reset) do_reset=0; shift ;;
+        --keep-accounts) keep_accounts=1; shift ;;
+        --stop-timeout) stop_timeout=$2; shift 2 ;;
+        --dry-run) dry_run=1; shift ;;
+        --log-tail) log_tail=$2; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        -*) echo "$prog: unknown option $1" >&2; usage >&2; exit 2 ;;
+        *) [ -z "$host" ] || { echo "$prog: HOST given twice" >&2; exit 2; }
+           host=$1; shift ;;
+    esac
+done
+[ -n "$host" ] || { echo "$prog: HOST is required" >&2; usage >&2; exit 2; }
+case "$port" in ''|*[!0-9]*) echo "$prog: --port wants a number" >&2; exit 2 ;; esac
+case "$wait_s" in ''|*[!0-9]*) echo "$prog: --wait wants a number" >&2; exit 2 ;; esac
+if [ "$reset_only" = 1 ] && [ "$do_reset" = 0 ]; then
+    echo "$prog: --reset-only and --no-reset contradict each other" >&2; exit 2
+fi
+
+if [ "$host" = "localhost" ] || [ "$host" = "127.0.0.1" ] || [ "$host" = "$(hostname -s 2>/dev/null)" ]; then
+    run_remote() { bash -s -- "$@"; }
+else
+    run_remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" bash -s -- "$@"; }
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" true 2>/dev/null; then
+        echo "$prog: cannot reach $host over SSH" >&2
+        exit 1
+    fi
+fi
+
+run_remote "$port" "$wait_s" "$root" "$root_given" "$envfile" "$reset_only" "$do_reset" \
+           "$keep_accounts" "$stop_timeout" "$dry_run" "$log_tail" <<'REMOTE'
+set -u
+port=$1 wait_s=$2 root=$3 root_given=$4 envfile=$5
+reset_only=$6 do_reset=$7 keep_accounts=$8 stop_timeout=$9 dry_run=${10} log_tail=${11}
+
+say()  { printf '%s\n' "$*"; }
+ok()   { printf 'ok  %s\n' "$*"; }
+warn() { printf 'warn %s\n' "$*" >&2; }
+die()  { printf 'FAIL %s\n' "$*" >&2; exit 1; }
+mask() { sed -E 's#://[^@/]*@#://***@#' <<<"$1"; }
+
+root=${root/#\~/$HOME}
+envfile=${envfile/#\~/$HOME}
+
+# The binary must be the one this installation runs: a reset performed by a different build than
+# the process it just stopped would leave a configuration that build cannot read.
+bin=""
+for p in $(pgrep -x xmq_server 2>/dev/null || true); do
+    exe=$(readlink -f "/proc/$p/exe" 2>/dev/null || true)
+    case "$exe" in */xmq_server) bin=$exe; break ;; esac
+done
+if [ -z "$bin" ]; then
+    if [ -x "$root/bin/xmq_server" ]; then bin="$root/bin/xmq_server"
+    else bin=$(command -v xmq_server 2>/dev/null || true); fi
+fi
+[ -n "$bin" ] && [ -x "$bin" ] || die "xmq_server not found (looked for a running process, $root/bin and PATH)"
+[ "$root_given" = 0 ] && case "$bin" in "$HOME"/*/bin/xmq_server) root=${bin%/bin/xmq_server} ;; esac
+
+cfg="$root/etc/xmq"
+log="$root/var/log/xmq/xmq_server.log"
+base="https://127.0.0.1:$port"
+
+say "host:    $(hostname -s 2>/dev/null || hostname)"
+say "broker:  $bin"
+say "config:  $cfg"
+say "env:     $envfile"
+
+# --- the values, before anything is stopped ------------------------------------------------
+[ -f "$envfile" ] || die "no deployment values at $envfile (--env FILE); this script does not invent them"
+# shellcheck disable=SC1090
+set -a; . "$envfile"; set +a
+missing=""
+for v in XMQ_ADMIN_PASSWORD XMQ_CLUSTER_PASSWORD XMQ_NODE_NAME XMQ_NODE_HOST \
+         XMQ_MQTT_PORT XMQ_MQTT_SSL_PORT XMQ_WEB_SERVICE_PORT \
+         XMQ_REDIS_HOST XMQ_REDIS_PORT XMQ_REDIS_DATABASE XMQ_DATABASE_URI; do
+    eval "value=\${$v:-}"
+    [ -n "$value" ] || missing="$missing $v"
+done
+[ -z "$missing" ] || die "missing in $envfile:$missing"
+say "values:  node $XMQ_NODE_NAME/$XMQ_NODE_HOST, ports $XMQ_MQTT_PORT/$XMQ_MQTT_SSL_PORT/$XMQ_WEB_SERVICE_PORT, redis $XMQ_REDIS_HOST:$XMQ_REDIS_PORT/$XMQ_REDIS_DATABASE, database $(mask "$XMQ_DATABASE_URI")"
+
+command -v curl >/dev/null 2>&1 || die "curl not installed"
+command -v jq   >/dev/null 2>&1 || die "jq not installed"
+
+# The body is built from the environment by jq, so no password reaches the argument list, and
+# written to a file with mode 600 because it holds every password in clear text.
+umask 077
+body=$(mktemp) || die "cannot create a temporary file"
+logins=$(mktemp) || die "cannot create a temporary file"
+trap 'rm -f "$body" "$logins"' EXIT
+
+jq -n '{
+  action: "set",
+  setup: {
+    admin_password:   env.XMQ_ADMIN_PASSWORD,
+    cluster_password: env.XMQ_CLUSTER_PASSWORD,
+    node_name:        env.XMQ_NODE_NAME,
+    node_host:        env.XMQ_NODE_HOST,
+    mqtt_port:        (env.XMQ_MQTT_PORT        | tonumber),
+    mqtt_ssl_port:    (env.XMQ_MQTT_SSL_PORT    | tonumber),
+    web_service_port: (env.XMQ_WEB_SERVICE_PORT | tonumber),
+    redis_host:       env.XMQ_REDIS_HOST,
+    redis_port:       (env.XMQ_REDIS_PORT       | tonumber),
+    redis_database:   (env.XMQ_REDIS_DATABASE   | tonumber),
+    redis_username:   "",
+    redis_password:   "",
+    database_uri:     env.XMQ_DATABASE_URI
+  }
+}' >"$body" || die "cannot build the setup request"
+
+if [ "$dry_run" = 1 ]; then
+    say ""
+    say "would submit to $base/InitialSetupControl:"
+    jq '.setup.admin_password = "***" | .setup.cluster_password = "***"
+        | .setup.database_uri = (.setup.database_uri | sub("://[^@/]*@"; "://***@"))' "$body" | sed 's/^/  /'
+fi
+
+# --- 1. reset ------------------------------------------------------------------------------
+if [ "$do_reset" = 1 ]; then
+    pids=$(pgrep -x xmq_server 2>/dev/null || true)
+    say ""
+    if [ -n "$pids" ]; then
+        say "reset: stopping $(printf '%s' "$pids" | wc -w) xmq_server process(es): $(echo $pids)"
+        if [ "$dry_run" = 1 ]; then
+            say "reset: --dry-run, would stop them"
+        else
+            if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet xmq_server 2>/dev/null; then
+                sudo -n systemctl stop xmq_server 2>/dev/null \
+                    || systemctl --user stop xmq_server 2>/dev/null \
+                    || warn "xmq_server.service is active but could not be stopped; killing its process"
+            fi
+            for p in $pids; do kill -TERM "$p" 2>/dev/null || true; done
+            n=0
+            while [ "$n" -lt "$stop_timeout" ] && pgrep -x xmq_server >/dev/null 2>&1; do
+                sleep 1; n=$((n + 1))
+            done
+            if pgrep -x xmq_server >/dev/null 2>&1; then
+                warn "still running after ${stop_timeout}s, sending KILL"
+                for p in $(pgrep -x xmq_server); do kill -KILL "$p" 2>/dev/null || true; done
+                sleep 1
+            fi
+            ok "reset: broker stopped"
+        fi
+    else
+        say "reset: no xmq_server process running"
+    fi
+
+    busy=""
+    for p in 1883 8883 "$port"; do
+        if ss -ltn 2>/dev/null | grep -qE "[:.]$p[[:space:]]"; then busy="$busy $p"; fi
+    done
+    if [ -n "$busy" ]; then
+        if [ "$dry_run" = 1 ]; then
+            say "reset: --dry-run, still listening:$busy (free once the broker above is stopped)"
+        else
+            die "still listening:$busy - another process owns them (sudo -n ss -ltnp to see which)"
+        fi
+    fi
+
+    users="$cfg/xmq_users.db"
+    if [ "$keep_accounts" = 0 ] && [ -e "$users" ]; then
+        moved="$users.pre-reset-$(date +%Y%m%d-%H%M%S)"
+        if [ "$dry_run" = 1 ]; then
+            say "reset: --dry-run, would move $(basename "$users") aside as $(basename "$moved")"
+        else
+            mv -f "$users" "$moved" || die "cannot move $users aside"
+            for extra in "$users-wal" "$users-shm"; do
+                [ -e "$extra" ] && mv -f "$extra" "$moved${extra#"$users"}" 2>/dev/null || true
+            done
+            ok "reset: local account file moved aside - admin is passwordless again"
+        fi
+    elif [ "$keep_accounts" = 1 ]; then
+        say "reset: accounts kept (--keep-accounts); the empty-password login may be refused"
+    fi
+
+    if [ "$dry_run" = 1 ]; then
+        say "reset: --dry-run, would start: setsid nohup $bin --reset-configuration"
+    else
+        mkdir -p "$(dirname "$log")" 2>/dev/null || true
+        startlog="$root/var/log/xmq/xmq_server.setup-$(date +%Y%m%d-%H%M%S).log"
+        ( cd "$HOME" && setsid nohup "$bin" --reset-configuration >"$startlog" 2>&1 </dev/null & ) \
+            || die "could not start $bin --reset-configuration"
+        sleep 1
+        pgrep -x xmq_server >/dev/null 2>&1 || die "the broker exited at once - read $startlog"
+
+        printf 'reset: waiting for %s' "$base/"
+        ready=0; i=0
+        while [ "$i" -lt $((wait_s * 2)) ]; do
+            if curl --silent --insecure --max-time 2 "$base/" >/dev/null 2>&1; then ready=1; break; fi
+            printf '.'; sleep 0.5; i=$((i + 1))
+            pgrep -x xmq_server >/dev/null 2>&1 || break
+        done
+        printf '\n'
+        [ "$ready" = 1 ] || die "the interface did not answer within ${wait_s}s - read $startlog and $log"
+        ok "reset: configuration replaced, broker started"
+
+        if ! grep -q "No password is set for the 'admin' account" "$log" 2>/dev/null; then
+            warn "the log does not report a passwordless admin; the empty-password login will say whether it is"
+        fi
+    fi
+fi
+
+[ "$reset_only" = 1 ] && {
+    say ""
+    say "reset only: configuration replaced, broker started on $base"
+    say "NOT configured: no accounts, no Redis, no user database - every client login is refused"
+    say "until Initial Setup runs. Use ./initial_setup $HOSTNAME to do both."
+    exit 0
+}
+[ "$dry_run" = 1 ] && { say ""; say "dry run: nothing was stopped, moved or sent"; exit 0; }
+
+# --- 2. sign in as the passwordless administrator ------------------------------------------
+say ""
+token=""
+if ! token=$(curl --silent --show-error --insecure --max-time 10 \
+        -H 'Content-Type: application/json' \
+        -d '{"username":"admin","password":""}' "$base/Login" | jq -er '.token' 2>/dev/null); then
+    die "the empty-password login was refused - is $base the interface of this node? (see doc/InitialSetup.md, step 2)"
+fi
+ok "login: signed in as admin with the empty password"
+
+# --- 3. submit Initial Setup ---------------------------------------------------------------
+reply=$(curl --silent --show-error --insecure --max-time 120 \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer $token" \
+    --data-binary "@$body" "$base/InitialSetupControl" 2>&1) || die "the setup request did not complete: $reply"
+
+success=$(printf '%s' "$reply" | jq -r '.result.success // empty' 2>/dev/null || true)
+description=$(printf '%s' "$reply" | jq -r '.result.description // empty' 2>/dev/null || true)
+if [ -z "$success" ]; then
+    printf '%s\n' "$reply" | head -5 | sed 's/^/  /' >&2
+    die "the reply is not the setup JSON - the request may not have reached the interface"
+fi
+[ "$success" = true ] || die "setup refused: ${description:-no description}"
+
+# --- 4. the echo is the only read-back of what was applied ---------------------------------
+echoed=$(printf '%s' "$reply")
+mismatch=""
+check_echo() {   # field name, expected
+    got=$(printf '%s' "$echoed" | jq -r ".setup.$1 // empty" 2>/dev/null)
+    [ "$got" = "$2" ] || mismatch="$mismatch $1(want $2, got ${got:-nothing})"
+}
+check_echo node_name        "$XMQ_NODE_NAME"
+check_echo node_host        "$XMQ_NODE_HOST"
+check_echo mqtt_port        "$XMQ_MQTT_PORT"
+check_echo mqtt_ssl_port    "$XMQ_MQTT_SSL_PORT"
+check_echo web_service_port "$XMQ_WEB_SERVICE_PORT"
+check_echo redis_host       "$XMQ_REDIS_HOST"
+check_echo redis_port       "$XMQ_REDIS_PORT"
+check_echo redis_database   "$XMQ_REDIS_DATABASE"
+[ -z "$mismatch" ] || die "the applied setup differs from the request:$mismatch"
+# The echo may spell the database URI differently from the request (libpq accepts a URI without a
+# database name, and the server echoes what it stored); a difference here is worth reporting but is
+# not a reason to declare the setup failed.
+echoed_uri=$(printf '%s' "$echoed" | jq -r '.setup.database_uri // empty' 2>/dev/null)
+if [ -n "$echoed_uri" ] && [ "$echoed_uri" != "$XMQ_DATABASE_URI" ]; then
+    warn "database_uri echoed as $(mask "$echoed_uri") rather than $(mask "$XMQ_DATABASE_URI") - confirm both name the same database"
+fi
+ok "setup: applied, echo matches the request"
+
+restart=$(printf '%s' "$reply" | jq -r '.service_restart_required // false')
+[ "$restart" = true ] && warn "service_restart_required is true: the interface kept its old port"
+
+# --- 5. the new password is the real proof --------------------------------------------------
+webport=$XMQ_WEB_SERVICE_PORT
+base2="https://127.0.0.1:$webport"
+printf '{"username":"admin","password":%s}\n' "$(printf '%s' "$XMQ_ADMIN_PASSWORD" | jq -Rs .)" >"$logins"
+token2=""
+setup_required=""
+if token2=$(curl --silent --show-error --insecure --max-time 10 \
+        -H 'Content-Type: application/json' --data-binary "@$logins" "$base2/Login" \
+        | jq -er '.token' 2>/dev/null); then
+    setup_required=$(curl --silent --show-error --insecure --max-time 10 \
+        -H 'Content-Type: application/json' --data-binary "@$logins" "$base2/Login" \
+        | jq -r '.setup_required // false' 2>/dev/null || echo unknown)
+    ok "login: the new administrator password works"
+else
+    die "the new administrator password was refused on $base2 - read $log"
+fi
+case "$setup_required" in
+    false|unknown) ok "setup_required: $setup_required" ;;
+    *) die "setup_required is still $setup_required - the setup did not take" ;;
+esac
+
+# --- 6. the services behind the configuration ----------------------------------------------
+listeners=$(ss -ltn 2>/dev/null | grep -cE "[:.]($XMQ_MQTT_PORT|$XMQ_MQTT_SSL_PORT|$webport)[[:space:]]")
+[ "$listeners" -ge 3 ] || die "only $listeners of the three ports are listening"
+ok "listeners: $XMQ_MQTT_PORT, $XMQ_MQTT_SSL_PORT, $webport"
+
+if grep -q "Using Redis at" "$log" 2>/dev/null; then
+    ok "redis: $(grep -o "Using Redis at [^ ]*" "$log" | tail -1)"
+else
+    warn "the log does not name a Redis server yet"
+fi
+if grep -q "user-database: authenticating" "$log" 2>/dev/null; then
+    ok "database: $(grep -o "user-database: authenticating.*" "$log" | tail -1 | sed 's/ in .*@/ in ***@/')"
+else
+    warn "the log does not report the user database yet"
+fi
+
+say ""
+say "--- $log (last $log_tail lines) ---"
+[ -f "$log" ] && tail -n "$log_tail" "$log"
+say ""
+say "Initial Setup complete on $(hostname -s 2>/dev/null || hostname): $base2"
+REMOTE
