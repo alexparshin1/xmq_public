@@ -336,6 +336,27 @@ private:
             case tui::Key::Enter:
                 activate();
                 return;
+            case tui::Key::Character:
+                // The space bar is what a hand reaches for on a check box; the first version only
+                // answered to Enter, which is not what the hand expects. On a field it types a
+                // space, because that is what a space does in a text field.
+                if (press.text == " ")
+                {
+                    if (m_fields[m_current].kind == Kind::Text)
+                    {
+                        activate();
+                        if (m_editing)
+                        {
+                            m_fields[m_current].value->insert(m_cursor, " ");
+                            ++m_cursor;
+                        }
+                    }
+                    else
+                    {
+                        step(1);
+                    }
+                }
+                return;
             case tui::Key::Left:
                 step(-1);
                 return;
