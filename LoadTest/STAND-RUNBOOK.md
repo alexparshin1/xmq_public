@@ -163,16 +163,48 @@ The point is the turn ends there. `stand_run.sh` is not modified, and nothing st
 generating tokens during a set - that is what the run would then measure, so the log and the
 record should be read afterwards, not watched.
 
-## Watching a set while it runs
+## Writing a run, then watching it
 
-`stand_runner` reads what the run itself writes into its output directory and shows it live. It is a
-watcher: it starts nothing, and it is not on the run's path.
+A bench run needs a version, a set, a host and a handful of switches, and getting one of them wrong
+is only visible after forty minutes. `stand_runner --edit` is a form over exactly those settings: it
+writes a run file, and nothing else.
 
 ```bash
 cd LoadTest/runner && make
-./stand_runner --attach ../results/Bench/1.1.2                     # full screen, q to quit
-./stand_runner --attach ../results/Bench/1.1.2 --once              # one status, for a script or a log
-./stand_runner --attach ../results/Bench/1.1.2 --broker thinker11  # also the broker's own CPU and memory
+./stand_runner --edit                       # write runs/<date>-xmq<version>.run.sh
+./stand_runner --edit ../runs/1.1.2.run.sh  # change one that exists; its values are loaded first
+```
+
+Enter edits a value, Enter again keeps it, arrows move, F2 writes the file, Esc leaves without
+writing. A value that cannot work - a version that is empty, a set that is not there - is refused
+with the reason, and the form stays open.
+
+The file it writes is a shell script, not a private format: the invocation `stand_run.sh` would get
+from a person, one flag per line. It runs as it stands, and it can be edited by hand afterwards:
+
+```bash
+../runs/2026-11-18-1729-xmq1.1.2.run.sh           # runs stand_run.sh with those flags
+../runs/2026-11-18-1729-xmq1.1.2.run.sh --dry-run # the same, for one that only prints
+```
+
+While it runs, a second window watches it - and `--broker` adds the broker's own CPU and memory,
+read from its `$SYS` topics:
+
+```bash
+./stand_runner --view ../results/raw/2026-11-18-1729-xmq1.1.2-bench
+./stand_runner --view ../results/raw/2026-11-18-1729-xmq1.1.2-bench --broker thinker11
+```
+
+## Watching a set while it runs
+
+`stand_runner --view` reads what the run itself writes into its output directory and shows it live.
+It is a watcher: it starts nothing, and it is not on the run's path.
+
+```bash
+cd LoadTest/runner && make
+./stand_runner --view ../results/Bench/1.1.2                     # full screen, q to quit
+./stand_runner --view ../results/Bench/1.1.2 --once              # one status, for a script or a log
+./stand_runner --view ../results/Bench/1.1.2 --broker thinker11  # also the broker's own CPU and memory
 ```
 
 The scenario lines come from the `INTERVAL` lines `xmq_scn` writes under `--output runner` (the

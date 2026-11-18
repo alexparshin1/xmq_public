@@ -9,9 +9,10 @@
  * how the broker's own CPU and memory appear next to the client's. Without it nothing outside
  * this machine is contacted at all.
  *
- *   stand_runner --attach <run-dir>                     live, full screen
- *   stand_runner --attach <run-dir> --once              one plain-text status, for a script or a log
- *   stand_runner --attach <run-dir> --broker HOST[:P]   also show the broker's own CPU and memory
+ *   stand_runner --edit [run-file]                      fill in a run and write it
+ *   stand_runner --view <run-dir>                       live, full screen
+ *   stand_runner --view <run-dir> --once                one plain-text status, for a script or a log
+ *   stand_runner --view <run-dir> --broker HOST[:P]     also show the broker's own CPU and memory
  */
 #include <algorithm>
 #include <array>
@@ -36,6 +37,9 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+
+#include "run_file.h"
+#include "run_form.h"
 
 using namespace std;
 
@@ -641,10 +645,21 @@ int main(int argc, char** argv)
     filesystem::path dir;
     string            brokerTarget;
     bool              once = false;
+    bool              edit = false;
+    string            editTarget;
     for (int i = 1; i < argc; ++i)
     {
         const string arg = argv[i];
-        if (arg == "--attach" && i + 1 < argc)
+        if (arg == "--edit")
+        {
+            edit = true;
+            // An existing run file to change, or a path to write; either is optional.
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                editTarget = argv[++i];
+            }
+        }
+        else if (arg == "--view" && i + 1 < argc)
         {
             dir = argv[++i];
         }
@@ -658,9 +673,17 @@ int main(int argc, char** argv)
         }
         else if (arg == "--help" || arg == "-h")
         {
-            printf("Usage: stand_runner --attach <run-dir> [--once] [--broker <host[:port]>]\n"
+            printf("Usage:\n"
+                   "  stand_runner --edit [run-file]                        fill in a run and write it\n"
+                   "  stand_runner --view <run-dir> [--once] [--broker <host[:port]>]\n"
+                   "                                                       watch a run as it writes\n"
                    "\n"
-                   "  --attach <run-dir>     Watch a run's own output, as written under one run directory.\n"
+                   "  --edit [run-file]      A form over the settings a bench run needs. F2 writes the\n"
+                   "                         file; it is a shell script that execs stand_run.sh, so it\n"
+                   "                         runs as it stands and can be edited by hand afterwards.\n"
+                   "                         Given an existing file, its values are loaded first.\n"
+                   "  --view <run-dir>       Watch a run's own output: the INTERVAL lines xmq_scn writes\n"
+                   "                         under --output runner, plus each scenario's .block.\n"
                    "  --once                 Print one plain-text status and exit, for a script or a log.\n"
                    "  --broker <host[:port]> Also read the broker's CPU and memory from its $SYS topics,\n"
                    "                         subscribing with xmq_sub; port defaults to 1883. Omitted, no\n"
@@ -673,9 +696,31 @@ int main(int argc, char** argv)
             return 2;
         }
     }
+
+    if (edit)
+    {
+        stand::RunSpec spec;
+        if (!editTarget.empty())
+        {
+            if (filesystem::exists(editTarget))
+            {
+                if (!stand::fromScript(editTarget, spec))
+                {
+                    fprintf(stderr, "stand_runner: cannot read %s\n", editTarget.c_str());
+                    return 2;
+                }
+            }
+            else
+            {
+                spec.file = editTarget;
+            }
+        }
+        return stand::editRunFile(spec) == stand::FormAction::Saved ? 0 : 1;
+    }
+
     if (dir.empty())
     {
-        fprintf(stderr, "stand_runner: --attach <run-dir> is required\n");
+        fprintf(stderr, "stand_runner: --view <run-dir> is required (or --edit to write a run)\n");
         return 2;
     }
     if (!filesystem::is_directory(dir))

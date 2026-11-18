@@ -63,6 +63,10 @@ extension/*/xmq_*_tests
 *.log
 LoadTest/results/raw/
 
+# Run files written by `stand_runner --edit`: they name this stand's hosts, versions and paths, and
+# each one is a command to start a forty-minute set - kept on the disk that runs them, not in git.
+LoadTest/runs/
+
 # The AWS campaign driver and the bench's own environment: they name our instances, hosts and
 # addresses, so they live on the disk of the machines that run them and in neither git nor a package.
 # LoadTest/CMakeLists.txt keeps them out of the install for the same reason.
