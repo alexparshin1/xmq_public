@@ -16,6 +16,8 @@
 
 #include "common/mqtt/PublishMessage.h"
 
+#include <cmath>
+
 using namespace std;
 using namespace sptk;
 using namespace xmq;
@@ -39,6 +41,8 @@ const map<SystemStatistics::SysTopicKind, string> systemTopicNames = {
     {BrokerQueuesReceive, "$SYS/broker/queues/receive/length"},
     {BrokerQueuesSend, "$SYS/broker/queues/send/length"},
     {BrokerQueuesDelivery, "$SYS/broker/queues/delivery/length"},
+    {BrokerSystemCpuPercent, "$SYS/broker/system/cpu/percent"},
+    {BrokerSystemMemoryRss, "$SYS/broker/system/memory/rss_bytes"},
     {BrokerMessagesStored, "$SYS/broker/messages/stored"},
     {BrokerSubscriptionsCount, "$SYS/broker/subscriptions/count"},
     {BrokerClusterMessagesReceived, "$SYS/broker/cluster/messages/received"},
@@ -245,6 +249,10 @@ std::string SystemStatistics::sysTopicKindToString(const SysTopicKind topicKind)
             return "BrokerQueuesSend";
         case BrokerQueuesDelivery:
             return "BrokerQueuesDelivery";
+        case BrokerSystemCpuPercent:
+            return "BrokerSystemCpuPercent";
+        case BrokerSystemMemoryRss:
+            return "BrokerSystemMemoryRss";
         case BrokerClusterMessagesReceived:
             return "BrokerClusterMessagesReceived";
         case BrokerTime:
@@ -290,6 +298,14 @@ void SystemStatistics::scanMetricsThreadFunction()
             metric(BrokerQueuesSend) = depths.send;
             metric(BrokerQueuesDelivery) = depths.delivery;
         }
+
+        // The broker's own cost, sampled at the same one-second beat as the queues. HostMetrics
+        // reports CPU as the difference from its previous reading, so this belongs exactly here:
+        // one read per scan makes the percentage cover the scan interval and nothing else. Only
+        // the process figures are taken - the host-wide ones have their own gauges in Prometheus.
+        const auto hostMetrics = m_hostMetrics.read();
+        metric(BrokerSystemCpuPercent) = static_cast<uint64_t>(lround(hostMetrics.m_cpuPercentProcess));
+        metric(BrokerSystemMemoryRss) = hostMetrics.m_memoryUsedByProcess;
 
         for (auto& metric: m_metrics)
         {

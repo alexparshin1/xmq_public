@@ -204,6 +204,16 @@ up.
 | `xmq_process_resident_memory_bytes` | gauge | Resident memory of this process. |
 | `xmq_process_uptime_seconds` | gauge | Seconds since this process started. |
 
+The process figures are also published on `$SYS`, for a client that already has a session with the
+broker and would rather not open a second port:
+
+| Topic | Meaning |
+|---|---|
+| `$SYS/broker/system/cpu/percent` | This process's CPU use, percent of one core, rounded to a whole percent. May exceed 100 on a multi-core machine. |
+| `$SYS/broker/system/memory/rss_bytes` | Resident memory of this process, bytes. |
+
+Both are read once a second, from the same sampler that produces the gauges above, so the two agree.
+
 ## What it does not do
 
 - No OpenTelemetry export, traces or logs. Only the text exposition format over HTTP.

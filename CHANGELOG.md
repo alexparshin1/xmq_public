@@ -103,6 +103,13 @@ Requires SPTK 5.6.21.
   pong and close control frames are handled by the transport. `MQTT+WSS` uses the broker's configured
   TLS key and certificate. See the Setup guide for listener configuration.
 
+- **The broker process's own CPU and memory are published on `$SYS`.** `$SYS/broker/system/cpu/percent`
+  carries this process's CPU use as a percentage of one core (rounded to a whole percent, so it may
+  exceed 100 on a multi-core machine) and `$SYS/broker/system/memory/rss_bytes` its resident memory.
+  Both are read once a second by the same sampler that fills the Prometheus process gauges, so a
+  client watching a run over MQTT sees what a scrape would show, without a second port or an SSH
+  session on the broker host.
+
 ### Fixed
 
 - Authentication refusals now use MQTT 5 CONNACK reason code `0x86` for MQTT 5 clients rather than

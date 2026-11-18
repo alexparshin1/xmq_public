@@ -37,7 +37,9 @@ SubscriberCommandLine::SubscriberCommandLine(const std::vector<std::string>& arg
                     "Message QOS: {0,1,2}.");
     // '+' and '#' are what a subscription is for; rejecting them here made every wildcard
     // subscribe fail with "Parameter topic has invalid value" before a packet was ever sent.
-    defineParameter("topic", "t", "topic", R"(^[A-Za-z0-9_+#][A-Za-z0-9_/,%+#-]*$)", alwaysVisible, "",
+    // '$' is the other half of that: the broker's own metrics all live under $SYS, so a subscriber
+    // that cannot name a topic beginning with '$' cannot watch the broker at all.
+    defineParameter("topic", "t", "topic", R"(^[$A-Za-z0-9_+#][$A-Za-z0-9_/,%+#-]*$)", alwaysVisible, "",
                     "Message topic. Multiple topics can be separated by semicolon. The topic may include %ClientIndex% that is substituted by the client index (number).");
 
     defineOption("quiet", "", alwaysVisible, "Don't print messages to stdout.");

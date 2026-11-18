@@ -50,6 +50,51 @@ TEST_F(XMQ_SysTopicsTests, Topics_BrokerTime)
     subscriber->disconnect();
 }
 
+TEST_F(XMQ_SysTopicsTests, Topics_ProcessMetrics)
+{
+    using enum SystemStatistics::SysTopicKind;
+
+    const auto cpuTopic = SystemStatistics::sysTopicKindToTopic(BrokerSystemCpuPercent);
+    const auto rssTopic = SystemStatistics::sysTopicKindToTopic(BrokerSystemMemoryRss);
+
+    mutex               receivedMutex;
+    map<string, string> receivedValues;
+
+    const auto [subscriber, publisher, topicName] = createTestSubscriberAndPublisher();
+    const Destinations destinations {
+        Destination(client::MqttClient::getTopic(cpuTopic), SubscriptionOptions {Qos::Qos1}),
+        Destination(client::MqttClient::getTopic(rssTopic), SubscriptionOptions {Qos::Qos1})};
+    ASSERT_TRUE(test::subscribeAndWait(subscriber, destinations))
+        << "The broker did not acknowledge the subscription";
+    subscriber->onMessage([&](const SPublishMessage& message)
+                          {
+                              const scoped_lock lock(receivedMutex);
+                              receivedValues[string(message->destination()->fullName())] = message->payload();
+                          });
+
+    // Both are sampled once a second, so waiting for the pair costs one scan, not a fixed sleep.
+    const auto arrived = [&]
+    {
+        const scoped_lock lock(receivedMutex);
+        return receivedValues.contains(cpuTopic) && receivedValues.contains(rssTopic);
+    };
+    const auto deadline = chrono::steady_clock::now() + 5s;
+    while (!arrived() && chrono::steady_clock::now() < deadline)
+    {
+        this_thread::sleep_for(20ms);
+    }
+
+    const scoped_lock lock(receivedMutex);
+    ASSERT_TRUE(receivedValues.contains(cpuTopic)) << cpuTopic << " was never published";
+    ASSERT_TRUE(receivedValues.contains(rssTopic)) << rssTopic << " was never published";
+
+    // A broker serving this connection has to be resident in memory; a percentage of zero is a
+    // legitimate answer on an idle one, so the assertion is on the shape of the value, not its size.
+    EXPECT_GT(strtoull(receivedValues[rssTopic].c_str(), nullptr, 10), 0u) << rssTopic;
+    const auto cpuValue = strtoull(receivedValues[cpuTopic].c_str(), nullptr, 10);
+    EXPECT_LE(cpuValue, 100u * 4096u) << cpuTopic << " is not a percentage of one core";
+}
+
 TEST_F(XMQ_SysTopicsTests, Topics_Publish)
 {
     using enum SystemStatistics::SysTopicKind;

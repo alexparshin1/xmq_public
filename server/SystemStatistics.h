@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "HostMetrics.h"
 #include "Subscription/SubscriptionManager.h"
 #include "base/xmq.h"
 
@@ -56,6 +57,12 @@ public:
         BrokerQueuesReceive,
         BrokerQueuesSend,
         BrokerQueuesDelivery,
+        // What the broker process itself costs. The counters above describe traffic and the
+        // queues describe backlog; these describe the resource that backlog is being bought with,
+        // which is the half of the picture an external watch cannot see without logging in. Read
+        // once a second by HostMetrics, the same code the dashboard and Prometheus use.
+        BrokerSystemCpuPercent,
+        BrokerSystemMemoryRss,
         // Publications other cluster nodes forwarded here: what crossed a cluster link, of what the
         // node received.
         BrokerClusterMessagesReceived,
@@ -222,6 +229,9 @@ private:
     sptk::Flag                   m_scanMetricsTerminated;
     sptk::DateTime               m_brokerStartTime;
     const std::string            m_brokerVersion;
+    /// Samples this process's CPU and memory for the system metrics. A value only means something
+    /// as a difference from the previous read, so the instance has to live as long as the scan.
+    HostMetrics                  m_hostMetrics;
 
     Metric& metric(SysTopicKind topicKind)
     {
