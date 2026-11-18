@@ -187,6 +187,10 @@ vector<Scenario> scanRunDir(const filesystem::path& dir)
         {
             continue;
         }
+        if (entry.path().stem().string().starts_with("preflight"))
+        {
+            continue;
+        }
         Scenario scenario;
         scenario.log = entry.path();
         scenario.name = entry.path().stem().string();
@@ -513,6 +517,7 @@ struct Report
     vector<Scenario> scenarios;
     HostLoad         host;
     BrokerLoad       broker;
+    bool             preflight {false};
     size_t           current {0};
     long             elapsedSec {0};
     long             etaSec {0};
@@ -523,6 +528,10 @@ Report buildReport(const filesystem::path& dir)
     Report report;
     report.host = sampleHostLoad();
     report.scenarios = scanRunDir(dir);
+    // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
+    // scenario, so expose the phase as run state rather than adding it to the result table.
+    report.preflight = report.scenarios.empty() &&
+                       readLog(dir / "run.log").find("== preflight ==") != string::npos;
     report.current = report.scenarios.size();
     long remaining = 0;
     for (size_t i = 0; i < report.scenarios.size(); ++i)
@@ -953,20 +962,27 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // Which test is on the table, and how far into it.
     {
         ostringstream text;
-        text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << report.scenarios.size() << "  "
-             << scenario.name << "   ";
-        if (stale)
+        if (report.preflight)
         {
-            text << "earlier run";
-        }
-        else if (!scenario.started)
-        {
-            text << (scenario.finished ? "done" : "waiting");
+            text << " run state: preflight";
         }
         else
         {
-            const auto elapsedSec = scenario.intervals.empty() ? 0 : (scenario.intervals.back().timeMs + scenario.windowMs) / 1000;
-            text << (scenario.finished ? "done" : "running") << "  " << elapsedSec << "s/" << scenario.durationSec << "s";
+            text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << report.scenarios.size() << "  "
+                 << scenario.name << "   ";
+            if (stale)
+            {
+                text << "earlier run";
+            }
+            else if (!scenario.started)
+            {
+                text << (scenario.finished ? "done" : "waiting");
+            }
+            else
+            {
+                const auto elapsedSec = scenario.intervals.empty() ? 0 : (scenario.intervals.back().timeMs + scenario.windowMs) / 1000;
+                text << (scenario.finished ? "done" : "running") << "  " << elapsedSec << "s/" << scenario.durationSec << "s";
+            }
         }
         put(headerRow - 1, left + 2, theme::frameActive, padded(text.str(), inner - 2));
     }
