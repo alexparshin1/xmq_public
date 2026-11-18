@@ -549,19 +549,32 @@ Report buildReport(const filesystem::path& dir,
                          (!error && chrono::clock_cast<chrono::system_clock>(runLogTime) > recent);
         report.scenarios.clear();
     }
+    for (auto& scenario: report.scenarios)
+    {
+        parseScenario(scenario);
+        // A log last written before this screen began watching predates the run being watched:
+        // its intervals are a previous run's result, not something measured now.
+        if (since != chrono::system_clock::time_point {} && scenario.lastWrite < since)
+        {
+            scenario.intervals.clear();
+            scenario.started = false;
+            scenario.finished = false;
+        }
+    }
     // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
     // scenario, so expose the phase as run state rather than adding it to the result table. On a
-    // managed run, old scenario logs may still be in the output directory; preflight lasts until
-    // one of this run's scenario logs is created/updated, not until the directory has no logs.
+    // managed run, old scenario logs may still be in the output directory. A scenario log can be
+    // created/truncated while the broker is restarting, so preflight lasts until the current
+    // scenario actually reports MEASUREMENT-START, not merely until its file is touched.
     report.preflight = false;
     const auto now = chrono::system_clock::now();
     const auto currentLogSince = since == chrono::system_clock::time_point {} ? now - chrono::minutes(2) : since;
-    const bool currentScenarioLog = any_of(report.scenarios.begin(), report.scenarios.end(),
-                                           [currentLogSince](const Scenario& scenario)
-                                           {
-                                               return scenario.lastWrite >= currentLogSince;
-                                           });
-    if ((!managedScreen || ownRunRunning) && !currentScenarioLog)
+    const bool currentScenarioStarted = any_of(report.scenarios.begin(), report.scenarios.end(),
+                                                [currentLogSince](const Scenario& scenario)
+                                                {
+                                                    return scenario.started && scenario.lastWrite >= currentLogSince;
+                                                });
+    if ((!managedScreen || ownRunRunning) && !currentScenarioStarted)
     {
         const auto log = dir / "run.log";
         const auto content = readLog(log);
@@ -587,16 +600,6 @@ Report buildReport(const filesystem::path& dir,
     for (size_t i = 0; i < report.scenarios.size(); ++i)
     {
         auto& scenario = report.scenarios[i];
-        parseScenario(scenario);
-        // A log last written before this screen began watching predates the run being watched: its
-        // intervals are a previous run's result, not something measured now, so they are dropped
-        // from the table. They reappear only once the run itself writes to the log again.
-        if (since != chrono::system_clock::time_point {} && scenario.lastWrite < since)
-        {
-            scenario.intervals.clear();
-            scenario.started = false;
-            scenario.finished = false;
-        }
         // A scenario is "the one running" when it is the newest log without a .block and it has
         // reported a measurement. Everything newer can only be an artefact, e.g. the empty log a
         // restart leaves behind.
