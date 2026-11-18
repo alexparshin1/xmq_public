@@ -663,6 +663,7 @@ struct Pending
         Start,
         Stop,
         File,
+        Exit,
     };
 
     Kind                             kind {Kind::None};
@@ -680,6 +681,8 @@ string promptFor(const Pending& pending, const stand::RunControl& control)
             return "stop the run (pid " + to_string(control.state().pid) + ")?  it will not be filed   y/N";
         case Pending::Kind::File:
             return "file the result into results/Bench/" + spec.version + "/?  this replaces the directory   y/N";
+        case Pending::Kind::Exit:
+            return "stop the running set and quit?  the partial run will not be filed   y/N";
         case Pending::Kind::None:
             break;
     }
@@ -1364,6 +1367,7 @@ int main(int argc, char** argv)
     // same directory are not shown as if they were current. A bare `--view <dir>` keeps showing
     // what is in the directory - inspecting published results is what it is for.
     bool managedRunStarted = control && control->state().phase == stand::RunPhase::Running;
+    bool exitAfterStop = false;
     auto managedRunSince = chrono::system_clock::now();
     if (managedRunStarted)
     {
@@ -1374,6 +1378,10 @@ int main(int argc, char** argv)
         if (control)
         {
             control->poll();
+            if (exitAfterStop && control->state().phase != stand::RunPhase::Running)
+            {
+                break;
+            }
             if (control->state().phase == stand::RunPhase::Running && !managedRunStarted)
             {
                 managedRunStarted = true;
@@ -1407,8 +1415,15 @@ int main(int argc, char** argv)
             {
                 continue;
             }
-            if (press.key == tui::Key::Escape || (press.key == tui::Key::Character && (press.text == "q" || press.text == "Q")))
+            if (press.key == tui::Key::Escape ||
+                (press.key == tui::Key::Character && (press.text == "q" || press.text == "Q")))
             {
+                if (control && control->canStop())
+                {
+                    pending.kind = Pending::Kind::Exit;
+                    pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                    continue;
+                }
                 break;
             }
             // Arrows belong to the table: which test, and how far back in it.
@@ -1480,6 +1495,11 @@ int main(int argc, char** argv)
                 else if (pending.kind == Pending::Kind::File && control && control->canFile())
                 {
                     control->file();
+                }
+                else if (pending.kind == Pending::Kind::Exit && control && control->canStop())
+                {
+                    control->stop();
+                    exitAfterStop = control->state().lastAction == "stopping (SIGTERM)";
                 }
                 pending.kind = Pending::Kind::None;
                 continue;
