@@ -533,9 +533,20 @@ Report buildReport(const filesystem::path& dir,
     report.host = sampleHostLoad();
     report.scenarios = scanRunDir(dir);
     // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
-    // scenario, so expose the phase as run state rather than adding it to the result table.
-    report.preflight = report.scenarios.empty() &&
-                       readLog(dir / "run.log").find("== preflight ==") != string::npos;
+    // scenario, so expose the phase as run state rather than adding it to the result table - but
+    // only while that log is being written now. A run.log left by a previous run would otherwise
+    // report a phase for a run that is not happening.
+    report.preflight = false;
+    if (report.scenarios.empty())
+    {
+        error_code error;
+        const auto log = dir / "run.log";
+        const auto written = filesystem::last_write_time(log, error);
+        if (!error && chrono::clock_cast<chrono::system_clock>(written) > chrono::system_clock::now() - chrono::minutes(2))
+        {
+            report.preflight = readLog(log).find("== preflight ==") != string::npos;
+        }
+    }
     report.current = report.scenarios.size();
     long remaining = 0;
     for (size_t i = 0; i < report.scenarios.size(); ++i)
