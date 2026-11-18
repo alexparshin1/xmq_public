@@ -849,7 +849,9 @@ size_t shownScenario(const Report& report, const size_t chosen)
             return index - 1;
         }
     }
-    return report.scenarios.size() - 1;
+    // Nothing is running yet (a fresh screen, or every test already finished): the first test is
+    // what the run will begin with, so that is what the table shows rather than the last one.
+    return 0;
 }
 
 /// One reported interval, as a table row. The elapsed column is where the window ended, which is
