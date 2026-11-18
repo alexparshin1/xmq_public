@@ -550,18 +550,36 @@ Report buildReport(const filesystem::path& dir,
         report.scenarios.clear();
     }
     // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
-    // scenario, so expose the phase as run state rather than adding it to the result table - but
-    // only while that log is being written now. A run.log left by a previous run would otherwise
-    // report a phase for a run that is not happening.
+    // scenario, so expose the phase as run state rather than adding it to the result table. On a
+    // managed run, old scenario logs may still be in the output directory; preflight lasts until
+    // one of this run's scenario logs is created/updated, not until the directory has no logs.
     report.preflight = false;
-    if ((!managedScreen || ownRunRunning) && report.scenarios.empty())
+    const auto now = chrono::system_clock::now();
+    const auto currentLogSince = since == chrono::system_clock::time_point {} ? now - chrono::minutes(2) : since;
+    const bool currentScenarioLog = any_of(report.scenarios.begin(), report.scenarios.end(),
+                                           [currentLogSince](const Scenario& scenario)
+                                           {
+                                               return scenario.lastWrite >= currentLogSince;
+                                           });
+    if ((!managedScreen || ownRunRunning) && !currentScenarioLog)
     {
-        error_code error;
         const auto log = dir / "run.log";
-        const auto written = filesystem::last_write_time(log, error);
-        if (!error && chrono::clock_cast<chrono::system_clock>(written) > chrono::system_clock::now() - chrono::minutes(2))
+        const auto content = readLog(log);
+        if (managedScreen && ownRunRunning)
         {
-            report.preflight = readLog(log).find("== preflight ==") != string::npos;
+            // RunControl truncates run.log as it starts the script. The child can write the
+            // preflight banner before start() returns, so an mtime comparison with the timestamp
+            // captured by the parent would race; the active run owns this freshly truncated log.
+            report.preflight = content.find("== preflight ==") != string::npos;
+        }
+        else
+        {
+            error_code error;
+            const auto written = filesystem::last_write_time(log, error);
+            if (!error && chrono::clock_cast<chrono::system_clock>(written) >= currentLogSince)
+            {
+                report.preflight = content.find("== preflight ==") != string::npos;
+            }
         }
     }
     report.current = report.scenarios.size();
