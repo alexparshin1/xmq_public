@@ -1,5 +1,6 @@
 #include "run_form.h"
 
+#include "theme.h"
 #include "tui.h"
 
 #include <algorithm>
@@ -114,48 +115,121 @@ private:
         return value;
     }
 
+    /// Paints the screen the way a Turbo Vision application painted a dialog: a blue desktop with
+    /// one grey box on it, a title in the frame, buttons along the bottom and the keys on a status
+    /// line. Every colour comes from theme.h, so the look is one file's decision.
     void draw()
     {
         const auto width = m_terminal.width();
         const auto height = m_terminal.height();
 
-        m_terminal.clear();
+        const auto innerWidth = max(30, min(width - 4, 76)); // between the frame sides
+        const auto left = max(1, (width - innerWidth - 2) / 2 + 1);
+        const auto contentLeft = left + 2;
+        const auto labelWidth = 15;
+        const auto valueLeft = contentLeft + labelWidth;
+        const auto valueWidth = max(8, innerWidth - labelWidth - 2);
 
-        const auto title = m_spec.file.empty() ? "stand_runner --edit" : "stand_runner --edit  " + m_spec.file.string();
-        m_terminal.moveTo(1, 1);
-        m_terminal.write("\033[1m" + title + "\033[0m");
+        const auto top = 2;
+        const auto contentTop = top + 2;
+        const auto rows = static_cast<int>(m_fields.size());
+        const auto helpRow = contentTop + rows;
+        const auto problemRow = helpRow + 1;
+        const auto buttonRow = helpRow + 3;
+        const auto bottom = buttonRow + 1;
 
-        int row = 3;
-        for (size_t index = 0; index < m_fields.size(); ++index, ++row)
+        const auto put = [this](const int row, const int column, const string& text)
         {
-            const auto& field = m_fields[index];
-            const bool  selected = index == m_current;
-            const bool  active = selected && m_editing;
-
-            m_terminal.moveTo(row, 2);
-            m_terminal.write(selected ? "\033[7m" : "");
-            m_terminal.write(" " + field.label);
-            for (auto padding = field.label.size() + 1; padding < 14; ++padding)
+            m_terminal.moveTo(row, column);
+            m_terminal.write(text);
+        };
+        const auto blank = [](const size_t count)
+        {
+            return string(count, ' ');
+        };
+        // Clipping by display width, not by bytes: a long path is clipped where the dialog ends
+        // instead of pushing the field below it off the frame.
+        const auto clip = [](const string& text, const int columns)
+        {
+            if (columns <= 0)
             {
-                m_terminal.write(" ");
+                return string {};
             }
+            int    used = 0;
+            size_t at = 0;
+            while (at < text.size() && used < columns)
+            {
+                at += 1;
+                while (at < text.size() && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80)
+                {
+                    ++at;
+                }
+                ++used;
+            }
+            return text.substr(0, at);
+        };
 
-            // The value is what the person changes, so it is what the highlight sits on; the help
-            // text is dropped on a narrow terminal rather than pushing the value off the screen.
+        // The desktop: every line, the full width, so the previous frame leaves nothing behind.
+        for (int row = 1; row <= height; ++row)
+        {
+            put(row, 1, string(theme::desktop) + blank(static_cast<size_t>(width)) + theme::reset);
+        }
+
+        // The frame, with the file name in its title, and a shadow down the right and along the
+        // bottom - the detail that made a Turbo Vision window look raised rather than painted on.
+        const auto title = m_spec.file.empty() ? string {"stand_runner --edit"}
+                                               : "stand_runner --edit  " + m_spec.file.string();
+        for (int row = top + 1; row <= bottom; ++row)
+        {
+            put(row, left, string(theme::dialog) + "║" + theme::reset);
+            put(row, left + innerWidth + 1, string(theme::dialog) + "║" + theme::reset);
+            put(row, left + innerWidth + 2, string(theme::desktopDim) + " " + theme::reset);
+        }
+        put(bottom + 1, left + 2, string(theme::desktopDim) + blank(static_cast<size_t>(innerWidth + 1)) + theme::reset);
+
+        string topLine {"╔"};
+        const string doubleLine {"═"};
+        for (int column = 0; column < innerWidth; ++column) topLine += doubleLine;
+        topLine += "╗";
+        string bottomLine {"╚"};
+        for (int column = 0; column < innerWidth; ++column) bottomLine += doubleLine;
+        bottomLine += "╝";
+        put(top, left, string(theme::frame) + topLine + theme::reset);
+        put(bottom, left, string(theme::frame) + bottomLine + theme::reset);
+
+        const auto titleText = " " + clip(title, innerWidth - 6) + " ";
+        const auto titleColumn = left + 2 + max(0, (innerWidth - static_cast<int>(titleText.size())) / 2);
+        put(top, titleColumn, string(theme::frameActive) + titleText + theme::reset);
+
+        // One line per field: the label in the dialog's own colour, its shortcut letter standing
+        // out, and the value in an input-line box.
+        for (int index = 0; index < rows; ++index)
+        {
+            const auto& field = m_fields[static_cast<size_t>(index)];
+            const bool  selected = static_cast<size_t>(index) == m_current;
+            const bool  active = selected && m_editing;
+            const int   row = contentTop + index;
+
+            put(row, left + 1, string(theme::dialog) + blank(static_cast<size_t>(innerWidth)) + theme::reset);
+
+            string label = field.label;
+            put(row, contentLeft + 1, string(theme::dialog) + label.substr(0, 1) + theme::reset);
+            label.erase(0, 1);
+            put(row, contentLeft + 2, string(theme::dialog) + label + blank(static_cast<size_t>(max(0, labelWidth - 2 - static_cast<int>(label.size())))) + theme::reset);
+
             string value = shownValue(field);
+            const bool placeholder = value.starts_with("(");
             if (field.kind != Kind::Text)
             {
                 value = field.kind == Kind::Choice ? "< " + value + " >" : "[" + value + "]";
             }
 
-            const auto valueWidth = static_cast<size_t>(max(10, width - 20 - static_cast<int>(field.help.size()) - 2));
-            if (active && field.kind == Kind::Text)
+            if (active)
             {
-                // While editing, show the tail of a long value so the cursor stays visible.
-                const auto  cursorColumns = tui::Terminal::displayWidth(value.substr(0, m_cursor));
-                const auto  visible = min(valueWidth, static_cast<size_t>(max(4, width - 20)));
-                const auto  start = static_cast<size_t>(max(0, cursorColumns - static_cast<int>(visible) + 1));
-                const auto  offset = [&value, start]
+                // While editing, show the tail of a long value so the cursor stays on screen.
+                const auto cursorColumns = tui::Terminal::displayWidth(value.substr(0, m_cursor));
+                const auto start = static_cast<size_t>(max(0, cursorColumns - valueWidth + 1));
+                const auto offset = [&value, start]
                 {
                     int    columns = 0;
                     size_t at = 0;
@@ -170,46 +244,48 @@ private:
                     }
                     return at;
                 }();
-                m_terminal.write("\033[7m " + value.substr(offset, visible) + "\033[0m");
+                const auto visible = clip(value.substr(offset), valueWidth - 1);
+                put(row, valueLeft + 1, string(theme::selected) + " " + visible + blank(static_cast<size_t>(max(0, valueWidth - 1 - tui::Terminal::displayWidth(visible)))) + theme::reset);
+            }
+            else if (selected)
+            {
+                const auto text = clip(value, valueWidth - 1);
+                put(row, valueLeft + 1, string(theme::selected) + " " + text + blank(static_cast<size_t>(max(0, valueWidth - 1 - tui::Terminal::displayWidth(text)))) + theme::reset);
             }
             else
             {
-                m_terminal.write(selected ? "\033[7m " + value + "\033[0m" : " " + value);
+                // An input line on a grey dialog: white on blue, the palette entry cpInputLine reads as.
+                const auto text = clip(value, valueWidth - 1);
+                put(row, valueLeft + 1, string("\033[37;44m") + " " + text + blank(static_cast<size_t>(max(0, valueWidth - 1 - tui::Terminal::displayWidth(text)))) + theme::reset);
             }
-
-            if (!field.help.empty() && width > 60 && !selected)
-            {
-                const auto used = 20 + tui::Terminal::displayWidth(value) + 2;
-                if (used < width)
-                {
-                    m_terminal.moveTo(row, used + 1);
-                    m_terminal.write("\033[2m" + field.help.substr(0, static_cast<size_t>(width - used)) + "\033[0m");
-                }
-            }
-            m_terminal.write(selected ? "\033[0m" : "");
+            (void) placeholder;
         }
 
-        row += 2;
-        const auto& current = m_fields[m_current];
-        m_terminal.moveTo(row, 2);
-        m_terminal.write("\033[2m" + current.help.substr(0, static_cast<size_t>(max(0, width - 3))) + "\033[0m");
+        // The help for the field the keyboard is on, then anything that was refused.
+        put(helpRow, contentLeft, string(theme::dialog) + " " + m_fields[m_current].help.substr(0, static_cast<size_t>(innerWidth - 2)) + blank(static_cast<size_t>(max(0, innerWidth - 2 - static_cast<int>(min<size_t>(m_fields[m_current].help.size(), static_cast<size_t>(innerWidth - 2)))))) + theme::reset);
 
-        // Problems sit between the help line and the keys, so they stay on screen on a short
-        // terminal: a refusal the person cannot see is the same as no refusal.
-        for (size_t index = 0; index < m_problems.size() && row + 2 + static_cast<int>(index) < height - 1; ++index)
+        for (size_t index = 0; index < m_problems.size() && problemRow + static_cast<int>(index) < buttonRow; ++index)
         {
-            m_terminal.moveTo(row + 2 + static_cast<int>(index), 2);
-            m_terminal.write("\033[1m! " + m_problems[index] + "\033[0m");
+            const auto text = "! " + m_problems[index];
+            put(problemRow + static_cast<int>(index), contentLeft, string(theme::warning) + text + blank(static_cast<size_t>(max(0, innerWidth - 2 - static_cast<int>(min<size_t>(text.size(), static_cast<size_t>(innerWidth - 2)))))) + theme::reset);
         }
 
-        m_terminal.moveTo(height - 1, 2);
-        m_terminal.write(m_editing ? "editing: Enter keeps, Esc drops this field's edit"
-                                   : "Enter to edit or switch, arrows to move, F2 saves");
+        // Buttons along the bottom of the dialog, the way a form ended: the default one green.
+        put(buttonRow, contentLeft + 1, string(theme::button) + " F2 Save " + theme::reset);
+        put(buttonRow, contentLeft + 12, string(theme::dialog) + "[ " + theme::reset + string(theme::dialogDim) + "Esc" + theme::reset + string(theme::dialog) + " Cancel ]" + theme::reset);
+
+        // Status line: what each key does, the key itself standing out.
+        if (height >= bottom + 2)
+        {
+            const auto line = string {"↑↓ Move   Enter Edit   F2 Save   Esc Leave without saving"};
+            put(height, 1, string(theme::status) + blank(static_cast<size_t>(max(0, width - static_cast<int>(line.size()) - 1))) + theme::reset);
+            put(height, 2, string(theme::statusKey) + line + theme::reset);
+        }
 
         if (m_editing)
         {
-            // Put the cursor on the character being typed; the rest of the screen is context.
-            m_terminal.moveTo(3 + static_cast<int>(m_current), 17 + tui::Terminal::displayWidth(shownValue(m_fields[m_current]).substr(0, m_cursor)));
+            const auto prefix = shownValue(m_fields[m_current]).substr(0, m_cursor);
+            put(contentTop + static_cast<int>(m_current), valueLeft + 2 + tui::Terminal::displayWidth(prefix), "");
             m_terminal.write("\033[?25h");
         }
         else

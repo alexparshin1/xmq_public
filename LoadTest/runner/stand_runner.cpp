@@ -39,6 +39,7 @@
 #include <unistd.h>
 
 #include "run_control.h"
+#include "theme.h"
 #include "run_file.h"
 #include "run_form.h"
 #include "tui.h"
@@ -672,35 +673,227 @@ void printOperator(const stand::RunControl* control, const Pending& pending)
            control->canFile() ? "" : " (unavailable)");
 }
 
-void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control, const Pending& pending)
+
+string left2(const string& text, const size_t width)
 {
-    const auto load = report.host;
-    printf("\033[H\033[2J");
-    printf("stand_runner  %s\n", dir.c_str());
-    printf("%-44s %-8s %-9s %6s %7s %7s %7s %7s\n",
-           "scenario", "state", "progress", "rate/s", "avg", "p99", "cpu", "rss");
+    const auto clipped = text.substr(0, width);
+    return clipped + string(width - clipped.size(), ' ');
+}
+
+string right2(const string& text, const size_t width)
+{
+    const auto clipped = text.size() > width ? text.substr(text.size() - width) : text;
+    return string(width - clipped.size(), ' ') + clipped;
+}
+
+/// One line of the framed screen: the text, and the palette entry it is drawn in.
+struct ScreenLine
+{
+    string      text;
+    const char* color {theme::dialog};
+};
+
+string clipTo(const string& text, const int columns)
+{
+    if (columns <= 0)
+    {
+        return {};
+    }
+    int    used = 0;
+    size_t at = 0;
+    while (at < text.size() && used < columns)
+    {
+        at += 1;
+        while (at < text.size() && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80)
+        {
+            ++at;
+        }
+        ++used;
+    }
+    return text.substr(0, at);
+}
+
+string padded(const string& text, const int columns)
+{
+    const auto clipped = clipTo(text, columns);
+    return clipped + string(static_cast<size_t>(max(0, columns - static_cast<int>(clipped.size()))), ' ');
+}
+
+/// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
+/// --once can print the same words without a frame around them.
+vector<ScreenLine> statusLines(const Report& report, const stand::RunControl* control, const Pending& pending)
+{
+    vector<ScreenLine> lines;
+
+    ostringstream client;
+    client << "client cpu " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
+    if (report.etaSec > 0)
+    {
+        client << ", eta " << humanDuration(report.etaSec);
+    }
+    lines.push_back({client.str(), theme::dialog});
+
+    switch (report.broker.state == "live" ? (report.broker.ageSec <= 5 ? 0 : 1) : 2)
+    {
+        case 0:
+            lines.push_back({"broker cpu " + to_string(report.broker.cpuPct) + "%, rss " + to_string(report.broker.rssMb) +
+                                 "Mb   (its own $SYS figures)",
+                             theme::dialog});
+            break;
+        case 1:
+            lines.push_back({"broker: last figures " + to_string(report.broker.ageSec) + "s ago", theme::warning});
+            break;
+        default:
+            if (report.broker.state != "off")
+            {
+                lines.push_back({"broker: " + report.broker.state, theme::dialog});
+            }
+            break;
+    }
+
+    if (control == nullptr)
+    {
+        lines.push_back({"run: watching only - no --run given, so nothing can be started here", theme::dialog});
+        return lines;
+    }
+
+    const auto& state = control->state();
+    switch (state.phase)
+    {
+        case stand::RunPhase::Running:
+            lines.push_back({"run: running " + humanDuration(state.elapsedSec) + ", pid " + to_string(state.pid), theme::dialog});
+            break;
+        case stand::RunPhase::Exited:
+            lines.push_back({"run: exited with status " + to_string(state.exitCode), state.exitCode == 0 ? theme::dialog : theme::warning});
+            break;
+        case stand::RunPhase::Idle:
+            lines.push_back({"run: idle", theme::dialog});
+            break;
+        case stand::RunPhase::NoRunFile:
+            lines.push_back({"run: nothing to start", theme::dialog});
+            break;
+    }
+    if (!state.lastAction.empty())
+    {
+        lines.push_back({state.lastAction, theme::dialog});
+    }
+
+    if (pending.kind != Pending::Kind::None)
+    {
+        lines.emplace_back();
+        lines.push_back({promptFor(pending, *control), theme::selected});
+        return lines;
+    }
+
+    string keys {"s start"};
+    keys += control->canStart() ? "" : " (unavailable)";
+    keys += "   x stop";
+    keys += control->canStop() ? "" : " (unavailable)";
+    keys += "   f file result";
+    keys += control->canFile() ? "" : " (unavailable)";
+    lines.emplace_back();
+    lines.push_back({keys, theme::dialog});
+    return lines;
+}
+
+/// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
+/// shadow, a cyan column header and a status line along the bottom of the screen.
+void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control,
+                const Pending& pending, const int width, const int height)
+{
+    const auto inner = max(40, min(width - 4, 110));
+    const auto left = max(1, (width - inner - 2) / 2 + 1);
+    const auto top = 1;
+
+    // Desktop, every line, so nothing of the previous frame survives behind the window.
+    for (int row = 1; row <= height; ++row)
+    {
+        printf("\033[%d;1H%s%s\033[0m", row, theme::desktop, string(static_cast<size_t>(width), ' ').c_str());
+    }
+
+    const auto put = [](const int row, const int column, const char* color, const string& text)
+    {
+        printf("\033[%d;%dH%s%s\033[0m", row, column, color, text.c_str());
+    };
+
+    // Content first, then the frame sized to it.
+    int row = top + 2;
+    // Column widths are fixed and sum to the content width: a table that shifts is harder to read
+    // than one that clips a long scenario name.
+    string header;
+    {
+        ostringstream text;
+        text << ' ' << left2("scenario", 34) << ' ' << left2("state", 8) << ' '
+             << left2("progress", 10) << ' ' << left2("elapsed", 10) << ' '
+             << right2("rate/s", 8) << ' ' << right2("avg", 7) << ' ' << right2("p99", 7) << ' '
+             << right2("cpu", 5) << ' ' << right2("rss", 6);
+        header = text.str();
+    }
+    put(row++, left + 2, theme::header, padded(header, inner - 2));
+
     for (const auto& scenario: report.scenarios)
     {
         if (!scenario.started)
         {
-            printf("%-44s %-8s\n", scenario.name.c_str(), scenario.finished ? "done" : "waiting");
+            ostringstream text;
+            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "waiting", 8);
+            put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
             continue;
         }
         const auto& last = scenario.intervals.empty() ? Interval {} : scenario.intervals.back();
         const auto  elapsedSec = scenario.intervals.empty() ? 0 : (last.timeMs + scenario.windowMs) / 1000;
-        printf("%-44s %-8s %s %3lds/%-3lds %6ld %6.0fus %6.0fus %6d%% %6ldMb\n",
-               scenario.name.c_str(), scenario.finished ? "done" : "running",
-               progressBar(elapsedSec, scenario.durationSec).c_str(),
-               min(elapsedSec, scenario.durationSec), scenario.durationSec,
-               last.rate, last.avgUs, last.p99Us, last.cpuPct, last.rssMb);
+        ostringstream text;
+        text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "running", 8) << ' '
+             << progressBar(elapsedSec, scenario.durationSec) << ' '
+             << left2(to_string(min(elapsedSec, scenario.durationSec)) + "s/" + to_string(scenario.durationSec) + "s", 10) << ' '
+             << right2(to_string(last.rate), 8) << ' '
+             << right2(to_string(static_cast<long>(last.avgUs)) + "us", 7) << ' '
+             << right2(to_string(static_cast<long>(last.p99Us)) + "us", 7) << ' '
+             << right2(to_string(last.cpuPct) + "%", 5) << ' '
+             << right2(to_string(last.rssMb) + "Mb", 6);
+        put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
     }
-    printf("\nclient cpu %3.0f%%  used %ldMb   eta %s\n", load.cpuPct, load.usedMb,
-           humanDuration(report.etaSec).c_str());
-    printBroker(report.broker);
-    printf("\n");
-    printOperator(control, pending);
-    printf("\nq quit                                 %s\n",
-           report.current < report.scenarios.size() ? report.scenarios[report.current].name.c_str() : "run complete");
+
+    const auto lines = statusLines(report, control, pending);
+    row++;
+    for (const auto& line: lines)
+    {
+        put(row++, left + 2, line.color, padded(" " + line.text, inner - 2));
+    }
+
+    const auto bottom = row + 1;
+    const auto boxWidth = inner + 2;
+    string topLine {"╔"};
+    string bottomLine {"╚"};
+    const string doubleLine {"═"};
+    for (int column = 0; column < inner; ++column)
+    {
+        topLine += doubleLine;
+        bottomLine += doubleLine;
+    }
+    topLine += "╗";
+    bottomLine += "╝";
+    put(top, left, theme::frame, topLine);
+    put(bottom, left, theme::frame, bottomLine);
+
+    for (int side = top + 1; side < bottom; ++side)
+    {
+        put(side, left, theme::dialog, "║");
+        put(side, left + boxWidth - 1, theme::dialog, "║");
+        put(side, left + boxWidth, theme::desktopDim, " ");
+    }
+    put(bottom + 1, left + 2, theme::desktopDim, string(static_cast<size_t>(inner + 1), ' '));
+
+    const auto title = " stand_runner  " + dir.string() + " ";
+    put(top, left + 2 + max(0, (inner - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, inner - 4));
+
+    if (height > bottom + 1)
+    {
+        const auto line = string {"q quit   s start   x stop   f file result   Enter confirms"};
+        put(height, 2, theme::statusKey, line);
+        put(height, 2 + static_cast<int>(line.size()), theme::status,
+            string(static_cast<size_t>(max(0, width - static_cast<int>(line.size()) - 2)), ' '));
+    }
     fflush(stdout);
 }
 
@@ -911,7 +1104,7 @@ int main(int argc, char** argv)
             // pressed on rather than the one before the last tick.
             auto report = buildReport(dir);
             report.broker = watch.load();
-            drawScreen(report, dir, control ? &*control : nullptr, pending);
+            drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height());
 
             const auto press = terminal.readKey(1000);
             if (tui::Terminal::terminateFlag() != 0)
@@ -975,7 +1168,7 @@ int main(int argc, char** argv)
 
         auto report = buildReport(dir);
         report.broker = watch.load();
-        drawScreen(report, dir, control ? &*control : nullptr, pending);
+        drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height());
         this_thread::sleep_for(chrono::seconds(1));
     }
     printf("\033[2J\033[H");

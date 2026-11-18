@@ -8,7 +8,7 @@ sources = stand_runner.cpp run_file.cpp run_form.cpp run_control.cpp tui.cpp
 
 all: stand_runner
 
-stand_runner: $(sources) run_file.h run_form.h run_control.h tui.h
+stand_runner: $(sources) run_file.h run_form.h run_control.h tui.h theme.h
 	$(CXX) $(CXXFLAGS) -o $@ $(sources)
 
 clean:
