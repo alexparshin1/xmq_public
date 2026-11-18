@@ -12,7 +12,7 @@ PREFIX ?= $(HOME)/.local
 
 all: stand_runner
 
-stand_runner: $(sources) run_file.h run_form.h run_control.h tui.h theme.h
+stand_runner: $(sources) frame.h run_file.h run_form.h run_control.h tui.h theme.h
 	$(CXX) $(CXXFLAGS) -o $@ $(sources)
 
 install: stand_runner
