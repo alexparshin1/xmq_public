@@ -876,7 +876,9 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto top = 2;
     // The frame's last line is the line above the status bar: a window that stopped short of it
     // left a strip of desktop with nothing in it.
-    const auto bottom = max(top + 8, height - 1);
+    // Reserve the last terminal row for status even when the terminal is shorter than the
+    // preferred frame. Frame contents may be clipped on a tiny screen; the keys must not vanish.
+    const auto bottom = min(height - 1, max(top + 8, height - 1));
 
     // The strip across the top is this screen's title, not a menu: the run file it is showing, and
     // what that file says the run is. Turbo Vision put a menu bar there; ours has one thing to say
@@ -1062,22 +1064,19 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto titleRoom = inner - 10;
     put(top, left + 5 + max(0, (titleRoom - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, titleRoom));
 
-    // One place for keys: the status line, on the last row of the screen - the frame ends on the
-    // row above it, so there is exactly one row here and the test is "is there any".
-    if (height > bottom)
-    {
-        const bool asking = pending.kind != Pending::Kind::None && control != nullptr;
-        const auto text = asking ? promptFor(pending, *control) : keysLine(control);
-        put(height, 1, theme::status, string(static_cast<size_t>(width), ' '));
+    // One place for keys: always draw it on the last terminal row, regardless of how the frame
+    // had to shrink to fit.
+    const bool asking = pending.kind != Pending::Kind::None && control != nullptr;
+    const auto text = asking ? promptFor(pending, *control) : keysLine(control);
+    put(height, 1, theme::status, string(static_cast<size_t>(width), ' '));
 
-        if (asking)
-        {
-            put(height, 2, theme::warning, text);
-        }
-        else
-        {
-            tui::putMarked(frameStorage, height, 2, theme::status, theme::statusKey, text);
-        }
+    if (asking)
+    {
+        put(height, 2, theme::warning, text);
+    }
+    else
+    {
+        tui::putMarked(frameStorage, height, 2, theme::status, theme::statusKey, text);
     }
 
     // Only the rows that changed go out, so an idle second sends nothing at all.

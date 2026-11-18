@@ -147,7 +147,9 @@ private:
         const auto rows = static_cast<int>(m_fields.size());
         const auto helpRow = contentTop + rows;
         const auto problemRow = helpRow + 1;
-        const auto bottom = max(helpRow + 4, height - 1);
+        // Keep the last row available for the status bar; on a short terminal the dialog body is
+        // clipped rather than pushing its keyboard instructions off-screen.
+        const auto bottom = min(height - 1, max(helpRow + 4, height - 1));
         const auto buttonRow = bottom - 1;
 
         const auto put = [this](const int row, const int column, const char* color, const string& text)
@@ -292,12 +294,10 @@ private:
         // Turbo Vision screen put the keys it offered. A second copy inside the dialog was one
         // place too many to keep in step.
 
-        // The status bar, grey with red keys, the same as the viewer's.
-        {
-            fill(height, 1, width, theme::status);
-            tui::putMarked(m_frame, height, 2, theme::status, theme::statusKey,
-                           "~↑↓~ move   ~Enter~ edit   ~F2~ save   ~Esc~ leave without saving");
-        }
+        // The status bar, grey with red keys, always owns the final terminal row.
+        fill(height, 1, width, theme::status);
+        tui::putMarked(m_frame, height, 2, theme::status, theme::statusKey,
+                       "~↑↓~ move   ~Enter~ edit   ~F2~ save   ~Esc~ leave without saving");
 
         m_frame.flush();
 
