@@ -44,7 +44,8 @@ inline constexpr const char* header = "\033[30;46m";
 inline constexpr const char* status = "\033[37;44m";
 inline constexpr const char* statusKey = "\033[1;33;44m";
 
-// Values that deserve attention without being errors.
-inline constexpr const char* warning = "\033[1;31;47m";   // red on the dialog grey
+// Values that deserve attention without being errors: red on the surface behind them.
+inline constexpr const char* warning = "\033[1;31;47m";          // on the dialog grey
+inline constexpr const char* warningDesktop = "\033[1;31;44m";   // on the blue desktop
 
 } // namespace theme

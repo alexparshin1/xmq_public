@@ -185,8 +185,17 @@ vector<Scenario> scanRunDir(const filesystem::path& dir)
         Scenario scenario;
         scenario.log = entry.path();
         scenario.name = entry.path().stem().string();
-        scenario.finished = filesystem::exists(entry.path().parent_path() / (scenario.name + ".block"));
         scenario.lastWrite = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(entry.path()));
+
+        // A .block left by an earlier attempt in the same directory would otherwise mark this run
+        // as finished before it starts: it counts only if it is not older than the log beside it.
+        error_code error;
+        const auto block = entry.path().parent_path() / (scenario.name + ".block");
+        if (filesystem::exists(block, error))
+        {
+            const auto blockTime = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(block, error));
+            scenario.finished = !error && blockTime >= scenario.lastWrite;
+        }
         scenarios.push_back(std::move(scenario));
     }
     sort(scenarios.begin(), scenarios.end(),
@@ -587,22 +596,6 @@ void printOnce(const Report& report)
     printBroker(report.broker);
 }
 
-/// One character for each tenth of the scenario, filled by elapsed time: coarse on purpose, since
-/// the point is to see at a glance whether the run is moving, not to measure it.
-string progressBar(long elapsedSec, long durationSec)
-{
-    if (durationSec <= 0)
-    {
-        return "         ";
-    }
-    const auto filled = min<long>(10, elapsedSec * 10 / durationSec);
-    string bar;
-    for (long i = 0; i < 10; ++i)
-    {
-        bar += i < filled ? '#' : '.';
-    }
-    return bar;
-}
 
 /// A request waiting for its confirmation. Start, stop and filing all change something that cannot
 /// be undone from here - a set is long, an interrupted set is not filed, and filing replaces a
@@ -727,83 +720,6 @@ string padded(const string& text, const int columns)
 
 /// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
 /// --once can print the same words without a frame around them.
-vector<ScreenLine> statusLines(const Report& report, const stand::RunControl* control, const Pending& pending)
-{
-    vector<ScreenLine> lines;
-
-    ostringstream client;
-    client << "client cpu " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
-    if (report.etaSec > 0)
-    {
-        client << ", eta " << humanDuration(report.etaSec);
-    }
-    lines.push_back({client.str(), theme::dialog});
-
-    switch (report.broker.state == "live" ? (report.broker.ageSec <= 5 ? 0 : 1) : 2)
-    {
-        case 0:
-            lines.push_back({"broker cpu " + to_string(report.broker.cpuPct) + "%, rss " + to_string(report.broker.rssMb) +
-                                 "Mb   (its own $SYS figures)",
-                             theme::dialog});
-            break;
-        case 1:
-            lines.push_back({"broker: last figures " + to_string(report.broker.ageSec) + "s ago", theme::warning});
-            break;
-        default:
-            if (report.broker.state != "off")
-            {
-                lines.push_back({"broker: " + report.broker.state, theme::dialog});
-            }
-            break;
-    }
-
-    if (control == nullptr)
-    {
-        lines.push_back({"run: watching only - no --run given, so nothing can be started here", theme::dialog});
-        return lines;
-    }
-
-    const auto& state = control->state();
-    switch (state.phase)
-    {
-        case stand::RunPhase::Running:
-            lines.push_back({"run: running " + humanDuration(state.elapsedSec) + ", pid " + to_string(state.pid), theme::dialog});
-            break;
-        case stand::RunPhase::Exited:
-            lines.push_back({"run: exited with status " + to_string(state.exitCode), state.exitCode == 0 ? theme::dialog : theme::warning});
-            break;
-        case stand::RunPhase::Idle:
-            lines.push_back({"run: idle", theme::dialog});
-            break;
-        case stand::RunPhase::NoRunFile:
-            lines.push_back({"run: nothing to start", theme::dialog});
-            break;
-    }
-    if (!state.lastAction.empty())
-    {
-        lines.push_back({state.lastAction, theme::dialog});
-    }
-
-    if (pending.kind != Pending::Kind::None)
-    {
-        lines.emplace_back();
-        lines.push_back({promptFor(pending, *control), theme::selected});
-        return lines;
-    }
-
-    string keys {"s start"};
-    keys += control->canStart() ? "" : " (unavailable)";
-    keys += "   x stop";
-    keys += control->canStop() ? "" : " (unavailable)";
-    keys += "   f file result";
-    keys += control->canFile() ? "" : " (unavailable)";
-    lines.emplace_back();
-    lines.push_back({keys, theme::dialog});
-    return lines;
-}
-
-/// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
-/// shadow, a cyan column header and a status line along the bottom of the screen.
 /**
  * The screen as a grid of cells, so a redraw can send only what changed.
  *
@@ -924,6 +840,106 @@ private:
     vector<const char*>        m_palette;
 };
 
+/// What the run is doing, as the lines above the table: the client it is loading from, the broker
+/// it is loading, and the run itself. Above the table because the table's height changes with the
+/// run's own output, and a line that moves is a line that gets misread.
+vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* control)
+{
+    vector<ScreenLine> lines;
+
+    ostringstream client;
+    client << "client cpu " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
+    if (report.etaSec > 0)
+    {
+        client << ", eta " << humanDuration(report.etaSec);
+    }
+    lines.push_back({client.str(), theme::desktop});
+
+    switch (report.broker.state == "live" ? (report.broker.ageSec <= 5 ? 0 : 1) : 2)
+    {
+        case 0:
+            lines.push_back({"broker cpu " + to_string(report.broker.cpuPct) + "%, rss " + to_string(report.broker.rssMb) +
+                                 "Mb   (its own $SYS figures)",
+                             theme::desktop});
+            break;
+        case 1:
+            lines.push_back({"broker: last figures " + to_string(report.broker.ageSec) + "s ago", theme::warningDesktop});
+            break;
+        default:
+            if (report.broker.state != "off")
+            {
+                lines.push_back({"broker: " + report.broker.state, theme::desktop});
+            }
+            break;
+    }
+
+    if (control == nullptr)
+    {
+        lines.push_back({"run: watching only - no --run given, so nothing can be started here", theme::desktop});
+        return lines;
+    }
+
+    const auto& state = control->state();
+    switch (state.phase)
+    {
+        case stand::RunPhase::Running:
+            lines.push_back({"run: running " + humanDuration(state.elapsedSec) + ", pid " + to_string(state.pid), theme::desktop});
+            break;
+        case stand::RunPhase::Exited:
+            lines.push_back({"run: exited with status " + to_string(state.exitCode),
+                             state.exitCode == 0 ? theme::desktop : theme::warningDesktop});
+            break;
+        case stand::RunPhase::Idle:
+            lines.push_back({"run: idle", theme::desktop});
+            break;
+        case stand::RunPhase::NoRunFile:
+            lines.push_back({"run: nothing to start", theme::desktop});
+            break;
+    }
+    if (!state.lastAction.empty())
+    {
+        lines.push_back({state.lastAction, theme::desktop});
+    }
+    return lines;
+}
+
+/// The keys, for the status line at the bottom of the screen - the only place they appear.
+string keysLine(const stand::RunControl* control)
+{
+    if (control == nullptr)
+    {
+        return "q quit";
+    }
+    string keys {"q quit   s start"};
+    keys += control->canStart() ? "" : " (unavailable)";
+    keys += "   x stop";
+    keys += control->canStop() ? "" : " (unavailable)";
+    keys += "   f file result";
+    keys += control->canFile() ? "" : " (unavailable)";
+    return keys;
+}
+
+/// One reported interval, as a table row. The elapsed column is where the window ended, which is
+/// what "how far into the scenario" means to somebody watching it.
+string intervalRow(const Scenario& scenario, const Interval& interval)
+{
+    ostringstream text;
+    text << ' ' << left2(scenario.name, 34) << ' '
+         << left2(to_string((interval.timeMs + scenario.windowMs) / 1000) + "s/" +
+                      to_string(scenario.durationSec) + "s",
+                  12) << ' '
+         << right2(to_string(interval.count), 9) << ' '
+         << right2(to_string(interval.rate), 7) << ' '
+         << right2(to_string(static_cast<long>(interval.avgUs)) + "us", 7) << ' '
+         << right2(to_string(static_cast<long>(interval.p95Us)) + "us", 7) << ' '
+         << right2(to_string(static_cast<long>(interval.p99Us)) + "us", 7) << ' '
+         << right2(to_string(interval.cpuPct) + "%", 5) << ' '
+         << right2(to_string(interval.rssMb) + "Mb", 6);
+    return text.str();
+}
+
+/// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
+/// shadow, the run's own lines above the table and the keys on a status line at the bottom.
 void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control,
                 const Pending& pending, const int width, const int height)
 {
@@ -941,58 +957,84 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto inner = max(40, min(width - 4, 110));
     const auto left = max(1, (width - inner - 2) / 2 + 1);
     const auto top = 1;
+    const auto bottom = max(top + 8, height - 2);
 
-    const auto lines = statusLines(report, control, pending);
-    const auto contentStart = top + 2;
-    const auto statusStart = contentStart + 1 + static_cast<int>(report.scenarios.size()) + 1;
-    const auto bottom = statusStart + static_cast<int>(lines.size()) + 1;
+    const auto info = infoLines(report, control);
+    const auto headerRow = top + 2 + static_cast<int>(info.size()) + 1;
+    const auto tableTop = headerRow + 1;
+    const auto tableHeight = max(1, bottom - tableTop);
 
-    // The window's own background: grey inside the frame, so the blank rows belong to the window
-    // instead of being holes onto the desktop.
+    // The window is blue, like every Turbo Vision window: the run's own lines are read on the
+    // desktop colour. The table is the one part on grey, because it is the part whose rows come
+    // and go and a moving list needs a surface of its own.
     for (int row = top + 1; row < bottom; ++row)
+    {
+        put(row, left + 1, theme::desktop, string(static_cast<size_t>(inner), ' '));
+    }
+    for (int row = headerRow; row < bottom; ++row)
     {
         put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
     }
 
-    // Column widths are fixed and sum to the content width: a table that shifts is harder to read
-    // than one that clips a long scenario name.
+    int row = top + 2;
+    for (const auto& line: info)
     {
-        ostringstream text;
-        text << ' ' << left2("scenario", 34) << ' ' << left2("state", 8) << ' '
-             << left2("progress", 10) << ' ' << left2("elapsed", 10) << ' '
-             << right2("rate/s", 8) << ' ' << right2("avg", 7) << ' ' << right2("p99", 7) << ' '
-             << right2("cpu", 5) << ' ' << right2("rss", 6);
-        put(contentStart, left + 2, theme::header, padded(text.str(), inner - 2));
+        put(row++, left + 2, line.color, padded(" " + line.text, inner - 2));
     }
 
-    int row = contentStart + 1;
+    // Every interval the run has reported, oldest first, so the table is the run's own history and
+    // grows as it goes. When there are more rows than room, the oldest are dropped: the newest are
+    // the ones being watched.
+    vector<string> rows;
     for (const auto& scenario: report.scenarios)
     {
         if (!scenario.started)
         {
             ostringstream text;
-            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "waiting", 8);
-            put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
+            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "waiting", 12);
+            rows.push_back(text.str());
             continue;
         }
-        const auto& last = scenario.intervals.empty() ? Interval {} : scenario.intervals.back();
-        const auto  elapsedSec = scenario.intervals.empty() ? 0 : (last.timeMs + scenario.windowMs) / 1000;
-        ostringstream text;
-        text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "running", 8) << ' '
-             << progressBar(elapsedSec, scenario.durationSec) << ' '
-             << left2(to_string(min(elapsedSec, scenario.durationSec)) + "s/" + to_string(scenario.durationSec) + "s", 10) << ' '
-             << right2(to_string(last.rate), 8) << ' '
-             << right2(to_string(static_cast<long>(last.avgUs)) + "us", 7) << ' '
-             << right2(to_string(static_cast<long>(last.p99Us)) + "us", 7) << ' '
-             << right2(to_string(last.cpuPct) + "%", 5) << ' '
-             << right2(to_string(last.rssMb) + "Mb", 6);
-        put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
+        for (const auto& interval: scenario.intervals)
+        {
+            rows.push_back(intervalRow(scenario, interval));
+        }
+        if (scenario.intervals.empty())
+        {
+            ostringstream text;
+            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "starting", 12);
+            rows.push_back(text.str());
+        }
     }
 
-    row = statusStart;
-    for (const auto& line: lines)
     {
-        put(row++, left + 2, line.color, padded(" " + line.text, inner - 2));
+        ostringstream text;
+        text << ' ' << left2("scenario", 34) << ' ' << left2("elapsed", 12) << ' '
+             << right2("count", 9) << ' ' << right2("rate/s", 7) << ' ' << right2("avg", 7) << ' '
+             << right2("p95", 7) << ' ' << right2("p99", 7) << ' ' << right2("cpu", 5) << ' '
+             << right2("rss", 6);
+        put(headerRow, left + 2, theme::header, padded(text.str(), inner - 2));
+    }
+
+    size_t hidden = 0;
+    if (static_cast<int>(rows.size()) > tableHeight)
+    {
+        hidden = rows.size() - static_cast<size_t>(tableHeight);
+        rows.erase(rows.begin(), rows.begin() + static_cast<long>(hidden));
+    }
+    row = tableTop;
+    if (hidden > 0)
+    {
+        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(hidden) + " earlier interval(s)", inner - 2));
+        rows.erase(rows.begin());
+    }
+    for (const auto& line: rows)
+    {
+        if (row >= bottom)
+        {
+            break;
+        }
+        put(row++, left + 2, theme::dialog, padded(line, inner - 2));
     }
 
     // The frame, with its title in the top line and a shadow down the right and along the bottom.
@@ -1021,17 +1063,21 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto title = " stand_runner  " + dir.string() + " ";
     put(top, left + 2 + max(0, (inner - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, inner - 4));
 
+    // One place for keys: the status line. A confirmation takes it over while it waits.
     if (height > bottom + 1)
     {
-        const auto keys = string {"q quit   s start   x stop   f file result   Enter confirms"};
-        put(height, 2, theme::statusKey, keys);
-        put(height, 2 + static_cast<int>(keys.size()), theme::status,
-            string(static_cast<size_t>(max(0, width - static_cast<int>(keys.size()) - 2)), ' '));
+        const auto text = pending.kind != Pending::Kind::None && control != nullptr ? promptFor(pending, *control)
+                                                                                   : keysLine(control);
+        const auto color = pending.kind != Pending::Kind::None ? theme::selected : theme::statusKey;
+        put(height, 2, color, text);
+        put(height, 2 + static_cast<int>(text.size()), theme::status,
+            string(static_cast<size_t>(max(0, width - static_cast<int>(text.size()) - 2)), ' '));
     }
 
     // Only the rows that changed go out, so an idle second sends nothing at all.
     frame->flush();
 }
+
 
 } // namespace
 
