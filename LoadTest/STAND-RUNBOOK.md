@@ -165,6 +165,11 @@ record should be read afterwards, not watched.
 
 ## Writing a run, then watching it
 
+`stand_runner` is Linux, and that is a decision rather than a gap: it drives bash scripts that
+restart a broker over ssh, and a second implementation of "what a run is" would be a second answer
+to the question the record depends on. A Windows port is not part of this version; a Windows
+machine reaches the stand through WSL or ssh.
+
 A bench run needs a version, a set, a host and a handful of switches, and getting one of them wrong
 is only visible after forty minutes. `stand_runner --edit` is a form over exactly those settings: it
 writes a run file, and nothing else.

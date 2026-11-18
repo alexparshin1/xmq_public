@@ -1,6 +1,9 @@
 /**
  * stand_runner - runs a load-test campaign on the home stand and shows it while it runs.
  *
+ * Linux, by design: the run it starts is a chain of POSIX shell scripts that restart a broker over
+ * ssh, and a second implementation of that chain would be a second answer to what a run is.
+ *
  * Reads only what a run already writes: a scenario's own log (MEASUREMENT-START and the
  * INTERVAL lines xmq_scn emits under --output runner), the presence of its .block, and the
  * client host's /proc. Nothing here polls the broker, and nothing here is on the run's path.
