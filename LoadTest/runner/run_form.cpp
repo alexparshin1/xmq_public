@@ -35,6 +35,7 @@ struct Field
     string*        value {nullptr};
     bool*          flag {nullptr};
     vector<string> choices;
+    const char*    placeholder {nullptr}; ///< Shown while the value is empty; not a value itself.
 };
 
 class Form final
@@ -87,19 +88,19 @@ private:
             sets.push_back("Scenario-Set-Bench.txt");
         }
 
-        m_fields.push_back({"version", "XMQ version under test; it names the bench profile to restart", Kind::Text, &m_spec.version, nullptr, {}});
-        m_fields.push_back({"set", "Scenario set to run, from the *.txt files next to stand_run.sh", Kind::Choice, &m_spec.setFile, nullptr, sets});
-        m_fields.push_back({"server", "Broker host under test", Kind::Text, &m_spec.server, nullptr, {}});
-        m_fields.push_back({"nic", "Client NIC watched for dropped packets", Kind::Text, &m_spec.nic, nullptr, {}});
-        m_fields.push_back({"subnet", "Client source subnet", Kind::Text, &m_spec.subnet, nullptr, {}});
-        m_fields.push_back({"first", "First host octet in that subnet", Kind::Text, &m_spec.firstOctet, nullptr, {}});
-        m_fields.push_back({"count", "Number of source addresses", Kind::Text, &m_spec.count, nullptr, {}});
-        m_fields.push_back({"out", "Per-scenario logs; empty means results/raw/<stamp>-xmq<version>-bench", Kind::Text, &m_spec.out, nullptr, {}});
-        m_fields.push_back({"run file", "Where to write this run file", Kind::Text, &m_runFilePath, nullptr, {}});
-        m_fields.push_back({"file results", "File the record with file_results.py when the set succeeds", Kind::Toggle, nullptr, &m_spec.fileResults, yesNo});
-        m_fields.push_back({"keep brokers", "Refuse to start if another broker owns the port, instead of stopping it", Kind::Toggle, nullptr, &m_spec.keepOtherBrokers, yesNo});
-        m_fields.push_back({"skip preflight", "Do not run preflight.sh on either host", Kind::Toggle, nullptr, &m_spec.skipPreflight, yesNo});
-        m_fields.push_back({"note", "Free-text line for the record", Kind::Text, &m_spec.note, nullptr, {}});
+        m_fields.push_back({"Version", "XMQ version under test; it names the bench profile to restart", Kind::Text, &m_spec.version, nullptr, {}});
+        m_fields.push_back({"Set", "Scenario set to run, from the *.txt files next to stand_run.sh", Kind::Choice, &m_spec.setFile, nullptr, sets});
+        m_fields.push_back({"Server", "Broker host under test", Kind::Text, &m_spec.server, nullptr, {}});
+        m_fields.push_back({"Nic", "Client NIC watched for dropped packets", Kind::Text, &m_spec.nic, nullptr, {}});
+        m_fields.push_back({"Subnet", "Client source subnet", Kind::Text, &m_spec.subnet, nullptr, {}});
+        m_fields.push_back({"First", "First host octet in that subnet", Kind::Text, &m_spec.firstOctet, nullptr, {}});
+        m_fields.push_back({"Count", "Number of source addresses", Kind::Text, &m_spec.count, nullptr, {}});
+        m_fields.push_back({"Out", "Per-scenario logs; empty means results/raw/<stamp>-xmq<version>-bench", Kind::Text, &m_spec.out, nullptr, {}, "(stand_run.sh default)"});
+        m_fields.push_back({"Run file", "Where to write this run file", Kind::Text, &m_runFilePath, nullptr, {}});
+        m_fields.push_back({"File results", "File the record with file_results.py when the set succeeds", Kind::Toggle, nullptr, &m_spec.fileResults, yesNo});
+        m_fields.push_back({"Keep brokers", "Refuse to start if another broker owns the port, instead of stopping it", Kind::Toggle, nullptr, &m_spec.keepOtherBrokers, yesNo});
+        m_fields.push_back({"Skip preflight", "Do not run preflight.sh on either host", Kind::Toggle, nullptr, &m_spec.skipPreflight, yesNo});
+        m_fields.push_back({"Note", "Free-text line for the record", Kind::Text, &m_spec.note, nullptr, {}});
 
         m_runFilePath = displayPath(m_spec.file.empty() ? defaultRunFile(m_spec) : m_spec.file);
     }
@@ -111,9 +112,9 @@ private:
             return *field.flag ? "[X]" : "[ ]";
         }
         const string value = *field.value;
-        if (value.empty() && field.label == "out")
+        if (value.empty() && field.placeholder != nullptr)
         {
-            return "(stand_run.sh default)";
+            return field.placeholder;
         }
         return value;
     }
@@ -225,10 +226,10 @@ private:
 
             fill(row, left + 1, innerWidth, theme::desktop);
 
-            string label = field.label;
-            put(row, contentLeft + 1, theme::shortcut, label.substr(0, 1));
-            label.erase(0, 1);
-            put(row, contentLeft + 2, theme::desktop,
+            // The label is a name, not a shortcut: this screen has no Alt+letter to answer to, so
+            // marking the first letter would promise a key that does nothing.
+            const auto label = field.label;
+            put(row, contentLeft + 1, theme::desktop,
                 label + blank(static_cast<size_t>(max(0, labelWidth - 2 - static_cast<int>(label.size())))));
 
             string value = shownValue(field);
