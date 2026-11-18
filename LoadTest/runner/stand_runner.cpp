@@ -523,7 +523,11 @@ struct Report
     long             etaSec {0};
 };
 
-Report buildReport(const filesystem::path& dir)
+/// A fresh run is one whose log was written after this screen opened (or after the operator pressed
+/// start). Its own intervals are what the table shows; whatever was in the directory before that is
+/// a previous run and must not appear as if it had just been measured.
+Report buildReport(const filesystem::path& dir,
+                   const chrono::system_clock::time_point since = chrono::system_clock::time_point {})
 {
     Report report;
     report.host = sampleHostLoad();
@@ -538,6 +542,15 @@ Report buildReport(const filesystem::path& dir)
     {
         auto& scenario = report.scenarios[i];
         parseScenario(scenario);
+        // A log last written before this screen began watching predates the run being watched: its
+        // intervals are a previous run's result, not something measured now, so they are dropped
+        // from the table. They reappear only once the run itself writes to the log again.
+        if (since != chrono::system_clock::time_point {} && scenario.lastWrite < since)
+        {
+            scenario.intervals.clear();
+            scenario.started = false;
+            scenario.finished = false;
+        }
         // A scenario is "the one running" when it is the newest log without a .block and it has
         // reported a measurement. Everything newer can only be an artefact, e.g. the empty log a
         // restart leaves behind.
@@ -1303,6 +1316,11 @@ int main(int argc, char** argv)
     Pending pending;
     size_t  chosen {static_cast<size_t>(-1)}; // -1: follow the test that is running
     long    scrollBack {0};
+    // A managed screen (a run file was given) watches a run, not a results directory: its table
+    // starts empty and fills with what this run measures, so a previous run's intervals in the
+    // same directory are not shown as if they were current. A bare `--view <dir>` keeps showing
+    // what is in the directory - inspecting published results is what it is for.
+    const auto watchedSince = control ? chrono::system_clock::now() : chrono::system_clock::time_point {};
     while (tui::Terminal::terminateFlag() == 0)
     {
         if (control)
@@ -1317,7 +1335,7 @@ int main(int argc, char** argv)
             pending.kind = Pending::Kind::None;
         }
 
-        auto report = buildReport(dir);
+        auto report = buildReport(dir, watchedSince);
         report.broker = watch.load();
 
         if (interactive)
