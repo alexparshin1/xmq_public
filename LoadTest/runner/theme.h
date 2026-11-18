@@ -45,6 +45,10 @@ inline constexpr const char* header = "\033[30;46m";
 inline constexpr const char* status = "\033[30;47m";        // light grey bar
 inline constexpr const char* statusKey = "\033[1;31;47m";   // the keys on it, in red
 
+// The scrollbar every Turbo Vision window carried down its right edge: cyan, with arrows at the
+// ends and a thumb whose length says how much of the list is on screen.
+inline constexpr const char* scroll = "\033[30;46m";
+
 // An input field inside a grey dialog was white, not the same grey as the dialog: the two differ
 // in the BIOS palette and that difference is what makes a field look editable.
 inline constexpr const char* input = "\033[30;107m";        // black on white

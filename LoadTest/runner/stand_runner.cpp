@@ -994,16 +994,24 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto top = 2;
     const auto bottom = max(top + 8, height - 2);
 
-    // The strip across the top, the way Turbo Vision put a menu bar there: a grey bar, black text,
-    // and the one name that matters in red. It says what this screen is looking at, which the
-    // window title alone cannot say once the path is longer than the frame.
+    // The strip across the top is this screen's title, not a menu: the run file it is showing, and
+    // what that file says the run is. Turbo Vision put a menu bar there; ours has one thing to say
+    // and says it, in the same grey bar with the name in red.
     const auto runName = control != nullptr && !control->spec().file.empty()
                              ? control->spec().file.filename().string()
-                             : dir.filename().string();
-    const auto runVersion = control != nullptr ? control->spec().version : string {};
+                             : string {};
     put(1, 1, theme::status, string(static_cast<size_t>(width), ' '));
-    put(1, 2, theme::statusKey, runName);
-    put(1, 2 + static_cast<int>(runName.size()), theme::status, "   " + runVersion);
+    if (!runName.empty())
+    {
+        const auto& spec = control->spec();
+        put(1, 2, theme::statusKey, "run");
+        put(1, 6, theme::status, " " + runName + "   " + spec.version + "   " + spec.server);
+    }
+    else
+    {
+        put(1, 2, theme::statusKey, "no run file");
+        put(1, 14, theme::status, " watching " + dir.string() + " - give --run to start one from here");
+    }
 
     // Output that was in the directory before this screen was opened is not a run in progress: a
     // freshly opened viewer showing yesterday's numbers read as if something were happening. It is
@@ -1113,6 +1121,29 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     {
         put(row, left + 2, theme::dialog,
             padded(" ... " + to_string(offset) + " newer interval(s), PageDown", inner - 2));
+    }
+
+    // The scrollbar down the right edge of the table, as every Turbo Vision window had one: arrows
+    // at the ends, a track, and a thumb whose length is how much of the test is on screen and whose
+    // place says how far back it is. It is drawn even when everything fits - a thumb that fills the
+    // track is itself the answer to "is there more".
+    {
+        const auto trackTop = tableTop;
+        const auto trackBottom = bottom - 1;
+        const auto trackRows = max(0, trackBottom - trackTop - 1);
+        const auto total = max<int64_t>(1, rowsCount);
+        const auto visible = min<int64_t>(room, total);
+        const auto thumbSize = max<int64_t>(1, static_cast<int64_t>(trackRows) * visible / total);
+        const auto maxOffset = max<int64_t>(0, total - visible);
+        const auto position = maxOffset > 0 ? (maxOffset - min<int64_t>(offset, maxOffset)) * (trackRows - thumbSize) / maxOffset : 0;
+
+        put(trackTop, left + inner, theme::scroll, "▲");
+        put(trackBottom, left + inner, theme::scroll, "▼");
+        for (int index = 0; index < trackRows; ++index)
+        {
+            const bool inThumb = index >= position && index < position + thumbSize;
+            put(trackTop + 1 + index, left + inner, theme::scroll, inThumb ? "█" : "░");
+        }
     }
 
     // The frame, with its title in the top line and a shadow down the right and along the bottom.
