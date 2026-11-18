@@ -39,10 +39,16 @@ inline constexpr const char* shortcut = "\033[1;33;44m";  // yellow on blue
 inline constexpr const char* button = "\033[30;42m";
 inline constexpr const char* buttonKey = "\033[1;30;42m";
 
-// Table and status bars: black on cyan for a header, light grey on blue for the status line.
+// Table and status bars: black on cyan for a column header; the status line at the foot of a
+// Turbo Vision screen was a grey bar with black text and the shortcut in red.
 inline constexpr const char* header = "\033[30;46m";
-inline constexpr const char* status = "\033[37;44m";
-inline constexpr const char* statusKey = "\033[1;33;44m";
+inline constexpr const char* status = "\033[30;47m";        // light grey bar
+inline constexpr const char* statusKey = "\033[1;31;47m";   // the keys on it, in red
+
+// An input field inside a grey dialog was white, not the same grey as the dialog: the two differ
+// in the BIOS palette and that difference is what makes a field look editable.
+inline constexpr const char* input = "\033[30;107m";        // black on white
+inline constexpr const char* inputDim = "\033[37;107m";
 
 // Values that deserve attention without being errors: red on the surface behind them.
 inline constexpr const char* warning = "\033[1;31;47m";          // on the dialog grey

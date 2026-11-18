@@ -107,7 +107,7 @@ private:
     {
         if (field.kind == Kind::Toggle)
         {
-            return *field.flag ? "yes" : "no";
+            return *field.flag ? "[X]" : "[ ]";
         }
         const string value = *field.value;
         if (value.empty() && field.label == "out")
@@ -125,14 +125,17 @@ private:
         const auto width = m_terminal.width();
         const auto height = m_terminal.height();
 
-        const auto innerWidth = max(30, min(width - 4, 76)); // between the frame sides
-        const auto left = max(1, (width - innerWidth - 2) / 2 + 1);
+        // Edge to edge: the dialog fills the screen, as the window in a Turbo Vision application did
+        // once it was maximised. A centred box wastes the width the values need - the paths are
+        // long - and the arrows are the only boundaries worth having.
+        const auto left = 1;
+        const auto innerWidth = max(30, width - 2);
         const auto contentLeft = left + 2;
         const auto labelWidth = 15;
         const auto valueLeft = contentLeft + labelWidth;
         const auto valueWidth = max(8, innerWidth - labelWidth - 2);
 
-        const auto top = 2;
+        const auto top = 1;
         const auto contentTop = top + 2;
         const auto rows = static_cast<int>(m_fields.size());
         const auto helpRow = contentTop + rows;
@@ -183,25 +186,28 @@ private:
                                                : "stand_runner --edit  " + m_spec.file.string();
         for (int row = top + 1; row <= bottom; ++row)
         {
-            put(row, left, string(theme::frame) + "║" + theme::reset);
-            put(row, left + innerWidth + 1, string(theme::frame) + "║" + theme::reset);
+            put(row, left, string(theme::frame) + "│" + theme::reset);
+            put(row, left + innerWidth + 1, string(theme::frame) + "│" + theme::reset);
             put(row, left + innerWidth + 2, string(theme::desktopDim) + " " + theme::reset);
         }
         put(bottom + 1, left + 2, string(theme::desktopDim) + blank(static_cast<size_t>(innerWidth + 1)) + theme::reset);
 
-        string topLine {"╔"};
-        const string doubleLine {"═"};
-        for (int column = 0; column < innerWidth; ++column) topLine += doubleLine;
-        topLine += "╗";
-        string bottomLine {"╚"};
-        for (int column = 0; column < innerWidth; ++column) bottomLine += doubleLine;
-        bottomLine += "╝";
+        // Single line: a dialog, not a window. Turbo Vision drew dialogs with one line and windows
+        // with two, and the difference is what tells them apart at a glance.
+        string topLine {"┌"};
+        const string singleLine {"─"};
+        for (int column = 0; column < innerWidth; ++column) topLine += singleLine;
+        topLine += "┐";
+        string bottomLine {"└"};
+        for (int column = 0; column < innerWidth; ++column) bottomLine += singleLine;
+        bottomLine += "┘";
         put(top, left, string(theme::frame) + topLine + theme::reset);
         put(bottom, left, string(theme::frame) + bottomLine + theme::reset);
 
-        const auto titleText = " " + clip(title, innerWidth - 6) + " ";
-        const auto titleColumn = left + 2 + max(0, (innerWidth - static_cast<int>(titleText.size())) / 2);
+        const auto titleText = " " + clip(title, innerWidth - 10) + " ";
+        const auto titleColumn = left + 4 + max(0, (innerWidth - 6 - static_cast<int>(titleText.size())) / 2);
         put(top, titleColumn, string(theme::frameActive) + titleText + theme::reset);
+        put(top, left + 1, string(theme::frameActive) + "[■]" + theme::reset);
 
         // One line per field: the label in the dialog's own colour, its shortcut letter standing
         // out, and the value in an input-line box.
@@ -221,9 +227,9 @@ private:
 
             string value = shownValue(field);
             const bool placeholder = value.starts_with("(");
-            if (field.kind != Kind::Text)
+            if (field.kind == Kind::Choice)
             {
-                value = field.kind == Kind::Choice ? "< " + value + " >" : "[" + value + "]";
+                value = "< " + value + " >";
             }
 
             if (active)
@@ -258,7 +264,7 @@ private:
             {
                 // An input line on a grey dialog: white on blue, the palette entry cpInputLine reads as.
                 const auto text = clip(value, valueWidth - 1);
-                put(row, valueLeft + 1, string("\033[37;44m") + " " + text + blank(static_cast<size_t>(max(0, valueWidth - 1 - tui::Terminal::displayWidth(text)))) + theme::reset);
+                put(row, valueLeft + 1, string(theme::input) + " " + text + blank(static_cast<size_t>(max(0, valueWidth - 1 - tui::Terminal::displayWidth(text)))) + theme::reset);
             }
             (void) placeholder;
         }
@@ -272,16 +278,49 @@ private:
             put(problemRow + static_cast<int>(index), contentLeft, string(theme::warning) + text + blank(static_cast<size_t>(max(0, innerWidth - 2 - static_cast<int>(min<size_t>(text.size(), static_cast<size_t>(innerWidth - 2)))))) + theme::reset);
         }
 
-        // Buttons along the bottom of the dialog, the way a form ended: the default one green.
-        put(buttonRow, contentLeft + 1, string(theme::button) + " F2 Save " + theme::reset);
-        put(buttonRow, contentLeft + 12, string(theme::dialog) + "[ " + theme::reset + string(theme::dialogDim) + "Esc" + theme::reset + string(theme::dialog) + " Cancel ]" + theme::reset);
+        // Buttons along the bottom of the dialog, right-aligned as a dialog's were: the default one
+        // green, the way out beside it in the dialog's own colour.
+        {
+            const string save {" F2 Save "};
+            const string cancel {"[ Esc Cancel ]"};
+            const auto   start = left + innerWidth - static_cast<int>(save.size() + cancel.size()) - 3;
+            put(buttonRow, start, string(theme::button) + save + theme::reset);
+            put(buttonRow, start + static_cast<int>(save.size()) + 2,
+                string(theme::dialog) + "[" + theme::reset + string(theme::dialogDim) + " Esc" + theme::reset +
+                    string(theme::dialog) + " Cancel ]" + theme::reset);
+        }
 
         // Status line: what each key does, the key itself standing out.
         if (height >= bottom + 2)
         {
-            const auto line = string {"↑↓ Move   Enter Edit   F2 Save   Esc Leave without saving"};
-            put(height, 1, string(theme::status) + blank(static_cast<size_t>(max(0, width - static_cast<int>(line.size()) - 1))) + theme::reset);
-            put(height, 2, string(theme::statusKey) + line + theme::reset);
+            // The same grey bar with red keys as the viewer: one screen's keys should look like the
+            // other's, since they are read the same way.
+            put(height, 1, string(theme::status) + blank(static_cast<size_t>(width)) + theme::reset);
+            const auto line = string {"~↑↓~ move   ~Enter~ edit   ~F2~ save   ~Esc~ leave without saving"};
+            int        column = 2;
+            bool       hot = false;
+            string     run;
+            const auto flush = [&]
+            {
+                if (run.empty())
+                {
+                    return;
+                }
+                put(height, column, string(hot ? theme::statusKey : theme::status) + run + theme::reset);
+                column += static_cast<int>(run.size());
+                run.clear();
+            };
+            for (const auto character: line)
+            {
+                if (character == '~')
+                {
+                    flush();
+                    hot = !hot;
+                    continue;
+                }
+                run += character;
+            }
+            flush();
         }
 
         if (m_editing)

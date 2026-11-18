@@ -909,17 +909,19 @@ vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* cont
 /// The keys, for the status line at the bottom of the screen - the only place they appear.
 string keysLine(const stand::RunControl* control)
 {
+    // '~' marks a key: the status line draws those in red, the way the F-key line under a Turbo
+    // Vision screen did.
     if (control == nullptr)
     {
-        return "q quit   <- -> test   up/down scroll";
+        return "~q~ quit   ~<- ->~ test   ~up/down~ scroll";
     }
-    string keys {"q quit   s start"};
+    string keys {"~q~ quit   ~s~ start"};
     keys += control->canStart() ? "" : " (unavailable)";
-    keys += "   x stop";
+    keys += "   ~x~ stop";
     keys += control->canStop() ? "" : " (unavailable)";
-    keys += "   f file result";
+    keys += "   ~f~ file result";
     keys += control->canFile() ? "" : " (unavailable)";
-    keys += "   <- -> test   up/down scroll";
+    keys += "   ~<- ->~ test   ~up/down~ scroll";
     return keys;
 }
 
@@ -985,10 +987,23 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         frame->put(row, column, color, text);
     };
 
-    const auto inner = max(40, min(width - 4, 110));
-    const auto left = max(1, (width - inner - 2) / 2 + 1);
-    const auto top = 1;
+    // Edge to edge, like a maximised Turbo Vision window: the table has as many columns as the
+    // terminal can show, and the frame is the screen's own border.
+    const auto left = 1;
+    const auto inner = max(40, width - 2);
+    const auto top = 2;
     const auto bottom = max(top + 8, height - 2);
+
+    // The strip across the top, the way Turbo Vision put a menu bar there: a grey bar, black text,
+    // and the one name that matters in red. It says what this screen is looking at, which the
+    // window title alone cannot say once the path is longer than the frame.
+    const auto runName = control != nullptr && !control->spec().file.empty()
+                             ? control->spec().file.filename().string()
+                             : dir.filename().string();
+    const auto runVersion = control != nullptr ? control->spec().version : string {};
+    put(1, 1, theme::status, string(static_cast<size_t>(width), ' '));
+    put(1, 2, theme::statusKey, runName);
+    put(1, 2 + static_cast<int>(runName.size()), theme::status, "   " + runVersion);
 
     // Output that was in the directory before this screen was opened is not a run in progress: a
     // freshly opened viewer showing yesterday's numbers read as if something were happening. It is
@@ -1123,18 +1138,50 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     }
     put(bottom + 1, left + 2, theme::desktopDim, string(static_cast<size_t>(inner + 1), ' '));
 
-    const auto title = " stand_runner  " + dir.string() + " ";
-    put(top, left + 2 + max(0, (inner - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, inner - 4));
+    put(top, left + 1, theme::frameActive, "[■]");
+    put(top, left + inner - 2, theme::frame, "[↕]");
+    const auto title = " " + dir.string() + " ";
+    const auto titleRoom = inner - 10;
+    put(top, left + 5 + max(0, (titleRoom - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, titleRoom));
 
     // One place for keys: the status line. A confirmation takes it over while it waits.
     if (height > bottom + 1)
     {
-        const auto text = pending.kind != Pending::Kind::None && control != nullptr ? promptFor(pending, *control)
-                                                                                   : keysLine(control);
-        const auto color = pending.kind != Pending::Kind::None ? theme::selected : theme::statusKey;
-        put(height, 2, color, text);
-        put(height, 2 + static_cast<int>(text.size()), theme::status,
-            string(static_cast<size_t>(max(0, width - static_cast<int>(text.size()) - 2)), ' '));
+        const bool asking = pending.kind != Pending::Kind::None && control != nullptr;
+        const auto text = asking ? promptFor(pending, *control) : keysLine(control);
+        put(height, 1, theme::status, string(static_cast<size_t>(width), ' '));
+
+        if (asking)
+        {
+            put(height, 2, theme::warning, text);
+        }
+        else
+        {
+            int    column = 2;
+            bool   hot = false;
+            string run;
+            const auto flush = [&]
+            {
+                if (run.empty())
+                {
+                    return;
+                }
+                put(height, column, hot ? theme::statusKey : theme::status, run);
+                column += static_cast<int>(tui::Terminal::displayWidth(run));
+                run.clear();
+            };
+            for (const auto character: text)
+            {
+                if (character == '~')
+                {
+                    flush();
+                    hot = !hot;
+                    continue;
+                }
+                run += character;
+            }
+            flush();
+        }
     }
 
     // Only the rows that changed go out, so an idle second sends nothing at all.
