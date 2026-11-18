@@ -988,7 +988,10 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // Which test is on the table, and how far into it.
     {
         ostringstream text;
-        if (report.preflight)
+        // Preflight is a phase of a run that is going on now: a fresh log alone is not enough when
+        // this screen controls a run, because a set that was stopped just after preflight would
+        // otherwise keep saying "preflight" while nothing runs.
+        if (report.preflight && (control == nullptr || runningNow))
         {
             text << " run state: preflight";
         }
