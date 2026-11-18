@@ -41,6 +41,9 @@ OS tuning:
 Output:
   -R, --progress            Show progress bar(s) (default).
       --no-progress         Hide progress bar(s).
+      --output MODE         Passed to xmq_scn: 'runner' writes one INTERVAL line per closed
+                            interval instead of the bar (implies no progress bar), 'terminal'
+                            draws the bar. 'runner' and --progress are refused together.
   -v, --verbose             Print more details.
 
 Scenario overrides (passed through to xmq_scn; omit to use the scenario file's own values):
@@ -80,6 +83,7 @@ verbose=""
 username=${XMQ_CLIENT_USER:-}
 password=${XMQ_CLIENT_PASSWORD:-}
 progress="1"
+output=""
 max_inflight=""
 
 while [[ $# -gt 0 ]]; do
@@ -105,6 +109,7 @@ while [[ $# -gt 0 ]]; do
     -P|--password) password="$2"; shift 2 ;;
     -R|--progress) progress=1; shift ;;
     --no-progress) progress=""; shift ;;
+    --output) output="$2"; shift 2 ;;
     --help) usage; exit 0 ;;
     *) if [[ "$1" =~ \.json$ ]]; then
          scenario="$1"; shift 1
@@ -169,7 +174,9 @@ xmq_scn_args=(--scenario "$scenario_path" --bind-to-interfaces "$bind_mask" --id
 [[ -n "$payload_size" ]] && xmq_scn_args+=(--payload-size "$payload_size")
 [[ -n "$keep_alive" ]] && xmq_scn_args+=(--keep-alive "$keep_alive")
 [[ -n "$duration" ]] && xmq_scn_args+=(--duration "$duration")
-[[ -n "$progress" ]] && xmq_scn_args+=(--progress)
+# --output runner replaces the bar: the two are refused together by the client itself.
+[[ -n "$output" ]] && xmq_scn_args+=(--output "$output")
+[[ -n "$progress" && "$output" != "runner" ]] && xmq_scn_args+=(--progress)
 [[ -n "$max_inflight" ]] && xmq_scn_args+=(--max-inflight "$max_inflight")
 [[ "$verbose" -eq 1 ]] && xmq_scn_args+=(--verbose)
 

@@ -24,6 +24,7 @@ set_file=""
 restart_cmd=""
 stats_host=""
 stats_process="xmq_server"
+output_mode="runner"
 setup_cmd=""
 wait_host=""
 wait_port="1883"
@@ -65,6 +66,9 @@ Options:
   --wait-for HOST[:PORT]    After the restart, wait for this TCP port to accept before running
                             (default port 1883). Without it a scenario can start against a broker
                             that has not finished coming up.
+  --output MODE             How the client reports progress: 'runner' (default) writes one
+                            machine-readable INTERVAL line per closed interval to the scenario
+                            log, for a program watching the run; 'terminal' draws the bar instead.
   --nic IFACE               Client network interface to watch. Its dropped-packet counters are
                             read before and after every scenario and written into the record. A
                             client whose NIC drops received packets reports a latency that is
@@ -110,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     --stats-process) stats_process="$2"; shift 2 ;;
     --wait-for)    wait_host="${2%%:*}"; [[ "$2" == *:* ]] && wait_port="${2##*:}"; shift 2 ;;
     --nic)         nic="$2"; shift 2 ;;
+    --output)      output_mode="$2"; shift 2 ;;
     --out)         out_dir="$2"; shift 2 ;;
     --record)      record="$2"; shift 2 ;;
     --version)     version="$2"; shift 2 ;;
@@ -501,7 +506,9 @@ for scenario in "${scenarios[@]}"; do
   run_started="$(date '+%Y-%m-%d %H:%M:%S')"
   read -r nic_rx_before nic_tx_before <<<"$(nic_counters)"
   start_broker_stats
-  bash "$SCRIPT_DIR/run_load_test.sh" "${passthrough[@]}" "${scenario_path[$scenario]}" > "$log" 2>&1
+  # runner: the log carries one INTERVAL line per closed window instead of bar frames, which is
+  # what a program watching the run reads. terminal keeps the bar for a person at a terminal.
+  bash "$SCRIPT_DIR/run_load_test.sh" --output "$output_mode" "${passthrough[@]}" "${scenario_path[$scenario]}" > "$log" 2>&1
   rc=$?
   run_ended_epoch=$(date +%s)
   broker_stats="$(read_broker_stats "$out_dir/$name.samples")"
