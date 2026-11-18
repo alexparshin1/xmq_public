@@ -844,13 +844,15 @@ private:
 /// What the run is doing, as the lines above the table: the client it is loading from, the broker
 /// it is loading, and the run itself. Above the table because the table's height changes with the
 /// run's own output, and a line that moves is a line that gets misread.
-vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* control)
+vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* control, const bool stale)
 {
     vector<ScreenLine> lines;
 
     ostringstream client;
     client << "client cpu " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
-    if (report.etaSec > 0)
+    // No estimate until something is running: an eta computed from an abandoned run's last window
+    // is a number about nothing.
+    if (!stale && report.etaSec > 0)
     {
         client << ", eta " << humanDuration(report.etaSec);
     }
@@ -988,7 +990,27 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto top = 1;
     const auto bottom = max(top + 8, height - 2);
 
-    const auto info = infoLines(report, control);
+    // Output that was in the directory before this screen was opened is not a run in progress: a
+    // freshly opened viewer showing yesterday's numbers read as if something were happening. It is
+    // said out loud, and the test line says "earlier run" rather than "running".
+    const auto now = chrono::system_clock::now();
+    auto       latestWrite = chrono::system_clock::time_point {};
+    for (const auto& each: report.scenarios)
+    {
+        latestWrite = max(latestWrite, each.lastWrite);
+    }
+    const bool runningNow = control != nullptr && control->state().phase == stand::RunPhase::Running;
+    const bool stale = !runningNow && latestWrite != chrono::system_clock::time_point {} &&
+                       now - latestWrite > chrono::minutes(2);
+
+    auto info = infoLines(report, control, stale);
+    if (stale)
+    {
+        const auto age = chrono::duration_cast<chrono::seconds>(now - latestWrite).count();
+        info.insert(info.begin(), {string("an earlier run in this directory, last written ") +
+                                       humanDuration(static_cast<long>(age)) + " ago - s starts a new one",
+                                   theme::warningDesktop});
+    }
     // One line per info line, a blank, the test's own line, then the table's column header.
     const auto headerRow = top + 2 + static_cast<int>(info.size()) + 2;
     const auto tableTop = headerRow + 1;
@@ -1024,7 +1046,11 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         ostringstream text;
         text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << report.scenarios.size() << "  "
              << scenario.name << "   ";
-        if (!scenario.started)
+        if (stale)
+        {
+            text << "earlier run";
+        }
+        else if (!scenario.started)
         {
             text << (scenario.finished ? "done" : "waiting");
         }
