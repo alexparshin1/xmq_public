@@ -101,7 +101,7 @@ private:
         m_fields.push_back({"skip preflight", "Do not run preflight.sh on either host", Kind::Toggle, nullptr, &m_spec.skipPreflight, yesNo});
         m_fields.push_back({"note", "Free-text line for the record", Kind::Text, &m_spec.note, nullptr, {}});
 
-        m_runFilePath = m_spec.file.empty() ? defaultRunFile(m_spec).string() : m_spec.file.string();
+        m_runFilePath = displayPath(m_spec.file.empty() ? defaultRunFile(m_spec) : m_spec.file);
     }
 
     [[nodiscard]] string shownValue(const Field& field) const
@@ -209,7 +209,7 @@ private:
         }
 
         const auto title = m_spec.file.empty() ? string {"stand_runner --edit"}
-                                               : "stand_runner --edit  " + m_spec.file.string();
+                                               : "stand_runner --edit  " + displayPath(m_spec.file);
         const auto titleText = " " + clip(title, innerWidth - 10) + " ";
         put(top, left + 4 + max(0, (innerWidth - 6 - static_cast<int>(titleText.size())) / 2), theme::frameActive, titleText);
         put(top, left + 1, theme::frameActive, "[■]");
@@ -490,13 +490,13 @@ private:
     {
         // The path is taken from the field first: validation has to see the file that would be
         // written, not the one the form started with.
-        m_spec.file = m_runFilePath.empty() ? defaultRunFile(m_spec) : fs::path(m_runFilePath);
+        m_spec.file = m_runFilePath.empty() ? defaultRunFile(m_spec) : resolveRunPath(m_runFilePath);
         if (m_spec.out.empty())
         {
             m_spec.out = defaultOutDirectory(m_spec);
         }
         // Both are now part of what the file says, so show them as such if the person stays here.
-        m_runFilePath = m_spec.file.string();
+        m_runFilePath = displayPath(m_spec.file);
 
         m_problems = validate(m_spec);
         if (!m_problems.empty())

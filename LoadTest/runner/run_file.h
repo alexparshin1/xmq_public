@@ -46,6 +46,14 @@ std::string suggestedVersion();
 /// results/raw/<stamp>-xmq<version>-bench, the same name stand_run.sh would derive on its own.
 std::string defaultOutDirectory(const RunSpec& spec);
 
+/// A path as the screen should show it: relative to the LoadTest directory when it is under it,
+/// because a run file's home is runs/ there and the full path is noise in a field this narrow.
+std::string displayPath(const std::filesystem::path& path);
+
+/// Resolves a path typed in the form: a relative one is taken as relative to the LoadTest
+/// directory, which is where run files live, not to whatever directory the program was started in.
+std::filesystem::path resolveRunPath(const std::filesystem::path& path);
+
 /// runs/<stamp>-xmq<version>.run.sh under the LoadTest directory.
 std::filesystem::path defaultRunFile(const RunSpec& spec);
 

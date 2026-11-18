@@ -217,6 +217,40 @@ string defaultOutDirectory(const RunSpec& spec)
     return (loadTestDirectory() / "results" / "raw" / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + "-bench")).string();
 }
 
+string displayPath(const fs::path& path)
+{
+    if (path.empty())
+    {
+        return {};
+    }
+    error_code error;
+    const auto absolute = fs::absolute(path, error);
+    if (error)
+    {
+        return path.string();
+    }
+    const auto base = fs::absolute(loadTestDirectory(), error);
+    if (error)
+    {
+        return path.string();
+    }
+    const auto relative = absolute.lexically_relative(base);
+    if (relative.empty() || relative.native().starts_with(".."))
+    {
+        return path.string();
+    }
+    return relative.string();
+}
+
+fs::path resolveRunPath(const fs::path& path)
+{
+    if (path.empty() || path.is_absolute())
+    {
+        return path;
+    }
+    return loadTestDirectory() / path;
+}
+
 fs::path defaultRunFile(const RunSpec& spec)
 {
     return loadTestDirectory() / "runs" / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + ".run.sh");
