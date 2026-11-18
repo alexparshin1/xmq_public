@@ -140,8 +140,10 @@ private:
         const auto rows = static_cast<int>(m_fields.size());
         const auto helpRow = contentTop + rows;
         const auto problemRow = helpRow + 1;
-        const auto buttonRow = helpRow + 3;
-        const auto bottom = buttonRow + 1;
+        // The dialog ends on the line above the status bar, and its buttons sit just inside the
+        // bottom edge, the way a Turbo Vision dialog put them.
+        const auto bottom = max(helpRow + 4, height - 1);
+        const auto buttonRow = bottom - 1;
 
         const auto put = [this](const int row, const int column, const string& text)
         {

@@ -992,7 +992,9 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto left = 1;
     const auto inner = max(40, width - 2);
     const auto top = 2;
-    const auto bottom = max(top + 8, height - 2);
+    // The frame's last line is the line above the status bar: a window that stopped short of it
+    // left a strip of desktop with nothing in it.
+    const auto bottom = max(top + 8, height - 1);
 
     // The strip across the top is this screen's title, not a menu: the run file it is showing, and
     // what that file says the run is. Turbo Vision put a menu bar there; ours has one thing to say
@@ -1037,7 +1039,8 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // One line per info line, a blank, the test's own line, then the table's column header.
     const auto headerRow = top + 2 + static_cast<int>(info.size()) + 2;
     const auto tableTop = headerRow + 1;
-    const auto tableHeight = max(1, bottom - tableTop);
+    // The last row belongs to the scrollbar's lower arrow, so the rows stop above it.
+    const auto tableHeight = max(1, bottom - 1 - tableTop);
 
     // The window is blue, like every Turbo Vision window: the run's own lines are read on the
     // desktop colour. The table is the one part on grey, because it is the part whose rows come
@@ -1128,7 +1131,9 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // place says how far back it is. It is drawn even when everything fits - a thumb that fills the
     // track is itself the answer to "is there more".
     {
-        const auto trackTop = tableTop;
+        // Arrows at the ends of the column header and of the last row; the track, and the rows
+        // beside it, between them.
+        const auto trackTop = headerRow;
         const auto trackBottom = bottom - 1;
         const auto trackRows = max(0, trackBottom - trackTop - 1);
         const auto total = max<int64_t>(1, rowsCount);
