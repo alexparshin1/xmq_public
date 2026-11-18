@@ -1169,7 +1169,12 @@ int main(int argc, char** argv)
         }
         if (!filesystem::is_directory(dir))
         {
-            fprintf(stderr, "stand_runner: %s is not a directory\n", dir.c_str());
+            // The usual reason: the directory a run writes into does not exist until the run
+            // starts, and the way to start one from here is --run, not a path that is not there.
+            fprintf(stderr,
+                    "stand_runner: %s does not exist yet - a run creates it when it starts.\n"
+                    "               To start and watch a run: stand_runner --view --run <run-file>\n",
+                    dir.c_str());
             return 2;
         }
     }
