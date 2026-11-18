@@ -85,7 +85,16 @@ ScenarioCommandLine::ScenarioCommandLine(const std::vector<std::string>& args)
                  "List available scenario files, grouped by sub-directory, and exit.");
     defineOption("progress", "", alwaysVisible,
                  "Show a live, in-place progress bar for the connect and publish phases. "
-                 "Off by default; leave off when redirecting output to a file or log.");
+                 "Off by default; leave off when redirecting output to a file or log. "
+                 "Same as --output terminal, and refused together with --output runner.");
+    defineParameter("output", "", "{terminal,runner}", R"(^(terminal|runner)$)", alwaysVisible, "",
+                    "Who reads the progress of this run. 'terminal' draws the in-place progress bar, "
+                    "the same as --progress. 'runner' draws no bar and instead prints one "
+                    "machine-readable line per closed interval - start, sample count, average "
+                    "latency, p95, p99, delivered rate, and this process's own CPU and resident "
+                    "size - so a program that starts the run can show it live instead of parsing a "
+                    "bar. The two are exclusive: a bar and machine lines cannot share one stdout. "
+                    "Off by default, which reports nothing until the end-of-run table.");
 #ifdef __linux__
     // Only where it means something: FreeBSD has affinity but not the interfaces this reads, and
     // macOS has no way to pin a thread to a core at all.

@@ -107,6 +107,20 @@ public:
     }
 
     /**
+     * @brief Report the publish phase as machine-readable interval lines instead of a bar.
+     *
+     * --output runner: one unstyled, flushed line per closed interval, carrying the window's
+     * start, sample count, average latency, percentiles, delivered rate and this process's CPU and
+     * resident size. Meant for a program that runs the scenario and shows its progress itself; a
+     * human gets the bar (showProgress) or nothing. The two are exclusive - a bar and machine
+     * lines cannot share one stdout - and the command line refuses both together.
+     */
+    void runnerOutput(const bool enable)
+    {
+        m_runnerOutput = enable;
+    }
+
+    /**
      * @brief Run the scenario for this long before measurement starts.
      *
      * The same clients, topics and rates, but nothing recorded: no latency sample, no completed
@@ -217,6 +231,7 @@ private:
     sptk::Semaphore                  m_allMessagesReceived;
     std::shared_ptr<PaceMaker>       m_paceMaker;
     bool                             m_showProgress {false};
+    bool                             m_runnerOutput {false}; ///< --output runner: interval lines, no bar.
     std::chrono::microseconds        m_reportInterval {0};   ///< 0 = ten intervals per run.
     size_t                           m_connectIntervals {10}; ///< Rows the connect phase reports.
     std::shared_ptr<sptk::LogEngine> m_logEngine;

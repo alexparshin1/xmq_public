@@ -17,6 +17,7 @@
 #include "service/CTestScenario.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <unordered_map>
 
@@ -140,6 +141,30 @@ public:
     /// The same result, with box-drawing borders, for a terminal. Plain text when redirected.
     void printBoxed(const std::string& scenarioTitle) const;
 
+    /**
+     * @brief Called with each interval bucket as it closes, while the run is still going.
+     *
+     * The end-of-run table describes a run that has already happened, and the progress bar
+     * describes only how far along it is. Neither can tell a broker that is falling behind from
+     * one that merely has a long run ahead of it, which is the question a run being watched
+     * needs answered now. --output runner installs an observer to turn each closed bucket into a
+     * line somebody else can read.
+     *
+     * Invoked while this object's mutex is held: the callback must not call back into this object
+     * and must not block. It receives the bucket already accumulated under its interval key, so a
+     * window closed twice reports its running totals, not the increment.
+     */
+    using IntervalObserver = std::function<void(std::chrono::microseconds intervalStart,
+                                                size_t count,
+                                                std::chrono::microseconds summaryLatency,
+                                                const Histogram& histogram)>;
+
+    void intervalObserver(IntervalObserver observer) { m_intervalObserver = std::move(observer); }
+
+    /// A percentile of a sparse interval histogram, for a consumer that reports the buckets itself
+    /// instead of waiting for the end-of-run table. Same buckets, same approximation.
+    static std::chrono::microseconds intervalPercentile(const Histogram& histogram, double percent);
+
     static RoundTripLatency combine(const std::vector<RoundTripLatency>& roundTripLatencies)
     {
         RoundTripLatency summaryRoundTripLatency({});
@@ -186,6 +211,9 @@ private:
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;
     Clock::time_point                                  m_nextIntervalTime;
+    /// Deliberately not copied: a copy that emitted into the original's sink would report every
+    /// window twice, and combine() builds its summary from copies.
+    IntervalObserver                                   m_intervalObserver;
 };
 
 

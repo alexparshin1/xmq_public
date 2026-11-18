@@ -1172,6 +1172,110 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
+    // --output runner: the windows as they close, for whoever is watching the run rather than
+    // reading it afterwards. Every subscriber holds its own latency object, so the same window
+    // arrives once per subscriber and is merged here under its interval key; a window is printed
+    // once it lies wholly in the past, so a watcher's view trails the run by one window.
+    struct LiveWindows
+    {
+        std::mutex                                         mutex;
+        std::map<microseconds, RoundTripLatency::Interval> windows;
+    };
+    LiveWindows liveWindows;
+
+    // This process's own CPU and memory, not the broker's: xmq_scn runs on the load generator and
+    // cannot read the broker's /proc without asking that host, which is the polling this mode
+    // exists to avoid. The broker's numbers stay in the sampler's per-scenario block.
+    rusage               lastRunnerUsage {};
+    steady_clock::time_point lastRunnerUsageTime = steady_clock::now();
+    steady_clock::time_point nextRunnerFlush = steady_clock::now();
+
+    const auto processUsage = [&]() -> pair<int, size_t>
+    {
+        rusage       usage {};
+        const auto   sampledAt = steady_clock::now();
+        getrusage(RUSAGE_SELF, &usage);
+        const auto wallMicros = duration_cast<microseconds>(sampledAt - lastRunnerUsageTime).count();
+        const auto cpuMicros = (usage.ru_utime.tv_sec - lastRunnerUsage.ru_utime.tv_sec) * 1'000'000LL
+                               + (usage.ru_utime.tv_usec - lastRunnerUsage.ru_utime.tv_usec)
+                               + (usage.ru_stime.tv_sec - lastRunnerUsage.ru_stime.tv_sec) * 1'000'000LL
+                               + (usage.ru_stime.tv_usec - lastRunnerUsage.ru_stime.tv_usec);
+        lastRunnerUsage = usage;
+        lastRunnerUsageTime = sampledAt;
+        size_t residentKb = 0;
+#ifdef __linux__
+        ifstream status("/proc/self/status");
+        for (string line; getline(status, line);)
+        {
+            if (line.starts_with("VmRSS:"))
+            {
+                residentKb = static_cast<size_t>(strtoull(line.c_str() + 6, nullptr, 10));
+                break;
+            }
+        }
+#endif
+        return {wallMicros > 0 ? static_cast<int>(cpuMicros * 100 / wallMicros) : 0, residentKb};
+    };
+
+    if (m_runnerOutput)
+    {
+        for (auto& clientPublishLatency: clientPublishLatencies)
+        {
+            clientPublishLatency.intervalObserver(
+                [&liveWindows](const microseconds intervalStart, const size_t count,
+                               const microseconds summaryLatency, const RoundTripLatency::Histogram& histogram)
+                {
+                    const std::scoped_lock lock(liveWindows.mutex);
+                    auto& [windowCount, windowSummary, windowHistogram] = liveWindows.windows[intervalStart];
+                    windowCount += count;
+                    windowSummary += summaryLatency;
+                    for (const auto& [bucket, samples]: histogram)
+                    {
+                        windowHistogram[bucket] += samples;
+                    }
+                });
+        }
+    }
+
+    const auto emitClosedWindows = [&](const steady_clock::time_point now)
+    {
+        const auto elapsed = duration_cast<microseconds>(now - publishStartTime);
+        map<microseconds, RoundTripLatency::Interval> closed;
+        {
+            const std::scoped_lock lock(liveWindows.mutex);
+            // Keyed by start, so the first window still open ends the walk.
+            for (auto it = liveWindows.windows.begin(); it != liveWindows.windows.end();)
+            {
+                if (it->first + groupInterval > elapsed)
+                {
+                    break;
+                }
+                closed.insert(liveWindows.windows.extract(it++));
+            }
+        }
+        const auto windowSeconds = duration<double>(groupInterval).count();
+        for (const auto& [intervalStart, window]: closed)
+        {
+            if (!window.m_count)
+            {
+                continue;
+            }
+            const auto average = window.m_summaryLatency / static_cast<int64_t>(window.m_count);
+            const auto rate = windowSeconds > 0 ? static_cast<size_t>(window.m_count / windowSeconds) : 0;
+            const auto [cpuPercent, residentKb] = processUsage();
+            COUT(format("INTERVAL time_ms={} count={} avg_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
+                        duration_cast<milliseconds>(intervalStart).count(),
+                        window.m_count,
+                        average.count(),
+                        RoundTripLatency::intervalPercentile(window.m_histogram, 95).count(),
+                        RoundTripLatency::intervalPercentile(window.m_histogram, 99).count(),
+                        rate,
+                        cpuPercent,
+                        residentKb / 1024)
+                 << endl);
+        }
+    };
+
     bool       measurementStarted = false;
     const auto beginMeasurement = [&]
     {
@@ -1187,6 +1291,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         {
             clientPublishLatency.start(groupInterval);
         }
+        // The first reported window covers the first window only, not the ramp before it.
+        getrusage(RUSAGE_SELF, &lastRunnerUsage);
+        lastRunnerUsageTime = publishStartTime;
+        nextRunnerFlush = publishStartTime + groupInterval;
         m_receivedMessageCount = 0;
         m_scenarioCompleted = false;
         if (m_paceMaker)
@@ -1210,6 +1318,21 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         while (true)
         {
             const auto now = steady_clock::now();
+
+            // Windows are reported from the publisher's own loop rather than from the latency
+            // objects: those close a window per subscriber and know nothing about each other,
+            // while this loop already reads the clock on every message and can decide that a
+            // whole window now lies in the past.
+            if (m_runnerOutput && measurementStarted && now >= nextRunnerFlush)
+            {
+                emitClosedWindows(now);
+                nextRunnerFlush += groupInterval;
+                if (nextRunnerFlush <= now)
+                {
+                    // A stall longer than a window must not make every later flush late by it.
+                    nextRunnerFlush = now + groupInterval;
+                }
+            }
 
             if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)
             {
@@ -1385,6 +1508,14 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     for (auto& clientPublishLatency: clientPublishLatencies)
     {
         clientPublishLatency.stop();
+    }
+
+    // stop() closes the window still being collected into the objects, so the last one is only now
+    // visible to the observer. Flushing here, rather than when the publish loop ended, is what
+    // keeps the live view from missing the window the run ended in.
+    if (m_runnerOutput && measurementStarted)
+    {
+        emitClosedWindows(steady_clock::now());
     }
 
     auto summaryPublishLatency = RoundTripLatency::combine(clientPublishLatencies);

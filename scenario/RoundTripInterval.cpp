@@ -214,6 +214,13 @@ void RoundTripLatency::storeCurrentInterval()
         m_count = 0;
         m_histogram.m_touched.clear();
         m_histogram.m_counts.clear();
+        if (m_intervalObserver)
+        {
+            // The bucket as accumulated under its key: the whole window, even if it closed in
+            // more than one step. Reported before m_nextIntervalTime advances, so the observer
+            // and the end-of-run table see the same key.
+            m_intervalObserver(interval, count, summaryLatency, histogram);
+        }
     }
     m_nextIntervalTime += m_groupIntervalDuration;
 }
@@ -307,6 +314,11 @@ microseconds RoundTripLatency::percentile(const double percent) const
 {
     const std::scoped_lock lock(m_mutex);
     return percentileOf(m_totalHistogram, percent);
+}
+
+microseconds RoundTripLatency::intervalPercentile(const Histogram& histogram, const double percent)
+{
+    return percentileOf(histogram, percent);
 }
 
 size_t RoundTripLatency::unmatchedReceived() const

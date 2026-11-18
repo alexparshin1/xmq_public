@@ -450,7 +450,24 @@ void Scenario::executeScenario() const
                                                          : static_cast<size_t>(ackBatchSize.asInteger());
     client::Session::setDefaultAckBatchSize(ackBatchSizeValue);
     COUT("Scenario acknowledgement batch size: " << ackBatchSizeValue);
-    engine.showProgress(commandLine().hasOption("progress"));
+    // --output picks who reads the progress: a person gets the bar, a program gets interval lines.
+    // They are exclusive because both write to stdout, one with carriage returns and one with
+    // whole lines. --progress stays as the older spelling of "--output terminal".
+    const auto outputMode = commandLine().getOptionValue("output");
+    const auto progressBar = commandLine().hasOption("progress");
+    if (outputMode == "runner")
+    {
+        if (progressBar)
+        {
+            throw Exception("--output runner and --progress are exclusive: a progress bar and "
+                            "machine-readable interval lines cannot share one output");
+        }
+        engine.runnerOutput(true);
+    }
+    else
+    {
+        engine.showProgress(progressBar || outputMode == "terminal");
+    }
     engine.warmup(chrono::seconds(commandLine().getOptionValue("warmup").toInt()));
     // Null unless --encrypted, --cafile or --cert/--key were given; see RunDefinition::load().
     engine.sslKeys(runDefinition().m_sslKeys);
