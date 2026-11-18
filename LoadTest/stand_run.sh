@@ -228,15 +228,16 @@ fi
 
 if (( ! skip_preflight )); then
     # Preflight names the limits that silently corrupted a run before. It is reported, not
-    # enforced: the client fails the per-source-address port check on every run of the 500K
-    # scenario and the server fails the NOTRACK check whenever the rules were cleared, and
-    # both are known states here rather than reasons to refuse to start.
+    # enforced: the two checks this stand is known to miss - 55536 source ports per address
+    # on the client and cleared NOTRACK rules on the server - print as NOTE, and a NOTE is
+    # never a reason to reconfigure a host or to refuse to start.
     echo "== preflight =="
     for target in "" "-H $server -r server"; do
         # shellcheck disable=SC2086
         output=$("$SCRIPT_DIR/preflight.sh" $target 2>&1)
-        echo "$output" | grep -E "FAIL|WARN|===" || true
+        echo "$output" | grep -E "FAIL|NOTE|warn|===" || true
     done
+    echo "  (NOTE = known state on this stand, run proceeds; only FAIL needs attention)"
 fi
 
 if [[ -z "$out_dir" ]]; then

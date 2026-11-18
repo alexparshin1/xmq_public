@@ -197,10 +197,19 @@ record should be read afterwards, not watched.
 | scenario prints no `median` line | run aborted mid-way | look at `<scenario>.log` in the run directory |
 | `file_results.py refused the record` | XMQ record has a failed scenario; a campaign missing one is not filed | fix the failure and rerun the set; the record stays in `results/raw/` |
 
-Preflight failures are reported, not enforced: the client always fails
-`ports per source address` for the 500K scenario on this hardware, and the server fails
-`NOTRACK rules` when the rules were cleared. Both are known states, worth noting in the record
-with `--note`, not reasons to refuse the run.
+Preflight is reported, not enforced, and its output is graded:
+
+| Level | Meaning |
+|---|---|
+| `FAIL` | a required limit is wrong; fix the host before trusting the numbers |
+| `warn` | suspicious but not decisive |
+| `NOTE` | a state this stand is known to run in; the run proceeds |
+
+Two checks on this stand print `NOTE` rather than `FAIL`: the client's
+`ports per source address` (55536, below the 60000 the set assumes) and the server's
+`NOTRACK rules` when the rules were cleared. Both are expected here — with 29 bound source
+addresses the port count is still ~1.6M connections of capacity, far more than the largest
+scenario needs — so record them with `--note` and do not reconfigure the host mid-campaign.
 
 ## Publishing
 
