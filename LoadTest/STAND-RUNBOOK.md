@@ -195,6 +195,24 @@ read from its `$SYS` topics:
 ./stand_runner --view ../results/raw/2026-11-18-1729-xmq1.1.2-bench --broker thinker11
 ```
 
+Given the run file, the same screen can also start, stop and file the run, so a set can be run from
+one window and watched from another:
+
+```bash
+./stand_runner --view --run ../runs/2026-11-18-1729-xmq1.1.2.run.sh
+```
+
+It takes `<run-dir>` and `--broker` from the file's own `--out` and `--server`, so nothing has to be
+typed twice. Keys: `s` start, `x` stop, `f` file the result, `q` quit. Each of the three asks for a
+`y` first, because none of them can be undone from the screen - a set is forty minutes, an
+interrupted set is not filed, and filing replaces that version's whole directory under
+`results/Bench/`.
+
+A start is detached in its own session, with its output in `<run-dir>/run.log`, so it outlives the
+screen and a stop reaches `xmq_scn` and the scripts around it together, not just the first process.
+The run's pid is kept in `<run-dir>/.stand.pid`: a second screen, or the same one reopened, attaches
+to the run already going instead of starting another.
+
 ## Watching a set while it runs
 
 `stand_runner --view` reads what the run itself writes into its output directory and shows it live.

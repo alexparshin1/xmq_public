@@ -38,8 +38,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "run_control.h"
 #include "run_file.h"
 #include "run_form.h"
+#include "tui.h"
 
 using namespace std;
 
@@ -595,7 +597,82 @@ string progressBar(long elapsedSec, long durationSec)
     return bar;
 }
 
-void drawScreen(const Report& report, const filesystem::path& dir)
+/// A request waiting for its confirmation. Start, stop and filing all change something that cannot
+/// be undone from here - a set is long, an interrupted set is not filed, and filing replaces a
+/// version's whole directory - so a key on its own only asks.
+struct Pending
+{
+    enum class Kind
+    {
+        None,
+        Start,
+        Stop,
+        File,
+    };
+
+    Kind                             kind {Kind::None};
+    chrono::steady_clock::time_point deadline {};
+};
+
+string promptFor(const Pending& pending, const stand::RunControl& control)
+{
+    const auto& spec = control.spec();
+    switch (pending.kind)
+    {
+        case Pending::Kind::Start:
+            return "start " + spec.file.filename().string() + "?  a full set takes about 40 minutes   y/N";
+        case Pending::Kind::Stop:
+            return "stop the run (pid " + to_string(control.state().pid) + ")?  it will not be filed   y/N";
+        case Pending::Kind::File:
+            return "file the result into results/Bench/" + spec.version + "/?  this replaces the directory   y/N";
+        case Pending::Kind::None:
+            break;
+    }
+    return {};
+}
+
+void printOperator(const stand::RunControl* control, const Pending& pending)
+{
+    if (control == nullptr)
+    {
+        printf("run:   watching only - no --run given, so nothing can be started from here\n");
+        return;
+    }
+
+    const auto& state = control->state();
+    switch (state.phase)
+    {
+        case stand::RunPhase::Running:
+            printf("run:   running %s, pid %ld\n", humanDuration(state.elapsedSec).c_str(), state.pid);
+            break;
+        case stand::RunPhase::Exited:
+            printf("run:   exited with status %d\n", state.exitCode);
+            break;
+        case stand::RunPhase::Idle:
+            printf("run:   idle\n");
+            break;
+        case stand::RunPhase::NoRunFile:
+            printf("run:   nothing to start\n");
+            break;
+    }
+    if (!state.lastAction.empty())
+    {
+        printf("       %s\n", state.lastAction.c_str());
+    }
+
+    if (pending.kind != Pending::Kind::None)
+    {
+        printf("\n\033[1m%s\033[0m\n", promptFor(pending, *control).c_str());
+        return;
+    }
+
+    printf("\ns start%s   x stop%s   f file result%s\n",
+           control->canStart() ? "" : " (unavailable)",
+           control->canStop() ? "" : " (unavailable)",
+           control->canFile() ? "" : " (unavailable)");
+}
+
+void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control, const Pending& pending)
 {
     const auto load = report.host;
     printf("\033[H\033[2J");
@@ -620,22 +697,11 @@ void drawScreen(const Report& report, const filesystem::path& dir)
     printf("\nclient cpu %3.0f%%  used %ldMb   eta %s\n", load.cpuPct, load.usedMb,
            humanDuration(report.etaSec).c_str());
     printBroker(report.broker);
-    printf("\nq quit   r refresh now            %s\n",
+    printf("\n");
+    printOperator(control, pending);
+    printf("\nq quit                                 %s\n",
            report.current < report.scenarios.size() ? report.scenarios[report.current].name.c_str() : "run complete");
     fflush(stdout);
-}
-
-} // namespace
-
-namespace {
-
-/// Set from a signal handler; the loop below reads it and leaves through the normal path, so the
-/// subscriber child is stopped rather than left behind on the broker.
-volatile sig_atomic_t g_terminate = 0;
-
-void onTerminate(int)
-{
-    g_terminate = 1;
 }
 
 } // namespace
@@ -644,6 +710,7 @@ int main(int argc, char** argv)
 {
     filesystem::path dir;
     string            brokerTarget;
+    string            runFile;
     bool              once = false;
     bool              edit = false;
     string            editTarget;
@@ -659,9 +726,17 @@ int main(int argc, char** argv)
                 editTarget = argv[++i];
             }
         }
-        else if (arg == "--view" && i + 1 < argc)
+        else if (arg == "--view")
         {
-            dir = argv[++i];
+            // The directory is optional when --run names a file that already says where its logs go.
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                dir = argv[++i];
+            }
+        }
+        else if (arg == "--run" && i + 1 < argc)
+        {
+            runFile = argv[++i];
         }
         else if (arg == "--broker" && i + 1 < argc)
         {
@@ -676,7 +751,7 @@ int main(int argc, char** argv)
             printf("Usage:\n"
                    "  stand_runner --edit [run-file]                        fill in a run and write it\n"
                    "  stand_runner --view <run-dir> [--once] [--broker <host[:port]>]\n"
-                   "                                                       watch a run as it writes\n"
+                   "              [--run <run-file>]                        watch, and start or stop\n"
                    "\n"
                    "  --edit [run-file]      A form over the settings a bench run needs. F2 writes the\n"
                    "                         file; it is a shell script that execs stand_run.sh, so it\n"
@@ -684,6 +759,11 @@ int main(int argc, char** argv)
                    "                         Given an existing file, its values are loaded first.\n"
                    "  --view <run-dir>       Watch a run's own output: the INTERVAL lines xmq_scn writes\n"
                    "                         under --output runner, plus each scenario's .block.\n"
+                   "  --run <run-file>       The run this screen may start, stop and file. It also\n"
+                   "                         supplies <run-dir> and --broker when they are not given,\n"
+                   "                         from the --out and --server the file already names.\n"
+                   "                         Keys: s start, x stop, f file the result, q quit; each\n"
+                   "                         action asks for a y first.\n"
                    "  --once                 Print one plain-text status and exit, for a script or a log.\n"
                    "  --broker <host[:port]> Also read the broker's CPU and memory from its $SYS topics,\n"
                    "                         subscribing with xmq_sub; port defaults to 1883. Omitted, no\n"
@@ -718,21 +798,64 @@ int main(int argc, char** argv)
         return stand::editRunFile(spec) == stand::FormAction::Saved ? 0 : 1;
     }
 
-    if (dir.empty())
+    if (dir.empty() && runFile.empty())
     {
         fprintf(stderr, "stand_runner: --view <run-dir> is required (or --edit to write a run)\n");
         return 2;
     }
+
+    // A run file carries its own output directory and broker, so watching what it will do needs no
+    // second set of arguments: the same file that starts the run says where to look.
+    optional<stand::RunSpec> runSpec;
+    if (!runFile.empty())
+    {
+        stand::RunSpec spec;
+        if (!stand::fromScript(runFile, spec))
+        {
+            fprintf(stderr, "stand_runner: cannot read %s\n", runFile.c_str());
+            return 2;
+        }
+        if (spec.out.empty())
+        {
+            fprintf(stderr, "stand_runner: %s names no --out, so there is no run directory to watch\n", runFile.c_str());
+            return 2;
+        }
+        if (dir.empty())
+        {
+            dir = spec.out;
+        }
+        if (brokerTarget.empty() && !spec.server.empty())
+        {
+            brokerTarget = spec.server;
+        }
+        runSpec = spec;
+    }
+
     if (!filesystem::is_directory(dir))
     {
-        fprintf(stderr, "stand_runner: %s is not a directory\n", dir.c_str());
-        return 2;
+        // Before a run there is nothing there yet, and that is exactly the moment one is started.
+        if (runSpec)
+        {
+            error_code error;
+            filesystem::create_directories(dir, error);
+        }
+        if (!filesystem::is_directory(dir))
+        {
+            fprintf(stderr, "stand_runner: %s is not a directory\n", dir.c_str());
+            return 2;
+        }
     }
 
     BrokerWatch watch;
     if (!brokerTarget.empty())
     {
         watch.start(brokerTarget);
+    }
+
+    optional<stand::RunControl> control;
+    if (runSpec)
+    {
+        control.emplace(*runSpec);
     }
 
     if (once)
@@ -754,27 +877,106 @@ int main(int argc, char** argv)
         auto report = buildReport(dir);
         report.broker = watch.load();
         printOnce(report);
+        if (control)
+        {
+            printOperator(&*control, Pending {});
+        }
         return 0;
     }
 
+    // Raw keys and a restored terminal, the same machinery the form uses: without it every action
+    // key would need Enter after it, which is not what a key means on a screen like this.
+    tui::Terminal terminal;
+    const bool    interactive = tui::Terminal::available();
+
     sampleHostLoad();
-    signal(SIGINT, onTerminate);
-    signal(SIGTERM, onTerminate);
-    while (!g_terminate)
+    Pending pending;
+    while (tui::Terminal::terminateFlag() == 0)
     {
-        watch.refresh();
-        auto report = buildReport(dir);
-        report.broker = watch.load();
-        drawScreen(report, dir);
-        pollfd input {STDIN_FILENO, POLLIN, 0};
-        if (poll(&input, 1, 1000) > 0)
+        if (control)
         {
-            char key = 0;
-            if (read(STDIN_FILENO, &key, 1) == 1 && (key == 'q' || key == 'Q'))
+            control->poll();
+        }
+        watch.refresh();
+
+        // A confirmation left unanswered for five seconds is a changed mind.
+        if (pending.kind != Pending::Kind::None && chrono::steady_clock::now() > pending.deadline)
+        {
+            pending.kind = Pending::Kind::None;
+        }
+
+        if (interactive)
+        {
+            // Redraw before reading, then act on the key: the screen shows the state the key was
+            // pressed on rather than the one before the last tick.
+            auto report = buildReport(dir);
+            report.broker = watch.load();
+            drawScreen(report, dir, control ? &*control : nullptr, pending);
+
+            const auto press = terminal.readKey(1000);
+            if (tui::Terminal::terminateFlag() != 0)
             {
                 break;
             }
+            if (terminal.takeResized() || press.key == tui::Key::None)
+            {
+                continue;
+            }
+            if (press.key == tui::Key::Escape || (press.key == tui::Key::Character && (press.text == "q" || press.text == "Q")))
+            {
+                break;
+            }
+            if (press.key != tui::Key::Character)
+            {
+                pending.kind = Pending::Kind::None;
+                continue;
+            }
+
+            if (press.text == "y" || press.text == "Y")
+            {
+                if (pending.kind == Pending::Kind::Start && control && control->canStart())
+                {
+                    control->start();
+                }
+                else if (pending.kind == Pending::Kind::Stop && control && control->canStop())
+                {
+                    control->stop();
+                }
+                else if (pending.kind == Pending::Kind::File && control && control->canFile())
+                {
+                    control->file();
+                }
+                pending.kind = Pending::Kind::None;
+                continue;
+            }
+
+            pending.kind = Pending::Kind::None;
+            if (!control)
+            {
+                continue;
+            }
+            if (press.text == "s" && control->canStart())
+            {
+                pending.kind = Pending::Kind::Start;
+                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+            }
+            else if (press.text == "x" && control->canStop())
+            {
+                pending.kind = Pending::Kind::Stop;
+                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+            }
+            else if (press.text == "f" && control->canFile())
+            {
+                pending.kind = Pending::Kind::File;
+                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+            }
+            continue;
         }
+
+        auto report = buildReport(dir);
+        report.broker = watch.load();
+        drawScreen(report, dir, control ? &*control : nullptr, pending);
+        this_thread::sleep_for(chrono::seconds(1));
     }
     printf("\033[2J\033[H");
     return 0;

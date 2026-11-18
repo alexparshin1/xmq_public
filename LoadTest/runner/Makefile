@@ -4,11 +4,11 @@
 CXX      ?= g++
 CXXFLAGS ?= -O2 -std=c++20 -Wall -Wextra -Wpedantic
 
-sources = stand_runner.cpp run_file.cpp run_form.cpp tui.cpp
+sources = stand_runner.cpp run_file.cpp run_form.cpp run_control.cpp tui.cpp
 
 all: stand_runner
 
-stand_runner: $(sources) run_file.h run_form.h tui.h
+stand_runner: $(sources) run_file.h run_form.h run_control.h tui.h
 	$(CXX) $(CXXFLAGS) -o $@ $(sources)
 
 clean:
