@@ -187,7 +187,7 @@ private:
         // Vision drew dialogs with one line and windows with two.
         for (int row = top + 1; row < bottom; ++row)
         {
-            fill(row, left + 1, innerWidth, theme::dialog);
+            fill(row, left + 1, innerWidth, theme::desktop);
         }
 
         string topLine {"┌"};
@@ -223,12 +223,12 @@ private:
             const bool  active = selected && m_editing;
             const int   row = contentTop + index;
 
-            fill(row, left + 1, innerWidth, theme::dialog);
+            fill(row, left + 1, innerWidth, theme::desktop);
 
             string label = field.label;
-            put(row, contentLeft + 1, theme::dialog, label.substr(0, 1));
+            put(row, contentLeft + 1, theme::shortcut, label.substr(0, 1));
             label.erase(0, 1);
-            put(row, contentLeft + 2, theme::dialog,
+            put(row, contentLeft + 2, theme::desktop,
                 label + blank(static_cast<size_t>(max(0, labelWidth - 2 - static_cast<int>(label.size())))));
 
             string value = shownValue(field);
@@ -278,26 +278,18 @@ private:
         // The help for the field the keyboard is on, then anything that was refused.
         {
             const auto help = clip(m_fields[m_current].help, innerWidth - 4);
-            put(helpRow, contentLeft, theme::dialog, " " + help + blank(static_cast<size_t>(max(0, innerWidth - 4 - tui::Terminal::displayWidth(help)))));
+            put(helpRow, contentLeft, theme::desktop, " " + help + blank(static_cast<size_t>(max(0, innerWidth - 4 - tui::Terminal::displayWidth(help)))));
         }
         for (size_t index = 0; index < m_problems.size() && problemRow + static_cast<int>(index) < buttonRow; ++index)
         {
             const auto text = clip(m_problems[index], innerWidth - 6);
-            put(problemRow + static_cast<int>(index), contentLeft, theme::warning,
+            put(problemRow + static_cast<int>(index), contentLeft, theme::warningDesktop,
                 " ! " + text + blank(static_cast<size_t>(max(0, innerWidth - 6 - tui::Terminal::displayWidth(text)))));
         }
 
-        // Buttons just inside the bottom edge, right-aligned: the default one green, the way out
-        // beside it in the dialog's own colour.
-        {
-            const string save {" F2 Save "};
-            const string cancel {"[ Esc Cancel ]"};
-            const auto   start = left + innerWidth - static_cast<int>(save.size() + cancel.size()) - 3;
-            put(buttonRow, start, theme::button, save);
-            put(buttonRow, start + static_cast<int>(save.size()) + 2, theme::dialog, "[");
-            put(buttonRow, start + static_cast<int>(save.size()) + 3, theme::dialogDim, " Esc");
-            put(buttonRow, start + static_cast<int>(save.size()) + 7, theme::dialog, " Cancel ]");
-        }
+        // No buttons inside the frame: F2 and Esc are named on the status bar, which is where a
+        // Turbo Vision screen put the keys it offered. A second copy inside the dialog was one
+        // place too many to keep in step.
 
         // The status bar, grey with red keys, the same as the viewer's.
         {
