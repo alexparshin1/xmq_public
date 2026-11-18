@@ -1060,7 +1060,10 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
 
     put(top, left + 1, theme::frameActive, "[■]");
     put(top, left + inner - 2, theme::frame, "[↕]");
-    const auto title = " " + dir.string() + " ";
+    const auto titlePath = control != nullptr && !control->spec().file.empty()
+                               ? stand::displayPath(control->spec().file)
+                               : dir.string();
+    const auto title = " " + titlePath + " ";
     const auto titleRoom = inner - 10;
     put(top, left + 5 + max(0, (titleRoom - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, titleRoom));
 
