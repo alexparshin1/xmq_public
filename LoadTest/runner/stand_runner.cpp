@@ -518,6 +518,7 @@ struct Report
     HostLoad         host;
     BrokerLoad       broker;
     bool             preflight {false};
+    bool             foreign {false}; ///< Logs written by a run this screen did not start.
     size_t           current {0};
     long             elapsedSec {0};
     long             etaSec {0};
@@ -527,17 +528,33 @@ struct Report
 /// start). Its own intervals are what the table shows; whatever was in the directory before that is
 /// a previous run and must not appear as if it had just been measured.
 Report buildReport(const filesystem::path& dir,
-                   const chrono::system_clock::time_point since = chrono::system_clock::time_point {})
+                   const chrono::system_clock::time_point since = chrono::system_clock::time_point {},
+                   const bool managedScreen = false,
+                   const bool ownRunRunning = false)
 {
     Report report;
     report.host = sampleHostLoad();
     report.scenarios = scanRunDir(dir);
+    if (managedScreen && !ownRunRunning)
+    {
+        // A run file is not executed just by opening its viewer. If logs are changing while this
+        // screen's RunControl is idle, another process owns that output; do not present its
+        // preflight or intervals as this screen's run.
+        const auto recent = chrono::system_clock::now() - chrono::minutes(2);
+        report.foreign = any_of(report.scenarios.begin(), report.scenarios.end(),
+                                [recent](const Scenario& scenario) { return scenario.lastWrite > recent; });
+        error_code error;
+        const auto runLogTime = filesystem::last_write_time(dir / "run.log", error);
+        report.foreign = report.foreign ||
+                         (!error && chrono::clock_cast<chrono::system_clock>(runLogTime) > recent);
+        report.scenarios.clear();
+    }
     // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
     // scenario, so expose the phase as run state rather than adding it to the result table - but
     // only while that log is being written now. A run.log left by a previous run would otherwise
     // report a phase for a run that is not happening.
     report.preflight = false;
-    if (report.scenarios.empty())
+    if ((!managedScreen || ownRunRunning) && report.scenarios.empty())
     {
         error_code error;
         const auto log = dir / "run.log";
@@ -954,6 +971,11 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
                                        humanDuration(static_cast<long>(age)) + " ago - s starts a new one",
                                    theme::warningDesktop});
     }
+    if (report.foreign)
+    {
+        info.push_back({"another process is writing here; this screen did not start it",
+                        theme::warningDesktop});
+    }
     // One line per info line, a blank, the test's own line, then the table's column header.
     const auto headerRow = top + 2 + static_cast<int>(info.size()) + 2;
     const auto tableTop = headerRow + 1;
@@ -991,7 +1013,11 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         // Preflight is a phase of a run that is going on now: a fresh log alone is not enough when
         // this screen controls a run, because a set that was stopped just after preflight would
         // otherwise keep saying "preflight" while nothing runs.
-        if (report.preflight && (control == nullptr || runningNow))
+        if (report.foreign)
+        {
+            text << " run state: external activity - not started here";
+        }
+        else if (report.preflight && (control == nullptr || runningNow))
         {
             text << " run state: preflight";
         }
@@ -1313,7 +1339,8 @@ int main(int argc, char** argv)
             }
             this_thread::sleep_for(chrono::milliseconds(100));
         }
-        auto report = buildReport(dir);
+        auto report = buildReport(dir, {}, control.has_value(),
+                                  control && control->state().phase == stand::RunPhase::Running);
         report.broker = watch.load();
         printOnce(report);
         if (control)
@@ -1336,12 +1363,22 @@ int main(int argc, char** argv)
     // starts empty and fills with what this run measures, so a previous run's intervals in the
     // same directory are not shown as if they were current. A bare `--view <dir>` keeps showing
     // what is in the directory - inspecting published results is what it is for.
-    const auto watchedSince = control ? chrono::system_clock::now() : chrono::system_clock::time_point {};
+    bool managedRunStarted = control && control->state().phase == stand::RunPhase::Running;
+    auto managedRunSince = chrono::system_clock::now();
+    if (managedRunStarted)
+    {
+        managedRunSince -= chrono::seconds(control->state().elapsedSec);
+    }
     while (tui::Terminal::terminateFlag() == 0)
     {
         if (control)
         {
             control->poll();
+            if (control->state().phase == stand::RunPhase::Running && !managedRunStarted)
+            {
+                managedRunStarted = true;
+                managedRunSince = chrono::system_clock::now() - chrono::seconds(control->state().elapsedSec);
+            }
         }
         watch.refresh();
 
@@ -1351,7 +1388,7 @@ int main(int argc, char** argv)
             pending.kind = Pending::Kind::None;
         }
 
-        auto report = buildReport(dir, watchedSince);
+        auto report = buildReport(dir, managedRunSince, control.has_value(), managedRunStarted);
         report.broker = watch.load();
 
         if (interactive)
@@ -1430,6 +1467,11 @@ int main(int argc, char** argv)
                 if (pending.kind == Pending::Kind::Start && control && control->canStart())
                 {
                     control->start();
+                    if (control->state().phase == stand::RunPhase::Running)
+                    {
+                        managedRunStarted = true;
+                        managedRunSince = chrono::system_clock::now();
+                    }
                 }
                 else if (pending.kind == Pending::Kind::Stop && control && control->canStop())
                 {
