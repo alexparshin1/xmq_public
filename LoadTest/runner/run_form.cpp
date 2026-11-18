@@ -554,6 +554,10 @@ FormAction editRunFile(RunSpec& spec)
         action = form.run();
     }
 
+    // The alternate screen is gone by now and the terminal is back to whatever was behind it: the
+    // report belongs on a clean screen, not pasted over the shell's earlier output.
+    printf("\033[2J\033[H");
+
     if (action == FormAction::Saved)
     {
         printf("saved: %s\n\n", spec.file.c_str());
