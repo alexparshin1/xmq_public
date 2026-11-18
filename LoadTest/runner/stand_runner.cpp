@@ -5,14 +5,14 @@
  * INTERVAL lines xmq_scn emits under --output runner), the presence of its .block, and the
  * client host's /proc. Nothing here polls the broker, and nothing here is on the run's path.
  *
- * With --broker it also subscribes to the broker's $SYS topics through a child xmq_sub, which is
- * how the broker's own CPU and memory appear next to the client's. Without it nothing outside
- * this machine is contacted at all.
+ * Given the run file, it also subscribes to the broker's $SYS topics through a child xmq_sub,
+ * which is how the broker's own CPU and memory appear next to the client's. Watching a bare run
+ * directory contacts nothing outside this machine.
  *
  *   stand_runner --edit [run-file]                      fill in a run and write it
  *   stand_runner --view <run-dir>                       live, full screen
+ *   stand_runner --view --run <run-file>                watch, start, stop and file
  *   stand_runner --view <run-dir> --once                one plain-text status, for a script or a log
- *   stand_runner --view <run-dir> --broker HOST[:P]     also show the broker's own CPU and memory
  */
 #include <algorithm>
 #include <array>
@@ -319,7 +319,7 @@ public:
         const auto port = colon == string::npos ? string("1883") : target.substr(colon + 1);
         if (host.empty() || port.empty())
         {
-            m_load.state = "bad --broker";
+            m_load.state = "bad broker in the run file";
             return;
         }
 
@@ -1115,10 +1115,6 @@ int main(int argc, char** argv)
         {
             runFile = argv[++i];
         }
-        else if (arg == "--broker" && i + 1 < argc)
-        {
-            brokerTarget = argv[++i];
-        }
         else if (arg == "--once")
         {
             once = true;
@@ -1127,8 +1123,8 @@ int main(int argc, char** argv)
         {
             printf("Usage:\n"
                    "  stand_runner --edit [run-file]                        fill in a run and write it\n"
-                   "  stand_runner --view <run-dir> [--once] [--broker <host[:port]>]\n"
-                   "              [--run <run-file>]                        watch, and start or stop\n"
+                   "  stand_runner --view <run-dir> [--once] [--run <run-file>]\n"
+                   "                                                       watch, and start or stop\n"
                    "\n"
                    "  --edit [run-file]      A form over the settings a bench run needs. F2 writes the\n"
                    "                         file; it is a shell script that execs stand_run.sh, so it\n"
@@ -1137,15 +1133,22 @@ int main(int argc, char** argv)
                    "  --view <run-dir>       Watch a run's own output: the INTERVAL lines xmq_scn writes\n"
                    "                         under --output runner, plus each scenario's .block.\n"
                    "  --run <run-file>       The run this screen may start, stop and file. It also\n"
-                   "                         supplies <run-dir> and --broker when they are not given,\n"
-                   "                         from the --out and --server the file already names.\n"
+                   "                         supplies <run-dir> and the broker to watch, from the --out\n"
+                   "                         and --server the file already names.\n"
                    "                         Keys: s start, x stop, f file the result, q quit; each\n"
                    "                         action asks for a y first.\n"
                    "  --once                 Print one plain-text status and exit, for a script or a log.\n"
-                   "  --broker <host[:port]> Also read the broker's CPU and memory from its $SYS topics,\n"
-                   "                         subscribing with xmq_sub; port defaults to 1883. Omitted, no\n"
-                   "                         connection is made anywhere.\n");
+                   );
             return 0;
+        }
+        else if (arg == "--broker")
+        {
+            // The flag existed for an afternoon: it named a host the run file also names, and the
+            // two could disagree. Whoever typed it deserves the sentence that replaces it.
+            fprintf(stderr,
+                    "stand_runner: --broker is gone - the broker comes from the run file.\n"
+                    "               Use: stand_runner --view --run <run-file>\n");
+            return 2;
         }
         else
         {
@@ -1206,10 +1209,9 @@ int main(int argc, char** argv)
         {
             dir = spec.out;
         }
-        if (brokerTarget.empty() && !spec.server.empty())
-        {
-            brokerTarget = spec.server;
-        }
+        // The broker is what the run file says it is: a second way to name it could only disagree
+        // with the file the run is executed from.
+        brokerTarget = spec.server;
         runSpec = spec;
     }
 

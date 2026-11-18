@@ -187,31 +187,21 @@ from a person, one flag per line. It runs as it stands, and it can be edited by 
 ../runs/2026-11-18-1729-xmq1.1.2.run.sh --dry-run # the same, for one that only prints
 ```
 
-While it runs, a second window watches it - and `--broker` adds the broker's own CPU and memory,
-read from its `$SYS` topics:
-
-```bash
-./stand_runner --view ../results/raw/2026-11-18-1729-xmq1.1.2-bench
-./stand_runner --view ../results/raw/2026-11-18-1729-xmq1.1.2-bench --broker thinker11
-```
-
-Given the run file, the same screen can also start, stop and file the run, so a set can be run from
-one window and watched from another:
+While it runs, a second window watches it - and, given the run file, also starts it, stops it and
+files the result, so a set can be run from one window and watched from another:
 
 ```bash
 ./stand_runner --view --run ../runs/2026-11-18-1729-xmq1.1.2.run.sh
 ```
 
-It takes `<run-dir>` and `--broker` from the file's own `--out` and `--server`, so nothing has to be
-typed twice. Keys: `s` start, `x` stop, `f` file the result, `q` quit.
+The screen takes `<run-dir>` and the broker from the file's own `--out` and `--server`, so nothing
+has to be typed twice and nothing can disagree with the file the run is executed from. Watching a
+bare directory - `--view ../results/raw/<run>` - is read-only and contacts nothing outside this
+machine.
 
-The table shows one test at a time - a full set is five scenarios of several minutes each, and all
-of them at once stops being readable by the second. It follows the test that is running; `left` and
-`right` choose one by hand, and `up`, `down`, `PageUp`, `PageDown`, `Home` and `End` walk through
-that test's intervals, with the row at the top saying how many are above what is on screen. Each of the three asks for a
-`y` first, because none of them can be undone from the screen - a set is forty minutes, an
-interrupted set is not filed, and filing replaces that version's whole directory under
-`results/Bench/`.
+Keys: `s` start, `x` stop, `f` file the result, `q` quit. Each of the three asks for a `y` first,
+because none of them can be undone from the screen - a set is forty minutes, an interrupted set is
+not filed, and filing replaces that version's whole directory under `results/Bench/`.
 
 A start is detached in its own session, with its output in `<run-dir>/run.log`, so it outlives the
 screen and a stop reaches `xmq_scn` and the scripts around it together, not just the first process.
@@ -225,21 +215,22 @@ It is a watcher: it starts nothing, and it is not on the run's path.
 
 ```bash
 cd LoadTest/runner && make
-./stand_runner --view ../results/Bench/1.1.2                     # full screen, q to quit
-./stand_runner --view ../results/Bench/1.1.2 --once              # one status, for a script or a log
-./stand_runner --view ../results/Bench/1.1.2 --broker thinker11  # also the broker's own CPU and memory
+./stand_runner --view ../results/Bench/1.1.2           # full screen, q to quit
+./stand_runner --view ../results/Bench/1.1.2 --once    # one status, for a script or a log
 ```
 
-The scenario lines come from the `INTERVAL` lines `xmq_scn` writes under `--output runner` (the
-default for a set): rate, average and p99 latency, and the client process's CPU and memory. A run
-made before that mode existed has none of those lines and shows as `not started`, so watch a set
-from 1.1.2 or later.
+The table shows one test at a time - a full set is five scenarios of several minutes each, and all
+of them at once stops being readable by the second. It follows the test that is running; `left` and
+`right` choose one by hand, and `up`, `down`, `PageUp`, `PageDown`, `Home` and `End` walk through
+that test's intervals, with the row at the top saying how many are above what is on screen.
 
-`--broker HOST[:PORT]` (port 1883 by default) adds the broker side: the runner starts `xmq_sub` on
-that host and the two `$SYS/broker/system/*` figures - the broker process's CPU as a percent of one
-core, and its resident memory - appear next to the client's. It needs `xmq_sub` in `PATH` and a
-broker that publishes those topics (1.1.2 or later). Without `--broker` nothing outside this machine
-is contacted. A broker line that reads `xmq_sub exited` means the subscriber died - the broker
+The rows come from the `INTERVAL` lines `xmq_scn` writes under `--output runner` (the default for a
+set): rate, average and p99 latency, and the client process's CPU and memory. A run made before that
+mode existed has none of those lines and shows as `not started`, so watch a set from 1.1.2 or later.
+
+The broker's own CPU and memory come from its `$SYS` topics, read through `xmq_sub` on the broker
+host named in the run file: it needs `xmq_sub` in `PATH` and a broker that publishes those topics
+(1.1.2 or later). A broker line that reads `xmq_sub exited` means the subscriber died - the broker
 restarted under it, or the binary is missing - and the figures stop rather than going stale.
 
 ## What it refuses to do

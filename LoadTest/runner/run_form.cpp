@@ -558,9 +558,7 @@ FormAction editRunFile(RunSpec& spec)
     {
         printf("saved: %s\n\n", spec.file.c_str());
         printf("run it:    %s\n", spec.file.c_str());
-        printf("watch it:  stand_runner --view %s\n", spec.out.c_str());
-        printf("with the broker's own CPU and memory:\n");
-        printf("           stand_runner --view %s --broker %s\n", spec.out.c_str(), spec.server.c_str());
+        printf("watch it:  stand_runner --view --run %s\n", spec.file.c_str());
     }
     return action;
 }
