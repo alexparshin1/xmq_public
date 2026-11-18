@@ -1062,8 +1062,9 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto titleRoom = inner - 10;
     put(top, left + 5 + max(0, (titleRoom - static_cast<int>(title.size())) / 2), theme::frameActive, clipTo(title, titleRoom));
 
-    // One place for keys: the status line. A confirmation takes it over while it waits.
-    if (height > bottom + 1)
+    // One place for keys: the status line, on the last row of the screen - the frame ends on the
+    // row above it, so there is exactly one row here and the test is "is there any".
+    if (height > bottom)
     {
         const bool asking = pending.kind != Pending::Kind::None && control != nullptr;
         const auto text = asking ? promptFor(pending, *control) : keysLine(control);
