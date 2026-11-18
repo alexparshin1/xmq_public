@@ -91,7 +91,7 @@ private:
         m_fields.push_back({"XMQ version", "XMQ version under test; it names the bench profile to restart", Kind::Text, &m_spec.version, nullptr, {}});
         m_fields.push_back({"Test set", "Scenario set to run, from the *.txt files next to stand_run.sh", Kind::Choice, &m_spec.setFile, nullptr, sets});
         m_fields.push_back({"Server", "Broker host under test", Kind::Text, &m_spec.server, nullptr, {}});
-        m_fields.push_back({"Nic", "Client NIC watched for dropped packets", Kind::Text, &m_spec.nic, nullptr, {}});
+        m_fields.push_back({"Client NIC", "Client NIC watched for dropped packets", Kind::Text, &m_spec.nic, nullptr, {}});
         m_fields.push_back({"Subnet", "Client source subnet", Kind::Text, &m_spec.subnet, nullptr, {}});
         m_fields.push_back({"First", "First host octet in that subnet", Kind::Text, &m_spec.firstOctet, nullptr, {}});
         m_fields.push_back({"Count", "Number of source addresses", Kind::Text, &m_spec.count, nullptr, {}});
