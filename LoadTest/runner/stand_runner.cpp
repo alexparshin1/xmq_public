@@ -883,15 +883,14 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // The strip across the top is this screen's title, not a menu: the run file it is showing, and
     // what that file says the run is. Turbo Vision put a menu bar there; ours has one thing to say
     // and says it, in the same grey bar with the name in red.
-    const auto runName = control != nullptr && !control->spec().file.empty()
-                             ? control->spec().file.filename().string()
-                             : string {};
+    // The run file is named in the frame title below; the top strip says what the run is -
+    // its version and the broker it names. A bare-directory viewer still identifies what it watches.
+    const bool managingRun = control != nullptr && !control->spec().file.empty();
     put(1, 1, theme::status, string(static_cast<size_t>(width), ' '));
-    if (!runName.empty())
+    if (managingRun)
     {
         const auto& spec = control->spec();
-        put(1, 2, theme::statusKey, "run");
-        put(1, 6, theme::status, " " + runName + "   " + spec.version + "   " + spec.server);
+        put(1, 2, theme::statusKey, "run " + spec.version + "    " + spec.server);
     }
     else
     {
