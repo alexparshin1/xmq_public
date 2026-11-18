@@ -5,10 +5,17 @@
  * INTERVAL lines xmq_scn emits under --output runner), the presence of its .block, and the
  * client host's /proc. Nothing here polls the broker, and nothing here is on the run's path.
  *
- *   stand_runner --attach <run-dir>          live, full screen
- *   stand_runner --attach <run-dir> --once   one plain-text status, for a script or a log
+ * With --broker it also subscribes to the broker's $SYS topics through a child xmq_sub, which is
+ * how the broker's own CPU and memory appear next to the client's. Without it nothing outside
+ * this machine is contacted at all.
+ *
+ *   stand_runner --attach <run-dir>                     live, full screen
+ *   stand_runner --attach <run-dir> --once              one plain-text status, for a script or a log
+ *   stand_runner --attach <run-dir> --broker HOST[:P]   also show the broker's own CPU and memory
  */
 #include <algorithm>
+#include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -22,8 +29,11 @@
 #include <vector>
 
 #include <poll.h>
+#include <fcntl.h>
+#include <spawn.h>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -243,10 +253,239 @@ string humanDuration(long seconds)
     return to_string(seconds / 3600) + "h" + to_string(seconds % 3600 / 60) + "m";
 }
 
+/// What the broker says about itself on $SYS, as of the last line read.
+struct BrokerLoad
+{
+    string state {"off"};   ///< off, waiting, live, exited - what the watcher is doing, in a word.
+    int    cpuPct {0};      ///< Broker process, percent of one core; may exceed 100.
+    long   rssMb {0};       ///< Broker process, resident memory.
+    bool   haveCpu {false};
+    bool   haveRss {false};
+    int    ageSec {0};      ///< Seconds since the last line, so a silent broker is not shown as live.
+};
+
+/**
+ * Watches the broker's own CPU and memory through its $SYS topics.
+ *
+ * The subscription is a child `xmq_sub`, not a linked client: the runner is a watcher of a run and
+ * nothing else on the stand, and pulling the MQTT client library into it for two numbers would put
+ * a second copy of that library on the machine generating the load. A child process also dies with
+ * its parent, so a killed runner leaves no subscriber holding a session open on the broker.
+ *
+ * Both topics are retained and published once a second, so the first values arrive with the
+ * subscription acknowledgement rather than a second later.
+ *
+ * If the child exits - the broker restarted under it, or the binary is missing - the state stays
+ * 'exited' rather than restarting it: a subscriber that keeps failing every second is noise, and
+ * one line saying so is enough for someone to look.
+ */
+class BrokerWatch final
+{
+public:
+    ~BrokerWatch()
+    {
+        stop();
+    }
+
+    /// @param target "host" or "host:port", as given on the command line.
+    void start(const string& target)
+    {
+        const auto colon = target.rfind(':');
+        const auto host = colon == string::npos ? target : target.substr(0, colon);
+        const auto port = colon == string::npos ? string("1883") : target.substr(colon + 1);
+        if (host.empty() || port.empty())
+        {
+            m_load.state = "bad --broker";
+            return;
+        }
+
+        int fds[2] {};
+        if (pipe(fds) != 0)
+        {
+            m_load.state = "pipe failed";
+            return;
+        }
+
+        // posix_spawn rather than fork + exec, so a missing xmq_sub is reported here as a failed
+        // spawn instead of an exit code from a child that never became anything.
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
+        // stdin comes from nowhere: xmq_sub does not read it, and inheriting the terminal would put
+        // a second process on the keyboard the runner is polling for 'q'.
+        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+        // stderr goes nowhere: xmq_sub's complaints are not the runner's, and one of them would
+        // land in the middle of the screen.
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addclose(&actions, fds[0]);
+        posix_spawn_file_actions_addclose(&actions, fds[1]);
+
+        array<string, 8> storage {"xmq_sub", "-h", host, "-p", port, "-t", "$SYS/broker/system/#", "-v"};
+        array<char*, 9>  arguments {};
+        for (size_t i = 0; i < storage.size(); ++i)
+        {
+            arguments[i] = storage[i].data();
+        }
+
+        const auto spawned = posix_spawnp(&m_pid, "xmq_sub", &actions, nullptr, arguments.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        if (spawned != 0)
+        {
+            m_pid = -1;
+            close(fds[0]);
+            close(fds[1]);
+            m_load.state = string("xmq_sub: ") + strerror(spawned);
+            return;
+        }
+
+        close(fds[1]);
+        m_fd = fds[0];
+        // Read on each screen tick without blocking on it: the child may be quiet for a second.
+        const auto flags = fcntl(m_fd, F_GETFL, 0);
+        fcntl(m_fd, F_SETFL, flags | O_NONBLOCK);
+        m_load.state = "waiting";
+        m_sinceLine = chrono::steady_clock::now();
+    }
+
+    void stop()
+    {
+        if (m_pid > 0)
+        {
+            kill(m_pid, SIGTERM);
+            int status = 0;
+            waitpid(m_pid, &status, 0);
+            m_pid = -1;
+        }
+        if (m_fd >= 0)
+        {
+            close(m_fd);
+            m_fd = -1;
+        }
+    }
+
+    /// Drain whatever the subscriber has printed since the last call.
+    void refresh()
+    {
+        if (m_fd < 0)
+        {
+            return;
+        }
+
+        char  chunk[4096];
+        bool  ended = false;
+        while (true)
+        {
+            const auto received = read(m_fd, chunk, sizeof(chunk));
+            if (received > 0)
+            {
+                m_buffer.append(chunk, static_cast<size_t>(received));
+                continue;
+            }
+            if (received == 0)
+            {
+                ended = true;
+            }
+            break; // EAGAIN, or the pipe closed.
+        }
+
+        for (size_t at = 0; (at = m_buffer.find('\n')) != string::npos;)
+        {
+            parseLine(m_buffer.substr(0, at));
+            m_buffer.erase(0, at + 1);
+        }
+
+        if (ended && m_pid > 0)
+        {
+            int status = 0;
+            if (waitpid(m_pid, &status, WNOHANG) == m_pid)
+            {
+                m_pid = -1;
+            }
+            close(m_fd);
+            m_fd = -1;
+            m_load.state = WIFEXITED(status) ? "xmq_sub exited (" + to_string(WEXITSTATUS(status)) + ")"
+                                             : "xmq_sub stopped";
+            return;
+        }
+
+        if (m_load.haveCpu || m_load.haveRss)
+        {
+            const auto now = chrono::steady_clock::now();
+            m_load.ageSec = static_cast<int>(chrono::duration_cast<chrono::seconds>(now - m_sinceLine).count());
+            m_load.state = "live";
+        }
+    }
+
+    [[nodiscard]] const BrokerLoad& load() const
+    {
+        return m_load;
+    }
+
+private:
+    /// One `xmq_sub -v` line looks like
+    ///   Publish id=0 sender=test-client qos=0, payload=1 bytes, topic='$SYS/.../cpu/percent' [128]
+    /// The payload is the text between the last "[" and "]"; anything else on the line is ignored,
+    /// which is what keeps the counter header and footer lines harmless.
+    void parseLine(const string& line)
+    {
+        const auto topicAt = line.find("topic='");
+        if (topicAt == string::npos)
+        {
+            return;
+        }
+        const auto topicEnd = line.find('\'', topicAt + 7);
+        if (topicEnd == string::npos)
+        {
+            return;
+        }
+        const auto topic = line.substr(topicAt + 7, topicEnd - topicAt - 7);
+
+        const auto valueAt = line.rfind('[');
+        if (valueAt == string::npos || valueAt < topicEnd)
+        {
+            return;
+        }
+        auto value = line.substr(valueAt + 1);
+        if (const auto end = value.rfind(']'); end != string::npos)
+        {
+            value.erase(end);
+        }
+        char*        parsed = nullptr;
+        const double number = strtod(value.c_str(), &parsed);
+        if (parsed == nullptr || parsed == value.c_str())
+        {
+            return;
+        }
+
+        if (topic == "$SYS/broker/system/cpu/percent")
+        {
+            m_load.cpuPct = static_cast<int>(number);
+            m_load.haveCpu = true;
+        }
+        else if (topic == "$SYS/broker/system/memory/rss_bytes")
+        {
+            m_load.rssMb = static_cast<long>(number / (1024.0 * 1024.0));
+            m_load.haveRss = true;
+        }
+        else
+        {
+            return;
+        }
+        m_sinceLine = chrono::steady_clock::now();
+    }
+
+    BrokerLoad m_load;
+    string     m_buffer;
+    pid_t      m_pid {-1};
+    int        m_fd {-1};
+    chrono::steady_clock::time_point m_sinceLine {chrono::steady_clock::now()};
+};
+
 struct Report
 {
     vector<Scenario> scenarios;
     HostLoad         host;
+    BrokerLoad       broker;
     size_t           current {0};
     long             elapsedSec {0};
     long             etaSec {0};
@@ -283,6 +522,32 @@ Report buildReport(const filesystem::path& dir)
     return report;
 }
 
+/// The broker line, or why there is none. A stale figure is worse than no figure: a broker that
+/// stopped answering at minute three should not keep showing what it said then.
+void printBroker(const BrokerLoad& broker)
+{
+    if (broker.state == "off")
+    {
+        return;
+    }
+    if (broker.state == "live" && broker.ageSec <= 5)
+    {
+        printf("broker: cpu %d%% rss %ldMb   (its own $SYS figures)\n", broker.cpuPct, broker.rssMb);
+        return;
+    }
+    if (broker.state == "live")
+    {
+        printf("broker: last figures %ds ago, cpu %d%% rss %ldMb\n", broker.ageSec, broker.cpuPct, broker.rssMb);
+        return;
+    }
+    if (broker.state == "waiting")
+    {
+        printf("broker: subscribed, no figures yet\n");
+        return;
+    }
+    printf("broker: %s\n", broker.state.c_str());
+}
+
 void printOnce(const Report& report)
 {
     printf("run: %zu scenario(s)\n", report.scenarios.size());
@@ -306,6 +571,7 @@ void printOnce(const Report& report)
     }
     printf("host: cpu %.0f%%, used %ldMb   eta %s\n", report.host.cpuPct, report.host.usedMb,
            humanDuration(report.etaSec).c_str());
+    printBroker(report.broker);
 }
 
 /// One character for each tenth of the scenario, filled by elapsed time: coarse on purpose, since
@@ -349,6 +615,7 @@ void drawScreen(const Report& report, const filesystem::path& dir)
     }
     printf("\nclient cpu %3.0f%%  used %ldMb   eta %s\n", load.cpuPct, load.usedMb,
            humanDuration(report.etaSec).c_str());
+    printBroker(report.broker);
     printf("\nq quit   r refresh now            %s\n",
            report.current < report.scenarios.size() ? report.scenarios[report.current].name.c_str() : "run complete");
     fflush(stdout);
@@ -356,9 +623,23 @@ void drawScreen(const Report& report, const filesystem::path& dir)
 
 } // namespace
 
+namespace {
+
+/// Set from a signal handler; the loop below reads it and leaves through the normal path, so the
+/// subscriber child is stopped rather than left behind on the broker.
+volatile sig_atomic_t g_terminate = 0;
+
+void onTerminate(int)
+{
+    g_terminate = 1;
+}
+
+} // namespace
+
 int main(int argc, char** argv)
 {
     filesystem::path dir;
+    string            brokerTarget;
     bool              once = false;
     for (int i = 1; i < argc; ++i)
     {
@@ -367,13 +648,23 @@ int main(int argc, char** argv)
         {
             dir = argv[++i];
         }
+        else if (arg == "--broker" && i + 1 < argc)
+        {
+            brokerTarget = argv[++i];
+        }
         else if (arg == "--once")
         {
             once = true;
         }
         else if (arg == "--help" || arg == "-h")
         {
-            printf("Usage: stand_runner --attach <run-dir> [--once]\n");
+            printf("Usage: stand_runner --attach <run-dir> [--once] [--broker <host[:port]>]\n"
+                   "\n"
+                   "  --attach <run-dir>     Watch a run's own output, as written under one run directory.\n"
+                   "  --once                 Print one plain-text status and exit, for a script or a log.\n"
+                   "  --broker <host[:port]> Also read the broker's CPU and memory from its $SYS topics,\n"
+                   "                         subscribing with xmq_sub; port defaults to 1883. Omitted, no\n"
+                   "                         connection is made anywhere.\n");
             return 0;
         }
         else
@@ -393,19 +684,43 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    BrokerWatch watch;
+    if (!brokerTarget.empty())
+    {
+        watch.start(brokerTarget);
+    }
+
     if (once)
     {
         // Two samples, so the CPU figure is a rate rather than a zero from having no previous one.
+        // The broker's figures are retained, so they come with the subscription itself; a second
+        // of waiting is what it costs for them to be there rather than a 'waiting' line.
         sampleHostLoad();
         this_thread::sleep_for(chrono::milliseconds(200));
-        printOnce(buildReport(dir));
+        for (int tick = 0; tick < 10 && watch.load().state == "waiting"; ++tick)
+        {
+            watch.refresh();
+            if (watch.load().state != "waiting")
+            {
+                break;
+            }
+            this_thread::sleep_for(chrono::milliseconds(100));
+        }
+        auto report = buildReport(dir);
+        report.broker = watch.load();
+        printOnce(report);
         return 0;
     }
 
     sampleHostLoad();
-    while (true)
+    signal(SIGINT, onTerminate);
+    signal(SIGTERM, onTerminate);
+    while (!g_terminate)
     {
-        drawScreen(buildReport(dir), dir);
+        watch.refresh();
+        auto report = buildReport(dir);
+        report.broker = watch.load();
+        drawScreen(report, dir);
         pollfd input {STDIN_FILENO, POLLIN, 0};
         if (poll(&input, 1, 1000) > 0)
         {

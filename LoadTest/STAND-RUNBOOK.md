@@ -163,6 +163,30 @@ The point is the turn ends there. `stand_run.sh` is not modified, and nothing st
 generating tokens during a set - that is what the run would then measure, so the log and the
 record should be read afterwards, not watched.
 
+## Watching a set while it runs
+
+`stand_runner` reads what the run itself writes into its output directory and shows it live. It is a
+watcher: it starts nothing, and it is not on the run's path.
+
+```bash
+cd LoadTest/runner && make
+./stand_runner --attach ../results/Bench/1.1.2                     # full screen, q to quit
+./stand_runner --attach ../results/Bench/1.1.2 --once              # one status, for a script or a log
+./stand_runner --attach ../results/Bench/1.1.2 --broker thinker11  # also the broker's own CPU and memory
+```
+
+The scenario lines come from the `INTERVAL` lines `xmq_scn` writes under `--output runner` (the
+default for a set): rate, average and p99 latency, and the client process's CPU and memory. A run
+made before that mode existed has none of those lines and shows as `not started`, so watch a set
+from 1.1.2 or later.
+
+`--broker HOST[:PORT]` (port 1883 by default) adds the broker side: the runner starts `xmq_sub` on
+that host and the two `$SYS/broker/system/*` figures - the broker process's CPU as a percent of one
+core, and its resident memory - appear next to the client's. It needs `xmq_sub` in `PATH` and a
+broker that publishes those topics (1.1.2 or later). Without `--broker` nothing outside this machine
+is contacted. A broker line that reads `xmq_sub exited` means the subscriber died - the broker
+restarted under it, or the binary is missing - and the figures stop rather than going stale.
+
 ## What it refuses to do
 
 - **It does not invent a profile.** The profile name is derived from the version, `bench-<version>`,
