@@ -95,7 +95,7 @@ private:
         m_fields.push_back({"Subnet", "Client source subnet", Kind::Text, &m_spec.subnet, nullptr, {}});
         m_fields.push_back({"First IP", "First host octet in that subnet", Kind::Text, &m_spec.firstOctet, nullptr, {}});
         m_fields.push_back({"IP Count", "Number of source addresses", Kind::Text, &m_spec.count, nullptr, {}});
-        m_fields.push_back({"Out", "Per-scenario logs; empty means results/raw/<stamp>-xmq<version>-bench", Kind::Text, &m_spec.out, nullptr, {}, "(stand_run.sh default)"});
+        m_fields.push_back({"Runner", "Per-scenario logs; empty means results/raw/<stamp>-xmq<version>-bench", Kind::Text, &m_spec.out, nullptr, {}, "(stand_run.sh default)"});
         m_fields.push_back({"Run file", "Where to write this run file", Kind::Text, &m_runFilePath, nullptr, {}});
         m_fields.push_back({"File results", "File the record with file_results.py when the set succeeds", Kind::Toggle, nullptr, &m_spec.fileResults, yesNo});
         m_fields.push_back({"Keep brokers", "Refuse to start if another broker owns the port, instead of stopping it", Kind::Toggle, nullptr, &m_spec.keepOtherBrokers, yesNo});
