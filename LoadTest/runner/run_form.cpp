@@ -181,8 +181,8 @@ private:
                                                : "stand_runner --edit  " + m_spec.file.string();
         for (int row = top + 1; row <= bottom; ++row)
         {
-            put(row, left, string(theme::dialog) + "║" + theme::reset);
-            put(row, left + innerWidth + 1, string(theme::dialog) + "║" + theme::reset);
+            put(row, left, string(theme::frame) + "║" + theme::reset);
+            put(row, left + innerWidth + 1, string(theme::frame) + "║" + theme::reset);
             put(row, left + innerWidth + 2, string(theme::desktopDim) + " " + theme::reset);
         }
         put(bottom + 1, left + 2, string(theme::desktopDim) + blank(static_cast<size_t>(innerWidth + 1)) + theme::reset);

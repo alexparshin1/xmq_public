@@ -878,8 +878,8 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
 
     for (int side = top + 1; side < bottom; ++side)
     {
-        put(side, left, theme::dialog, "║");
-        put(side, left + boxWidth - 1, theme::dialog, "║");
+        put(side, left, theme::frame, "║");
+        put(side, left + boxWidth - 1, theme::frame, "║");
         put(side, left + boxWidth, theme::desktopDim, " ");
     }
     put(bottom + 1, left + 2, theme::desktopDim, string(static_cast<size_t>(inner + 1), ' '));
