@@ -176,6 +176,12 @@ vector<Scenario> scanRunDir(const filesystem::path& dir)
         {
             continue;
         }
+        // The launcher writes the run's own stdout to run.log in the same directory; it is this
+        // screen's log, not a scenario, and it does not belong in the table.
+        if (entry.path().filename() == "run.log")
+        {
+            continue;
+        }
         Scenario scenario;
         scenario.log = entry.path();
         scenario.name = entry.path().stem().string();

@@ -110,6 +110,13 @@ Requires SPTK 5.6.21.
   client watching a run over MQTT sees what a scrape would show, without a second port or an SSH
   session on the broker host.
 
+- **`xmq_scn --output runner` reports every closed interval while the run is still going**, as one
+  `INTERVAL` line with count, average and p95/p99 latency, rate, and the client process's CPU and
+  memory - no progress bar, so a program watching the log can follow a run without parsing frames.
+  It covers the publish phase and now the connect phase as well, which reports
+  `MEASUREMENT-START` and then its intervals from that run's start, so a connections test is
+  visible while it runs rather than only in the table written at the end.
+
 ### Fixed
 
 - Authentication refusals now use MQTT 5 CONNACK reason code `0x86` for MQTT 5 clients rather than

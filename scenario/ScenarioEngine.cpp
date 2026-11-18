@@ -432,6 +432,82 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
         });
     }
 
+    if (m_runnerOutput)
+    {
+        // The connect phase has one latency object for every thread, so a window that closes is
+        // already the whole picture: unlike the publish phase there is nothing to merge across
+        // subscribers, and the interval can be printed where it closes.
+        //
+        // A run without a pace maker has no natural interval width; a second is what a watcher
+        // needs to see the run move, and it is the resolution the report line was built for.
+        if (statsInterval <= milliseconds(0))
+        {
+            statsInterval = milliseconds(1000);
+        }
+
+        COUT("MEASUREMENT-START duration_seconds=" << m_scenario.m_parameters.m_duration_sec.asInteger());
+
+        struct ConnectFeed
+        {
+            steady_clock::time_point lastSample {steady_clock::now()};
+            rusage                   usage {};
+            microseconds             lastInterval {-1us};
+            microseconds             intervalWidth {0};
+        };
+        auto feed = make_shared<ConnectFeed>();
+        feed->intervalWidth = duration_cast<microseconds>(statsInterval);
+        getrusage(RUSAGE_SELF, &feed->usage);
+
+        roundTripLatency.intervalObserver([feed](const microseconds intervalStart, const size_t count,
+                                                 const microseconds summaryLatency,
+                                                 const RoundTripLatency::Histogram& histogram)
+        {
+            const auto now = steady_clock::now();
+            rusage     usage {};
+            getrusage(RUSAGE_SELF, &usage);
+            const auto wallMicros = duration_cast<microseconds>(now - feed->lastSample).count();
+            const auto cpuMicros = (usage.ru_utime.tv_sec - feed->usage.ru_utime.tv_sec) * 1'000'000LL
+                                   + (usage.ru_utime.tv_usec - feed->usage.ru_utime.tv_usec)
+                                   + (usage.ru_stime.tv_sec - feed->usage.ru_stime.tv_sec) * 1'000'000LL
+                                   + (usage.ru_stime.tv_usec - feed->usage.ru_stime.tv_usec);
+            feed->usage = usage;
+            feed->lastSample = now;
+
+            // The width of this window, taken from where the previous one started; the first one
+            // has no predecessor and uses the interval the object was started with.
+            const auto width = feed->lastInterval.count() >= 0 ? intervalStart - feed->lastInterval
+                                                               : feed->intervalWidth;
+            feed->lastInterval = intervalStart;
+
+            const auto windowSeconds = duration<double>(width).count();
+            const auto average = count ? summaryLatency / static_cast<int64_t>(count) : microseconds(0);
+            const auto rate = windowSeconds > 0 ? static_cast<size_t>(count / windowSeconds) : 0;
+
+            size_t residentKb = 0;
+#ifdef __linux__
+            ifstream status("/proc/self/status");
+            for (string line; getline(status, line);)
+            {
+                if (line.starts_with("VmRSS:"))
+                {
+                    residentKb = static_cast<size_t>(strtoull(line.c_str() + 6, nullptr, 10));
+                    break;
+                }
+            }
+#endif
+            COUT(format("INTERVAL time_ms={} count={} avg_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
+                        duration_cast<milliseconds>(intervalStart).count(),
+                        count,
+                        average.count(),
+                        RoundTripLatency::intervalPercentile(histogram, 95).count(),
+                        RoundTripLatency::intervalPercentile(histogram, 99).count(),
+                        rate,
+                        wallMicros > 0 ? static_cast<int>(cpuMicros * 100 / wallMicros) : 0,
+                        residentKb / 1024)
+                 << endl);
+        });
+    }
+
     roundTripLatency.start(statsInterval);
     for (size_t i = 0; i < threadCount; ++i)
     {
