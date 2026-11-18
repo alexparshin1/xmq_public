@@ -23,6 +23,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -908,7 +909,7 @@ string keysLine(const stand::RunControl* control)
 {
     if (control == nullptr)
     {
-        return "q quit";
+        return "q quit   <- -> test   up/down scroll";
     }
     string keys {"q quit   s start"};
     keys += control->canStart() ? "" : " (unavailable)";
@@ -916,7 +917,31 @@ string keysLine(const stand::RunControl* control)
     keys += control->canStop() ? "" : " (unavailable)";
     keys += "   f file result";
     keys += control->canFile() ? "" : " (unavailable)";
+    keys += "   <- -> test   up/down scroll";
     return keys;
+}
+
+/// Which test the table shows: the one somebody chose, or else the one that is running.
+size_t shownScenario(const Report& report, const size_t chosen)
+{
+    if (report.scenarios.empty())
+    {
+        return 0;
+    }
+    if (chosen < report.scenarios.size())
+    {
+        return chosen;
+    }
+    // Backwards: the scenarios run in order, so the newest one that is still going is the one the
+    // run is on. An earlier one without its .block is a log this screen has not seen finish yet.
+    for (size_t index = report.scenarios.size(); index > 0; --index)
+    {
+        if (report.scenarios[index - 1].started && !report.scenarios[index - 1].finished)
+        {
+            return index - 1;
+        }
+    }
+    return report.scenarios.size() - 1;
 }
 
 /// One reported interval, as a table row. The elapsed column is where the window ended, which is
@@ -924,25 +949,29 @@ string keysLine(const stand::RunControl* control)
 string intervalRow(const Scenario& scenario, const Interval& interval)
 {
     ostringstream text;
-    text << ' ' << left2(scenario.name, 34) << ' '
-         << left2(to_string((interval.timeMs + scenario.windowMs) / 1000) + "s/" +
-                      to_string(scenario.durationSec) + "s",
-                  12) << ' '
-         << right2(to_string(interval.count), 9) << ' '
-         << right2(to_string(interval.rate), 7) << ' '
-         << right2(to_string(static_cast<long>(interval.avgUs)) + "us", 7) << ' '
-         << right2(to_string(static_cast<long>(interval.p95Us)) + "us", 7) << ' '
-         << right2(to_string(static_cast<long>(interval.p99Us)) + "us", 7) << ' '
-         << right2(to_string(interval.cpuPct) + "%", 5) << ' '
-         << right2(to_string(interval.rssMb) + "Mb", 6);
+    text << ' ' << left2(to_string((interval.timeMs + scenario.windowMs) / 1000) + "s/" +
+                            to_string(scenario.durationSec) + "s",
+                        14) << ' '
+         << right2(to_string(interval.count), 11) << ' '
+         << right2(to_string(interval.rate), 9) << ' '
+         << right2(to_string(static_cast<long>(interval.avgUs)) + "us", 9) << ' '
+         << right2(to_string(static_cast<long>(interval.p95Us)) + "us", 9) << ' '
+         << right2(to_string(static_cast<long>(interval.p99Us)) + "us", 9) << ' '
+         << right2(to_string(interval.cpuPct) + "%", 7) << ' '
+         << right2(to_string(interval.rssMb) + "Mb", 8);
     return text.str();
 }
 
 /// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
 /// shadow, the run's own lines above the table and the keys on a status line at the bottom.
 void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control,
-                const Pending& pending, const int width, const int height)
+                const Pending& pending, const int width, const int height,
+                const size_t chosen, const long scrollBack)
 {
+    // A run whose first log has not appeared yet has no scenario to show, but the screen still has
+    // a table in it.
+    static const Scenario emptyScenario;
+
     // One frame buffer for the life of the process: it is what remembers the last screen sent.
     static Frame frameStorage;
     frameStorage.resize(width, height);
@@ -960,7 +989,8 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto bottom = max(top + 8, height - 2);
 
     const auto info = infoLines(report, control);
-    const auto headerRow = top + 2 + static_cast<int>(info.size()) + 1;
+    // One line per info line, a blank, the test's own line, then the table's column header.
+    const auto headerRow = top + 2 + static_cast<int>(info.size()) + 2;
     const auto tableTop = headerRow + 1;
     const auto tableHeight = max(1, bottom - tableTop);
 
@@ -982,59 +1012,66 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         put(row++, left + 2, line.color, padded(" " + line.text, inner - 2));
     }
 
-    // Every interval the run has reported, oldest first, so the table is the run's own history and
-    // grows as it goes. When there are more rows than room, the oldest are dropped: the newest are
-    // the ones being watched.
-    vector<string> rows;
-    for (const auto& scenario: report.scenarios)
+    // One test at a time. A full set is five scenarios of several minutes each, so a table of all
+    // of them is unreadable by the second one and unusable by the third; the arrows choose, and
+    // unless somebody chooses, the table follows the test that is running.
+    const size_t shown = shownScenario(report, chosen);
+
+    const auto& scenario = report.scenarios.empty() ? emptyScenario : report.scenarios[shown];
+
+    // Which test is on the table, and how far into it.
     {
+        ostringstream text;
+        text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << report.scenarios.size() << "  "
+             << scenario.name << "   ";
         if (!scenario.started)
         {
-            ostringstream text;
-            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "waiting", 12);
-            rows.push_back(text.str());
-            continue;
+            text << (scenario.finished ? "done" : "waiting");
         }
-        for (const auto& interval: scenario.intervals)
+        else
         {
-            rows.push_back(intervalRow(scenario, interval));
+            const auto elapsedSec = scenario.intervals.empty() ? 0 : (scenario.intervals.back().timeMs + scenario.windowMs) / 1000;
+            text << (scenario.finished ? "done" : "running") << "  " << elapsedSec << "s/" << scenario.durationSec << "s";
         }
-        if (scenario.intervals.empty())
-        {
-            ostringstream text;
-            text << ' ' << left2(scenario.name, 34) << ' ' << left2(scenario.finished ? "done" : "starting", 12);
-            rows.push_back(text.str());
-        }
+        put(headerRow - 1, left + 2, theme::frameActive, padded(text.str(), inner - 2));
     }
 
     {
         ostringstream text;
-        text << ' ' << left2("scenario", 34) << ' ' << left2("elapsed", 12) << ' '
-             << right2("count", 9) << ' ' << right2("rate/s", 7) << ' ' << right2("avg", 7) << ' '
-             << right2("p95", 7) << ' ' << right2("p99", 7) << ' ' << right2("cpu", 5) << ' '
-             << right2("rss", 6);
+        text << ' ' << left2("elapsed", 14) << ' ' << right2("count", 11) << ' ' << right2("rate/s", 9) << ' '
+             << right2("avg", 9) << ' ' << right2("p95", 9) << ' ' << right2("p99", 9) << ' '
+             << right2("cpu", 7) << ' ' << right2("rss", 8);
         put(headerRow, left + 2, theme::header, padded(text.str(), inner - 2));
     }
 
-    size_t hidden = 0;
-    if (static_cast<int>(rows.size()) > tableHeight)
-    {
-        hidden = rows.size() - static_cast<size_t>(tableHeight);
-        rows.erase(rows.begin(), rows.begin() + static_cast<long>(hidden));
-    }
+    // The intervals of that test, newest at the bottom. The default view is the newest ones; Up
+    // and PageUp walk back through the ones already measured, and the count in the first row says
+    // how many are above what is on screen.
+    const auto rowsCount = static_cast<long>(scenario.intervals.size());
+    const auto room = static_cast<long>(max(1, tableHeight));
+    const auto offset = min(max(0L, scrollBack), max(0L, rowsCount - room));
+    const auto last = rowsCount - offset;
+    const auto first = max(0L, last - room);
+
     row = tableTop;
-    if (hidden > 0)
+    if (first > 0 && row < bottom)
     {
-        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(hidden) + " earlier interval(s)", inner - 2));
-        rows.erase(rows.begin());
+        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(first) + " earlier interval(s), PageUp", inner - 2));
     }
-    for (const auto& line: rows)
+    if (rowsCount == 0)
     {
-        if (row >= bottom)
-        {
-            break;
-        }
-        put(row++, left + 2, theme::dialog, padded(line, inner - 2));
+        ostringstream text;
+        text << ' ' << left2(scenario.started ? "starting" : (scenario.finished ? "done" : "waiting"), 12);
+        put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
+    }
+    for (long index = first; index < last && row < bottom; ++index)
+    {
+        put(row++, left + 2, theme::dialog, padded(intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]), inner - 2));
+    }
+    if (offset > 0 && row < bottom)
+    {
+        put(row, left + 2, theme::dialog,
+            padded(" ... " + to_string(offset) + " newer interval(s), PageDown", inner - 2));
     }
 
     // The frame, with its title in the top line and a shadow down the right and along the bottom.
@@ -1276,6 +1313,8 @@ int main(int argc, char** argv)
 
     sampleHostLoad();
     Pending pending;
+    size_t  chosen {static_cast<size_t>(-1)}; // -1: follow the test that is running
+    long    scrollBack {0};
     while (tui::Terminal::terminateFlag() == 0)
     {
         if (control)
@@ -1290,13 +1329,15 @@ int main(int argc, char** argv)
             pending.kind = Pending::Kind::None;
         }
 
+        auto report = buildReport(dir);
+        report.broker = watch.load();
+
         if (interactive)
         {
             // Redraw before reading, then act on the key: the screen shows the state the key was
             // pressed on rather than the one before the last tick.
-            auto report = buildReport(dir);
-            report.broker = watch.load();
-            drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height());
+            drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
+                       chosen, scrollBack);
 
             const auto press = terminal.readKey(1000);
             if (tui::Terminal::terminateFlag() != 0)
@@ -1311,9 +1352,54 @@ int main(int argc, char** argv)
             {
                 break;
             }
+            // Arrows belong to the table: which test, and how far back in it.
+            switch (press.key)
+            {
+                case tui::Key::Left:
+                case tui::Key::Right:
+                {
+                    pending.kind = Pending::Kind::None;
+                    if (report.scenarios.empty())
+                    {
+                        break;
+                    }
+                    const auto current = shownScenario(report, chosen);
+                    const auto count = report.scenarios.size();
+                    chosen = press.key == tui::Key::Right
+                                 ? (current + 1) % count
+                                 : (current + count - 1) % count;
+                    scrollBack = 0;
+                    break;
+                }
+                case tui::Key::Up:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack += 1;
+                    break;
+                case tui::Key::Down:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack = max(0L, scrollBack - 1);
+                    break;
+                case tui::Key::PageUp:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack += 10;
+                    break;
+                case tui::Key::PageDown:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack = max(0L, scrollBack - 10);
+                    break;
+                case tui::Key::Home:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack = numeric_limits<long>::max() / 2;
+                    break;
+                case tui::Key::End:
+                    pending.kind = Pending::Kind::None;
+                    scrollBack = 0;
+                    break;
+                default:
+                    break;
+            }
             if (press.key != tui::Key::Character)
             {
-                pending.kind = Pending::Kind::None;
                 continue;
             }
 
@@ -1358,9 +1444,8 @@ int main(int argc, char** argv)
             continue;
         }
 
-        auto report = buildReport(dir);
-        report.broker = watch.load();
-        drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height());
+        drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
+                   chosen, scrollBack);
         this_thread::sleep_for(chrono::seconds(1));
     }
     printf("\033[2J\033[H");

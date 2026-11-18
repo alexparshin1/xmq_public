@@ -203,7 +203,12 @@ one window and watched from another:
 ```
 
 It takes `<run-dir>` and `--broker` from the file's own `--out` and `--server`, so nothing has to be
-typed twice. Keys: `s` start, `x` stop, `f` file the result, `q` quit. Each of the three asks for a
+typed twice. Keys: `s` start, `x` stop, `f` file the result, `q` quit.
+
+The table shows one test at a time - a full set is five scenarios of several minutes each, and all
+of them at once stops being readable by the second. It follows the test that is running; `left` and
+`right` choose one by hand, and `up`, `down`, `PageUp`, `PageDown`, `Home` and `End` walk through
+that test's intervals, with the row at the top saying how many are above what is on screen. Each of the three asks for a
 `y` first, because none of them can be undone from the screen - a set is forty minutes, an
 interrupted set is not filed, and filing replaces that version's whole directory under
 `results/Bench/`.
