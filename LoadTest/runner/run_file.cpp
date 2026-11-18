@@ -283,6 +283,13 @@ string toScript(const RunSpec& spec)
 
 bool fromScript(const fs::path& file, RunSpec& spec)
 {
+    // A directory opens as a stream on Linux and reads as an empty file, which would look like a
+    // run file with no settings - and then a save would try to write over the directory.
+    error_code error;
+    if (!fs::is_regular_file(file, error))
+    {
+        return false;
+    }
     ifstream input(file);
     if (!input)
     {
@@ -410,6 +417,15 @@ vector<string> validate(const RunSpec& spec)
     if (spec.firstOctet.empty() || spec.firstOctet.find_first_not_of("0123456789") != string::npos)
     {
         problems.push_back("--first must be a number");
+    }
+
+    if (spec.file.empty())
+    {
+        problems.push_back("run file is empty: give it a path, e.g. runs/1.1.2-bench.run.sh");
+    }
+    else if (error_code error; fs::is_directory(spec.file, error))
+    {
+        problems.push_back("run file is a directory: " + spec.file.string() + " - give it a file name");
     }
     return problems;
 }

@@ -4,7 +4,9 @@
 #include "tui.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -448,9 +450,8 @@ private:
 
     void save()
     {
-        m_problems = validate(m_spec);
-
-        // The file the person typed is what gets written; empty means the default name.
+        // The path is taken from the field first: validation has to see the file that would be
+        // written, not the one the form started with.
         m_spec.file = m_runFilePath.empty() ? defaultRunFile(m_spec) : fs::path(m_runFilePath);
         if (m_spec.out.empty())
         {
@@ -459,6 +460,7 @@ private:
         // Both are now part of what the file says, so show them as such if the person stays here.
         m_runFilePath = m_spec.file.string();
 
+        m_problems = validate(m_spec);
         if (!m_problems.empty())
         {
             return;
@@ -475,7 +477,7 @@ private:
         output.close();
         if (!output)
         {
-            m_problems.push_back("cannot write " + m_spec.file.string());
+            m_problems.push_back("cannot write " + m_spec.file.string() + ": " + string(strerror(errno)));
             return;
         }
         chmod(m_spec.file.c_str(), 0755);

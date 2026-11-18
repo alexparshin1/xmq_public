@@ -798,39 +798,168 @@ vector<ScreenLine> statusLines(const Report& report, const stand::RunControl* co
 
 /// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
 /// shadow, a cyan column header and a status line along the bottom of the screen.
+/**
+ * The screen as a grid of cells, so a redraw can send only what changed.
+ *
+ * A one-second full repaint is a whole screen of spaces followed by the same screen again, and over
+ * ssh through screen that is visible as a blink even when nothing moved. Composing each frame in
+ * memory first turns "repaint" into "send the two lines that are different", which is nothing at
+ * all on a quiet second and a handful of bytes on a busy one.
+ */
+class Frame final
+{
+public:
+    void resize(const int width, const int height)
+    {
+        m_width = width;
+        m_height = height;
+        m_cells.assign(static_cast<size_t>(height * width), Cell {});
+        if (static_cast<int>(m_rendered.size()) != height)
+        {
+            m_rendered.assign(static_cast<size_t>(height), string {});
+        }
+    }
+
+    void clear(const char* color)
+    {
+        const auto id = colorId(color);
+        for (auto& cell: m_cells)
+        {
+            cell.glyph = " ";
+            cell.color = id;
+        }
+    }
+
+    /// @param row One-based row, @param column one-based column, as the terminal counts them.
+    void put(const int row, const int column, const char* color, const string& text)
+    {
+        if (row < 1 || row > m_height || column < 1 || column > m_width)
+        {
+            return;
+        }
+        const auto id = colorId(color);
+        int        at = column - 1;
+        for (size_t index = 0; index < text.size() && at < m_width;)
+        {
+            const auto lead = static_cast<unsigned char>(text[index]);
+            const auto length = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
+            auto&      cell = m_cells[static_cast<size_t>((row - 1) * m_width + at)];
+            cell.glyph = text.substr(index, length);
+            cell.color = id;
+            index += length;
+            ++at;
+        }
+    }
+
+    /// Sends the rows that differ from the last frame. Nothing on a quiet second.
+    void flush()
+    {
+        string output;
+        for (int row = 1; row <= m_height; ++row)
+        {
+            const auto rendered = renderRow(row);
+            if (rendered == m_rendered[static_cast<size_t>(row - 1)])
+            {
+                continue;
+            }
+            m_rendered[static_cast<size_t>(row - 1)] = rendered;
+            output += "\033[" + to_string(row) + ";1H" + rendered;
+        }
+        if (!output.empty())
+        {
+            output += "\033[?25l";
+            fwrite(output.data(), 1, output.size(), stdout);
+            fflush(stdout);
+        }
+    }
+
+private:
+    struct Cell
+    {
+        string glyph {" "};
+        int    color {0};
+    };
+
+    int colorId(const char* color)
+    {
+        for (size_t index = 0; index < m_palette.size(); ++index)
+        {
+            if (m_palette[index] == color)
+            {
+                return static_cast<int>(index);
+            }
+        }
+        m_palette.push_back(color);
+        return static_cast<int>(m_palette.size()) - 1;
+    }
+
+    string renderRow(const int row)
+    {
+        string text;
+        int    currentColor = -1;
+        for (int column = 0; column < m_width; ++column)
+        {
+            const auto& cell = m_cells[static_cast<size_t>((row - 1) * m_width + column)];
+            if (cell.color != currentColor)
+            {
+                text += m_palette[static_cast<size_t>(cell.color)];
+                currentColor = cell.color;
+            }
+            text += cell.glyph;
+        }
+        text += "\033[0m";
+        return text;
+    }
+
+    int                        m_width {0};
+    int                        m_height {0};
+    vector<Cell>               m_cells;
+    vector<string>             m_rendered;
+    vector<const char*>        m_palette;
+};
+
 void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control,
                 const Pending& pending, const int width, const int height)
 {
+    // One frame buffer for the life of the process: it is what remembers the last screen sent.
+    static Frame frameStorage;
+    frameStorage.resize(width, height);
+    frameStorage.clear(theme::desktop);
+
+    auto* const frame = &frameStorage;
+    const auto  put = [frame](const int row, const int column, const char* color, const string& text)
+    {
+        frame->put(row, column, color, text);
+    };
+
     const auto inner = max(40, min(width - 4, 110));
     const auto left = max(1, (width - inner - 2) / 2 + 1);
     const auto top = 1;
 
-    // Desktop, every line, so nothing of the previous frame survives behind the window.
-    for (int row = 1; row <= height; ++row)
+    const auto lines = statusLines(report, control, pending);
+    const auto contentStart = top + 2;
+    const auto statusStart = contentStart + 1 + static_cast<int>(report.scenarios.size()) + 1;
+    const auto bottom = statusStart + static_cast<int>(lines.size()) + 1;
+
+    // The window's own background: grey inside the frame, so the blank rows belong to the window
+    // instead of being holes onto the desktop.
+    for (int row = top + 1; row < bottom; ++row)
     {
-        printf("\033[%d;1H%s%s\033[0m", row, theme::desktop, string(static_cast<size_t>(width), ' ').c_str());
+        put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
     }
 
-    const auto put = [](const int row, const int column, const char* color, const string& text)
-    {
-        printf("\033[%d;%dH%s%s\033[0m", row, column, color, text.c_str());
-    };
-
-    // Content first, then the frame sized to it.
-    int row = top + 2;
     // Column widths are fixed and sum to the content width: a table that shifts is harder to read
     // than one that clips a long scenario name.
-    string header;
     {
         ostringstream text;
         text << ' ' << left2("scenario", 34) << ' ' << left2("state", 8) << ' '
              << left2("progress", 10) << ' ' << left2("elapsed", 10) << ' '
              << right2("rate/s", 8) << ' ' << right2("avg", 7) << ' ' << right2("p99", 7) << ' '
              << right2("cpu", 5) << ' ' << right2("rss", 6);
-        header = text.str();
+        put(contentStart, left + 2, theme::header, padded(text.str(), inner - 2));
     }
-    put(row++, left + 2, theme::header, padded(header, inner - 2));
 
+    int row = contentStart + 1;
     for (const auto& scenario: report.scenarios)
     {
         if (!scenario.started)
@@ -854,14 +983,13 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
     }
 
-    const auto lines = statusLines(report, control, pending);
-    row++;
+    row = statusStart;
     for (const auto& line: lines)
     {
         put(row++, left + 2, line.color, padded(" " + line.text, inner - 2));
     }
 
-    const auto bottom = row + 1;
+    // The frame, with its title in the top line and a shadow down the right and along the bottom.
     const auto boxWidth = inner + 2;
     string topLine {"╔"};
     string bottomLine {"╚"};
@@ -889,12 +1017,14 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
 
     if (height > bottom + 1)
     {
-        const auto line = string {"q quit   s start   x stop   f file result   Enter confirms"};
-        put(height, 2, theme::statusKey, line);
-        put(height, 2 + static_cast<int>(line.size()), theme::status,
-            string(static_cast<size_t>(max(0, width - static_cast<int>(line.size()) - 2)), ' '));
+        const auto keys = string {"q quit   s start   x stop   f file result   Enter confirms"};
+        put(height, 2, theme::statusKey, keys);
+        put(height, 2 + static_cast<int>(keys.size()), theme::status,
+            string(static_cast<size_t>(max(0, width - static_cast<int>(keys.size()) - 2)), ' '));
     }
-    fflush(stdout);
+
+    // Only the rows that changed go out, so an idle second sends nothing at all.
+    frame->flush();
 }
 
 } // namespace
@@ -979,7 +1109,12 @@ int main(int argc, char** argv)
             {
                 if (!stand::fromScript(editTarget, spec))
                 {
-                    fprintf(stderr, "stand_runner: cannot read %s\n", editTarget.c_str());
+                    // A directory is the mistake worth naming: it opens as a stream and reads as an
+                    // empty file, which used to reach the form as a run file with no settings.
+                    fprintf(stderr, filesystem::is_directory(editTarget)
+                                        ? "stand_runner: %s is a directory - give a run file path, or omit the argument\n"
+                                        : "stand_runner: cannot read %s\n",
+                            editTarget.c_str());
                     return 2;
                 }
             }
