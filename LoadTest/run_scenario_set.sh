@@ -461,7 +461,8 @@ failed=0
 for scenario in "${scenarios[@]}"; do
   scenario_started_epoch=$(date +%s)
   name="${scenario%.json}"
-  log="$out_dir/$name.log"
+  log_dir="$out_dir/$name"
+  log="$log_dir/$name.log"
 
   if [[ -n "$setup_cmd" ]]; then
     echo "=== $(date +%H:%M:%S) $name: setup"
@@ -503,6 +504,14 @@ for scenario in "${scenarios[@]}"; do
   fi
 
   echo "=== $(date +%H:%M:%S) $name: running"
+  mkdir -p "$log_dir" || {
+    echo "    cannot create scenario log directory $log_dir" >&2
+    summary+=("$name|cannot create log directory")
+    scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
+    write_record
+    failed=1
+    continue
+  }
   run_started="$(date '+%Y-%m-%d %H:%M:%S')"
   read -r nic_rx_before nic_tx_before <<<"$(nic_counters)"
   start_broker_stats

@@ -44,6 +44,7 @@ inline constexpr const char* buttonKey = "\033[1;30;42m";
 inline constexpr const char* header = "\033[30;46m";
 inline constexpr const char* status = "\033[30;47m";        // light grey bar
 inline constexpr const char* statusKey = "\033[1;31;47m";   // the keys on it, in red
+inline constexpr const char* statusDim = "\033[90;47m";     // unavailable actions, grey
 
 // The scrollbar every Turbo Vision window carried down its right edge: cyan, with arrows at the
 // ends and a thumb whose length says how much of the list is on screen.

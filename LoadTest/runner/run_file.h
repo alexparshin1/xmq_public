@@ -19,6 +19,8 @@ struct RunSpec
     std::string version;              ///< XMQ version under test, e.g. 1.1.2.
     std::string setFile {"Scenario-Set-Bench.txt"};
     std::string server {"thinker11"};
+    std::string brokerUser {"user"};
+    std::string brokerPassword {"Secret#123"};
     std::string nic {"enp86s0"};
     std::string subnet {"10.1.1"};
     std::string firstOctet {"150"};

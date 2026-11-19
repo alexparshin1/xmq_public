@@ -31,6 +31,7 @@ struct RunState
     long      elapsedSec {0};
     std::string log;         ///< <out>/run.log, where the detached run writes.
     std::string record;      ///< <out>/record.txt, the input to filing.
+    std::string monitorDir;  ///< The managed run's temporary /tmp output, removed on screen exit.
     std::string lastAction;  ///< What the screen should say about the last start, stop or filing.
 };
 
@@ -39,6 +40,7 @@ class RunControl final
 public:
     /// @param spec The run this screen may control; only out, version and file are used.
     explicit RunControl(RunSpec spec);
+    ~RunControl();
 
     /// Re-check the process and the record: called once per screen tick.
     void poll();
@@ -82,6 +84,7 @@ private:
     std::chrono::steady_clock::time_point m_startedAt;
     std::chrono::steady_clock::time_point m_stopDeadline;
     bool      m_stopping {false};
+    std::vector<std::string> m_tempDirs;
 };
 
 } // namespace stand

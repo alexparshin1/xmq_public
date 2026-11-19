@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -89,6 +90,13 @@ void RunControl::readPidFile()
     input >> started;
 
     m_state.pid = pid;
+    input >> m_state.monitorDir;
+    if (!m_state.monitorDir.empty())
+    {
+        m_state.log = (fs::path(m_state.monitorDir) / "run.log").string();
+        m_state.record = (fs::path(m_state.monitorDir) / "record.txt").string();
+        m_tempDirs.push_back(m_state.monitorDir);
+    }
     if (alive())
     {
         m_state.phase = RunPhase::Running;
@@ -102,10 +110,23 @@ void RunControl::readPidFile()
     }
 }
 
+RunControl::~RunControl()
+{
+    for (const auto& directory: m_tempDirs)
+    {
+        // Only remove directories created by mkdtemp in /tmp, never a user-supplied --out path.
+        if (directory.starts_with("/tmp/stand-runner-"))
+        {
+            error_code error;
+            fs::remove_all(directory, error);
+        }
+    }
+}
+
 void RunControl::writePidFile() const
 {
     ofstream output(pidFile(m_spec.out), ios::trunc);
-    output << m_state.pid << '\n' << time(nullptr) << '\n';
+    output << m_state.pid << '\n' << time(nullptr) << '\n' << m_state.monitorDir << '\n';
 }
 
 bool RunControl::alive() const
@@ -154,6 +175,19 @@ void RunControl::start()
         return;
     }
 
+    string monitorTemplate {"/tmp/stand-runner-XXXXXX"};
+    vector<char> monitorPath(monitorTemplate.begin(), monitorTemplate.end());
+    monitorPath.push_back('\0');
+    if (mkdtemp(monitorPath.data()) == nullptr)
+    {
+        m_state.lastAction = string("cannot create temporary log directory: ") + strerror(errno);
+        return;
+    }
+    m_state.monitorDir = monitorPath.data();
+    m_tempDirs.push_back(m_state.monitorDir);
+    m_state.log = (fs::path(m_state.monitorDir) / "run.log").string();
+    m_state.record = (fs::path(m_state.monitorDir) / "record.txt").string();
+
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
@@ -167,7 +201,8 @@ void RunControl::start()
     // terminal and started from another.
     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
 
-    array<char*, 2> arguments {const_cast<char*>(m_spec.file.c_str()), nullptr};
+    array<char*, 4> arguments {const_cast<char*>(m_spec.file.c_str()), const_cast<char*>("--out"),
+                               m_state.monitorDir.data(), nullptr};
     pid_t           pid = 0;
     const auto      spawned = posix_spawnp(&pid, m_spec.file.c_str(), &actions, &attributes,
                                            arguments.data(), environ);
@@ -176,6 +211,9 @@ void RunControl::start()
 
     if (spawned != 0)
     {
+        error_code error;
+        fs::remove_all(m_state.monitorDir, error);
+        m_state.monitorDir.clear();
         m_state.lastAction = string("cannot start: ") + strerror(spawned);
         return;
     }

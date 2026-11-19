@@ -280,8 +280,10 @@ string toScript(const RunSpec& spec)
          << "# exit status of this file is its exit status.\n"
          << "exec " << quote(script.string()) << " \\\n"
          << "    --version " << quote(spec.version) << " \\\n"
-         << "    --set " << quote(setPath.string()) << " \\\n"
-         << "    --server " << quote(spec.server) << " \\\n"
+          << "    --set " << quote(setPath.string()) << " \\\n"
+          << "    --server " << quote(spec.server) << " \\\n"
+          << "    --user " << quote(spec.brokerUser) << " \\\n"
+          << "    --password " << quote(spec.brokerPassword) << " \\\n"
          << "    --nic " << quote(spec.nic) << " \\\n"
          << "    --subnet " << quote(spec.subnet) << " \\\n"
          << "    --first " << quote(spec.firstOctet) << " \\\n"
@@ -364,6 +366,14 @@ bool fromScript(const fs::path& file, RunSpec& spec)
         else if (argument == "--server")
         {
             spec.server = valueAfter(at);
+        }
+        else if (argument == "--user")
+        {
+            spec.brokerUser = valueAfter(at);
+        }
+        else if (argument == "--password")
+        {
+            spec.brokerPassword = valueAfter(at);
         }
         else if (argument == "--nic")
         {

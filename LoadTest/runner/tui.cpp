@@ -338,6 +338,14 @@ KeyPress Terminal::readKey(const int timeoutMs)
     {
         press.key = Key::PageDown;
     }
+    else if (number == "15")
+    {
+        press.key = Key::F5;
+    }
+    else if (number == "19")
+    {
+        press.key = Key::F8;
+    }
     else if (number == "21")
     {
         press.key = Key::F10;

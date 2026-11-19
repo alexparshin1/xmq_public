@@ -26,9 +26,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -71,9 +73,12 @@ struct Scenario
     filesystem::path     log;
     bool                  finished {false};
     bool                  started {false};
+    bool                  runPhase {false};
+    size_t                measurementStarts {0};
     long                  durationSec {0};
     long                  windowMs {0};      ///< Width of one reported interval, from the log itself.
     vector<Interval>      intervals;
+    filesystem::path      block;
     chrono::system_clock::time_point lastWrite;
 };
 
@@ -137,6 +142,17 @@ void parseScenario(Scenario& scenario)
     {
         if (line.starts_with("MEASUREMENT-START"))
         {
+            // A scenario can report a connection-measurement phase before its actual publish run.
+            // Each phase has its own MEASUREMENT-START; the screen shows only the latest phase,
+            // rather than concatenating connection intervals with the run's intervals.
+            scenario.intervals.clear();
+            scenario.durationSec = 0;
+            scenario.windowMs = 0;
+            ++scenario.measurementStarts;
+            // Traffic scenarios connect publisher and subscriber groups before the measured run.
+            // The dedicated Connections test has only one measurement phase, which is the test.
+            scenario.runPhase = scenario.measurementStarts >= 3 ||
+                                scenario.name.find("Connections") != string::npos;
             scenario.started = true;
             if (const auto seconds = field(line, "duration_seconds"))
             {
@@ -145,6 +161,10 @@ void parseScenario(Scenario& scenario)
             continue;
         }
         if (!line.starts_with("INTERVAL "))
+        {
+            continue;
+        }
+        if (!scenario.runPhase)
         {
             continue;
         }
@@ -157,7 +177,20 @@ void parseScenario(Scenario& scenario)
         interval.rate = static_cast<long>(field(line, "rate").value_or(0));
         interval.cpuPct = static_cast<int>(field(line, "cpu_pct").value_or(0));
         interval.rssMb = static_cast<long>(field(line, "rss_mb").value_or(0));
-        scenario.intervals.push_back(interval);
+        // Closing the preceding connection phase can race with the first publish windows and emit
+        // a late, partial interval at the same timestamp. For duplicate timestamps, keep the
+        // substantive window rather than displaying that small tail as an extra measurement row.
+        if (!scenario.intervals.empty() && scenario.intervals.back().timeMs == interval.timeMs)
+        {
+            if (interval.count > scenario.intervals.back().count)
+            {
+                scenario.intervals.back() = interval;
+            }
+        }
+        else
+        {
+            scenario.intervals.push_back(interval);
+        }
     }
     // The window width is not on the line; consecutive starts give it, and the last one is the
     // only way to know how much of the run the final line already accounts for.
@@ -172,40 +205,55 @@ void parseScenario(Scenario& scenario)
     }
 }
 
-vector<Scenario> scanRunDir(const filesystem::path& dir)
+vector<Scenario> scanRunDir(const filesystem::path& logDir, const filesystem::path& blockDir)
 {
     vector<Scenario> scenarios;
-    for (const auto& entry: filesystem::directory_iterator(dir))
+    error_code directoryError;
+    if (!filesystem::is_directory(logDir, directoryError) || directoryError)
     {
-        if (entry.path().extension() != ".log")
+        return scenarios;
+    }
+    const auto addLog = [&scenarios, &blockDir](const filesystem::path& logPath, const string& name)
+    {
+        if (logPath.extension() != ".log" || name == "run" || name.starts_with("preflight"))
         {
-            continue;
-        }
-        // The launcher writes the run's own stdout to run.log in the same directory; it is this
-        // screen's log, not a scenario, and it does not belong in the table.
-        if (entry.path().filename() == "run.log")
-        {
-            continue;
-        }
-        if (entry.path().stem().string().starts_with("preflight"))
-        {
-            continue;
+            return;
         }
         Scenario scenario;
-        scenario.log = entry.path();
-        scenario.name = entry.path().stem().string();
-        scenario.lastWrite = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(entry.path()));
+        scenario.log = logPath;
+        scenario.name = name;
+        scenario.block = blockDir / (name + ".block");
+        scenario.lastWrite = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(logPath));
 
         // A .block left by an earlier attempt in the same directory would otherwise mark this run
         // as finished before it starts: it counts only if it is not older than the log beside it.
         error_code error;
-        const auto block = entry.path().parent_path() / (scenario.name + ".block");
-        if (filesystem::exists(block, error))
+        if (filesystem::exists(scenario.block, error))
         {
-            const auto blockTime = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(block, error));
+            const auto blockTime = chrono::clock_cast<chrono::system_clock>(filesystem::last_write_time(scenario.block, error));
             scenario.finished = !error && blockTime >= scenario.lastWrite;
         }
         scenarios.push_back(std::move(scenario));
+    };
+
+    for (const auto& entry: filesystem::directory_iterator(logDir))
+    {
+        if (entry.is_directory())
+        {
+            // Managed runs keep each scenario's live log in its own temporary directory.
+            for (const auto& file: filesystem::directory_iterator(entry.path()))
+            {
+                if (file.is_regular_file() && file.path().extension() == ".log")
+                {
+                    addLog(file.path(), entry.path().filename().string());
+                }
+            }
+        }
+        else if (entry.is_regular_file() && entry.path().extension() == ".log")
+        {
+            // Bare-directory viewing reads the legacy flat layout.
+            addLog(entry.path(), entry.path().stem().string());
+        }
     }
     sort(scenarios.begin(), scenarios.end(),
          [](const Scenario& a, const Scenario& b) { return a.lastWrite < b.lastWrite; });
@@ -321,6 +369,7 @@ public:
     /// @param target "host" or "host:port", as given on the command line.
     void start(const string& target)
     {
+        m_target = target;
         const auto colon = target.rfind(':');
         const auto host = colon == string::npos ? target : target.substr(0, colon);
         const auto port = colon == string::npos ? string("1883") : target.substr(colon + 1);
@@ -351,8 +400,9 @@ public:
         posix_spawn_file_actions_addclose(&actions, fds[0]);
         posix_spawn_file_actions_addclose(&actions, fds[1]);
 
-        array<string, 8> storage {"xmq_sub", "-h", host, "-p", port, "-t", "$SYS/broker/system/#", "-v"};
-        array<char*, 9>  arguments {};
+        array<string, 12> storage {"xmq_sub", "-h", host, "-p", port, "-u", m_username,
+                                   "-P", m_password, "-t", "$SYS/broker/system/#", "-v"};
+        array<char*, 13>  arguments {};
         for (size_t i = 0; i < storage.size(); ++i)
         {
             arguments[i] = storage[i].data();
@@ -366,6 +416,7 @@ public:
             close(fds[0]);
             close(fds[1]);
             m_load.state = string("xmq_sub: ") + strerror(spawned);
+            m_retryAt = chrono::steady_clock::now() + chrono::seconds(2);
             return;
         }
 
@@ -376,6 +427,12 @@ public:
         fcntl(m_fd, F_SETFL, flags | O_NONBLOCK);
         m_load.state = "waiting";
         m_sinceLine = chrono::steady_clock::now();
+    }
+
+    void setCredentials(const string& username, const string& password)
+    {
+        m_username = username;
+        m_password = password;
     }
 
     void stop()
@@ -399,6 +456,10 @@ public:
     {
         if (m_fd < 0)
         {
+            if (!m_target.empty() && chrono::steady_clock::now() >= m_retryAt)
+            {
+                start(m_target);
+            }
             return;
         }
 
@@ -428,14 +489,27 @@ public:
         if (ended && m_pid > 0)
         {
             int status = 0;
-            if (waitpid(m_pid, &status, WNOHANG) == m_pid)
+            const auto waited = waitpid(m_pid, &status, WNOHANG);
+            const bool childExited = waited == m_pid;
+            if (childExited)
             {
                 m_pid = -1;
             }
             close(m_fd);
             m_fd = -1;
-            m_load.state = WIFEXITED(status) ? "xmq_sub exited (" + to_string(WEXITSTATUS(status)) + ")"
-                                             : "xmq_sub stopped";
+            if (childExited)
+            {
+                m_load.state = WIFEXITED(status) ? "xmq_sub exited (" + to_string(WEXITSTATUS(status)) + ")"
+                                                 : "xmq_sub stopped";
+            }
+            else
+            {
+                m_load.state = "broker connection lost; reconnecting";
+                kill(m_pid, SIGTERM);
+                waitpid(m_pid, nullptr, 0);
+                m_pid = -1;
+            }
+            m_retryAt = chrono::steady_clock::now() + chrono::seconds(2);
             return;
         }
 
@@ -510,6 +584,10 @@ private:
     pid_t      m_pid {-1};
     int        m_fd {-1};
     chrono::steady_clock::time_point m_sinceLine {chrono::steady_clock::now()};
+    string m_username {"user"};
+    string m_password {"Secret#123"};
+    string m_target;
+    chrono::steady_clock::time_point m_retryAt {};
 };
 
 struct Report
@@ -524,17 +602,55 @@ struct Report
     long             etaSec {0};
 };
 
+long plannedDuration(const filesystem::path& setFile)
+{
+    if (setFile.empty())
+    {
+        return 0;
+    }
+    ifstream input(setFile);
+    string line;
+    long total = 0;
+    const regex durationPattern {R"("duration_sec"\s*:\s*(\d+))"};
+    while (getline(input, line))
+    {
+        const auto comment = line.find('#');
+        if (comment != string::npos)
+        {
+            line.erase(comment);
+        }
+        const auto first = line.find_first_not_of(" \t\r");
+        if (first == string::npos)
+        {
+            continue;
+        }
+        line = line.substr(first);
+        const auto last = line.find_last_not_of(" \t\r");
+        line.erase(last + 1);
+        const auto scenarioFile = stand::loadTestDirectory() / line;
+        const auto content = readLog(scenarioFile);
+        smatch match;
+        if (regex_search(content, match, durationPattern))
+        {
+            total += stol(match[1].str());
+        }
+    }
+    return total;
+}
+
 /// A fresh run is one whose log was written after this screen opened (or after the operator pressed
 /// start). Its own intervals are what the table shows; whatever was in the directory before that is
 /// a previous run and must not appear as if it had just been measured.
 Report buildReport(const filesystem::path& dir,
+                   const filesystem::path& blockDir,
                    const chrono::system_clock::time_point since = chrono::system_clock::time_point {},
                    const bool managedScreen = false,
-                   const bool ownRunRunning = false)
+                   const bool ownRunRunning = false,
+                   const filesystem::path& scenarioSet = {})
 {
     Report report;
     report.host = sampleHostLoad();
-    report.scenarios = scanRunDir(dir);
+    report.scenarios = scanRunDir(dir, blockDir);
     if (managedScreen && !ownRunRunning)
     {
         // A run file is not executed just by opening its viewer. If logs are changing while this
@@ -549,17 +665,15 @@ Report buildReport(const filesystem::path& dir,
                          (!error && chrono::clock_cast<chrono::system_clock>(runLogTime) > recent);
         report.scenarios.clear();
     }
+    // Old logs are not part of a managed run. Clearing their measurements but leaving the entries
+    // in the scenario list made the screen navigate through empty pages before reaching this run.
+    if (since != chrono::system_clock::time_point {})
+    {
+        erase_if(report.scenarios, [since](const Scenario& scenario) { return scenario.lastWrite < since; });
+    }
     for (auto& scenario: report.scenarios)
     {
         parseScenario(scenario);
-        // A log last written before this screen began watching predates the run being watched:
-        // its intervals are a previous run's result, not something measured now.
-        if (since != chrono::system_clock::time_point {} && scenario.lastWrite < since)
-        {
-            scenario.intervals.clear();
-            scenario.started = false;
-            scenario.finished = false;
-        }
     }
     // stand_run.sh writes preflight diagnostics to run.log. They describe setup, not a load-test
     // scenario, so expose the phase as run state rather than adding it to the result table. On a
@@ -617,6 +731,15 @@ Report buildReport(const filesystem::path& dir,
         }
     }
     report.etaSec = remaining;
+    if (!scenarioSet.empty())
+    {
+        long knownDuration = 0;
+        for (const auto& scenario: report.scenarios)
+        {
+            knownDuration += scenario.durationSec;
+        }
+        report.etaSec += max(0L, plannedDuration(scenarioSet) - knownDuration);
+    }
     return report;
 }
 
@@ -630,12 +753,14 @@ void printBroker(const BrokerLoad& broker)
     }
     if (broker.state == "live" && broker.ageSec <= 5)
     {
-        printf("broker: cpu %d%% rss %ldMb   (its own $SYS figures)\n", broker.cpuPct, broker.rssMb);
+        printf("broker: CPU %d%%, RSS %.1fGb   (its own $SYS figures)\n",
+               broker.cpuPct, broker.rssMb / 1024.0);
         return;
     }
     if (broker.state == "live")
     {
-        printf("broker: last figures %ds ago, cpu %d%% rss %ldMb\n", broker.ageSec, broker.cpuPct, broker.rssMb);
+        printf("broker: last figures %ds ago, CPU %d%%, RSS %.1fGb\n",
+               broker.ageSec, broker.cpuPct, broker.rssMb / 1024.0);
         return;
     }
     if (broker.state == "waiting")
@@ -807,22 +932,25 @@ vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* cont
     vector<ScreenLine> lines;
 
     ostringstream client;
-    client << "client cpu " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
+    client << "client: CPU " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
     // No estimate until something is running: an eta computed from an abandoned run's last window
     // is a number about nothing.
     if (!stale && report.etaSec > 0)
     {
-        client << ", eta " << humanDuration(report.etaSec);
+        client << ", ETA " << humanDuration(report.etaSec);
     }
     lines.push_back({client.str(), theme::desktop});
 
     switch (report.broker.state == "live" ? (report.broker.ageSec <= 5 ? 0 : 1) : 2)
     {
         case 0:
-            lines.push_back({"broker cpu " + to_string(report.broker.cpuPct) + "%, rss " + to_string(report.broker.rssMb) +
-                                 "Mb   (its own $SYS figures)",
-                             theme::desktop});
+        {
+            ostringstream broker;
+            broker << "broker: CPU " << report.broker.cpuPct << "%, RSS " << fixed << setprecision(1)
+                   << report.broker.rssMb / 1024.0 << "Gb   (its own $SYS figures)";
+            lines.push_back({broker.str(), theme::desktop});
             break;
+        }
         case 1:
             lines.push_back({"broker: last figures " + to_string(report.broker.ageSec) + "s ago", theme::warningDesktop});
             break;
@@ -857,28 +985,36 @@ vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* cont
             lines.push_back({"run: nothing to start", theme::desktop});
             break;
     }
-    if (!state.lastAction.empty())
+    if (!state.lastAction.empty() && !state.lastAction.starts_with("started, logging to "))
     {
         lines.push_back({state.lastAction, theme::desktop});
     }
     return lines;
 }
 
-/// The keys, for the status line at the bottom of the screen: '~' marks a key, drawn in red.
-string keysLine(const stand::RunControl* control)
+/// Function-key actions on the status bar: available key names are red, labels black; disabled
+/// actions are both grey.
+void drawKeysLine(tui::Frame& frame, const int row, const stand::RunControl* control)
 {
-    if (control == nullptr)
+    int column = 2;
+    const auto action = [&frame, row, &column](const string& key, const string& label, const bool available)
     {
-        return "~q~ quit   ~<- ->~ test   ~up/down~ scroll";
-    }
-    string keys {"~q~ quit   ~s~ start"};
-    keys += control->canStart() ? "" : " (unavailable)";
-    keys += "   ~x~ stop";
-    keys += control->canStop() ? "" : " (unavailable)";
-    keys += "   ~f~ file result";
-    keys += control->canFile() ? "" : " (unavailable)";
-    keys += "   ~<- ->~ test   ~up/down~ scroll";
-    return keys;
+        frame.put(row, column, available ? theme::statusKey : theme::statusDim, key);
+        column += tui::columnsOf(key);
+        frame.put(row, column, available ? theme::status : theme::statusDim, " " + label);
+        column += 1 + tui::columnsOf(label);
+    };
+    action("F2", "File Results", control != nullptr && control->canFile());
+    frame.put(row, column, theme::status, "   ");
+    column += 3;
+    action("F5", "Start Test", control != nullptr && control->canStart());
+    frame.put(row, column, theme::status, "   ");
+    column += 3;
+    action("F8", "Stop Test", control != nullptr && control->canStop());
+    frame.put(row, column, theme::status, "   ");
+    column += 3;
+    action("F10", "Quit", true);
+    frame.put(row, column, theme::status, "    ⇄ Test  ⇅ Scroll");
 }
 
 /// Which test the table shows: the one somebody chose, or else the one that is running.
@@ -892,8 +1028,26 @@ size_t shownScenario(const Report& report, const size_t chosen)
     {
         return chosen;
     }
-    // Backwards: the scenarios run in order, so the newest one that is still going is the one the
-    // run is on. An earlier one without its .block is a log this screen has not seen finish yet.
+    // Follow the newest measured run, not a later scenario that is still connecting. If the new
+    // run has started but has not emitted its first interval, keep the last completed result shown.
+    for (size_t index = report.scenarios.size(); index > 0; --index)
+    {
+        const auto& scenario = report.scenarios[index - 1];
+        if (scenario.runPhase && scenario.started && !scenario.finished && !scenario.intervals.empty())
+        {
+            return index - 1;
+        }
+    }
+    for (size_t index = report.scenarios.size(); index > 0; --index)
+    {
+        const auto& scenario = report.scenarios[index - 1];
+        if (scenario.runPhase && scenario.finished && !scenario.intervals.empty())
+        {
+            return index - 1;
+        }
+    }
+    // Before the first measured result, show the current test as a status, even if its setup table
+    // is intentionally empty.
     for (size_t index = report.scenarios.size(); index > 0; --index)
     {
         if (report.scenarios[index - 1].started && !report.scenarios[index - 1].finished)
@@ -921,6 +1075,54 @@ string intervalRow(const Scenario& scenario, const Interval& interval)
          << right2(to_string(static_cast<long>(interval.p99Us)) + "us", 9) << ' '
          << right2(to_string(interval.cpuPct) + "%", 7) << ' '
          << right2(to_string(interval.rssMb) + "Mb", 8);
+    return text.str();
+}
+
+string testSummary(const Scenario& scenario)
+{
+    if (scenario.intervals.empty())
+    {
+        return " Summary: waiting for measured intervals";
+    }
+    vector<double> averages, p95s, p99s;
+    long totalCount = 0;
+    long totalRate = 0;
+    long totalCpu = 0;
+    long peakRss = 0;
+    for (const auto& interval: scenario.intervals)
+    {
+        averages.push_back(interval.avgUs);
+        p95s.push_back(interval.p95Us);
+        p99s.push_back(interval.p99Us);
+        totalCount += interval.count;
+        totalRate += interval.rate;
+        totalCpu += interval.cpuPct;
+        peakRss = max(peakRss, interval.rssMb);
+    }
+    const auto median = [](vector<double>& values)
+    {
+        sort(values.begin(), values.end());
+        const auto middle = values.size() / 2;
+        return values.size() % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+    };
+    const auto average = [](const vector<double>& values)
+    {
+        double total = 0;
+        for (const auto value: values)
+        {
+            total += value;
+        }
+        return total / values.size();
+    };
+    ostringstream text;
+    text << " Avg " << static_cast<long>(average(averages)) << "us"
+         << "   Median " << static_cast<long>(median(averages)) << "us"
+         << "   p95 " << static_cast<long>(median(p95s)) << "us"
+         << "   p99 " << static_cast<long>(median(p99s)) << "us"
+         << "   count " << totalCount
+         << "   rate " << totalRate / static_cast<long>(scenario.intervals.size()) << "/s"
+         << "   CPU " << totalCpu / static_cast<long>(scenario.intervals.size()) << "%"
+         << "   peak RSS " << peakRss << "Mb";
     return text.str();
 }
 
@@ -1094,15 +1296,16 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
         text << ' ' << left2(scenario.started ? "starting" : (scenario.finished ? "done" : "waiting"), 12);
         put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
     }
-    for (long index = first; index < last && row < bottom; ++index)
+    for (long index = first; index < last && row < bottom - 1; ++index)
     {
         put(row++, left + 2, theme::dialog, padded(intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]), inner - 2));
     }
-    if (offset > 0 && row < bottom)
+    if (offset > 0 && row < bottom - 1)
     {
         put(row, left + 2, theme::dialog,
             padded(" ... " + to_string(offset) + " newer interval(s), PageDown", inner - 2));
     }
+    put(bottom - 1, left + 2, theme::header, padded(testSummary(scenario), inner - 2));
 
     // The scrollbar down the right edge of the table, as every Turbo Vision window had one: arrows
     // at the ends, a track, and a thumb whose length is how much of the test is on screen and whose
@@ -1164,16 +1367,15 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     // One place for keys: always draw it on the last terminal row, regardless of how the frame
     // had to shrink to fit.
     const bool asking = pending.kind != Pending::Kind::None && control != nullptr;
-    const auto text = asking ? promptFor(pending, *control) : keysLine(control);
     put(height, 1, theme::status, string(static_cast<size_t>(width), ' '));
 
     if (asking)
     {
-        put(height, 2, theme::warning, text);
+        put(height, 2, theme::warning, promptFor(pending, *control));
     }
     else
     {
-        tui::putMarked(frameStorage, height, 2, theme::status, theme::statusKey, text);
+        drawKeysLine(frameStorage, height, control);
     }
 
     // Only the rows that changed go out, so an idle second sends nothing at all.
@@ -1338,6 +1540,7 @@ int main(int argc, char** argv)
     BrokerWatch watch;
     if (!brokerTarget.empty())
     {
+        watch.setCredentials(runSpec->brokerUser, runSpec->brokerPassword);
         watch.start(brokerTarget);
     }
 
@@ -1363,8 +1566,12 @@ int main(int argc, char** argv)
             }
             this_thread::sleep_for(chrono::milliseconds(100));
         }
-        auto report = buildReport(dir, {}, control.has_value(),
-                                  control && control->state().phase == stand::RunPhase::Running);
+        const auto logDir = control && !control->state().monitorDir.empty()
+                                ? filesystem::path(control->state().monitorDir)
+                                : dir;
+        auto report = buildReport(logDir, logDir, {}, control.has_value(),
+                                  control && control->state().phase == stand::RunPhase::Running,
+                                  runSpec ? stand::loadTestDirectory() / runSpec->setFile : filesystem::path {});
         report.broker = watch.load();
         printOnce(report);
         if (control)
@@ -1417,7 +1624,11 @@ int main(int argc, char** argv)
             pending.kind = Pending::Kind::None;
         }
 
-        auto report = buildReport(dir, managedRunSince, control.has_value(), managedRunStarted);
+        const auto logDir = control && !control->state().monitorDir.empty()
+                                ? filesystem::path(control->state().monitorDir)
+                                : dir;
+        auto report = buildReport(logDir, logDir, managedRunSince, control.has_value(), managedRunStarted,
+                                  runSpec ? stand::loadTestDirectory() / runSpec->setFile : filesystem::path {});
         report.broker = watch.load();
 
         if (interactive)
@@ -1492,6 +1703,41 @@ int main(int argc, char** argv)
                     break;
                 default:
                     break;
+            }
+            const auto confirmAction = [&](const Pending::Kind kind)
+            {
+                if (control.has_value())
+                {
+                    pending.kind = kind;
+                    pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                }
+            };
+            if (press.key == tui::Key::F2 && control && control->canFile())
+            {
+                confirmAction(Pending::Kind::File);
+                continue;
+            }
+            if (press.key == tui::Key::F5 && control && control->canStart())
+            {
+                confirmAction(Pending::Kind::Start);
+                continue;
+            }
+            if (press.key == tui::Key::F8 && control && control->canStop())
+            {
+                confirmAction(Pending::Kind::Stop);
+                continue;
+            }
+            if (press.key == tui::Key::F10)
+            {
+                if (control && control->canStop())
+                {
+                    confirmAction(Pending::Kind::Exit);
+                }
+                else
+                {
+                    break;
+                }
+                continue;
             }
             if (press.key != tui::Key::Character)
             {
