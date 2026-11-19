@@ -197,12 +197,14 @@ void RoundTripLatency::cancel(const uint32_t sequence)
 
 void RoundTripLatency::storeCurrentInterval()
 {
+    // Even an empty interval is observable: the live publisher aggregator uses this as a
+    // watermark before it emits a combined window from multiple subscribers.
+    const auto interval = duration_cast<microseconds>(m_nextIntervalTime - m_groupIntervalDuration - m_startTime);
     if (m_count)
     {
         // Key the bucket by the wall-clock start of the interval being closed, so buckets stay
         // aligned across objects and across delivery gaps (m_intervals.size() would drift after
         // an interval with no samples).
-        const auto interval = duration_cast<microseconds>(m_nextIntervalTime - m_groupIntervalDuration - m_startTime);
         auto& [count, summaryLatency, histogram] = m_intervals[interval];
         count += m_count;
         summaryLatency += m_summaryLatency;
@@ -221,6 +223,11 @@ void RoundTripLatency::storeCurrentInterval()
             // and the end-of-run table see the same key.
             m_intervalObserver(interval, count, summaryLatency, histogram);
         }
+    }
+    else if (m_intervalObserver)
+    {
+        const Histogram emptyHistogram;
+        m_intervalObserver(interval, 0, {}, emptyHistogram);
     }
     m_nextIntervalTime += m_groupIntervalDuration;
 }

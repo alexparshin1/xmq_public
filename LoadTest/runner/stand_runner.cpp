@@ -177,20 +177,7 @@ void parseScenario(Scenario& scenario)
         interval.rate = static_cast<long>(field(line, "rate").value_or(0));
         interval.cpuPct = static_cast<int>(field(line, "cpu_pct").value_or(0));
         interval.rssMb = static_cast<long>(field(line, "rss_mb").value_or(0));
-        // Closing the preceding connection phase can race with the first publish windows and emit
-        // a late, partial interval at the same timestamp. For duplicate timestamps, keep the
-        // substantive window rather than displaying that small tail as an extra measurement row.
-        if (!scenario.intervals.empty() && scenario.intervals.back().timeMs == interval.timeMs)
-        {
-            if (interval.count > scenario.intervals.back().count)
-            {
-                scenario.intervals.back() = interval;
-            }
-        }
-        else
-        {
-            scenario.intervals.push_back(interval);
-        }
+        scenario.intervals.push_back(interval);
     }
     // The window width is not on the line; consecutive starts give it, and the last one is the
     // only way to know how much of the run the final line already accounts for.
@@ -792,7 +779,7 @@ void printOnce(const Report& report)
                min(elapsedSec, scenario.durationSec), scenario.durationSec,
                last.rate, last.avgUs, last.p99Us, last.cpuPct, last.rssMb);
     }
-    printf("host: cpu %.0f%%, used %ldMb   eta %s\n", report.host.cpuPct, report.host.usedMb,
+    printf("host: cpu %.0f%%, used %.1fGb   eta %s\n", report.host.cpuPct, report.host.usedMb / 1024.0,
            humanDuration(report.etaSec).c_str());
     printBroker(report.broker);
 }
@@ -812,8 +799,8 @@ struct Pending
         Exit,
     };
 
-    Kind                             kind {Kind::None};
-    chrono::steady_clock::time_point deadline {};
+    Kind kind {Kind::None};
+    bool yesSelected {true};
 };
 
 string promptFor(const Pending& pending, const stand::RunControl& control)
@@ -822,13 +809,13 @@ string promptFor(const Pending& pending, const stand::RunControl& control)
     switch (pending.kind)
     {
         case Pending::Kind::Start:
-            return "start " + spec.file.filename().string() + "?  a full set takes about 40 minutes   y/N";
+            return "Start " + spec.file.filename().string() + "? Takes about 40 minutes.";
         case Pending::Kind::Stop:
-            return "stop the run (pid " + to_string(control.state().pid) + ")?  it will not be filed   y/N";
+            return "Stop the running test set? Partial results will not be filed.";
         case Pending::Kind::File:
-            return "file the result into results/Bench/" + spec.version + "/?  this replaces the directory   y/N";
+            return "File results to Bench/" + spec.version + "? Existing version data will be replaced.";
         case Pending::Kind::Exit:
-            return "stop the running set and quit?  the partial run will not be filed   y/N";
+            return "Stop the running set and quit? Partial results will not be filed.";
         case Pending::Kind::None:
             break;
     }
@@ -922,6 +909,38 @@ string padded(const string& text, const int columns)
     return clipped + string(static_cast<size_t>(max(0, columns - static_cast<int>(clipped.size()))), ' ');
 }
 
+void drawAlert(tui::Frame& frame, const int width, const int height, const string& message,
+               const bool yesSelected)
+{
+    const int boxWidth = min(max(42, tui::Terminal::displayWidth(message) + 6), max(28, width - 4));
+    const int boxHeight = 7;
+    const int left = max(1, (width - boxWidth) / 2 + 1);
+    const int top = max(1, (height - boxHeight) / 2 + 1);
+    const int inner = boxWidth - 2;
+    string topBorder {"╔"};
+    string bottomBorder {"╚"};
+    for (int i = 0; i < inner; ++i)
+    {
+        topBorder += "═";
+        bottomBorder += "═";
+    }
+    topBorder += "╗";
+    bottomBorder += "╝";
+    frame.put(top, left, theme::dialog, topBorder);
+    frame.put(top + boxHeight - 1, left, theme::dialog, bottomBorder);
+    for (int row = top + 1; row < top + boxHeight - 1; ++row)
+    {
+        frame.put(row, left, theme::dialog, "║");
+        frame.put(row, left + boxWidth - 1, theme::dialog, "║");
+        frame.put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
+    }
+    frame.put(top, left + 3, theme::dialog, " Confirm ");
+    frame.put(top + 2, left + 2, theme::dialog, padded(message, inner - 2));
+    const int buttons = left + max(2, (inner - 20) / 2);
+    frame.put(top + 4, buttons, yesSelected ? theme::buttonActive : theme::button, " Yes ");
+    frame.put(top + 4, buttons + 12, yesSelected ? theme::button : theme::buttonActive, " No ");
+}
+
 /// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
 /// --once can print the same words without a frame around them.
 /// What the run is doing, as the lines above the table: the client it is loading from, the broker
@@ -932,7 +951,8 @@ vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* cont
     vector<ScreenLine> lines;
 
     ostringstream client;
-    client << "client: CPU " << static_cast<int>(report.host.cpuPct) << "%, used " << report.host.usedMb << "Mb";
+    client << "client: CPU " << static_cast<int>(report.host.cpuPct) << "%, used " << fixed << setprecision(1)
+           << report.host.usedMb / 1024.0 << "Gb";
     // No estimate until something is running: an eta computed from an abandoned run's last window
     // is a number about nothing.
     if (!stale && report.etaSec > 0)
@@ -1371,7 +1391,8 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
 
     if (asking)
     {
-        put(height, 2, theme::warning, promptFor(pending, *control));
+        put(height, 2, theme::status, "←/→ Select   Enter Choose   Esc No");
+        drawAlert(frameStorage, width, height, promptFor(pending, *control), pending.yesSelected);
     }
     else
     {
@@ -1618,12 +1639,6 @@ int main(int argc, char** argv)
         }
         watch.refresh();
 
-        // A confirmation left unanswered for five seconds is a changed mind.
-        if (pending.kind != Pending::Kind::None && chrono::steady_clock::now() > pending.deadline)
-        {
-            pending.kind = Pending::Kind::None;
-        }
-
         const auto logDir = control && !control->state().monitorDir.empty()
                                 ? filesystem::path(control->state().monitorDir)
                                 : dir;
@@ -1647,13 +1662,59 @@ int main(int argc, char** argv)
             {
                 continue;
             }
+            if (pending.kind != Pending::Kind::None)
+            {
+                if (press.key == tui::Key::Left || press.key == tui::Key::Right)
+                {
+                    pending.yesSelected = !pending.yesSelected;
+                    continue;
+                }
+                const bool yes = press.key == tui::Key::Enter
+                                     ? pending.yesSelected
+                                     : press.key == tui::Key::Character &&
+                                           (press.text == "y" || press.text == "Y");
+                const bool no = press.key == tui::Key::Escape ||
+                                (press.key == tui::Key::Character &&
+                                 (press.text == "n" || press.text == "N")) ||
+                                (press.key == tui::Key::Enter && !pending.yesSelected);
+                if (yes)
+                {
+                    if (pending.kind == Pending::Kind::Start && control && control->canStart())
+                    {
+                        control->start();
+                        if (control->state().phase == stand::RunPhase::Running)
+                        {
+                            managedRunStarted = true;
+                            managedRunSince = chrono::system_clock::now();
+                        }
+                    }
+                    else if (pending.kind == Pending::Kind::Stop && control && control->canStop())
+                    {
+                        control->stop();
+                    }
+                    else if (pending.kind == Pending::Kind::File && control && control->canFile())
+                    {
+                        control->file();
+                    }
+                    else if (pending.kind == Pending::Kind::Exit && control && control->canStop())
+                    {
+                        control->stop();
+                        exitAfterStop = control->state().lastAction == "stopping (SIGTERM)";
+                    }
+                }
+                if (yes || no)
+                {
+                    pending.kind = Pending::Kind::None;
+                }
+                continue;
+            }
             if (press.key == tui::Key::Escape ||
                 (press.key == tui::Key::Character && (press.text == "q" || press.text == "Q")))
             {
                 if (control && control->canStop())
                 {
                     pending.kind = Pending::Kind::Exit;
-                    pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                    pending.yesSelected = true;
                     continue;
                 }
                 break;
@@ -1709,7 +1770,7 @@ int main(int argc, char** argv)
                 if (control.has_value())
                 {
                     pending.kind = kind;
-                    pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                    pending.yesSelected = true;
                 }
             };
             if (press.key == tui::Key::F2 && control && control->canFile())
@@ -1744,34 +1805,6 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            if (press.text == "y" || press.text == "Y")
-            {
-                if (pending.kind == Pending::Kind::Start && control && control->canStart())
-                {
-                    control->start();
-                    if (control->state().phase == stand::RunPhase::Running)
-                    {
-                        managedRunStarted = true;
-                        managedRunSince = chrono::system_clock::now();
-                    }
-                }
-                else if (pending.kind == Pending::Kind::Stop && control && control->canStop())
-                {
-                    control->stop();
-                }
-                else if (pending.kind == Pending::Kind::File && control && control->canFile())
-                {
-                    control->file();
-                }
-                else if (pending.kind == Pending::Kind::Exit && control && control->canStop())
-                {
-                    control->stop();
-                    exitAfterStop = control->state().lastAction == "stopping (SIGTERM)";
-                }
-                pending.kind = Pending::Kind::None;
-                continue;
-            }
-
             pending.kind = Pending::Kind::None;
             if (!control)
             {
@@ -1780,17 +1813,17 @@ int main(int argc, char** argv)
             if (press.text == "s" && control->canStart())
             {
                 pending.kind = Pending::Kind::Start;
-                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                pending.yesSelected = true;
             }
             else if (press.text == "x" && control->canStop())
             {
                 pending.kind = Pending::Kind::Stop;
-                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                pending.yesSelected = true;
             }
             else if (press.text == "f" && control->canFile())
             {
                 pending.kind = Pending::Kind::File;
-                pending.deadline = chrono::steady_clock::now() + chrono::seconds(5);
+                pending.yesSelected = true;
             }
             continue;
         }

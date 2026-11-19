@@ -152,7 +152,8 @@ public:
      *
      * Invoked while this object's mutex is held: the callback must not call back into this object
      * and must not block. It receives the bucket already accumulated under its interval key, so a
-     * window closed twice reports its running totals, not the increment.
+     * window closed twice reports its running totals, not the increment. Empty windows are reported
+     * with count zero so aggregators can tell that this object has advanced past that interval.
      */
     using IntervalObserver = std::function<void(std::chrono::microseconds intervalStart,
                                                 size_t count,

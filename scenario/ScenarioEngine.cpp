@@ -1249,15 +1249,18 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     }
 
     // --output runner: the windows as they close, for whoever is watching the run rather than
-    // reading it afterwards. Every subscriber holds its own latency object, so the same window
-    // arrives once per subscriber and is merged here under its interval key; a window is printed
-    // once it lies wholly in the past, so a watcher's view trails the run by one window.
+    // reading it afterwards. Every subscriber holds its own latency object, so each reports its
+    // closed-window watermark (including empty windows). The shared row is emitted only after all
+    // subscribers have closed that interval; otherwise a late callback could split one row into
+    // two INTERVAL lines with the same timestamp.
     struct LiveWindows
     {
         std::mutex                                         mutex;
         std::map<microseconds, RoundTripLatency::Interval> windows;
+        std::vector<int64_t>                               closedThrough;
     };
     LiveWindows liveWindows;
+    liveWindows.closedThrough.assign(clientPublishLatencies.size(), -1);
 
     // This process's own CPU and memory, not the broker's: xmq_scn runs on the load generator and
     // cannot read the broker's /proc without asking that host, which is the polling this mode
@@ -1295,19 +1298,24 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
 
     if (m_runnerOutput)
     {
-        for (auto& clientPublishLatency: clientPublishLatencies)
+        for (size_t subscriber = 0; subscriber < clientPublishLatencies.size(); ++subscriber)
         {
-            clientPublishLatency.intervalObserver(
-                [&liveWindows](const microseconds intervalStart, const size_t count,
-                               const microseconds summaryLatency, const RoundTripLatency::Histogram& histogram)
+            clientPublishLatencies[subscriber].intervalObserver(
+                [&liveWindows, subscriber](const microseconds intervalStart, const size_t count,
+                                           const microseconds summaryLatency,
+                                           const RoundTripLatency::Histogram& histogram)
                 {
                     const std::scoped_lock lock(liveWindows.mutex);
-                    auto& [windowCount, windowSummary, windowHistogram] = liveWindows.windows[intervalStart];
-                    windowCount += count;
-                    windowSummary += summaryLatency;
-                    for (const auto& [bucket, samples]: histogram)
+                    liveWindows.closedThrough[subscriber] = intervalStart.count();
+                    if (count)
                     {
-                        windowHistogram[bucket] += samples;
+                        auto& [windowCount, windowSummary, windowHistogram] = liveWindows.windows[intervalStart];
+                        windowCount += count;
+                        windowSummary += summaryLatency;
+                        for (const auto& [bucket, samples]: histogram)
+                        {
+                            windowHistogram[bucket] += samples;
+                        }
                     }
                 });
         }
@@ -1323,6 +1331,14 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             for (auto it = liveWindows.windows.begin(); it != liveWindows.windows.end();)
             {
                 if (it->first + groupInterval > elapsed)
+                {
+                    break;
+                }
+                if (!all_of(liveWindows.closedThrough.begin(), liveWindows.closedThrough.end(),
+                            [&it](const int64_t closedThrough)
+                            {
+                                return closedThrough >= it->first.count();
+                            }))
                 {
                     break;
                 }
@@ -1402,12 +1418,9 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             if (m_runnerOutput && measurementStarted && now >= nextRunnerFlush)
             {
                 emitClosedWindows(now);
-                nextRunnerFlush += groupInterval;
-                if (nextRunnerFlush <= now)
-                {
-                    // A stall longer than a window must not make every later flush late by it.
-                    nextRunnerFlush = now + groupInterval;
-                }
+                // Subscriber windows can close asynchronously. Recheck shortly so the combined
+                // row is emitted as soon as every subscriber has reported its watermark.
+                nextRunnerFlush = now + milliseconds(100);
             }
 
             if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)

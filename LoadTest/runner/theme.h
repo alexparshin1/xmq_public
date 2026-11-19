@@ -38,6 +38,7 @@ inline constexpr const char* selected = "\033[30;46m";    // black on cyan
 inline constexpr const char* shortcut = "\033[1;33;44m";  // yellow on blue
 inline constexpr const char* button = "\033[30;42m";
 inline constexpr const char* buttonKey = "\033[1;30;42m";
+inline constexpr const char* buttonActive = "\033[1;37;42m";
 
 // Table and status bars: black on cyan for a column header; the status line at the foot of a
 // Turbo Vision screen was a grey bar with black text and the shortcut in red.
