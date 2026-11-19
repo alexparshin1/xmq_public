@@ -29,6 +29,9 @@ inline constexpr const char* frameActive = "\033[1;37;44m";
 
 // A grey dialog: black text on light grey, the way cpGrayDialog reads on screen.
 inline constexpr const char* dialog = "\033[30;47m";
+inline constexpr const char* dialogFrame = "\033[97;47m"; // white double line on grey
+inline constexpr const char* dialogAccent = "\033[92;47m";
+inline constexpr const char* windowShadow = "\033[90m";
 inline constexpr const char* dialogDim = "\033[37;40m";   // a value that is not set
 
 // What the keyboard is on: Turbo Vision's "selected" style.
@@ -39,6 +42,8 @@ inline constexpr const char* shortcut = "\033[1;33;44m";  // yellow on blue
 inline constexpr const char* button = "\033[30;42m";
 inline constexpr const char* buttonKey = "\033[1;30;42m";
 inline constexpr const char* buttonActive = "\033[1;37;42m";
+inline constexpr const char* buttonHot = "\033[93;42m";
+inline constexpr const char* buttonShadowBelow = "\033[90;47m";
 
 // Table and status bars: black on cyan for a column header; the status line at the foot of a
 // Turbo Vision screen was a grey bar with black text and the shortcut in red.

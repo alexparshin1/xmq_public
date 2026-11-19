@@ -11,7 +11,6 @@
 
 #include <chrono>
 #include <string>
-#include <vector>
 
 namespace stand {
 
@@ -29,9 +28,9 @@ struct RunState
     long      pid {0};
     int       exitCode {0};
     long      elapsedSec {0};
-    std::string log;         ///< <out>/run.log, where the detached run writes.
-    std::string record;      ///< <out>/record.txt, the input to filing.
-    std::string monitorDir;  ///< The managed run's temporary /tmp output, removed on screen exit.
+    std::string log;         ///< The detached run's console log.
+    std::string record;      ///< The input to filing.
+    std::string monitorDir;  ///< Persistent per-attempt output under the configured --out.
     std::string lastAction;  ///< What the screen should say about the last start, stop or filing.
 };
 
@@ -40,7 +39,6 @@ class RunControl final
 public:
     /// @param spec The run this screen may control; only out, version and file are used.
     explicit RunControl(RunSpec spec);
-    ~RunControl();
 
     /// Re-check the process and the record: called once per screen tick.
     void poll();
@@ -49,7 +47,7 @@ public:
     bool canStop() const;
     bool canFile() const;
 
-    /// Executes the run file detached, in its own session, with its output in <out>/run.log. The
+    /// Executes the run file detached, in its own session, with a fresh output directory. The
     /// session matters: a stop has to reach xmq_scn and the shell that started it, not just the
     /// first process.
     void start();
@@ -83,8 +81,9 @@ private:
     RunState  m_state;
     std::chrono::steady_clock::time_point m_startedAt;
     std::chrono::steady_clock::time_point m_stopDeadline;
+    std::string m_processStart;
     bool      m_stopping {false};
-    std::vector<std::string> m_tempDirs;
+    bool      m_ownedChild {false};
 };
 
 } // namespace stand

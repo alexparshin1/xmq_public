@@ -42,6 +42,7 @@ public:
         {
             cell.glyph = " ";
             cell.color = id;
+            cell.foreground = -1;
         }
     }
 
@@ -61,8 +62,25 @@ public:
             auto&      cell = m_cells[static_cast<size_t>((row - 1) * m_width + at)];
             cell.glyph = text.substr(index, length);
             cell.color = id;
+            cell.foreground = -1;
             index += length;
             ++at;
+        }
+    }
+
+    /// Repeat a single-cell glyph with a new foreground, keeping each cell's existing background.
+    void overlay(const int row, const int column, const int count, const char* foreground, const string& glyph)
+    {
+        if (row < 1 || row > m_height || column < 1 || column > m_width)
+        {
+            return;
+        }
+        const auto id = colorId(foreground);
+        for (int i = 0; i < count && column + i <= m_width; ++i)
+        {
+            auto& cell = m_cells[static_cast<size_t>((row - 1) * m_width + column + i - 1)];
+            cell.glyph = glyph;
+            cell.foreground = id;
         }
     }
 
@@ -93,6 +111,7 @@ private:
     {
         string glyph {" "};
         int    color {0};
+        int    foreground {-1};
     };
 
     int colorId(const char* color)
@@ -112,13 +131,19 @@ private:
     {
         string text;
         int    currentColor = -1;
+        int    currentForeground = -1;
         for (int column = 0; column < m_width; ++column)
         {
             const auto& cell = m_cells[static_cast<size_t>((row - 1) * m_width + column)];
-            if (cell.color != currentColor)
+            if (cell.color != currentColor || cell.foreground != currentForeground)
             {
                 text += m_palette[static_cast<size_t>(cell.color)];
+                if (cell.foreground >= 0)
+                {
+                    text += m_palette[static_cast<size_t>(cell.foreground)];
+                }
                 currentColor = cell.color;
+                currentForeground = cell.foreground;
             }
             text += cell.glyph;
         }

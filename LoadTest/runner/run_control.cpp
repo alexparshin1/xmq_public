@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 #include <fcntl.h>
 #include <signal.h>
@@ -56,6 +57,34 @@ fs::path pidFile(const fs::path& out)
     return out / ".stand.pid";
 }
 
+// Field 22 of /proc/<pid>/stat is stable across exec, unlike cmdline. Skip comm
+// as a unit: the parenthesized executable name may contain spaces and ')'.
+string processStart(long pid)
+{
+    ifstream stat("/proc/" + to_string(pid) + "/stat");
+    string line;
+    getline(stat, line);
+    const auto end = line.rfind(')');
+    if (end == string::npos)
+    {
+        return {};
+    }
+    istringstream fields(line.substr(end + 1));
+    string value;
+    if (!(fields >> value) || value == "Z" || value == "X")
+    {
+        return {};
+    }
+    for (int index = 4; index <= 22; ++index)
+    {
+        if (!(fields >> value))
+        {
+            return {};
+        }
+    }
+    return value;
+}
+
 } // namespace
 
 RunControl::RunControl(RunSpec spec)
@@ -90,17 +119,19 @@ void RunControl::readPidFile()
     input >> started;
 
     m_state.pid = pid;
-    input >> m_state.monitorDir;
+    getline(input, m_state.monitorDir); // Consume the newline after the start time.
+    getline(input, m_state.monitorDir);
+    getline(input, m_processStart);
     if (!m_state.monitorDir.empty())
     {
         m_state.log = (fs::path(m_state.monitorDir) / "run.log").string();
         m_state.record = (fs::path(m_state.monitorDir) / "record.txt").string();
-        m_tempDirs.push_back(m_state.monitorDir);
     }
     if (alive())
     {
         m_state.phase = RunPhase::Running;
-        m_startedAt = chrono::steady_clock::now() - chrono::seconds(max(0L, static_cast<long>(time(nullptr)) - started));
+        m_state.elapsedSec = max(0L, static_cast<long>(time(nullptr)) - started);
+        m_startedAt = chrono::steady_clock::now() - chrono::seconds(m_state.elapsedSec);
         m_state.lastAction = "attached to the run already in progress";
     }
     else
@@ -110,23 +141,11 @@ void RunControl::readPidFile()
     }
 }
 
-RunControl::~RunControl()
-{
-    for (const auto& directory: m_tempDirs)
-    {
-        // Only remove directories created by mkdtemp in /tmp, never a user-supplied --out path.
-        if (directory.starts_with("/tmp/stand-runner-"))
-        {
-            error_code error;
-            fs::remove_all(directory, error);
-        }
-    }
-}
-
 void RunControl::writePidFile() const
 {
     ofstream output(pidFile(m_spec.out), ios::trunc);
-    output << m_state.pid << '\n' << time(nullptr) << '\n' << m_state.monitorDir << '\n';
+    output << m_state.pid << '\n' << time(nullptr) << '\n' << m_state.monitorDir << '\n'
+           << m_processStart << '\n';
 }
 
 bool RunControl::alive() const
@@ -139,7 +158,11 @@ bool RunControl::alive() const
     {
         return false;
     }
-    // A pid can be reused; the command line is what says this pid is still this run.
+    if (!m_processStart.empty())
+    {
+        return processStart(m_state.pid) == m_processStart;
+    }
+    // Compatibility for pid files written before the process start time was recorded.
     ifstream cmdline("/proc/" + to_string(m_state.pid) + "/cmdline", ios::binary);
     string   command((istreambuf_iterator<char>(cmdline)), istreambuf_iterator<char>());
     return command.find(m_spec.file.filename().string()) != string::npos;
@@ -157,8 +180,23 @@ bool RunControl::canStop() const
 
 bool RunControl::canFile() const
 {
-    error_code error;
-    return m_state.phase != RunPhase::Running && fs::is_regular_file(m_state.record, error);
+    if (m_state.phase == RunPhase::NoRunFile || m_state.phase == RunPhase::Running ||
+        (m_state.phase == RunPhase::Exited && m_state.exitCode != 0 && m_ownedChild))
+    {
+        return false;
+    }
+    // This also works after reopening the screen, when waitpid cannot give us the old exit code.
+    ifstream record(m_state.record);
+    bool complete = false;
+    for (string line; getline(record, line) && !line.starts_with("Summary -");)
+    {
+        if (line == "Campaign status: failed" || line.starts_with("Elapsed so far: "))
+        {
+            return false;
+        }
+        complete |= line.starts_with("Total execution time: ");
+    }
+    return complete;
 }
 
 void RunControl::start()
@@ -175,7 +213,7 @@ void RunControl::start()
         return;
     }
 
-    string monitorTemplate {"/tmp/stand-runner-XXXXXX"};
+    const auto monitorTemplate = (fs::absolute(m_spec.out) / ".stand-run-XXXXXX").string();
     vector<char> monitorPath(monitorTemplate.begin(), monitorTemplate.end());
     monitorPath.push_back('\0');
     if (mkdtemp(monitorPath.data()) == nullptr)
@@ -184,7 +222,6 @@ void RunControl::start()
         return;
     }
     m_state.monitorDir = monitorPath.data();
-    m_tempDirs.push_back(m_state.monitorDir);
     m_state.log = (fs::path(m_state.monitorDir) / "run.log").string();
     m_state.record = (fs::path(m_state.monitorDir) / "record.txt").string();
 
@@ -192,7 +229,7 @@ void RunControl::start()
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, m_state.log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, m_state.log.c_str(), O_WRONLY | O_APPEND, 0644);
+    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
 
     posix_spawnattr_t attributes;
     posix_spawnattr_init(&attributes);
@@ -211,9 +248,6 @@ void RunControl::start()
 
     if (spawned != 0)
     {
-        error_code error;
-        fs::remove_all(m_state.monitorDir, error);
-        m_state.monitorDir.clear();
         m_state.lastAction = string("cannot start: ") + strerror(spawned);
         return;
     }
@@ -221,6 +255,8 @@ void RunControl::start()
     // A fresh run: whatever was there belonged to the run before it.
     m_state.exitCode = 0;
     m_state.pid = pid;
+    m_processStart = processStart(pid);
+    m_ownedChild = true;
     m_state.phase = RunPhase::Running;
     m_startedAt = chrono::steady_clock::now();
     m_stopping = false;

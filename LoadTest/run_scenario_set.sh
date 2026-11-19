@@ -338,6 +338,8 @@ record_unfinished() {
 # leaves a record of the hours before it.
 write_record() {
   [[ -z "$record" ]] && return 0
+  local staged
+  staged=$(mktemp -- "${record}.XXXXXX") || return 1
   {
     echo "Server:   $broker"
     echo "Version:  $version"
@@ -347,6 +349,7 @@ write_record() {
     echo "Started:  $set_started_at"
     if (( set_finished )); then
       echo "Total execution time: $(format_elapsed "$((set_finished_epoch - set_started_epoch))")"
+      if (( failed )); then echo "Campaign status: failed"; else echo "Campaign status: passed"; fi
     else
       echo "Elapsed so far: $(format_elapsed "$(($(date +%s) - set_started_epoch))")"
     fi
@@ -395,7 +398,7 @@ write_record() {
       if (( first )); then echo; echo; echo; first=0; else echo; fi
       cat "$block"
     done
-  } > "$record"
+  } > "$staged" && mv -f -- "$staged" "$record"
 }
 
 # The broker's own cost, sampled on the host it runs on. Two functions rather than one because
@@ -606,7 +609,7 @@ done
 
 set_finished_epoch=$(date +%s)
 set_finished=1
-write_record
+write_record || exit 1
 
 echo
 echo "  Scenario                              Median   Samples"

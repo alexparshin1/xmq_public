@@ -36,6 +36,11 @@ import sys
 
 RESULTS = pathlib.Path(__file__).resolve().parent / "results"
 
+FAILURE_STATUS = (
+    r"(?:setup |restart )?failed\b|broker did not come back\b|cannot create log directory\b"
+    r"|invalid:|incomplete\b|no result\b"
+)
+
 
 def parse(record_text):
     """Split a record into its header lines and {test: table lines}."""
@@ -65,9 +70,13 @@ def parse(record_text):
     # worth keeping as much as a latency is. The reason is "failed (exit 1)", "setup failed" or
     # "restart failed", and every one of them says the scenario produced nothing.
     for line in lines:
-        match = re.match(r"^\s+(\S+)\s+((?:setup |restart )?failed.*)$", line)
-        if match and match.group(1) not in tests:
-            tests[match.group(1)] = [f"Scenario: {match.group(1)}", match.group(2)]
+        match = re.match(rf"^\s+(\S+)\s+((?:{FAILURE_STATUS}).*)$", line, re.IGNORECASE)
+        if match:
+            name, status = match.groups()
+            if name not in tests:
+                tests[name] = [f"Scenario: {name}", status]
+            elif not any(re.match(FAILURE_STATUS, row.strip(), re.IGNORECASE) for row in tests[name][1:]):
+                tests[name].append(status)
 
     for name, table in tests.items():
         while table and not table[-1].strip():
@@ -76,9 +85,9 @@ def parse(record_text):
 
 
 def failures(tests):
-    """The tests whose summary row says the scenario produced no measurement."""
+    """Tests whose block or summary marks the measurement as unsuccessful."""
     return [name for name, table in tests.items()
-            if len(table) == 2 and re.match(r"(?:setup |restart )?failed\b", table[1])]
+            if any(re.match(FAILURE_STATUS, row.strip(), re.IGNORECASE) for row in table[1:])]
 
 
 def field(header, name):
@@ -110,6 +119,13 @@ def main():
     broker = broker.split("(")[0].strip().replace(" ", "-")
     directory = RESULTS / args.env / (version if broker == "XMQ" else f"{broker}-{version}")
 
+    # Current records are rewritten after each scenario. An interrupted set may contain only
+    # successful tables; the completion marker is what distinguishes it from a complete set.
+    if broker == "XMQ" and (field(header, "Elapsed so far") is not None or
+                            (field(header, "Started") is not None and
+                             not field(header, "Total execution time"))):
+        sys.exit(f"{args.record}: campaign did not finish; existing results were not replaced")
+
     # One directory per version, and a re-test of that version replaces it whole. Replacing file
     # by file left a directory that mixed two campaigns: a scenario the new run did not have kept
     # its old table, and the release check cannot see that - it only asks that each file is not
@@ -121,8 +137,9 @@ def main():
     # its logs, which is where it is read. Another broker is filed as it stands: "cannot run this
     # scenario" is a result of its own, and the comparison tables are built from it.
     failed = failures(tests)
-    if failed and broker == "XMQ":
-        sys.exit(f"{args.record}: {', '.join(failed)} failed; an XMQ campaign missing a scenario is "
+    if broker == "XMQ" and (failed or field(header, "Campaign status") == "failed"):
+        detail = f"{', '.join(failed)} failed" if failed else "campaign failed"
+        sys.exit(f"{args.record}: {detail}; an XMQ campaign missing a scenario is "
                  f"not filed - fix it and run the set again. The record and its logs stay in "
                  f"{args.record.parent}")
     if directory.is_dir() and any(directory.iterdir()):

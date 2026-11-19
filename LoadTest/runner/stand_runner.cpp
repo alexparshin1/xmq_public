@@ -225,6 +225,10 @@ vector<Scenario> scanRunDir(const filesystem::path& logDir, const filesystem::pa
 
     for (const auto& entry: filesystem::directory_iterator(logDir))
     {
+        if (entry.path().filename().string().starts_with(".stand-run-"))
+        {
+            continue;
+        }
         if (entry.is_directory())
         {
             // Managed runs keep each scenario's live log in its own temporary directory.
@@ -912,11 +916,47 @@ string padded(const string& text, const int columns)
 void drawAlert(tui::Frame& frame, const int width, const int height, const string& message,
                const bool yesSelected)
 {
-    const int boxWidth = min(max(42, tui::Terminal::displayWidth(message) + 6), max(28, width - 4));
-    const int boxHeight = 7;
-    const int left = max(1, (width - boxWidth) / 2 + 1);
-    const int top = max(1, (height - boxHeight) / 2 + 1);
+    if (width < 28 || height < 9)
+    {
+        frame.put(max(1, height / 2), 1, theme::dialog, clipTo(message, width));
+        frame.put(max(1, height / 2 + 1), 1, theme::dialog, clipTo("Y: Yes   N/Esc: Cancel", width));
+        return;
+    }
+    const int boxWidth = min(58, width - 3);
     const int inner = boxWidth - 2;
+    const int textWidth = boxWidth - 6;
+    vector<string> lines;
+    auto rest = message;
+    while (!rest.empty() && static_cast<int>(lines.size()) < height - 8)
+    {
+        auto line = clipTo(rest, textWidth);
+        if (line.size() < rest.size())
+        {
+            const auto space = line.rfind(' ');
+            if (space != string::npos && space != 0)
+            {
+                line.resize(space);
+            }
+        }
+        rest.erase(0, line.size());
+        rest.erase(0, rest.find_first_not_of(' '));
+        lines.push_back(std::move(line));
+    }
+    if (!rest.empty())
+    {
+        lines.back() = clipTo(lines.back(), textWidth - 1) + "…";
+    }
+    const int boxHeight = static_cast<int>(lines.size()) + 7;
+    const int left = (width - boxWidth) / 2 + 1;
+    const int top = (height - boxHeight) / 2 + 1;
+    const int right = left + boxWidth;
+    const int shadowBottom = top + boxHeight;
+    for (int row = top + 1; row < shadowBottom; ++row)
+    {
+        frame.overlay(row, right, 1, theme::windowShadow, "▌");
+    }
+    frame.overlay(shadowBottom, left + 2, boxWidth - 2, theme::windowShadow, "▀");
+    frame.overlay(shadowBottom, right, 1, theme::windowShadow, "▘");
     string topBorder {"╔"};
     string bottomBorder {"╚"};
     for (int i = 0; i < inner; ++i)
@@ -926,19 +966,32 @@ void drawAlert(tui::Frame& frame, const int width, const int height, const strin
     }
     topBorder += "╗";
     bottomBorder += "╝";
-    frame.put(top, left, theme::dialog, topBorder);
-    frame.put(top + boxHeight - 1, left, theme::dialog, bottomBorder);
+    frame.put(top, left, theme::dialogFrame, topBorder);
+    frame.put(top + boxHeight - 1, left, theme::dialogFrame, bottomBorder);
     for (int row = top + 1; row < top + boxHeight - 1; ++row)
     {
-        frame.put(row, left, theme::dialog, "║");
-        frame.put(row, left + boxWidth - 1, theme::dialog, "║");
+        frame.put(row, left, theme::dialogFrame, "║");
+        frame.put(row, left + boxWidth - 1, theme::dialogFrame, "║");
         frame.put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
     }
-    frame.put(top, left + 3, theme::dialog, " Confirm ");
-    frame.put(top + 2, left + 2, theme::dialog, padded(message, inner - 2));
-    const int buttons = left + max(2, (inner - 20) / 2);
-    frame.put(top + 4, buttons, yesSelected ? theme::buttonActive : theme::button, " Yes ");
-    frame.put(top + 4, buttons + 12, yesSelected ? theme::button : theme::buttonActive, " No ");
+    frame.put(top, left + 2, theme::dialogFrame, "[ ]");
+    frame.put(top, left + 3, theme::dialogAccent, "■");
+    frame.put(top, left + (boxWidth - 9) / 2, theme::dialogFrame, " Confirm ");
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        frame.put(top + 2 + static_cast<int>(i), left + 3, theme::dialog, lines[i]);
+    }
+    const int buttonRow = top + boxHeight - 4;
+    const int buttons = left + (boxWidth - 21) / 2;
+    const auto button = [&](int col, bool active, const string& label)
+    {
+        frame.put(buttonRow + 1, col + 1, theme::buttonShadowBelow, "▀▀▀▀▀▀▀▀▀");
+        frame.put(buttonRow, col + 9, theme::dialog, "▄");
+        tui::putMarked(frame, buttonRow, col, active ? theme::buttonActive : theme::button,
+                       theme::buttonHot, label);
+    };
+    button(buttons, yesSelected, "   ~Y~es   ");
+    button(buttons + 12, !yesSelected, " ~C~ancel  ");
 }
 
 /// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
@@ -1235,9 +1288,13 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     {
         put(row, left + 1, theme::desktop, string(static_cast<size_t>(inner), ' '));
     }
-    for (int row = headerRow; row < bottom; ++row)
+    put(headerRow, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
+    put(bottom - 1, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
+    // Keep one desktop cell on either side of the body, before the scrollbar on the right.
+    const auto bodyWidth = inner - 3;
+    for (int row = tableTop; row < bottom - 1; ++row)
     {
-        put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
+        put(row, left + 2, theme::dialog, string(static_cast<size_t>(bodyWidth), ' '));
     }
 
     int row = top + 2;
@@ -1306,24 +1363,24 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
     const auto first = max(0L, last - room);
 
     row = tableTop;
-    if (first > 0 && row < bottom)
+    if (first > 0 && row < bottom - 1)
     {
-        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(first) + " earlier interval(s), PageUp", inner - 2));
+        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(first) + " earlier interval(s), PageUp", bodyWidth));
     }
-    if (rowsCount == 0)
+    if (rowsCount == 0 && row < bottom - 1)
     {
         ostringstream text;
         text << ' ' << left2(scenario.started ? "starting" : (scenario.finished ? "done" : "waiting"), 12);
-        put(row++, left + 2, theme::dialog, padded(text.str(), inner - 2));
+        put(row++, left + 2, theme::dialog, padded(text.str(), bodyWidth));
     }
     for (long index = first; index < last && row < bottom - 1; ++index)
     {
-        put(row++, left + 2, theme::dialog, padded(intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]), inner - 2));
+        put(row++, left + 2, theme::dialog, padded(intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]), bodyWidth));
     }
     if (offset > 0 && row < bottom - 1)
     {
         put(row, left + 2, theme::dialog,
-            padded(" ... " + to_string(offset) + " newer interval(s), PageDown", inner - 2));
+            padded(" ... " + to_string(offset) + " newer interval(s), PageDown", bodyWidth));
     }
     put(bottom - 1, left + 2, theme::header, padded(testSummary(scenario), inner - 2));
 
@@ -1664,7 +1721,8 @@ int main(int argc, char** argv)
             }
             if (pending.kind != Pending::Kind::None)
             {
-                if (press.key == tui::Key::Left || press.key == tui::Key::Right)
+                if (press.key == tui::Key::Left || press.key == tui::Key::Right ||
+                    press.key == tui::Key::Tab || press.key == tui::Key::BackTab)
                 {
                     pending.yesSelected = !pending.yesSelected;
                     continue;
@@ -1674,8 +1732,9 @@ int main(int argc, char** argv)
                                      : press.key == tui::Key::Character &&
                                            (press.text == "y" || press.text == "Y");
                 const bool no = press.key == tui::Key::Escape ||
-                                (press.key == tui::Key::Character &&
-                                 (press.text == "n" || press.text == "N")) ||
+                                 (press.key == tui::Key::Character &&
+                                  (press.text == "n" || press.text == "N" ||
+                                   press.text == "c" || press.text == "C")) ||
                                 (press.key == tui::Key::Enter && !pending.yesSelected);
                 if (yes)
                 {
