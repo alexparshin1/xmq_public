@@ -164,10 +164,12 @@ TEST_F(XMQ_SysTopicsTests, ConnectAndDisconnect_MaxConnections)
 
     constexpr auto                     iterations = 10U;
     vector<shared_ptr<TestMqttClient>> clients;
+    // Keep these persistent IDs distinct from makeTestNames(): appending 0 to
+    // subscriber-1 used to leave subscriber-10 for another test to reconnect to.
     for (size_t i = 0; i < iterations; ++i)
     {
         auto client = make_shared<TestMqttClient>(
-            logEngine(), subscriberClientId + to_string(i),
+            logEngine(), subscriberClientId + "-max-" + to_string(i),
             false, false, ProtocolVersion::MqttV31);
         EXPECT_TRUE(client->isConnected());
         clients.push_back(client);
