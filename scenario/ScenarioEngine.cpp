@@ -22,7 +22,17 @@
 #include <cstdlib>
 #include <exception>
 
-#ifndef _WIN32
+#ifdef _WIN32
+// WIN32_LEAN_AND_MEAN keeps windows.h from pulling in winsock.h (v1), which would clash with the
+// winsock2.h the client headers include. NOMINMAX keeps its min/max macros out of <algorithm>.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <sys/resource.h>
 #endif
 
@@ -40,6 +50,43 @@ using namespace sptk;
 using namespace xmq;
 
 namespace {
+/**
+ * @brief This process's own CPU time, in microseconds.
+ *
+ * getrusage() is POSIX-only, and the INTERVAL and MEASUREMENT reports carry cpu_pct on every
+ * platform the scenario tool is built for. GetProcessTimes() reports the same figure on Windows in
+ * 100 ns units, so the two branches differ in the call and not in what they return.
+ */
+int64_t processCpuMicros()
+{
+#ifdef _WIN32
+    FILETIME creationTime;
+    FILETIME exitTime;
+    FILETIME kernelTime;
+    FILETIME userTime;
+    if (GetProcessTimes(GetCurrentProcess(), &creationTime, &exitTime, &kernelTime, &userTime) == 0)
+    {
+        return 0;
+    }
+    const auto toMicros = [](const FILETIME& fileTime)
+    {
+        ULARGE_INTEGER value;
+        value.LowPart = fileTime.dwLowDateTime;
+        value.HighPart = fileTime.dwHighDateTime;
+        return static_cast<int64_t>(value.QuadPart / 10);
+    };
+    return toMicros(kernelTime) + toMicros(userTime);
+#else
+    rusage usage {};
+    if (getrusage(RUSAGE_SELF, &usage) != 0)
+    {
+        return 0;
+    }
+    return (static_cast<int64_t>(usage.ru_utime.tv_sec) + static_cast<int64_t>(usage.ru_stime.tv_sec)) * 1'000'000LL +
+           static_cast<int64_t>(usage.ru_utime.tv_usec) + static_cast<int64_t>(usage.ru_stime.tv_usec);
+#endif
+}
+
 /// Set on a warm-up message's sequence: the receive side ignores it, even if it arrives after the
 /// measurement has started.
 constexpr uint32_t warmupSequenceBit = 0x80000000u;
@@ -450,27 +497,23 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
         struct ConnectFeed
         {
             steady_clock::time_point lastSample {steady_clock::now()};
-            rusage                   usage {};
+            int64_t                  cpuMicros {0};
             microseconds             lastInterval {-1us};
             microseconds             intervalWidth {0};
         };
         auto feed = make_shared<ConnectFeed>();
         feed->intervalWidth = duration_cast<microseconds>(statsInterval);
-        getrusage(RUSAGE_SELF, &feed->usage);
+        feed->cpuMicros = processCpuMicros();
 
         roundTripLatency.intervalObserver([feed](const microseconds intervalStart, const size_t count,
                                                  const microseconds summaryLatency,
                                                  const RoundTripLatency::Histogram& histogram)
         {
             const auto now = steady_clock::now();
-            rusage     usage {};
-            getrusage(RUSAGE_SELF, &usage);
+            const auto cpuUsage = processCpuMicros();
             const auto wallMicros = duration_cast<microseconds>(now - feed->lastSample).count();
-            const auto cpuMicros = (usage.ru_utime.tv_sec - feed->usage.ru_utime.tv_sec) * 1'000'000LL
-                                   + (usage.ru_utime.tv_usec - feed->usage.ru_utime.tv_usec)
-                                   + (usage.ru_stime.tv_sec - feed->usage.ru_stime.tv_sec) * 1'000'000LL
-                                   + (usage.ru_stime.tv_usec - feed->usage.ru_stime.tv_usec);
-            feed->usage = usage;
+            const auto cpuMicros = cpuUsage - feed->cpuMicros;
+            feed->cpuMicros = cpuUsage;
             feed->lastSample = now;
 
             // The width of this window, taken from where the previous one started; the first one
@@ -1265,21 +1308,17 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     // This process's own CPU and memory, not the broker's: xmq_scn runs on the load generator and
     // cannot read the broker's /proc without asking that host, which is the polling this mode
     // exists to avoid. The broker's numbers stay in the sampler's per-scenario block.
-    rusage               lastRunnerUsage {};
+    int64_t                  lastRunnerUsage {0};
     steady_clock::time_point lastRunnerUsageTime = steady_clock::now();
     steady_clock::time_point nextRunnerFlush = steady_clock::now();
 
     const auto processUsage = [&]() -> pair<int, size_t>
     {
-        rusage       usage {};
         const auto   sampledAt = steady_clock::now();
-        getrusage(RUSAGE_SELF, &usage);
-        const auto wallMicros = duration_cast<microseconds>(sampledAt - lastRunnerUsageTime).count();
-        const auto cpuMicros = (usage.ru_utime.tv_sec - lastRunnerUsage.ru_utime.tv_sec) * 1'000'000LL
-                               + (usage.ru_utime.tv_usec - lastRunnerUsage.ru_utime.tv_usec)
-                               + (usage.ru_stime.tv_sec - lastRunnerUsage.ru_stime.tv_sec) * 1'000'000LL
-                               + (usage.ru_stime.tv_usec - lastRunnerUsage.ru_stime.tv_usec);
-        lastRunnerUsage = usage;
+        const auto   cpuUsage = processCpuMicros();
+        const auto   wallMicros = duration_cast<microseconds>(sampledAt - lastRunnerUsageTime).count();
+        const auto   cpuMicros = cpuUsage - lastRunnerUsage;
+        lastRunnerUsage = cpuUsage;
         lastRunnerUsageTime = sampledAt;
         size_t residentKb = 0;
 #ifdef __linux__
@@ -1384,7 +1423,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             clientPublishLatency.start(groupInterval);
         }
         // The first reported window covers the first window only, not the ramp before it.
-        getrusage(RUSAGE_SELF, &lastRunnerUsage);
+        lastRunnerUsage = processCpuMicros();
         lastRunnerUsageTime = publishStartTime;
         nextRunnerFlush = publishStartTime + groupInterval;
         m_receivedMessageCount = 0;
