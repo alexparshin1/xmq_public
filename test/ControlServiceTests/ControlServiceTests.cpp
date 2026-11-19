@@ -348,10 +348,15 @@ TEST_F(XMQ_ControlServiceTests, settingsApplyOnControllerThreadAndRecoverFromFai
     EXPECT_NE(nullptr, controller.getServer()->getClientSession("settings-persist-client"));
     EXPECT_EQ(adminHash, users.findUser("admin")->m_password);
     request.m_settings = settings->nodeSettings();
+    // Below the ephemeral range of every platform (FreeBSD starts it at 10000, Linux at 32768),
+    // because the port has to stay taken for the length of the test and a port inside that range
+    // can be taken by an outgoing connection of the test itself: on FreeBSD this listen() then
+    // failed with EADDRINUSE before the settings change it exists to make fail.
+    constexpr uint16_t occupiedPort = 9889;
     TCPSocket occupied;
-    occupied.host(Host("0.0.0.0", 18890));
-    occupied.listen(18890, false);
-    request.m_settings.m_web_service_port = 18890;
+    occupied.host(Host("0.0.0.0", occupiedPort));
+    occupied.listen(occupiedPort, false);
+    request.m_settings.m_web_service_port = occupiedPort;
     request.m_settings.m_mqtt_port = 1887;
     CSettingsControlResponse failing;
     service.SettingsControl(request, failing, &authentication);

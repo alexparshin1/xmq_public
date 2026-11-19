@@ -283,7 +283,10 @@ TEST_F(XMQ_PersistenceTests, Session_TakeoverAfterRestartProcessesWhatFollowsThe
     const auto publisher = connectClient(publisherClientId, false);
     publisher->publish(secondTopic, afterPayload.c_str(), Qos::Qos1);
 
-    EXPECT_TRUE(afterDelivered.wait_for(1000ms))
+    // Five seconds, not one: this is not a latency assertion. A SUBSCRIBE that was discarded
+    // delivers nothing however long it waits, while a takeover that is merely slow - the FreeBSD
+    // night of 2026-11-19 spent the second one starting a publisher - does arrive.
+    EXPECT_TRUE(afterDelivered.wait_for(5000ms))
         << "A SUBSCRIBE sent after the takeover was discarded";
 
     publisher->disconnect();
