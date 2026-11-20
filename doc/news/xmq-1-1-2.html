@@ -1,0 +1,41 @@
+<!--
+  Title: XMQ 1.1.2: MQTT over WebSockets and more ways to authenticate
+  Date:  2026-11-20
+-->
+
+<p>
+    XMQ 1.1.2 brings MQTT to browser applications over WebSockets and introduces four
+    extra ways to integrate client authentication with existing infrastructure.
+    <a href='/downloads'>Download XMQ 1.1.2</a>.
+</p>
+
+<ul>
+    <li>
+        <b>MQTT over WebSockets.</b> Browser applications can now connect directly to XMQ over
+        WebSockets, without a separate gateway to translate MQTT traffic. Configure WS or secure
+        WSS listeners alongside your existing TCP and TLS listeners.
+    </li>
+    <li>
+        <b>Bind MQTT identities to client certificates.</b> XMQ can require the MQTT username to
+        match a selected identity in the client certificate and check certificate revocation lists
+        on every new connection. These experimental checks are optional and do not replace existing
+        authentication or topic permissions.
+    </li>
+    <li>
+        <b>Sign in with LDAP or Active Directory.</b> The LDAP extension lets MQTT
+        clients use directory credentials and maps directory groups to XMQ groups, while the broker
+        still controls topic access. The Active Directory profile supports nested groups and
+        rejects disabled accounts.
+    </li>
+    <li>
+        <b>Use tokens from your identity provider.</b> The JWT extension verifies
+        tokens locally, so a client login does not need a round trip to the identity provider.
+        Token claims map users into existing XMQ groups, where the broker enforces topic permissions.
+    </li>
+    <li>
+        <b>Connect your own authentication service.</b> The HTTP authentication
+        extension can ask your service whether to admit an MQTT client and which XMQ groups to
+        assign it. The broker still decides which topics the client can use, without sending topic
+        names to the service.
+    </li>
+</ul>
