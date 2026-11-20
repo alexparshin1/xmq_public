@@ -1,30 +1,38 @@
 Server:   FlashMQ
 Version:  1.27.2
-Host:     AWS c5n.4xlarge, 16 vCPU (8 physical cores x 2 threads), 40Gb RAM, Ubuntu 26.04, kernel 7.0.0-1013-aws, CONFIG_HZ=1000, no IOMMU, apt timers disabled, no CPU affinity; FlashMQ 1.27.2 on port 1885, thread_count 16, rlimit_nofile 1200000
-Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 0.9.20, no CPU affinity
-Date:     2026-10-16
-Started:  2026-10-16 08:50:02 AEDT
-Total execution time: 00:26:46
+Host:     AWS c5n.4xlarge broker, flashmq on 1885
+Client:   AWS c5n.4xlarge, 29 bound source addresses, xmq_scn 1.1.2, no CPU affinity
+Date:     2026-11-20
+Started:  2026-11-20 13:58:50 AEDT
+Total execution time: 00:41:09
+Campaign status: passed
 
 Broker restarted before each scenario.
 
 Scenario: Fan-In-50K-500-50K-50K
 Interval        Count    Latency       Rate/s        RSS
 ────────────────────────────────────────────────────────
-0ms           2999987      195us        49999     246 Mb
-60000ms       3000000      194us        50000     246 Mb
-120000ms      3000000      195us        50000     246 Mb
-180000ms      3000000      194us        50000     246 Mb
-240000ms      3000000      195us        50000     246 Mb
-300000ms      3000000      194us        50000     246 Mb
-360000ms      3000002      195us        50000     246 Mb
-420000ms      3000001      195us        50000     246 Mb
-480000ms      2999998      195us        49999     246 Mb
-540000ms      2995728      195us        49928     246 Mb
+0ms           2999992      190us        49999     258 Mb
+60000ms       3000001      190us        50000     258 Mb
+120000ms      2999995      191us        49999     258 Mb
+180000ms      3000002      191us        50000     258 Mb
+240000ms      3000002      191us        50000     258 Mb
+300000ms      3000000      191us        50000     258 Mb
+360000ms      3000000      192us        50000     258 Mb
+420000ms      3000000      191us        50000     258 Mb
+480000ms      3000001      191us        50000     258 Mb
+540000ms      3000000      191us        50000     258 Mb
+600000ms            2      193us            0     258 Mb
 ────────────────────────────────────────────────────────
-Average      29995716      195us        49992     246 Mb
-Median                     195us                  246 Mb
-  interval median 195us over 10 samples (as xmq_scn reports it), range 194-195us
-  server CPU   mean 219%, peak 224%
-  server RSS   246 Mb peak
-  client NIC ens5: no dropped packets during the run
+Average      29999995      191us        45454     258 Mb
+Median                     191us                  258 Mb
+Percentiles
+p50    170us
+p90    308us
+p95    348us
+p99    424us
+p99.9  536us
+max    6080us
+  interval median 191us over 11 samples (as xmq_scn reports it), range 190-193us
+  server CPU   mean 194%, peak 202%
+  server RSS   258 Mb peak
