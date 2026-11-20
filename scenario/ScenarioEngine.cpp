@@ -19,8 +19,10 @@
 #include "client/MqttClient.h"
 #include <sptk5/threads/JoiningThread.h>
 
+#include <condition_variable>
 #include <cstdlib>
 #include <exception>
+#include <thread>
 
 #ifdef _WIN32
 // WIN32_LEAN_AND_MEAN keeps windows.h from pulling in winsock.h (v1), which would clash with the
@@ -1291,26 +1293,16 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
-    // --output runner: the windows as they close, for whoever is watching the run rather than
-    // reading it afterwards. Every subscriber holds its own latency object, so each reports its
-    // closed-window watermark (including empty windows). The shared row is emitted only after all
-    // subscribers have closed that interval; otherwise a late callback could split one row into
-    // two INTERVAL lines with the same timestamp.
-    struct LiveWindows
-    {
-        std::mutex                                         mutex;
-        std::map<microseconds, RoundTripLatency::Interval> windows;
-        std::vector<int64_t>                               closedThrough;
-    };
-    LiveWindows liveWindows;
-    liveWindows.closedThrough.assign(clientPublishLatencies.size(), -1);
+    // Fan-In records all deliveries in object 0; the other objects do not close windows live.
+    const auto liveLatencyCount = testType == Type::FanIn
+                                      ? min<size_t>(1, clientPublishLatencies.size())
+                                      : clientPublishLatencies.size();
 
     // This process's own CPU and memory, not the broker's: xmq_scn runs on the load generator and
     // cannot read the broker's /proc without asking that host, which is the polling this mode
     // exists to avoid. The broker's numbers stay in the sampler's per-scenario block.
     int64_t                  lastRunnerUsage {0};
     steady_clock::time_point lastRunnerUsageTime = steady_clock::now();
-    steady_clock::time_point nextRunnerFlush = steady_clock::now();
 
     const auto processUsage = [&]() -> pair<int, size_t>
     {
@@ -1335,58 +1327,40 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         return {wallMicros > 0 ? static_cast<int>(cpuMicros * 100 / wallMicros) : 0, residentKb};
     };
 
-    if (m_runnerOutput)
+    microseconds nextWindow {0};
+    const auto emitClosedWindows = [&](const bool final)
     {
-        for (size_t subscriber = 0; subscriber < clientPublishLatencies.size(); ++subscriber)
+        // Live rows need every active receiver's watermark. At shutdown no more samples
+        // are accepted, so include the last, possibly partial, window from any receiver.
+        auto through = final ? -1us : microseconds::max();
+        for (size_t index = 0; index < liveLatencyCount; ++index)
         {
-            clientPublishLatencies[subscriber].intervalObserver(
-                [&liveWindows, subscriber](const microseconds intervalStart, const size_t count,
-                                           const microseconds summaryLatency,
-                                           const RoundTripLatency::Histogram& histogram)
-                {
-                    const std::scoped_lock lock(liveWindows.mutex);
-                    liveWindows.closedThrough[subscriber] = intervalStart.count();
-                    if (count)
-                    {
-                        auto& [windowCount, windowSummary, windowHistogram] = liveWindows.windows[intervalStart];
-                        windowCount += count;
-                        windowSummary += summaryLatency;
-                        for (const auto& [bucket, samples]: histogram)
-                        {
-                            windowHistogram[bucket] += samples;
-                        }
-                    }
-                });
-        }
-    }
-
-    const auto emitClosedWindows = [&](const steady_clock::time_point now)
-    {
-        const auto elapsed = duration_cast<microseconds>(now - publishStartTime);
-        map<microseconds, RoundTripLatency::Interval> closed;
-        {
-            const std::scoped_lock lock(liveWindows.mutex);
-            // Keyed by start, so the first window still open ends the walk.
-            for (auto it = liveWindows.windows.begin(); it != liveWindows.windows.end();)
+            const auto closed = clientPublishLatencies[index].closedThrough();
+            through = final ? max(through, closed) : min(through, closed);
+            if (!final && through < nextWindow)
             {
-                if (it->first + groupInterval > elapsed)
-                {
-                    break;
-                }
-                if (!all_of(liveWindows.closedThrough.begin(), liveWindows.closedThrough.end(),
-                            [&it](const int64_t closedThrough)
-                            {
-                                return closedThrough >= it->first.count();
-                            }))
-                {
-                    break;
-                }
-                closed.insert(liveWindows.windows.extract(it++));
+                return;
             }
         }
+
         const auto windowSeconds = duration<double>(groupInterval).count();
-        for (const auto& [intervalStart, window]: closed)
+        for (; nextWindow <= through; nextWindow += groupInterval)
         {
+            RoundTripLatency::Interval window;
+            for (size_t index = 0; index < liveLatencyCount; ++index)
+            {
+                // Only the lookup takes a receiver's mutex. The stored window is immutable,
+                // so merging and printing never hold a receive-side lock.
+                if (const auto* part = clientPublishLatencies[index].closedInterval(nextWindow))
+                {
+                    window.m_count += part->m_count;
+                    window.m_summaryLatency += part->m_summaryLatency;
+                    for (const auto& [bucket, samples]: part->m_histogram)
+                    {
+                        window.m_histogram[bucket] += samples;
+                    }
+                }
+            }
             if (!window.m_count)
             {
                 continue;
@@ -1395,7 +1369,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             const auto rate = windowSeconds > 0 ? static_cast<size_t>(window.m_count / windowSeconds) : 0;
             const auto [cpuPercent, residentKb] = processUsage();
             COUT(format("INTERVAL time_ms={} count={} avg_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
-                        duration_cast<milliseconds>(intervalStart).count(),
+                        duration_cast<milliseconds>(nextWindow).count(),
                         window.m_count,
                         average.count(),
                         RoundTripLatency::intervalPercentile(window.m_histogram, 95).count(),
@@ -1406,6 +1380,30 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                  << endl);
         }
     };
+
+    struct LiveReporter
+    {
+        mutex              mutex_;
+        condition_variable wake;
+        bool               stopped {false};
+        exception_ptr      failure;
+        std::thread        worker;
+
+        void stopAndJoin()
+        {
+            if (worker.joinable())
+            {
+                {
+                    const scoped_lock lock(mutex_);
+                    stopped = true;
+                }
+                wake.notify_one();
+                worker.join();
+            }
+        }
+
+        ~LiveReporter() { stopAndJoin(); }
+    } reporter;
 
     bool       measurementStarted = false;
     const auto beginMeasurement = [&]
@@ -1422,10 +1420,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         {
             clientPublishLatency.start(groupInterval);
         }
+
         // The first reported window covers the first window only, not the ramp before it.
         lastRunnerUsage = processCpuMicros();
         lastRunnerUsageTime = publishStartTime;
-        nextRunnerFlush = publishStartTime + groupInterval;
         m_receivedMessageCount = 0;
         m_scenarioCompleted = false;
         if (m_paceMaker)
@@ -1434,6 +1432,29 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         }
         stopwatch.start();
         COUT("MEASUREMENT-START duration_seconds=" << durationSeconds);
+        if (m_runnerOutput && liveLatencyCount && groupInterval > 0us)
+        {
+            const auto firstWindowEnd = publishStartTime + groupInterval;
+            reporter.worker = thread([&, firstWindowEnd]
+            {
+                try
+                {
+                    unique_lock lock(reporter.mutex_);
+                    reporter.wake.wait_until(lock, firstWindowEnd, [&] { return reporter.stopped; });
+                    while (!reporter.stopped)
+                    {
+                        lock.unlock();
+                        emitClosedWindows(false);
+                        lock.lock();
+                        reporter.wake.wait_for(lock, 100ms, [&] { return reporter.stopped; });
+                    }
+                }
+                catch (...)
+                {
+                    reporter.failure = current_exception();
+                }
+            });
+        }
     };
 
     auto warmupDeadline = m_warmup > seconds(0) ? std::optional{steady_clock::now() + m_warmup} : std::nullopt;
@@ -1449,18 +1470,6 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         while (true)
         {
             const auto now = steady_clock::now();
-
-            // Windows are reported from the publisher's own loop rather than from the latency
-            // objects: those close a window per subscriber and know nothing about each other,
-            // while this loop already reads the clock on every message and can decide that a
-            // whole window now lies in the past.
-            if (m_runnerOutput && measurementStarted && now >= nextRunnerFlush)
-            {
-                emitClosedWindows(now);
-                // Subscriber windows can close asynchronously. Recheck shortly so the combined
-                // row is emitted as soon as every subscriber has reported its watermark.
-                nextRunnerFlush = now + milliseconds(100);
-            }
 
             if (m_warmingUp.load() && warmupDeadline && now >= *warmupDeadline)
             {
@@ -1633,17 +1642,21 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     }
 
     stopwatch.stop();
+    m_scenarioCompleted = true;
+    for (const auto& subscriber: m_subscribers)
+    {
+        subscriber->onMessage({});
+    }
+    reporter.stopAndJoin();
     for (auto& clientPublishLatency: clientPublishLatencies)
     {
         clientPublishLatency.stop();
     }
 
-    // stop() closes the window still being collected into the objects, so the last one is only now
-    // visible to the observer. Flushing here, rather than when the publish loop ended, is what
-    // keeps the live view from missing the window the run ended in.
-    if (m_runnerOutput && measurementStarted)
+    // Include the last partial window after receiving and the reporter have stopped.
+    if (m_runnerOutput && measurementStarted && liveLatencyCount && groupInterval > 0us && !reporter.failure)
     {
-        emitClosedWindows(steady_clock::now());
+        emitClosedWindows(true);
     }
 
     auto summaryPublishLatency = RoundTripLatency::combine(clientPublishLatencies);
@@ -1661,5 +1674,6 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         m_latencyTraceTotal.print(scenarioTitle);
     }
     if (publishFailure) rethrow_exception(publishFailure);
+    if (reporter.failure) rethrow_exception(reporter.failure);
 
 }

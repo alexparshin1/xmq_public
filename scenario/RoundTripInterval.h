@@ -16,6 +16,7 @@
 #include "client/MqttClient.h"
 #include "service/CTestScenario.h"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -162,6 +163,16 @@ public:
 
     void intervalObserver(IntervalObserver observer) { m_intervalObserver = std::move(observer); }
 
+    /// Latest closed window, including empty windows. Negative until the first close.
+    [[nodiscard]] std::chrono::microseconds closedThrough() const
+    {
+        return std::chrono::microseconds(m_closedThrough.load(std::memory_order_relaxed));
+    }
+
+    /// Returns an immutable stored window, or null for an empty/unclosed window. The caller
+    /// can read it without the object lock, but must finish before the next start() or destruction.
+    [[nodiscard]] const Interval* closedInterval(std::chrono::microseconds intervalStart) const;
+
     /// A percentile of a sparse interval histogram, for a consumer that reports the buckets itself
     /// instead of waiting for the end-of-run table. Same buckets, same approximation.
     static std::chrono::microseconds intervalPercentile(const Histogram& histogram, double percent);
@@ -212,6 +223,7 @@ private:
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;
     Clock::time_point                                  m_nextIntervalTime;
+    std::atomic<int64_t>                               m_closedThrough {-1};
     /// Deliberately not copied: a copy that emitted into the original's sink would report every
     /// window twice, and combine() builds its summary from copies.
     IntervalObserver                                   m_intervalObserver;

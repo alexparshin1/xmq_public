@@ -47,6 +47,31 @@ TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
     EXPECT_EQ(latency.percentile(99).count(), 0);
 }
 
+TEST(RoundTripLatencyTests, closedWindowsRemainStableAndEmptyWindowsAdvanceTheWatermark)
+{
+    RoundTripLatency latency;
+    latency.start(1s);
+    EXPECT_EQ(latency.closedThrough(), -1us);
+    EXPECT_EQ(latency.closedInterval(0us), nullptr);
+
+    latency.add(250us);
+    latency.stop();
+    EXPECT_EQ(latency.closedThrough(), 0us);
+    const auto* first = latency.closedInterval(0us);
+    ASSERT_NE(first, nullptr);
+
+    latency.storeCurrentInterval();
+    EXPECT_EQ(latency.closedThrough(), 1s);
+    EXPECT_EQ(latency.closedInterval(1s), nullptr);
+    latency.add(500us);
+    latency.storeCurrentInterval();
+    EXPECT_EQ(latency.closedThrough(), 2s);
+    ASSERT_NE(latency.closedInterval(2s), nullptr);
+    EXPECT_EQ(latency.closedInterval(0us), first);
+    EXPECT_EQ(first->m_count, 1u);
+    EXPECT_EQ(first->m_summaryLatency, 250us);
+}
+
 TEST(RoundTripLatencyTests, combiningHistogramsPreservesSampleWeights)
 {
     vector<RoundTripLatency> latencies(2);

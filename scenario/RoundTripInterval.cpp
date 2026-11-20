@@ -169,6 +169,7 @@ void RoundTripLatency::start(const microseconds groupInterval)
     m_startedBySequence.clear();
     m_unmatchedReceived = 0;
     m_intervals.clear();
+    m_closedThrough.store(-1, std::memory_order_relaxed);
 }
 
 void RoundTripLatency::stop()
@@ -230,6 +231,20 @@ void RoundTripLatency::storeCurrentInterval()
         m_intervalObserver(interval, 0, {}, emptyHistogram);
     }
     m_nextIntervalTime += m_groupIntervalDuration;
+    m_closedThrough.store(interval.count(), std::memory_order_relaxed);
+}
+
+const RoundTripLatency::Interval* RoundTripLatency::closedInterval(const microseconds intervalStart) const
+{
+    const scoped_lock lock(m_mutex);
+    // Each close advances the key for a positive group interval. With no interval width the
+    // same key could be reused by stop(), so do not expose a reference in that mode.
+    if (m_groupIntervalDuration <= 0us)
+    {
+        return nullptr;
+    }
+    const auto it = m_intervals.find(intervalStart);
+    return it != m_intervals.end() ? &it->second : nullptr;
 }
 
 void RoundTripLatency::received()
