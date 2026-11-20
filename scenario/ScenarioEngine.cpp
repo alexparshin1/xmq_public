@@ -1553,8 +1553,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                 }
             }
 
-            Buffer messagePayload(payload);
-            writeMessageSequence(messagePayload, sequence);
+            // MqttClient::publish copies the payload into its owned PUBLISH before enqueueing it.
+            writeMessageSequence(payload, sequence);
 
             try
             {
@@ -1572,11 +1572,11 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                     {
                         messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
                     }
-                    publisher->publish(topic, messagePayload, qos, messageProperties);
+                    publisher->publish(topic, payload, qos, messageProperties);
                 }
                 else
                 {
-                    publisher->publish(topic, messagePayload, qos);
+                    publisher->publish(topic, payload, qos);
                 }
             }
             catch (const exception& e)
