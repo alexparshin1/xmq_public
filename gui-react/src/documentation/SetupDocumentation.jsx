@@ -432,9 +432,9 @@ xmq_server --reset-configuration`}</pre>
                 Each topic entry carries a pattern, a direction of its own, and the QoS to
                 subscribe with. A topic's direction narrows the bridge's: a topic marked
                 <code>out</code> on an <code>inout</code> bridge travels outbound only. Topics keep
-                the name they were published with by default. Set <code>local_prefix</code> and
-                <code>remote_prefix</code> to map a namespace between brokers. For example, with
-                the filter <code>sensors/#</code>, an empty local prefix and remote prefix
+                the name they were published with by default. Starting with XMQ 1.2.0,
+                <code>local_prefix</code> and <code>remote_prefix</code> map a namespace between
+                brokers. With filter <code>sensors/#</code>, an empty local prefix and remote prefix
                 <code>site-a/</code>, outbound <code>sensors/temp</code> becomes
                 <code>site-a/sensors/temp</code>; inbound messages map in reverse. Prefixes apply
                 to every filter on the bridge, cannot contain wildcards, and are concatenated
