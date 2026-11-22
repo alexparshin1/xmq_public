@@ -94,11 +94,11 @@ const XmqSinkV1 deliveryApi{
         try
         {
             auto& self = *static_cast<HttpDelivery*>(instance);
-            return self.peer.deliver(std::string(body, length), self.retries) ? 0 : 1;
+            return self.peer.deliveryStatus(std::string(body, length), self.retries);
         }
         catch (...)
         {
-            return 1;
+            return 2;
         }
     }
 };

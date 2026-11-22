@@ -31,6 +31,25 @@ acknowledgements carry no failure reason. Empty retained publishes can still
 clear a retained value. Internal cluster control and broker-originated messages
 are outside client ingress validation.
 
+## Validate the sink payload
+
+Set `json_schema` on a message or log exporter to a JSON Schema Draft 2020-12
+document. For example, `{"type":"object","required":["device_id"]}` requires an
+object containing `device_id`. An omitted, empty, or whitespace-only setting skips schema validation.
+
+The worker validates the rendered template or SQL result before it is queued
+in SQLite or sent to a sink. With a dead-letter topic configured for persistent
+delivery, the worker attempts to republish invalid bodies there. Otherwise it
+drops them. Validation applies to new exports. Rows already in SQLite replay
+as originally rendered.
+
+Build SPTK with `SPTK_ENABLE_JSON_SCHEMA=ON` and build XMQ against that SPTK
+installation. Invalid schemas and unavailable validation support cause the
+exporter to reject the configuration. Validation affects export only. MQTT
+subscribers still receive the original publication. The Extensions screen shows
+schema rejection counts and the last failing JSON Pointer and keyword, along
+with sink, SQLite queue, and dead-letter outcomes. It does not show payloads.
+
 ## Persistent delivery queue
 
 With SQLite support, set `persistent_delivery = true` to opt in, then set
@@ -38,16 +57,40 @@ With SQLite support, set `persistent_delivery = true` to opt in, then set
 directory (mode 0700 on Unix). Persistent delivery is off by default. Use one file
 per exporter and sink settings. An empty path while the switch is on prevents the
 extension from starting. `delivery_queue_mib` caps live encoded data (default 256 MiB,
-excluding SQLite overhead); new records are dropped when full.
+excluding SQLite overhead). A full queue rejects new records, which can be routed
+to the dead-letter topic.
 
 A separate writer stores the rendered body and bindings. MQTT acknowledgement
 does not imply export persistence. One worker delivers the queue head and removes
 it when the sink reports success. With `kafka_sink`, this requires an acknowledgement
 from Kafka. Persistent mode overrides the HTTP retry count and concurrency.
-Failures, including permanent ones, block later records
-and retry with a delay capped at 60 seconds. Restart replays persisted records;
+Failures retry with a delay capped at 60 seconds. Without a dead-letter topic,
+permanent failures also block later records. Restart replays persisted records;
 a crash after delivery but before removal can cause duplicates. Changing sink
 settings requires a different queue file.
+
+## Dead-letter topic
+
+Set `dead_letter_topic = integrations/dead-letter/orders` on an individual
+`message_export` or `log_export` with persistent delivery enabled. Leave it blank
+to disable dead-letter publishing. Use a concrete MQTT topic and restrict
+subscription access because the payload is the original rendered export body.
+
+When the sink reports a permanent rejection, the exporter republishes the body
+to that topic. For HTTP, 4xx responses other than 429 are permanent. Transient
+errors continue to retry at the sink. A rejected head stays in SQLite until the
+broker accepts the dead-letter publication and is retried with backoff if
+acceptance fails. On restart the head can be tried at the primary sink again.
+New records that exceed the SQLite queue limit also get one dead-letter attempt.
+If the broker refuses that attempt, the record is dropped. Losses before the
+SQLite writer receives a record are outside this path.
+
+Dead-letter publications are local, non-retained QoS 0 messages that bypass
+the export tap. The local publisher accepts payloads up to 16 MiB. Broker
+acceptance is asynchronous and does not confirm
+persistence or subscriber receipt. A crash after acceptance and before SQLite
+deletion can result in duplicate delivery. Run a subscriber on the dead-letter
+topic to collect the messages.
 
 ## Kafka sink
 

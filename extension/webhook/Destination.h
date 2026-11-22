@@ -22,6 +22,10 @@
 #include "DeliveryQueue.h"
 #endif
 
+#ifdef XMQ_SPTK_JSON_SCHEMA
+#include <sptk5/xdoc/JsonSchema.h>
+#endif
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -60,9 +64,12 @@ struct Destination
     std::deque<WebhookEntry>                         queue;
     std::vector<webhook_sql::SqlRule>                messageRules, logRules;
     std::unique_ptr<SinkModule>                     sink;
+#ifdef XMQ_SPTK_JSON_SCHEMA
+    std::optional<sptk::xdoc::JsonSchema>             schema;
+#endif
 #ifdef XMQ_PERSISTENT_DELIVERY
     std::shared_ptr<xmq::exporter::DeliveryQueue>     spool;
-    std::string                                     spoolPath, spoolKey;
+    std::string                                     spoolPath, spoolKey, deadLetterTopic;
     std::int64_t                                    spoolLimit{};
     std::mutex                                      spoolLock;
     std::condition_variable                         spoolReady;

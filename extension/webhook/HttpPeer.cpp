@@ -219,26 +219,26 @@ void HttpPeer::connect()
 
 /// 2xx is success; 4xx except 429 is refused without a second attempt; everything else retries
 /// with backoff. The same policy for both inputs, in one place.
-bool HttpPeer::deliver(const std::string& body, int retries)
+int HttpPeer::deliveryStatus(const std::string& body, int retries)
 {
     for (int attempt = 0; attempt <= retries; ++attempt)
     {
         const int status = send(body);
         if (status >= 200 && status < 300)
         {
-            return true;
+            return 0;
         }
         if (status >= 400 && status < 500 && status != 429)
         {
             // The endpoint will say no again; a retry would only be noise.
-            return false;
+            return 1;
         }
         if (attempt < retries)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(std::min(2000, 100 << std::min(attempt, 5))));
         }
     }
-    return false;
+    return 2;
 }
 
 } // namespace xmq::exporter

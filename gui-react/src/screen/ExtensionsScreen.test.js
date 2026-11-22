@@ -204,3 +204,34 @@ test("an extension without presets gets no starting-point control", async () => 
     await openExtension();
     expect(screen.queryByLabelText("Set defaults")).not.toBeInTheDocument();
 });
+
+test.each([["message_export", "temperature"], ["log_export", "level"]])(
+    "%s shows JSON Schema help", async (name, field) => {
+        listed = [{...extension, name, settings: [{
+            name: "json_schema", label: "JSON Schema", type: "string", value: "",
+            description: "Leave blank to skip validation.", declared: true
+        }]}];
+        render(<ExtensionsScreen/>);
+        fireEvent.click(await screen.findByText(name));
+        fireEvent.click(screen.getByTitle("About JSON Schema"));
+        const dialog = screen.getByRole("dialog", {name: "JSON Schema"});
+        expect(JSON.parse(dialog.querySelector("pre").textContent).required).toEqual([field]);
+        expect(screen.getByText("Leave blank to skip validation.")).toBeInTheDocument();
+        expect(screen.getByRole("link", {name: /JSON Schema documentation/})).toHaveAttribute(
+            "href", "https://json-schema.org/learn/getting-started-step-by-step");
+    });
+
+test("the exporter shows sink and schema diagnostics separately from tap drops", async () => {
+    listed = [{...extension, name: "message_export", message_tap: true,
+        messages_dropped: 1, schema_rejected: 3, sink_failures: 4, queue_failures: 5,
+        dead_letter_accepted: 2, dead_letter_failures: 1,
+        last_schema_path: "/reading", last_schema_keyword: "type"}];
+    render(<ExtensionsScreen/>);
+    fireEvent.click(await screen.findByText("message_export"));
+    const rowValue = label => screen.getByText(label + ":").parentElement
+        .querySelector(".extensionValue");
+    expect(rowValue("Messages dropped")).toHaveTextContent("1");
+    expect(rowValue("Schema rejections")).toHaveTextContent("3");
+    expect(rowValue("SQLite queue failures")).toHaveTextContent("5");
+    expect(rowValue("Last schema rejection")).toHaveTextContent("/reading · type");
+});

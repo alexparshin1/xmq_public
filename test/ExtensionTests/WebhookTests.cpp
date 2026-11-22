@@ -1,5 +1,9 @@
 #include "server/Extensions/ExtensionHost.h"
 
+#ifdef XMQ_SPTK_JSON_SCHEMA
+#include <sptk5/xdoc/JsonSchema.h>
+#endif
+
 #include <gtest/gtest.h>
 #include <sptk5/FileLogEngine.h>
 #include <sptk5/db/AutoDatabaseConnection.h>
@@ -150,7 +154,11 @@ public:
 
     /// How many requests to answer with 500 before succeeding, so a retry can be observed without
     /// every test paying for one.
-    void failFirst(const int count) { m_failFirst = count; }
+    void failFirst(const int count, bool permanent = false)
+    {
+        m_permanentFailure = permanent;
+        m_failFirst = count;
+    }
     void keepAlive() { m_keepAlive = true; }
     [[nodiscard]] size_t connections() const { return m_connections.load(); }
 
@@ -190,7 +198,9 @@ private:
             while (readRequest(client))
             {
                 const bool fail = m_served.fetch_add(1) < m_failFirst;
-                std::string response = fail ? "HTTP/1.1 500 Oops\r\n" : "HTTP/1.1 200 OK\r\n";
+                std::string response = "HTTP/1.1 200 OK\r\n";
+                if (fail)
+                    response = m_permanentFailure ? "HTTP/1.1 400 Bad Request\r\n" : "HTTP/1.1 500 Oops\r\n";
                 response += m_keepAlive ? "Content-Length: 0\r\n\r\n" :
                     "Content-Length: 0\r\nConnection: close\r\n\r\n";
                 ::send(client, response.data(), static_cast<int>(response.size()), sendFlags);
@@ -254,6 +264,7 @@ private:
     uint16_t            m_port {0};
     std::atomic<int>    m_served {0};
     std::atomic<int>    m_failFirst {0};
+    std::atomic<bool>   m_permanentFailure {false};
     std::atomic<size_t> m_connections{0};
     bool                m_keepAlive{false};
     std::atomic<bool>   m_stopping {false};
@@ -388,6 +399,26 @@ TEST_F(WebhookTests, sqlRuleFiltersAndProjectsTypedValues)
     EXPECT_EQ((vector<string>{R"({"temp":100,"qos":1,"retain":false})"}), receiver.bodies());
 }
 
+TEST_F(WebhookTests, failedFirstEnableReportsLoaderErrorAndKeepsExtensionListed)
+{
+    ExtensionHost::Configured configured{
+        .m_name = "missing-exporter",
+        .m_library = webhookLibrary().parent_path() / "missing-exporter.so",
+        .m_enabled = false,
+    };
+    ExtensionHost host(m_logEngine, "test");
+    host.start({configured});
+    const auto report = host.enable(configured);
+    ASSERT_TRUE(report.failed());
+    EXPECT_FALSE(host.reloadSettings({configured}).failed());
+    EXPECT_NE(std::string::npos, report.m_problems[0].find("cannot load"));
+    const auto listed = host.describe();
+    const auto found = std::ranges::find(listed, configured.m_name, &ExtensionHost::Description::m_name);
+    ASSERT_NE(listed.end(), found);
+    EXPECT_FALSE(found->m_running);
+    host.stop();
+}
+
 TEST_F(WebhookTests, exporterDeliversThroughSelectedHttpSink)
 {
     Receiver receiver;
@@ -398,6 +429,7 @@ TEST_F(WebhookTests, exporterDeliversThroughSelectedHttpSink)
     config.m_settings["sink"] = "http_sink";
     config.m_settings["mqtt_filter"] = "SQL rules";
     config.m_settings["sql_rule"] = R"(select *, client_id as client from "sensors/#")";
+    config.m_settings["json_schema"] = " \n\t";
     ExtensionHost host(m_logEngine, "webhook");
     host.start({config});
     const string payload = R"({"greeting":"Hello"})";
@@ -412,6 +444,49 @@ TEST_F(WebhookTests, exporterDeliversThroughSelectedHttpSink)
     EXPECT_NE(string::npos, bodies.front().find(R"("client":"client")"));
     EXPECT_NE(string::npos, bodies.front().find(R"("payload":"{\"greeting\":\"Hello\"}")"));
 }
+
+#ifdef XMQ_SPTK_JSON_SCHEMA
+TEST_F(WebhookTests, exporterValidatesRenderedBodyBeforeDelivery)
+{
+    if (!sptk::xdoc::JsonSchema::available())
+        GTEST_SKIP() << "SPTK was built without JSON Schema validation";
+
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver, "sensors/#", "0");
+    config.m_name = "message_export";
+    config.m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY;
+    config.m_settings["sink"] = "http_sink";
+    config.m_settings["concurrency"] = "1";
+    config.m_settings["mqtt_filter"] = "SQL rules";
+    config.m_settings["sql_rule"] = R"(SELECT payload.temperature AS reading FROM "sensors/#")";
+    config.m_settings["json_schema"] = R"({
+        "type":"object",
+        "required":["reading"],
+        "properties":{"reading":{"type":"number"}}
+    })";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    const auto publish = [&](string_view payload)
+    {
+        host.publishMessage("client", "user", "sensors/1", payload.data(), payload.size(), 1, false);
+    };
+    publish(R"({"temperature":"21.5"})");
+    publish(R"({"temperature":21.5})");
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    const auto described = host.describe();
+    const auto exporter = std::ranges::find(described, config.m_name, &ExtensionHost::Description::m_name);
+    ASSERT_NE(described.end(), exporter);
+    EXPECT_EQ(1u, exporter->m_exportOutcomes[XMQ_EXPORT_SCHEMA_REJECTED]);
+    EXPECT_EQ("/reading", exporter->m_lastSchemaPath);
+    EXPECT_EQ("type", exporter->m_lastSchemaKeyword);
+    host.stop();
+    EXPECT_EQ((std::vector<std::string>{R"({"reading":21.5})"}), receiver.bodies());
+}
+#endif
 
 #ifdef XMQ_TEST_PERSISTENT_DELIVERY_QUEUE
 TEST_F(WebhookTests, persistentExportReplaysAfterRestartWithoutReevaluatingSql)
@@ -431,6 +506,13 @@ TEST_F(WebhookTests, persistentExportReplaysAfterRestartWithoutReevaluatingSql)
     const std::unique_ptr<const std::string, decltype(cleanup)> guard(&pattern, cleanup);
     config.m_settings["persistent_delivery"] = "true";
     config.m_settings["delivery_queue_path"] = (filesystem::path(pattern) / "queue.sqlite").string();
+    config.m_settings["dead_letter_topic"] = "dead-letter/http";
+    std::atomic<unsigned> deadLetters{0};
+    const auto publish = [&](string_view, string_view, string_view)
+    {
+        ++deadLetters;
+        return true;
+    };
     const auto waitFor = [&](size_t count)
     {
         const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
@@ -439,7 +521,7 @@ TEST_F(WebhookTests, persistentExportReplaysAfterRestartWithoutReevaluatingSql)
         return receiver.requests() >= count;
     };
     {
-        ExtensionHost host(m_logEngine, "webhook");
+        ExtensionHost host(m_logEngine, "webhook", publish);
         host.start({config});
         ASSERT_TRUE(host.tapping());
         host.publishMessage("client", "user", "sensors/1", "payload", 7, 1, false);
@@ -450,13 +532,64 @@ TEST_F(WebhookTests, persistentExportReplaysAfterRestartWithoutReevaluatingSql)
     receiver.failFirst(0);
     config.m_settings["sql_rule"] = R"(SELECT client_id FROM "other/#")";
     {
-        ExtensionHost host(m_logEngine, "webhook");
+        ExtensionHost host(m_logEngine, "webhook", publish);
         host.start({config});
         ASSERT_TRUE(waitFor(failedAttempts + 1));
         host.stop();
     }
+    EXPECT_EQ(0u, deadLetters.load());
     for (const auto& body: receiver.bodies())
         EXPECT_EQ(R"({"topic":"sensors/1"})", body);
+}
+TEST_F(WebhookTests, persistentExportDeadLettersRejectedHeadBeforeDeliveringNextRecord)
+{
+    Receiver receiver;
+    receiver.failFirst(1, true);
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver, "sensors/#", "0");
+    config.m_name = "message_export";
+    config.m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY;
+    config.m_settings["sink"] = "http_sink";
+    config.m_settings["mqtt_filter"] = "SQL rules";
+    config.m_settings["sql_rule"] = R"(SELECT topic FROM "sensors/#")";
+    auto directory = (filesystem::temp_directory_path() / "xmq-export-dlq-XXXXXX").string();
+    ASSERT_NE(nullptr, mkdtemp(directory.data()));
+    auto cleanup = [](const std::string* path) { filesystem::remove_all(*path); };
+    const std::unique_ptr<const std::string, decltype(cleanup)> guard(&directory, cleanup);
+    config.m_settings["persistent_delivery"] = "true";
+    config.m_settings["delivery_queue_path"] = (filesystem::path(directory) / "queue.sqlite").string();
+    config.m_settings["dead_letter_topic"] = "dead-letter/http";
+
+    std::atomic<unsigned> attempts{0};
+    std::vector<std::pair<std::string, std::string>> accepted;
+    ExtensionHost host(m_logEngine, "webhook", [&](string_view, string_view topic, string_view body)
+    {
+        if (attempts.fetch_add(1) == 0)
+            return false;
+        accepted.emplace_back(topic, body);
+        return true;
+    });
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    host.publishMessage("client", "user", "sensors/rejected", "", 0, 1, false);
+    host.publishMessage("client", "user", "sensors/accepted", "", 0, 1, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 2 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    const auto described = host.describe();
+    const auto exporter = std::ranges::find(described, config.m_name, &ExtensionHost::Description::m_name);
+    ASSERT_NE(described.end(), exporter);
+    EXPECT_EQ(1u, exporter->m_exportOutcomes[XMQ_EXPORT_SINK_FAILED]);
+    EXPECT_EQ(1u, exporter->m_exportOutcomes[XMQ_EXPORT_DEAD_LETTER_FAILED]);
+    EXPECT_EQ(1u, exporter->m_exportOutcomes[XMQ_EXPORT_DEAD_LETTER_ACCEPTED]);
+    host.stop();
+
+    EXPECT_EQ(2u, attempts.load());
+    ASSERT_EQ(1u, accepted.size());
+    EXPECT_EQ("dead-letter/http", accepted.front().first);
+    EXPECT_EQ(R"({"topic":"sensors/rejected"})", accepted.front().second);
+    EXPECT_EQ((std::vector<std::string>{R"({"topic":"sensors/rejected"})", R"({"topic":"sensors/accepted"})"}),
+              receiver.bodies());
 }
 #endif
 

@@ -52,7 +52,8 @@ class HttpPeer
 {
 public:
     HttpPeer(Url url, std::string secret, int timeoutMs, HttpHeaders headers);
-    bool deliver(const std::string& body, int retries);
+    bool deliver(const std::string& body, int retries) { return deliveryStatus(body, retries) == 0; }
+    int deliveryStatus(const std::string& body, int retries);
 
 private:
     int send(const std::string& body);

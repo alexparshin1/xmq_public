@@ -512,6 +512,13 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_messages_dropped = static_cast<int>(from.m_messagesDropped);
     into.m_logs_delivered = static_cast<int>(from.m_logsDelivered);
     into.m_logs_dropped = static_cast<int>(from.m_logsDropped);
+    into.m_schema_rejected = static_cast<int>(std::min<uint64_t>(from.m_exportOutcomes[XMQ_EXPORT_SCHEMA_REJECTED], INT_MAX));
+    into.m_sink_failures = static_cast<int>(std::min<uint64_t>(from.m_exportOutcomes[XMQ_EXPORT_SINK_FAILED], INT_MAX));
+    into.m_queue_failures = static_cast<int>(std::min<uint64_t>(from.m_exportOutcomes[XMQ_EXPORT_QUEUE_FAILED], INT_MAX));
+    into.m_dead_letter_accepted = static_cast<int>(std::min<uint64_t>(from.m_exportOutcomes[XMQ_EXPORT_DEAD_LETTER_ACCEPTED], INT_MAX));
+    into.m_dead_letter_failures = static_cast<int>(std::min<uint64_t>(from.m_exportOutcomes[XMQ_EXPORT_DEAD_LETTER_FAILED], INT_MAX));
+    into.m_last_schema_path = from.m_lastSchemaPath;
+    into.m_last_schema_keyword = from.m_lastSchemaKeyword;
 
     for (const auto& setting: from.m_settings)
     {

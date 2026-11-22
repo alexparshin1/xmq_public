@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 6
+#define XMQ_EXTENSION_ABI_MINOR 7
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -206,6 +206,16 @@ typedef struct xmq_log_record
     xmq_str  subject;
     xmq_str  message;
 } xmq_log_record;
+
+typedef enum xmq_export_outcome
+{
+    XMQ_EXPORT_SCHEMA_REJECTED,
+    XMQ_EXPORT_SINK_FAILED,
+    XMQ_EXPORT_QUEUE_FAILED,
+    XMQ_EXPORT_DEAD_LETTER_ACCEPTED,
+    XMQ_EXPORT_DEAD_LETTER_FAILED,
+    XMQ_EXPORT_OUTCOME_COUNT
+} xmq_export_outcome;
 
 /**
  * @brief What the broker offers an extension.
@@ -329,6 +339,12 @@ typedef struct xmq_host
      * Imported messages do not pass through the message export tap.
      */
     xmq_status (*publish_local)(void* context, xmq_str topic, xmq_str payload);
+
+    /**
+     * Report an exporter outcome to the Extensions screen. The instance path and keyword
+     * are copied for a schema rejection. Pass empty strings for other outcomes.
+     */
+    void (*report_export)(void* context, uint32_t outcome, xmq_str instance_path, xmq_str keyword);
 } xmq_host;
 
 /**
