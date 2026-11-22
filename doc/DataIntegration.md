@@ -6,6 +6,15 @@ still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrat
 copy each source's settings to its replacement and turn off the old extension to
 avoid duplicate deliveries.
 
+## Next task: persistent delivery queue
+
+Add opt-in disk-backed delivery for both exporters and both sinks. Persist the
+rendered body and bindings; replay after a restart and remove records only after
+confirmed delivery. Keep disk I/O off the MQTT path, bound queue growth, and
+prevent queued records from being sent to a changed destination. Verify at-least-once
+delivery for persisted records with an outage and crash/restart test; duplicates
+are possible. Kafka import and export are separate future integrations.
+
 ## Sinks for the export extensions
 
 The SQL rule engine, syntax validation, Test rule and the rule editor are shared
