@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "Database destination",
+      "fields": [
+        {
+          "name": "db_type"
+        },
+        {
+          "name": "database_uri",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "Use saved URI"
+            ]
+          }
+        },
+        {
+          "name": "db_host",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_port",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_name",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_user",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_password",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_path",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "sqlite3"
+            ]
+          }
+        },
+        {
+          "name": "insert_sql",
+          "widget": "multiline"
+        }
+      ]
+    }
+  ]
+}

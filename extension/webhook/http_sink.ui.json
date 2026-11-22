@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "sections": [
+    {"title": "HTTP destination", "fields": [
+      {"name": "url"}, {"name": "secret"}, {"name": "headers"}, {"name": "allow_http"},
+      {"name": "timeout_ms"}, {"name": "retries"}, {"name": "concurrency"},
+      {"name": "template", "widget": "multiline"}
+    ]}
+  ]
+}

@@ -12,6 +12,7 @@
         "headers": "",
         "secret": "",
         "topic_filter": "#",
+        "sql_rule": "",
         "max_payload": "1048576",
         "timeout_ms": "5000",
         "retries": "3",

@@ -475,7 +475,8 @@ typedef enum xmq_capability
     XMQ_CAP_AUTHENTICATOR = 1u << 1, /**< Decides whether a client may connect. */
     XMQ_CAP_AUTHORIZER = 1u << 2,    /**< Decides what a connected client may publish and subscribe to. */
     XMQ_CAP_MESSAGE_TAP = 1u << 3,   /**< Receives the messages the broker accepted, body included. */
-    XMQ_CAP_LOG_TAP = 1u << 4        /**< Receives the broker's own log records. */
+    XMQ_CAP_LOG_TAP = 1u << 4,       /**< Receives the broker's own log records. */
+    XMQ_CAP_SINK = 1u << 5           /**< A delivery destination selected by an export extension. */
 } xmq_capability;
 
 /**

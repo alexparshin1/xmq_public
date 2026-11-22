@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "HTTP destination",
+      "fields": [
+        {"name": "url"}, {"name": "secret"}, {"name": "headers"},
+        {"name": "allow_http"}, {"name": "timeout_ms"}, {"name": "retries"},
+        {"name": "concurrency"}
+      ]
+    },
+    {
+      "title": "MQTT messages",
+      "toggle": "mqtt_messages",
+      "fields": [
+        {"name": "mqtt_filter"},
+        {"name": "max_payload"},
+        {"name": "mqtt_template", "widget": "multiline", "visible_when": {"setting": "mqtt_filter", "values": ["Topics"]}},
+        {"name": "topic_filter", "visible_when": {"setting": "mqtt_filter", "values": ["Topics"]}},
+        {"name": "sql_rule", "widget": "multiline", "visible_when": {"setting": "mqtt_filter", "values": ["SQL rules"]}}
+      ]
+    },
+    {
+      "title": "Log messages",
+      "toggle": "log_messages",
+      "fields": [
+        {"name": "log_filter"},
+        {"name": "log_template", "widget": "multiline", "visible_when": {"setting": "log_filter", "values": ["Level and subjects"]}},
+        {"name": "log_min_level", "visible_when": {"setting": "log_filter", "values": ["Level and subjects"]}},
+        {"name": "log_subjects", "visible_when": {"setting": "log_filter", "values": ["Level and subjects"]}},
+        {"name": "log_sql_rule", "widget": "multiline", "visible_when": {"setting": "log_filter", "values": ["SQL rules"]}}
+      ]
+    }
+  ]
+}

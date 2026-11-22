@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "title": "Log messages",
+      "fields": [
+        {
+          "name": "log_filter"
+        },
+        {
+          "name": "log_min_level",
+          "visible_when": {
+            "setting": "log_filter",
+            "values": [
+              "Level and subjects"
+            ]
+          }
+        },
+        {
+          "name": "log_subjects",
+          "visible_when": {
+            "setting": "log_filter",
+            "values": [
+              "Level and subjects"
+            ]
+          }
+        },
+        {
+          "name": "log_template",
+          "widget": "multiline",
+          "visible_when": {
+            "setting": "log_filter",
+            "values": [
+              "Level and subjects"
+            ]
+          }
+        },
+        {
+          "name": "log_sql_rule",
+          "widget": "multiline",
+          "visible_when": {
+            "setting": "log_filter",
+            "values": [
+              "SQL rules"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Delivery",
+      "fields": [
+        {
+          "name": "sink"
+        }
+      ]
+    },
+    {
+      "title": "HTTP/HTTPS request",
+      "fields": [
+        {
+          "name": "url"
+        },
+        {
+          "name": "secret"
+        },
+        {
+          "name": "headers"
+        },
+        {
+          "name": "timeout_ms"
+        },
+        {
+          "name": "retries"
+        },
+        {
+          "name": "concurrency"
+        }
+      ],
+      "visible_when": {
+        "setting": "sink",
+        "values": [
+          "http_sink"
+        ]
+      }
+    },
+    {
+      "title": "Database",
+      "fields": [
+        {
+          "name": "db_type"
+        },
+        {
+          "name": "database_uri",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "Use saved URI"
+            ]
+          }
+        },
+        {
+          "name": "db_host",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_port",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_name",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_user",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_password",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "postgresql",
+              "mysql",
+              "oracle",
+              "mssql"
+            ]
+          }
+        },
+        {
+          "name": "db_path",
+          "visible_when": {
+            "setting": "db_type",
+            "values": [
+              "sqlite3"
+            ]
+          }
+        },
+        {
+          "name": "insert_sql",
+          "widget": "multiline"
+        }
+      ],
+      "visible_when": {
+        "setting": "sink",
+        "values": [
+          "db_sink"
+        ]
+      }
+    }
+  ]
+}
