@@ -145,6 +145,7 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
                const std::optional<bool>        cleanStart)
     : ServerData(settings, logEngine, socketEventsMode)
       , m_sessionTimer(make_shared<Timer>())
+      , m_publishSchemaPolicies(PublishSchemaPolicies::load(settings->configurationPath()))
       , m_storage(initializeStorage(*settings, cleanStart))
       , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
       , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))

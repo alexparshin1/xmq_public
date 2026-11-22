@@ -6,6 +6,31 @@ still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrat
 copy each source's settings to its replacement and turn off the old extension to
 avoid duplicate deliveries.
 
+## Validate incoming MQTT publications
+
+Create `xmq_publish_schemas.json` beside the broker configuration and restart MQTT
+to enforce JSON Schema on incoming publications. Each key is an MQTT topic
+filter and each value is a Draft 2020-12 schema file. Relative paths are resolved
+from the policy file directory.
+
+```json
+{
+  "sensors/+/reading": "sensor-reading.schema.json"
+}
+```
+
+An absent file or an empty object disables ingress validation. The broker
+compiles each schema at startup and refuses to start MQTT if a configured schema
+cannot be loaded or if the SPTK build lacks validation support. Configure the
+same policy files on every broker accepting client traffic.
+
+Matching authorized client publishes must satisfy every matching schema before
+routing, retained storage, or export. A rejected MQTT 5 QoS 1 or 2 publish
+receives `Payload format invalid`. QoS 0 has no acknowledgement, and MQTT 3.x
+acknowledgements carry no failure reason. Empty retained publishes can still
+clear a retained value. Internal cluster control and broker-originated messages
+are outside client ingress validation.
+
 ## Persistent delivery queue
 
 With SQLite support, set `persistent_delivery = true` to opt in, then set

@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "PublishSchemaPolicies.h"
 #include <atomic>
 #include <functional>
 #include <shared_mutex>
@@ -71,6 +72,11 @@ public:
     Server(const std::shared_ptr<Settings>& settings, const std::shared_ptr<sptk::LogEngine>& logEngine,
            sptk::LogPriority startupMessagesLogPriority = sptk::LogPriority::Info,
            std::optional<bool> cleanStart = std::nullopt);
+
+    [[nodiscard]] const PublishSchemaPolicies* publishSchemaPolicies() const
+    {
+        return m_publishSchemaPolicies.get();
+    }
 
     Server(const Server&) = delete;
     Server(Server&&) = delete;
@@ -469,6 +475,7 @@ private:
     std::vector<std::shared_ptr<Bridge>> m_bridges;      ///< Outbound bridge connections to other brokers.
     std::atomic<size_t>                  m_bridgeCount {0}; ///< Bridges started and not yet stopped; read without the lock.
 
+    const std::unique_ptr<const PublishSchemaPolicies> m_publishSchemaPolicies;
     SStorage                          m_storage;                                                 ///< Optionally persistent storage.
     std::shared_ptr<RedisStorage>     m_redisStorage;                                            ///< Redis storage.
     std::unique_ptr<ReliableMessageStore> m_reliableMessageStore;
