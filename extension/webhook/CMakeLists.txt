@@ -1,9 +1,9 @@
-# The first data-integration connector: a message tap that posts JSON to an HTTP(S) endpoint.
-# Sockets come from Winsock on Windows and from the POSIX API elsewhere; TLS and the signature are
-# OpenSSL on both, so the extension links libssl as well as libcrypto. On Linux the SSL symbols
-# used to resolve at run time out of the broker, which hid the missing dependency; a Windows import
-# library carries no such transitivity and the link failed, which is why it is named here.
-XMQ_ADD_EXTENSION(xmq_webhook SOURCES ${CMAKE_CURRENT_LIST_DIR}/Webhook.cpp OPENSSL
+# Exporters and sinks. The legacy webhook and the HTTP sink share the SPTK-based
+# HTTP peer, while the two exporters load their selected sinks at runtime.
+SET(XMQ_WEBHOOK_SOURCES "${CMAKE_CURRENT_LIST_DIR}/Webhook.cpp"
+                        "${CMAKE_CURRENT_LIST_DIR}/HttpPeer.cpp"
+                        "${CMAKE_CURRENT_LIST_DIR}/SinkModule.cpp")
+XMQ_ADD_EXTENSION(xmq_webhook SOURCES ${XMQ_WEBHOOK_SOURCES} SPTK OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/webhook.ui.json")
 
 IF (NOT TARGET OpenSSL::SSL)
@@ -11,10 +11,10 @@ IF (NOT TARGET OpenSSL::SSL)
                         "have found the SSL library, not only crypto.")
 ENDIF ()
 
-XMQ_ADD_EXTENSION(xmq_message_export SOURCES ${CMAKE_CURRENT_LIST_DIR}/Webhook.cpp OPENSSL
+XMQ_ADD_EXTENSION(xmq_message_export SOURCES ${XMQ_WEBHOOK_SOURCES} SPTK OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/message_export.ui.json")
 
-XMQ_ADD_EXTENSION(xmq_log_export SOURCES ${CMAKE_CURRENT_LIST_DIR}/Webhook.cpp OPENSSL
+XMQ_ADD_EXTENSION(xmq_log_export SOURCES ${XMQ_WEBHOOK_SOURCES} SPTK OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/log_export.ui.json")
 
 TARGET_COMPILE_DEFINITIONS(xmq_message_export PRIVATE XMQ_MESSAGES_WEBHOOK)
@@ -28,9 +28,9 @@ IF (TARGET SQLite::SQLite3)
     ENDFOREACH ()
 ENDIF ()
 
-XMQ_ADD_EXTENSION(xmq_http_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/HttpSink.cpp OPENSSL
+XMQ_ADD_EXTENSION(xmq_http_sink SOURCES "${CMAKE_CURRENT_LIST_DIR}/HttpSink.cpp"
+                                       "${CMAKE_CURRENT_LIST_DIR}/HttpPeer.cpp" SPTK OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/http_sink.ui.json")
-TARGET_COMPILE_DEFINITIONS(xmq_http_sink PRIVATE XMQ_SINK_BUILD)
 
 XMQ_ADD_EXTENSION(xmq_db_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/DbSink.cpp SPTK
                   UI "${CMAKE_CURRENT_LIST_DIR}/db_sink.ui.json")
@@ -39,7 +39,6 @@ PKG_CHECK_MODULES(RDKAFKA QUIET rdkafka)
 IF (RDKAFKA_FOUND)
     XMQ_ADD_EXTENSION(xmq_kafka_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/KafkaSink.cpp
                       UI "${CMAKE_CURRENT_LIST_DIR}/kafka_sink.ui.json")
-    TARGET_COMPILE_DEFINITIONS(xmq_kafka_sink PRIVATE XMQ_SINK_BUILD)
     TARGET_INCLUDE_DIRECTORIES(xmq_kafka_sink PRIVATE ${RDKAFKA_INCLUDE_DIRS})
     TARGET_LINK_LIBRARIES(xmq_kafka_sink PRIVATE ${RDKAFKA_LIBRARIES})
     SET(XMQ_HAVE_KAFKA_SINK 1 PARENT_SCOPE)

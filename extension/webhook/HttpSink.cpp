@@ -15,14 +15,20 @@
  * @file HttpSink.cpp
  * @brief The HTTP delivery sink for the export extensions.
  *
- * Built from the same Webhook.cpp as the export extensions, with XMQ_SINK_BUILD
- * selecting this descriptor. The source extension owns the SQL engine and the
- * rule editor; this one only posts the JSON the rule produced.
+ * The exporter owns filtering and formatting; this sink only posts the result.
  */
 
-#include "Webhook.cpp"
+#include "ExportDefaults.h"
+#include "HttpPeer.h"
+#include "Sink.h"
+#include "extension/XmqExtension.h"
+
+#include <cstdio>
+#include <stdexcept>
 
 namespace {
+
+using namespace xmq::exporter;
 
 const xmq_setting sinkSettings[] = {
     {.name = "url", .label = "URL", .description = "Where accepted messages are posted, http:// or https://",
@@ -50,8 +56,8 @@ const xmq_setting sinkSettings[] = {
 
 struct HttpDelivery
 {
-    Destination config;
-    std::unique_ptr<Peer> peer;
+    HttpPeer peer;
+    int retries;
 };
 
 const XmqSinkV1 deliveryApi{
@@ -59,24 +65,21 @@ const XmqSinkV1 deliveryApi{
     {
         try
         {
-            auto self = std::make_unique<HttpDelivery>();
-            auto& config = self->config;
+            Url url;
+            HttpHeaders headers;
             std::string detail;
-            if (!startSockets())
-                throw std::runtime_error("Cannot initialize HTTP sockets");
-            if (!parseUrl(get(context, "url"), config.url))
+            if (!parseUrl(get(context, "url"), url))
                 throw std::runtime_error("url must be an http:// or https:// address");
-            if (!config.url.m_tls && std::string_view(get(context, "allow_http")) != "true")
+            if (!url.m_tls && std::string_view(get(context, "allow_http")) != "true")
                 throw std::runtime_error("plain HTTP is refused unless allow_http is true");
-            if (!parseHeaders(get(context, "headers"), config.headers, detail))
+            if (!parseHeaders(get(context, "headers"), headers, detail))
                 throw std::runtime_error(detail);
-            config.secret = get(context, "secret");
-            config.timeoutMs = std::stoi(get(context, "timeout_ms"));
-            config.retries = std::stoi(get(context, "retries"));
-            if (config.timeoutMs <= 0 || config.retries < 0 || config.retries > 100)
+            const int timeoutMs = std::stoi(get(context, "timeout_ms"));
+            const int retries = std::stoi(get(context, "retries"));
+            if (timeoutMs <= 0 || retries < 0 || retries > 100)
                 throw std::runtime_error("invalid HTTP timeout or retry limit");
-            self->peer = std::make_unique<Peer>(config.url, config.secret, config.timeoutMs, config.headers);
-            return self.release();
+            return new HttpDelivery{HttpPeer(std::move(url), get(context, "secret"), timeoutMs, std::move(headers)),
+                                    retries};
         }
         catch (const std::exception& exception)
         {
@@ -91,7 +94,7 @@ const XmqSinkV1 deliveryApi{
         try
         {
             auto& self = *static_cast<HttpDelivery*>(instance);
-            return deliverOnce(*self.peer, self.config, std::string(body, length), "export record") ? 0 : 1;
+            return self.peer.deliver(std::string(body, length), self.retries) ? 0 : 1;
         }
         catch (...)
         {

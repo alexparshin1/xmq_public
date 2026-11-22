@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "sections": [
+    {"title": "Kafka destination", "fields": [
+      {"name": "bootstrap_servers"},
+      {"name": "topic"},
+      {"name": "timeout_ms"}
+    ]}
+  ]
+}

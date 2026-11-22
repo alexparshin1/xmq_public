@@ -441,7 +441,7 @@ bool sqlTopicMatches(const SqlRule& rule, std::string_view topic)
     return std::ranges::any_of(rule.filters, [topic](const auto& filter) { return topicMatches(filter, topic); });
 }
 
-std::vector<SqlRule> sqlRules(std::string text, bool log = false)
+[[maybe_unused]] std::vector<SqlRule> sqlRules(std::string text, bool log = false)
 {
     if (text.size() > 4096)
         throw std::invalid_argument("SQL rules exceed 4096 bytes");

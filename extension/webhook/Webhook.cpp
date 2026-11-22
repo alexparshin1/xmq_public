@@ -19,65 +19,28 @@
  * JSON with the payload in base64, so a binary message survives the trip; the request is signed
  * with HMAC-SHA256 when a secret is configured; a failed request is retried with backoff.
  *
- * Sockets through the platform's own API and OpenSSL for TLS: Winsock on Windows, POSIX sockets
- * everywhere else. The rest of the file - the queue, the retries, the templates - is the same on
- * both.
+ * The exporter owns the rules, templates and queues. HTTP delivery lives in HttpPeer.
  */
 
 #include "extension/XmqExtension.h"
-#include "SqlEngine.h"
-#include "Sink.h"
+#include "Destination.h"
 #include "DbSinkSettings.h"
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <strings.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <dlfcn.h>
-#endif
-
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <openssl/ssl.h>
-
 #include <algorithm>
-#include <atomic>
 #include <cctype>
-#include <charconv>
-#include <cmath>
-#include <cerrno>
 #include <chrono>
-#include <condition_variable>
 #include <cstdio>
-#include <cstring>
-#include <deque>
-#include <functional>
+#include <ctime>
 #include <filesystem>
+#include <sptk5/Base64.h>
 #ifdef XMQ_PERSISTENT_DELIVERY
-#include "DeliveryQueue.h"
 #include <openssl/sha.h>
 #endif
 #include <limits>
 #include <memory>
-#include <map>
 #include <mutex>
 #include <optional>
 #include <ranges>
-#include <regex>
-#include <shared_mutex>
-#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <thread>
@@ -85,6 +48,7 @@
 
 namespace {
 
+using namespace xmq::exporter;
 using namespace xmq::webhook_sql;
 
 #if defined(XMQ_MESSAGES_WEBHOOK)
@@ -95,181 +59,13 @@ constexpr bool mqttOnly = false, logOnly = true;
 constexpr bool mqttOnly = false, logOnly = false;
 #endif
 
-constexpr int defaultTimeoutMs = 5000;
-constexpr int defaultRetries = 3;
-
-/// Winsock and POSIX sockets differ in the handle's type, in how it is closed, in how it is made
-/// non-blocking and in the name of the error that means "the connect is still running". Everything
-/// else in this file goes through one of these and a single connect/read/write path.
-#ifdef _WIN32
-using socket_t = SOCKET;
-constexpr socket_t invalidSocket = INVALID_SOCKET;
-#else
-using socket_t = int;
-constexpr socket_t invalidSocket = -1;
-#endif
-
-bool startSockets()
+std::string base64(xmq_str bytes)
 {
-#ifdef _WIN32
-    // Once per process: the host loads several extensions, and a second WSAStartup without a
-    // matching WSACleanup is not an error, but there is no reason to make it one.
-    static const bool ready = []
-    {
-        WSADATA data{};
-        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
-    }();
-    return ready;
-#else
-    return true;
-#endif
-}
-
-void closeSocket(const socket_t handle)
-{
-    if (handle == invalidSocket)
-    {
-        return;
-    }
-#ifdef _WIN32
-    ::closesocket(handle);
-#else
-    ::close(handle);
-#endif
-}
-
-bool setNonBlocking(const socket_t handle, const bool nonBlocking)
-{
-#ifdef _WIN32
-    u_long mode = nonBlocking ? 1 : 0;
-    return ::ioctlsocket(handle, FIONBIO, &mode) == 0;
-#else
-    const int flags = ::fcntl(handle, F_GETFL, 0);
-    if (flags < 0)
-    {
-        return false;
-    }
-    return ::fcntl(handle, F_SETFL,
-                   nonBlocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) == 0;
-#endif
-}
-
-int lastSocketError()
-{
-#ifdef _WIN32
-    return WSAGetLastError();
-#else
-    return errno;
-#endif
-}
-
-bool connectInProgress(const int error)
-{
-#ifdef _WIN32
-    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
-#else
-    return error == EINPROGRESS;
-#endif
-}
-
-int compareCaseInsensitive(const char* left, const char* right, const size_t count)
-{
-#ifdef _WIN32
-    return ::_strnicmp(left, right, count);
-#else
-    return ::strncasecmp(left, right, count);
-#endif
-}
-
-/// A send to a socket the peer has closed must fail rather than raise SIGPIPE. POSIX has a flag
-/// for it; Winsock never raises the signal, so zero is what it wants.
-#ifdef MSG_NOSIGNAL
-constexpr int sendFlags = MSG_NOSIGNAL;
-#else
-constexpr int sendFlags = 0;
-#endif
-
-struct Url
-{
-    bool        m_tls{true};
-    std::string m_host;
-    std::string m_port;
-    std::string m_path{"/"};
-};
-
-bool parseUrl(const std::string& text, Url& url)
-{
-    if (text.starts_with("https://"))
-    {
-        url.m_tls = true;
-        url.m_path = text.substr(8);
-    }
-    else if (text.starts_with("http://"))
-    {
-        url.m_tls = false;
-        url.m_path = text.substr(7);
-    }
-    else
-    {
-        return false;
-    }
-    if (url.m_path.empty())
-    {
-        return false;
-    }
-
-    const auto slash = url.m_path.find('/');
-    const auto authority = url.m_path.substr(0, slash);
-    url.m_path = slash == std::string::npos ? "/" : url.m_path.substr(slash);
-
-    if (authority.empty())
-    {
-        return false;
-    }
-
-    if (const auto colon = authority.rfind(':');
-        colon == std::string::npos)
-    {
-        url.m_host = authority;
-        url.m_port = url.m_tls ? "443" : "80";
-    }
-    else
-    {
-        url.m_host = authority.substr(0, colon);
-        url.m_port = authority.substr(colon + 1);
-        if (url.m_host.empty() || url.m_port.empty())
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-std::string base64(const std::string& bytes)
-{
-    if (bytes.empty())
-    {
+    if (bytes.length == 0)
         return {};
-    }
-    std::string out(4 * ((bytes.size() + 2) / 3) + 1, '\0');
-    const auto  written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()),
-                                          reinterpret_cast<const unsigned char*>(bytes.data()),
-                                          static_cast<int>(bytes.size()));
-    out.resize(static_cast<size_t>(written));
-    return out;
-}
-
-std::string hex(const unsigned char* bytes, const size_t count)
-{
-    static constexpr char digits[] = "0123456789abcdef";
-    std::string           out;
-    out.reserve(count * 2);
-    for (size_t at = 0; at < count; ++at)
-    {
-        out += digits[bytes[at] >> 4U];
-        out += digits[bytes[at] & 0x0FU];
-    }
-    return out;
+    sptk::Buffer encoded;
+    sptk::Base64::encode(encoded, reinterpret_cast<const uint8_t*>(bytes.data), bytes.length);
+    return {encoded.c_str(), encoded.bytes()};
 }
 
 std::string isoTimestamp()
@@ -287,424 +83,6 @@ std::string isoTimestamp()
     return buffer;
 }
 
-socket_t connectTcp(const Url& url, const int timeoutMs)
-{
-    if (!startSockets())
-    {
-        return invalidSocket;
-    }
-
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    addrinfo* addresses = nullptr;
-    if (getaddrinfo(url.m_host.c_str(), url.m_port.c_str(), &hints, &addresses) != 0)
-    {
-        return invalidSocket;
-    }
-
-    socket_t socketHandle = invalidSocket;
-    for (addrinfo* address = addresses; address != nullptr; address = address->ai_next)
-    {
-        socketHandle = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-        if (socketHandle == invalidSocket)
-        {
-            continue;
-        }
-
-        if (!setNonBlocking(socketHandle, true))
-        {
-            closeSocket(socketHandle);
-            socketHandle = invalidSocket;
-            continue;
-        }
-        const int connected = ::connect(socketHandle, address->ai_addr,
-                                        static_cast<int>(address->ai_addrlen));
-        if (connected == 0)
-        {
-            setNonBlocking(socketHandle, false);
-            break;
-        }
-        if (!connectInProgress(lastSocketError()))
-        {
-            closeSocket(socketHandle);
-            socketHandle = invalidSocket;
-            continue;
-        }
-
-        // select() is the portable way to wait for a non-blocking connect: WSAPoll has been wrong
-        // on Windows for exactly this case, and POSIX has select() everywhere.
-        fd_set writeSet;
-        FD_ZERO(&writeSet);
-        FD_SET(socketHandle, &writeSet);
-        timeval timeout{};
-        timeout.tv_sec = timeoutMs / 1000;
-        timeout.tv_usec = (timeoutMs % 1000) * 1000;
-#ifdef _WIN32
-        const int descriptorCount = 0; // ignored by Winsock
-#else
-        const int descriptorCount = socketHandle + 1;
-#endif
-        const int selected = ::select(descriptorCount, nullptr, &writeSet, nullptr, &timeout);
-        if (selected <= 0 || !FD_ISSET(socketHandle, &writeSet))
-        {
-            closeSocket(socketHandle);
-            socketHandle = invalidSocket;
-            continue;
-        }
-        int error = 0;
-#ifdef _WIN32
-        int length = sizeof(error);
-#else
-
-#endif
-        if (socklen_t errorLength = sizeof(error);
-            getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
-                       reinterpret_cast<char*>(&error), &errorLength) != 0 ||
-            error != 0)
-        {
-            closeSocket(socketHandle);
-            socketHandle = invalidSocket;
-            continue;
-        }
-        setNonBlocking(socketHandle, false);
-        break;
-    }
-    freeaddrinfo(addresses);
-
-    if (socketHandle != invalidSocket)
-    {
-        // Blocking reads and writes still need a deadline: a receiver that stops reading must not
-        // hold a worker forever. Winsock takes milliseconds here, POSIX a timeval.
-#ifdef _WIN32
-        const DWORD timeout = static_cast<DWORD>(timeoutMs);
-        setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO,
-                   reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO,
-                   reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-#else
-        timeval timeout{};
-        timeout.tv_sec = timeoutMs / 1000;
-        timeout.tv_usec = (timeoutMs % 1000) * 1000;
-        setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-#endif
-    }
-    return socketHandle;
-}
-
-/// Header names are case-insensitive, and an endpoint may answer in any case.
-size_t lowerCaseFind(const std::string& text, const char* needle)
-{
-    const size_t length = strlen(needle);
-    for (size_t at = 0; at + length <= text.size(); ++at)
-    {
-        if (compareCaseInsensitive(text.c_str() + at, needle, length) == 0)
-        {
-            return at;
-        }
-    }
-    return std::string::npos;
-}
-
-class Connection
-{
-public:
-    Connection() = default;
-    Connection(const Connection&) = delete;
-    Connection& operator=(const Connection&) = delete;
-
-    ~Connection()
-    {
-        close();
-    }
-
-    bool open(const Url& url, const int timeoutMs)
-    {
-        m_timeout = timeoutMs;
-        m_socket = connectTcp(url, timeoutMs);
-        if (m_socket == invalidSocket)
-        {
-            m_error = "cannot connect to " + url.m_host + ":" + url.m_port;
-            return false;
-        }
-        if (!url.m_tls)
-        {
-            return true;
-        }
-
-        static std::once_flag once;
-        std::call_once(once, []
-        {
-            SSL_library_init();
-            SSL_load_error_strings();
-        });
-
-        m_context = SSL_CTX_new(TLS_client_method());
-        if (m_context == nullptr)
-        {
-            m_error = "cannot create a TLS context";
-            return false;
-        }
-        SSL_CTX_set_min_proto_version(m_context, TLS1_2_VERSION);
-        SSL_CTX_set_verify(m_context, SSL_VERIFY_PEER, nullptr);
-        if (SSL_CTX_set_default_verify_paths(m_context) <= 0)
-        {
-            m_error = "no system CA certificates are available";
-            return false;
-        }
-
-        m_ssl = SSL_new(m_context);
-        if (m_ssl == nullptr)
-        {
-            m_error = "cannot create a TLS session";
-            return false;
-        }
-        SSL_set_fd(m_ssl, static_cast<int>(m_socket));
-        SSL_set_tlsext_host_name(m_ssl, url.m_host.c_str());
-        SSL_set1_host(m_ssl, url.m_host.c_str());
-        if (SSL_connect(m_ssl) != 1)
-        {
-            m_error = "TLS handshake with " + url.m_host + " failed";
-            return false;
-        }
-        return true;
-    }
-
-    bool writeAll(const std::string& data)
-    {
-        size_t sent = 0;
-        while (sent < data.size())
-        {
-            const int written = m_ssl != nullptr
-                                    ? SSL_write(m_ssl, data.data() + sent, static_cast<int>(data.size() - sent))
-                                    : static_cast<int>(::send(m_socket, data.data() + sent,
-                                                              static_cast<int>(data.size() - sent), sendFlags));
-            if (written <= 0)
-            {
-                m_error = "the endpoint stopped reading";
-                return false;
-            }
-            sent += static_cast<size_t>(written);
-        }
-        return true;
-    }
-
-    /**
-     * @brief One response, headers and the body its Content-Length promised.
-     *
-     * Keeps the connection for the next request unless the endpoint said it would close, which is
-     * what makes a burst of small records affordable: a message per TCP connection runs into
-     * ephemeral ports long before it runs into CPU.
-     */
-    bool readResponse(int& status, std::string& error)
-    {
-        std::string response;
-        char        buffer[8192];
-
-        size_t headerEnd = std::string::npos;
-        size_t bodyLength = 0;
-        while (true)
-        {
-            if (headerEnd == std::string::npos)
-            {
-                headerEnd = response.find("\r\n\r\n");
-                if (headerEnd != std::string::npos)
-                {
-                    const std::string head = response.substr(0, headerEnd);
-                    if (head.size() < 12 || !head.starts_with("HTTP/"))
-                    {
-                        error = "the endpoint sent a malformed response";
-                        return false;
-                    }
-                    try
-                    {
-                        status = std::stoi(head.substr(9, 3));
-                    }
-                    catch (const std::exception&)
-                    {
-                        error = "the endpoint sent a malformed status";
-                        return false;
-                    }
-
-                    if (const auto lengthAt = lowerCaseFind(head, "content-length:");
-                        lengthAt != std::string::npos)
-                    {
-                        bodyLength = std::strtoul(head.c_str() + lengthAt + 15, nullptr, 10);
-                    }
-
-                    const auto connection = lowerCaseFind(head, "connection:");
-                    if (connection != std::string::npos &&
-                        lowerCaseFind(head.substr(connection), "close") != std::string::npos)
-                    {
-                        m_closeAfterResponse = true;
-                    }
-                }
-            }
-
-            if (headerEnd != std::string::npos &&
-                response.size() >= headerEnd + 4 + bodyLength)
-            {
-                return true;
-            }
-
-            const int received = m_ssl != nullptr
-                                     ? SSL_read(m_ssl, buffer, sizeof(buffer))
-                                     : static_cast<int>(::recv(m_socket, buffer, sizeof(buffer), 0));
-            if (received <= 0)
-            {
-                error = response.empty()
-                            ? "the endpoint sent no response"
-                            : "the endpoint closed the connection mid-response";
-                m_closeAfterResponse = true;
-                return false;
-            }
-            response.append(buffer, static_cast<size_t>(received));
-            if (response.size() > 4 * 1024 * 1024)
-            {
-                error = "the endpoint sent an oversized response";
-                m_closeAfterResponse = true;
-                return false;
-            }
-        }
-    }
-
-    [[nodiscard]] bool closeAfterResponse() const
-    {
-        return m_closeAfterResponse;
-    }
-
-    void close()
-    {
-        m_closeAfterResponse = false;
-        if (m_ssl != nullptr)
-        {
-            SSL_shutdown(m_ssl);
-            SSL_free(m_ssl);
-            m_ssl = nullptr;
-        }
-        if (m_context != nullptr)
-        {
-            SSL_CTX_free(m_context);
-            m_context = nullptr;
-        }
-        if (m_socket != invalidSocket)
-        {
-            closeSocket(m_socket);
-            m_socket = invalidSocket;
-        }
-    }
-
-    [[nodiscard]] const std::string& error() const
-    {
-        return m_error;
-    }
-
-    [[nodiscard]] bool isOpen() const
-    {
-        return m_socket != invalidSocket;
-    }
-
-private:
-    socket_t    m_socket{invalidSocket};
-    int         m_timeout{defaultTimeoutMs};
-    SSL_CTX*    m_context{nullptr};
-    SSL*        m_ssl{nullptr};
-    bool        m_closeAfterResponse{false};
-    std::string m_error;
-};
-
-/**
- * @brief One destination's side of the conversation.
- *
- * The connection is kept open between records. Opening one per record was measured at roughly
- * twenty thousand a second on loopback, where the limit is ephemeral ports and TIME_WAIT, not CPU -
- * a connector posting a log storm hits that ceiling long before the broker does.
- *
- * A connection the endpoint closed while idle is not an error the caller should see: the first
- * attempt fails, the connection is re-established, and the record is sent once more.
- */
-class Peer
-{
-public:
-    Peer(Url                                              url, std::string secret, const int timeoutMs,
-         std::vector<std::pair<std::string, std::string>> headers)
-        : m_url(std::move(url))
-          , m_secret(std::move(secret))
-          , m_timeoutMs(timeoutMs)
-          , m_headers(std::move(headers))
-    {
-    }
-
-    int send(const std::string& body, std::string& error)
-    {
-        for (int attempt = 0; attempt < 2; ++attempt)
-        {
-            if (!m_connection.isOpen() && !m_connection.open(m_url, m_timeoutMs))
-            {
-                error = m_connection.error();
-                return -1;
-            }
-
-            std::string request = format("POST {} HTTP/1.1\r\n"
-                                         "Host: {}\r\n"
-                                         "Content-Type: application/json\r\n"
-                                         "Content-Length: {}\r\n"
-                                         "User-Agent: xmq-webhook/1.2\r\n"
-                                         "Connection: keep-alive\r\n",
-                                         m_url.m_path, m_url.m_host, body.size());
-            for (const auto& [name, value]: m_headers)
-            {
-                request += name + ": " + value + "\r\n";
-            }
-            if (!m_secret.empty())
-            {
-                unsigned char digest[EVP_MAX_MD_SIZE];
-                unsigned int  length = 0;
-                HMAC(EVP_sha256(), m_secret.data(), static_cast<int>(m_secret.size()),
-                     reinterpret_cast<const unsigned char*>(body.data()), body.size(), digest, &length);
-                request += "X-XMQ-Signature: sha256=" + hex(digest, length) + "\r\n";
-            }
-            request += "\r\n";
-            request += body;
-
-            if (!m_connection.writeAll(request))
-            {
-                error = m_connection.error();
-                m_connection.close();
-                continue; // a connection that died while idle looks exactly like this
-            }
-
-            int status = -1;
-            if (!m_connection.readResponse(status, error))
-            {
-                m_connection.close();
-                continue;
-            }
-            if (m_connection.closeAfterResponse())
-            {
-                m_connection.close();
-            }
-            return status;
-        }
-        return -1;
-    }
-
-private:
-    Url                                              m_url;
-    std::string                                      m_secret;
-    int                                              m_timeoutMs{defaultTimeoutMs};
-    std::vector<std::pair<std::string, std::string>> m_headers;
-    Connection                                       m_connection;
-};
-
-
-namespace {
-
-/// A JSON value as far as this connector needs one: the list settings are arrays of strings. A
-/// full parser would be a dependency; this is the smallest thing that can read them without
-/// guessing.
 /// One filter, or a JSON array of them.
 ///
 /// The common case stays a plain string, so the file reads as it did. The array form exists
@@ -750,85 +128,7 @@ bool parseTopicFilters(const std::string_view text, std::vector<std::string>& fi
     return true;
 }
 
-/// Extra request headers, one "Name: value" per item; a single string is accepted too.
-///
-/// The same shape as topic_filter: the interface edits a list, the file stores a JSON array, and a
-/// value written by hand as one header still works.
-bool parseHeaders(const std::string_view text, std::vector<std::pair<std::string, std::string>>& headers,
-                  std::string&           error)
-{
-    headers.clear();
-    const auto value = trimmed(text);
-    if (value.empty())
-    {
-        return true;
-    }
-
-    std::vector<std::string> items;
-    if (value.front() == '[')
-    {
-        JsonValue parsed;
-
-        if (JsonReader reader(value);
-            !reader.read(parsed) || parsed.kind != JsonValue::Kind::Array)
-        {
-            error = "headers must be a header or a JSON array of them";
-            return false;
-        }
-        for (const auto& element: parsed.array)
-        {
-            if (element.kind != JsonValue::Kind::String)
-            {
-                error = "headers must hold only strings";
-                return false;
-            }
-            items.push_back(element.text);
-        }
-    }
-    else
-    {
-        items.push_back(value);
-    }
-
-    const auto isHeaderName = [](const std::string& name)
-    {
-        return !name.empty() && std::ranges::all_of(name,
-                                                    [](const unsigned char ch)
-                                                    {
-                                                        return std::isalnum(ch) != 0 || ch == '!' || ch == '#' || ch == '$' ||
-                                                               ch == '%' || ch == '&' || ch == '\'' || ch == '*' || ch == '+' ||
-                                                               ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' ||
-                                                               ch == '|' || ch == '~';
-                                                    });
-    };
-
-    for (const auto& item: items)
-    {
-        const auto colon = item.find(':');
-        if (colon == std::string::npos)
-        {
-            error = "header '" + item + "' must be Name: value";
-            return false;
-        }
-        const auto name = trimmed(std::string_view(item).substr(0, colon));
-        const auto field = trimmed(std::string_view(item).substr(colon + 1));
-        if (!isHeaderName(name))
-        {
-            error = "header name '" + name + "' is not an HTTP field name";
-            return false;
-        }
-        if (field.find_first_of("\r\n") != std::string::npos)
-        {
-            error = "header '" + name + "' holds a line break";
-            return false;
-        }
-        headers.emplace_back(name, field);
-    }
-    return true;
-}
-
-/// Replaces {{name}} with the JSON-escaped value, so a template stays valid JSON whatever the text
-/// holds. An unknown name is left alone rather than silently emptied.
+/// Replaces {{name}} with its JSON-escaped value; unknown names stay unchanged.
 std::string renderTemplate(const std::string&                                      tmpl,
                            const std::vector<std::pair<std::string, std::string>>& values)
 {
@@ -868,169 +168,7 @@ std::string renderTemplate(const std::string&                                   
     return out;
 }
 
-/// What a body is when no template is set: one line per source, with the names people ask for
-/// first. A message has no level of its own, so it says "message" - which is also what tells the
-/// two sources apart at the receiver.
-constexpr const char* defaultTemplate =
-    R"({"topic":"{{topic}}","message":"{{message}}","level":"{{level}}"})";
-
-/// The place to post to: URL, body template, filters, and its own queue and threads so a slow
-/// receiver costs deliveries and not broker throughput.
-struct WebhookEntry
-{
-    std::string body;
-    std::string what;
-    std::optional<SqlRow> row;
-    std::vector<std::pair<std::string, std::string>> fields;
-};
-
-struct SinkModule
-{
-#ifdef _WIN32
-    HMODULE handle{};
-#else
-    void* handle{};
-#endif
-    const XmqSinkV1* api{};
-    const xmq_extension* metadata{};
-    std::map<std::string, std::string> settings;
-
-    ~SinkModule()
-    {
-        if (handle)
-#ifdef _WIN32
-            FreeLibrary(handle);
-#else
-            dlclose(handle);
-#endif
-    }
-
-    static inline int anchor{};
-    bool open(const std::string& name)
-    {
-        if (!name.ends_with("_sink") || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != name.npos)
-            return false;
-#ifdef _WIN32
-        HMODULE own{};
-        wchar_t file[32768];
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                reinterpret_cast<LPCWSTR>(&anchor), &own))
-            return false;
-        const auto length = GetModuleFileNameW(own, file, static_cast<DWORD>(std::size(file)));
-        if (!length || length >= std::size(file))
-            return false;
-        const auto path = std::filesystem::path(file).parent_path() / ("xmq_" + name + ".dll");
-        handle = LoadLibraryW(path.c_str());
-        const auto describe = handle ? reinterpret_cast<XmqSinkDescribeV1>(GetProcAddress(handle, "xmq_sink_v1")) : nullptr;
-        const auto describeExtension = handle ? reinterpret_cast<xmq_extension_describe_fn>(
-            GetProcAddress(handle, XMQ_EXTENSION_DESCRIBE_SYMBOL)) : nullptr;
-#else
-        Dl_info own{};
-        if (!dladdr(&anchor, &own) || !own.dli_fname)
-            return false;
-#ifdef __APPLE__
-        constexpr auto suffix = ".dylib";
-#else
-        constexpr auto suffix = ".so";
-#endif
-        const auto path = std::filesystem::path(own.dli_fname).parent_path() / ("libxmq_" + name + suffix);
-        handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-        const auto describe = handle ? reinterpret_cast<XmqSinkDescribeV1>(dlsym(handle, "xmq_sink_v1")) : nullptr;
-        const auto describeExtension = handle ? reinterpret_cast<xmq_extension_describe_fn>(
-            dlsym(handle, XMQ_EXTENSION_DESCRIBE_SYMBOL)) : nullptr;
-#endif
-        api = describe ? describe() : nullptr;
-        metadata = describeExtension ? describeExtension(XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR) : nullptr;
-        return metadata && metadata->name && name == metadata->name && (metadata->capabilities & XMQ_CAP_SINK) &&
-               api && api->create && api->destroy && api->deliver;
-    }
-
-    static const char* setting(void* context, const char* key)
-    {
-        if (context == nullptr)
-            return "";
-        const auto& values = static_cast<SinkModule*>(context)->settings;
-        const auto found = values.find(key);
-        return found == values.end() ? "" : found->second.c_str();
-    }
-};
-
-struct Destination
-{
-    std::string                                      name;
-    Url                                              url;
-    std::string                                      secret;
-    int                                              timeoutMs{defaultTimeoutMs};
-    int                                              retries{defaultRetries};
-    std::string                                      tmpl; ///< Never empty; the setting falls back to defaultTemplate.
-    std::string                                      logTemplate;
-    bool                                             sendMessages{true};
-    bool                                             sendLog{false};
-    std::vector<std::string>                         topicFilters{"#"};
-    size_t                                           maxPayload{std::numeric_limits<size_t>::max()};
-    uint32_t                                         minLevel{XMQ_LOG_ERROR};
-    std::vector<std::string>                         logSubjects;
-    std::vector<std::pair<std::string, std::string>> headers;
-
-    /// How many requests may be in flight at once. One connection per destination is enough on
-    /// loopback and far too few across a network: a synchronous reply per record caps a destination
-    /// at 1/RTT, which is a hundred records a second at 10 ms.
-    int concurrency{4};
-
-    std::mutex                                      lock;
-    std::condition_variable                         condition;
-    std::deque<WebhookEntry>                         queue;
-    std::vector<SqlRule>                            messageRules, logRules;
-    std::unique_ptr<SinkModule>                     sink;
-#ifdef XMQ_PERSISTENT_DELIVERY
-    std::shared_ptr<xmq::exporter::DeliveryQueue>     spool;
-    std::string                                     spoolPath, spoolKey;
-    std::int64_t                                    spoolLimit{};
-    std::mutex                                      spoolLock;
-    std::condition_variable                         spoolReady;
-#endif
-    bool                                            stopping{false};
-    std::vector<std::thread>                        threads;
-    std::atomic<uint64_t>                           sent{0};
-    std::atomic<uint64_t>                           failed{0};
-    std::atomic<uint64_t>                           dropped{0};
-    std::atomic<uint64_t>                           invalidJson{0};
-    std::atomic<uint64_t>                           filtered{0};
-};
-
 constexpr size_t maxQueuedPerDestination = 1024;
-
-/// 2xx is success; 4xx except 429 is refused without a second attempt; everything else retries
-/// with backoff. The same policy for both inputs, in one place.
-bool deliverOnce(Peer&              peer, const Destination& destination, const std::string& body,
-                 const std::string& what)
-{
-    for (int attempt = 0; attempt <= destination.retries; ++attempt)
-    {
-        std::string error;
-        const int   status = peer.send(body, error);
-        if (status >= 200 && status < 300)
-        {
-            return true;
-        }
-        if (status >= 400 && status < 500 && status != 429)
-        {
-            // The endpoint will say no again; a retry would only be noise.
-            return false;
-        }
-        if (!error.empty())
-        {
-        }
-        if (attempt < destination.retries)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(std::min(2000, 100 << std::min(attempt, 5))));
-        }
-    }
-    return false;
-}
-
-} // namespace
 
 class Webhook : public xmq::XmqExtensionBase
 {
@@ -1088,12 +226,12 @@ public:
                 if (message.payload.length != 0 && std::ranges::any_of(destination->messageRules,
                     [&](const auto& rule) { return (rule.needsJson || rule.needsPayload) && sqlTopicMatches(rule, topic); }))
                     row.payload.assign(message.payload.data, message.payload.length);
-                enqueue(*destination, {}, "message for " + topic, std::move(row));
+                enqueue(*destination, {}, std::move(row));
                 continue;
             }
             if (values.empty())
             {
-                const auto payload = base64(std::string(message.payload.data, message.payload.length));
+                const auto payload = base64(message.payload);
                 values = {
                     {"id", id},
                     {"source", "message"},
@@ -1120,12 +258,10 @@ public:
                 }
                 auto textValues = values;
                 textValues.emplace_back("payload", std::string(body));
-                enqueue(*destination, renderTemplate(destination->tmpl, textValues), "message for " + topic,
-                        {}, textValues);
+                enqueue(*destination, renderTemplate(destination->tmpl, textValues), {}, textValues);
             }
             else
-                enqueue(*destination, renderTemplate(destination->tmpl, values), "message for " + topic,
-                        {}, values);
+                enqueue(*destination, renderTemplate(destination->tmpl, values), {}, values);
         }
     }
 
@@ -1159,7 +295,7 @@ public:
                 row.level = levelName(record.level);
                 row.subject = subject;
                 row.message = message;
-                enqueue(*destination, {}, "log record", std::move(row));
+                enqueue(*destination, {}, std::move(row));
                 continue;
             }
             if (!destination->logSubjects.empty() &&
@@ -1182,8 +318,7 @@ public:
                     {"subject", subject},
                     {"message", message}};
             }
-            enqueue(*destination, renderTemplate(destination->logTemplate, values),
-                    "log record from " + subject, {}, values);
+            enqueue(*destination, renderTemplate(destination->logTemplate, values), {}, values);
         }
     }
 
@@ -1265,7 +400,7 @@ private:
         return m_current;
     }
 
-    void enqueue(Destination& destination, std::string body, std::string what,
+    void enqueue(Destination& destination, std::string body,
                  std::optional<SqlRow> row = {},
                  std::vector<std::pair<std::string, std::string>> fields = {})
     {
@@ -1276,7 +411,7 @@ private:
                 destination.dropped.fetch_add(1, std::memory_order_relaxed);
                 return;
             }
-            destination.queue.push_back({std::move(body), std::move(what), std::move(row), std::move(fields)});
+            destination.queue.push_back({std::move(body), std::move(row), std::move(fields)});
         }
         destination.condition.notify_one();
     }
@@ -1451,7 +586,7 @@ private:
         std::unique_ptr<void, void(*)(void*)> instance(nullptr, sink ? sink->api->destroy : +[](void*) {});
         if (sink)
             instance.reset(sink->api->create(SinkModule::setting, sink, nullptr, 0));
-        std::optional<Peer> peer;
+        std::optional<HttpPeer> peer;
         if (!sink)
             peer.emplace(destination->url, destination->secret, destination->timeoutMs, destination->headers);
         while (true)
@@ -1490,7 +625,7 @@ private:
                 }
             }
             else if (peer)
-                delivered = deliverOnce(*peer, *destination, entry.body, entry.what);
+                delivered = peer->deliver(entry.body, destination->retries);
             if (delivered)
             {
                 destination->sent.fetch_add(1, std::memory_order_relaxed);
@@ -1811,7 +946,8 @@ private:
                 filters += (filters.empty() ? "'" : ", '") + filter + "'";
             }
             log(XMQ_LOG_INFO, destination->name + (destination->sink ? "" :
-                              ": " + destination->url.m_host + ":" + destination->url.m_port + destination->url.m_path) +
+                              ": " + destination->url.m_host + ":" + std::to_string(destination->url.m_port) +
+                                  destination->url.m_path) +
                               (destination->sendMessages ? " messages " + filters : "") +
                               (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
         }
@@ -1993,7 +1129,6 @@ constexpr auto sourceSettings = []
 
 } // namespace
 
-#if !defined(XMQ_SINK_BUILD)
 #if defined(XMQ_MESSAGES_WEBHOOK)
 XMQ_DEFINE_EXTENSION_IMPL(Webhook, "message_export", "1.2", XMQ_CAP_MESSAGE_TAP,
                           "Exports MQTT messages using a configurable delivery sink.",
@@ -2007,5 +1142,4 @@ XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.2", XMQ_CAP_MESSAGE_TAP | 
                                "Deprecated. Will be disabled in version 1.3. "
                                "Use message_export and log_export instead.",
                                settings)
-#endif
 #endif
