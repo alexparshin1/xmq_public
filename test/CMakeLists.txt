@@ -56,6 +56,20 @@ ADD_EXECUTABLE(xmq_unit_tests ${XMQ_TEST_FILES} ${XMQ_EXTENSION_TEST_FILES} Serv
 
 TARGET_LINK_LIBRARIES(xmq_unit_tests xmq_base xmq_storage xmq_common xmq_service xmq_server_core xmq_client xmq_utils xmq_scenario ${GTest_LIBRARY} ${GTest_MAIN_LIBRARY})
 
+IF (XMQ_HAVE_KAFKA_SINK)
+    TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE XMQ_TEST_KAFKA_SINK XMQ_TEST_KAFKA_BROKERS="theater:9092")
+    TARGET_LINK_LIBRARIES(xmq_unit_tests ${RDKAFKA_LIBRARIES})
+    TARGET_INCLUDE_DIRECTORIES(xmq_unit_tests PRIVATE ${RDKAFKA_INCLUDE_DIRS})
+ENDIF ()
+
+IF (UNIX)
+    FIND_PACKAGE(SQLite3 QUIET)
+    IF (TARGET SQLite::SQLite3)
+        TARGET_LINK_LIBRARIES(xmq_unit_tests SQLite::SQLite3)
+        TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE XMQ_TEST_PERSISTENT_DELIVERY_QUEUE)
+    ENDIF ()
+ENDIF ()
+
 # The sample extension is built as part of the test suite, from the same sources and against the
 # same published headers an outside author would use. That is what makes the conformance tests
 # worth having: a change to the ABI that would break an already-built extension breaks the build

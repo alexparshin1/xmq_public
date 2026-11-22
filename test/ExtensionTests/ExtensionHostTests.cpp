@@ -904,7 +904,7 @@ TEST_F(XMQ_ExtensionHostTests, settingsAreWrittenBackToTheFileTheyCameFrom)
     const auto moved = uniqueTemporary("moved.log");
     const auto written = host.writeSettings("event-log", {{"file", moved.string()}});
     ASSERT_FALSE(written.failed()) << written.m_problems.join("; ");
-    EXPECT_NE(String::npos, written.m_notes[0].find(fragment.string())) << written.m_notes[0];
+    EXPECT_EQ(std::string("Settings applied"), std::string(written.m_notes[0].c_str()));
 
     // Everything else in the file is carried through - including the line somebody wrote for the
     // next reader, which is the first thing a careless rewrite loses.

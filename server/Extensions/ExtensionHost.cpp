@@ -2092,7 +2092,8 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                     for (auto& field: discovered->m_description.m_settings)
                         field.m_value = merged.contains(field.m_name) ? merged.at(field.m_name) : "";
                 }
-                return Report::note(name + ": settings saved; extension remains stopped.");
+                m_logger.info(name + ": settings saved to " + source.string() + "; extension remains stopped.");
+                return Report::note("Settings applied");
             }
             catch (const std::exception&)
             {
@@ -2285,7 +2286,8 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
 
     const auto written = name + ": settings written to " + source.string() + ".";
     m_logger.info(written);
-    return Report::note(written);
+    // The log keeps the file path for diagnosis; the screen only needs the outcome.
+    return Report::note("Settings applied");
 }
 
 ExtensionHost::Report ExtensionHost::enable(const Configured& configured)

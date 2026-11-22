@@ -65,6 +65,10 @@
 #include <deque>
 #include <functional>
 #include <filesystem>
+#ifdef XMQ_PERSISTENT_DELIVERY
+#include "DeliveryQueue.h"
+#include <openssl/sha.h>
+#endif
 #include <limits>
 #include <memory>
 #include <map>
@@ -944,6 +948,8 @@ struct SinkModule
 
     static const char* setting(void* context, const char* key)
     {
+        if (context == nullptr)
+            return "";
         const auto& values = static_cast<SinkModule*>(context)->settings;
         const auto found = values.find(key);
         return found == values.end() ? "" : found->second.c_str();
@@ -977,6 +983,13 @@ struct Destination
     std::deque<WebhookEntry>                         queue;
     std::vector<SqlRule>                            messageRules, logRules;
     std::unique_ptr<SinkModule>                     sink;
+#ifdef XMQ_PERSISTENT_DELIVERY
+    std::shared_ptr<xmq::exporter::DeliveryQueue>     spool;
+    std::string                                     spoolPath, spoolKey;
+    std::int64_t                                    spoolLimit{};
+    std::mutex                                      spoolLock;
+    std::condition_variable                         spoolReady;
+#endif
     bool                                            stopping{false};
     std::vector<std::thread>                        threads;
     std::atomic<uint64_t>                           sent{0};
@@ -1004,12 +1017,10 @@ bool deliverOnce(Peer&              peer, const Destination& destination, const 
         if (status >= 400 && status < 500 && status != 429)
         {
             // The endpoint will say no again; a retry would only be noise.
-            std::fprintf(stderr, "webhook: %s refused the message: HTTP %d\n", what.c_str(), status);
             return false;
         }
         if (!error.empty())
         {
-            std::fprintf(stderr, "webhook: delivery of %s failed: %s\n", what.c_str(), error.c_str());
         }
         if (attempt < destination.retries)
         {
@@ -1270,6 +1281,170 @@ private:
         destination.condition.notify_one();
     }
 
+    static bool project(Destination& destination, WebhookEntry& entry)
+    {
+        if (!entry.row)
+            return true;
+        auto& row = *entry.row;
+        const auto& rules = row.log ? destination.logRules : destination.messageRules;
+        auto match = evaluateSql(rules, row);
+        if (match.invalidJson)
+            destination.invalidJson.fetch_add(1, std::memory_order_relaxed);
+        if (!match.body)
+        {
+            destination.filtered.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        entry.body = std::move(*match.body);
+        JsonValue output;
+        if (JsonReader(entry.body).read(output) && output.kind == JsonValue::Kind::Object)
+            for (const auto& [name, value]: output.object)
+                if (name != "fields")
+                    entry.fields.emplace_back(name, value.text);
+        return true;
+    }
+
+    static int sendToSink(SinkModule& sink, void* instance, const WebhookEntry& entry)
+    {
+        if (!instance)
+            return 1;
+        std::vector<const char*> names{"fields"}, values{entry.body.c_str()};
+        names.reserve(entry.fields.size() + 1);
+        values.reserve(entry.fields.size() + 1);
+        for (const auto& [name, value]: entry.fields)
+        {
+            names.push_back(name.c_str());
+            values.push_back(value.c_str());
+        }
+        return sink.api->deliver(instance, entry.body.data(), entry.body.size(),
+                                 names.data(), values.data(), names.size());
+    }
+
+#ifdef XMQ_PERSISTENT_DELIVERY
+    static void appendPart(std::string& out, std::string_view part)
+    {
+        for (unsigned shift = 0; shift < 64; shift += 8)
+            out.push_back(static_cast<char>((static_cast<uint64_t>(part.size()) >> shift) & 0xff));
+        out.append(part);
+    }
+
+    static std::string readPart(std::string_view& data)
+    {
+        if (data.size() < 8)
+            throw std::runtime_error("invalid delivery queue record");
+        uint64_t length{};
+        for (unsigned index = 0; index < 8; ++index)
+            length |= static_cast<uint64_t>(static_cast<unsigned char>(data[index])) << (index * 8);
+        data.remove_prefix(8);
+        if (length > data.size())
+            throw std::runtime_error("invalid delivery queue record length");
+        std::string result(data.substr(0, length));
+        data.remove_prefix(length);
+        return result;
+    }
+
+    static void persist(Destination& destination)
+    {
+        for (;;)
+        {
+            WebhookEntry entry;
+            {
+                std::unique_lock lock(destination.lock);
+                destination.condition.wait(lock, [&] { return destination.stopping || !destination.queue.empty(); });
+                if (destination.queue.empty())
+                    return;
+                entry = std::move(destination.queue.front());
+                destination.queue.pop_front();
+            }
+            if (!project(destination, entry))
+                continue;
+            std::string encoded;
+            appendPart(encoded, entry.body);
+            for (const auto& [name, value]: entry.fields)
+            {
+                appendPart(encoded, name);
+                appendPart(encoded, value);
+            }
+            try
+            {
+                {
+                    const std::scoped_lock lock(destination.spoolLock);
+                    if (!destination.spool->append(encoded, destination.spoolLimit))
+                        destination.dropped.fetch_add(1, std::memory_order_relaxed);
+                }
+                destination.spoolReady.notify_one();
+            }
+            catch (const std::exception& error)
+            {
+                destination.dropped.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    static void deliverPersisted(Destination& destination)
+    {
+        auto& sink = *destination.sink;
+        const std::unique_ptr<void, void(*)(void*)> instance(
+            sink.api->create(SinkModule::setting, &sink, nullptr, 0), sink.api->destroy);
+        unsigned delay = 1;
+        std::optional<std::int64_t> deliveredId;
+        for (;;)
+        {
+            {
+                const std::scoped_lock lock(destination.lock);
+                if (destination.stopping && !deliveredId)
+                    return;
+            }
+            try
+            {
+                if (deliveredId)
+                {
+                    const std::scoped_lock lock(destination.spoolLock);
+                    if (!destination.spool->acknowledge(*deliveredId))
+                        throw std::runtime_error("delivery queue head changed before acknowledgement");
+                    deliveredId.reset();
+                    delay = 1;
+                    continue;
+                }
+                std::optional<xmq::exporter::DeliveryQueue::Record> record;
+                {
+                    const std::scoped_lock lock(destination.spoolLock);
+                    record = destination.spool->front();
+                }
+                if (!record)
+                {
+                    std::unique_lock lock(destination.lock);
+                    if (!destination.stopping)
+                        destination.spoolReady.wait_for(lock, std::chrono::milliseconds(250));
+                    continue;
+                }
+                std::string_view data(record->data);
+                WebhookEntry entry;
+                entry.body = readPart(data);
+                while (!data.empty())
+                {
+                    auto name = readPart(data);
+                    entry.fields.emplace_back(std::move(name), readPart(data));
+                }
+                if (sendToSink(sink, instance.get(), entry) == 0)
+                {
+                    destination.sent.fetch_add(1, std::memory_order_relaxed);
+                    deliveredId = record->id;
+                    continue;
+                }
+                destination.failed.fetch_add(1, std::memory_order_relaxed);
+            }
+            catch (const std::exception& error)
+            {
+            }
+            std::unique_lock lock(destination.lock);
+            if (destination.spoolReady.wait_for(lock, std::chrono::seconds(delay), [&] { return destination.stopping; }))
+                return;
+            delay = std::min(60u, delay * 2);
+        }
+    }
+#endif
+
     static void run(std::shared_ptr<Destination> destination)
     {
         auto* sink = destination->sink.get();
@@ -1295,43 +1470,15 @@ private:
                 entry = std::move(destination->queue.front());
                 destination->queue.pop_front();
             }
-            if (entry.row)
-            {
-                auto& row = *entry.row;
-                const auto& rules = row.log ? destination->logRules : destination->messageRules;
-                auto match = evaluateSql(rules, row);
-                if (match.invalidJson)
-                    destination->invalidJson.fetch_add(1, std::memory_order_relaxed);
-                if (!match.body)
-                {
-                    destination->filtered.fetch_add(1, std::memory_order_relaxed);
-                    continue;
-                }
-                entry.body = std::move(*match.body);
-                JsonValue output;
-                if (JsonReader(entry.body).read(output) && output.kind == JsonValue::Kind::Object)
-                    for (const auto& [name, value]: output.object)
-                        if (name != "fields")
-                            entry.fields.emplace_back(name, value.text);
-            }
+            if (!project(*destination, entry))
+                continue;
             bool delivered = false;
             if (sink && instance)
             {
                 unsigned delay = 1;
                 for (;;)
                 {
-                    std::vector<const char*> names, values;
-                    names.reserve(entry.fields.size() + 1);
-                    values.reserve(entry.fields.size() + 1);
-                    names.push_back("fields");
-                    values.push_back(entry.body.c_str());
-                    for (const auto& [name, value]: entry.fields)
-                    {
-                        names.push_back(name.c_str());
-                        values.push_back(value.c_str());
-                    }
-                    const int status = sink->api->deliver(instance.get(), entry.body.data(), entry.body.size(),
-                                                          names.data(), values.data(), names.size());
+                    const int status = sendToSink(*sink, instance.get(), entry);
                     delivered = status == 0;
                     if (status != 2)
                         break;
@@ -1370,6 +1517,9 @@ private:
                 destination->stopping = true;
             }
             destination->condition.notify_all();
+#ifdef XMQ_PERSISTENT_DELIVERY
+            destination->spoolReady.notify_all();
+#endif
             for (auto& thread: destination->threads)
             {
                 if (thread.joinable())
@@ -1406,8 +1556,27 @@ private:
             for (size_t i = 0; i < sink->metadata->setting_count; ++i)
             {
                 const auto& field = sink->metadata->settings[i];
-                if (field.name)
-                    sink->settings[field.name] = setting(field.name, field.default_value ? field.default_value : "");
+                if (!field.name)
+                    continue;
+                const std::string fieldName(field.name);
+                std::string value = setting(fieldName.c_str(),
+                                            field.default_value ? field.default_value : "");
+                if (name == "kafka_sink")
+                {
+                    if (fieldName == "bootstrap_servers")
+                    {
+                        value = setting("bootstrap_servers");
+                    }
+                    else if (fieldName == "topic")
+                    {
+                        value = setting("kafka_topic");
+                    }
+                    else if (fieldName == "timeout_ms")
+                    {
+                        value = setting("kafka_timeout_ms", "5000");
+                    }
+                }
+                sink->settings[fieldName] = value;
             }
             char detail[256]{};
             auto* probe = sink->api->create(SinkModule::setting, sink.get(), detail, sizeof(detail));
@@ -1532,6 +1701,56 @@ private:
             return nullptr;
         }
         destination->logSubjects = splitList(setting("log_subjects"), ',');
+#ifdef XMQ_PERSISTENT_DELIVERY
+        const auto queuePath = setting("persistent_delivery") == "true"
+            ? setting("delivery_queue_path") : std::string{};
+        if (destination->sink && !queuePath.empty())
+        {
+            try
+            {
+                const std::filesystem::path path(queuePath);
+                if (!path.is_absolute())
+                    throw std::invalid_argument("queue file must have an absolute path");
+#ifndef _WIN32
+                using std::filesystem::perms;
+                if ((std::filesystem::status(path.parent_path()).permissions() &
+                    (perms::group_all | perms::others_all)) != perms::none)
+                    throw std::invalid_argument("queue file must be in a private directory (mode 0700)");
+#endif
+                if (std::filesystem::is_symlink(std::filesystem::symlink_status(path)) ||
+                    std::filesystem::is_symlink(std::filesystem::symlink_status(queuePath + ".owner")))
+                    throw std::invalid_argument("queue file must not be a symbolic link");
+                const auto limit = settingOr("delivery_queue_mib", "256");
+                if (limit.find_first_not_of("0123456789") != std::string::npos)
+                    throw std::invalid_argument("queue limit must be an integer");
+                const auto mib = std::stoll(limit);
+                if (mib < 1 || mib > 65536)
+                    throw std::invalid_argument("queue limit must be 1 to 65536 MiB");
+                destination->spoolLimit = mib * 1024 * 1024;
+                std::string identity;
+                appendPart(identity, mqttOnly ? "message_export:v1" : "log_export:v1");
+                appendPart(identity, destination->name);
+                for (const auto& [key, value]: destination->sink->settings)
+                {
+                    appendPart(identity, key);
+                    appendPart(identity, value);
+                }
+                unsigned char digest[SHA256_DIGEST_LENGTH];
+                SHA256(reinterpret_cast<const unsigned char*>(identity.data()), identity.size(), digest);
+                // Open after the old workers have stopped. No two instances may own a queue.
+                destination->spoolPath = std::filesystem::weakly_canonical(path).string();
+                destination->spoolKey.assign(reinterpret_cast<const char*>(digest), sizeof(digest));
+                // The spool owns retries and can interrupt its backoff on shutdown.
+                if (destination->name == "http_sink")
+                    destination->sink->settings["retries"] = "0";
+            }
+            catch (const std::exception& exception)
+            {
+                error = std::string("persistent delivery: ") + exception.what();
+                return nullptr;
+            }
+        }
+#endif
         return destination;
     }
 
@@ -1597,6 +1816,35 @@ private:
                               (destination->sendLog ? " log at " + levelName(destination->minLevel) : ""));
         }
 
+#ifdef XMQ_PERSISTENT_DELIVERY
+        const auto current = snapshot();
+        for (const auto& destination: wanted)
+        {
+            if (destination->spoolPath.empty())
+                continue;
+            try
+            {
+                const auto existing = std::ranges::find_if(current, [&](const auto& other)
+                {
+                    return other->spoolPath == destination->spoolPath;
+                });
+                if (existing != current.end())
+                {
+                    if ((*existing)->spoolKey != destination->spoolKey)
+                        throw std::runtime_error("use a different queue file when changing sink settings");
+                    destination->spool = (*existing)->spool;
+                }
+                else
+                    destination->spool = std::make_shared<xmq::exporter::DeliveryQueue>(
+                        destination->spoolPath, destination->spoolKey);
+            }
+            catch (const std::exception& exception)
+            {
+                log(XMQ_LOG_ERROR, std::string("persistent delivery: ") + exception.what());
+                return false;
+            }
+        }
+#endif
         stopDestinations();
         {
             const std::scoped_lock lock(m_destinationsLock);
@@ -1604,6 +1852,14 @@ private:
         }
         for (const auto& destination: wanted)
         {
+#ifdef XMQ_PERSISTENT_DELIVERY
+            if (destination->spool)
+            {
+                destination->threads.emplace_back([destination] { persist(*destination); });
+                destination->threads.emplace_back([destination] { deliverPersisted(*destination); });
+                continue;
+            }
+#endif
             for (int at = 0; at < destination->concurrency; ++at)
             {
                 destination->threads.emplace_back([destination]
@@ -1648,6 +1904,15 @@ constexpr xmq_setting settings[] = {
     {.name = "sql_rule", .label = "MQTT SQL rules", .description = "SELECT fields FROM \"topic/filter\" WHERE condition; separate rules with semicolons. First match wins.",
      .type = XMQ_SETTING_STRING, .default_value = ""},
     {.name = "url", .label = "URL", .description = "Destination for JSON POST requests. Use HTTPS for TLS certificate verification; plain HTTP is unencrypted.", .type = XMQ_SETTING_STRING, .default_value = "", .pattern = "https?://\\S+"},
+    {.name = "bootstrap_servers", .label = "Kafka brokers",
+     .description = "Comma-separated host:port list for the Kafka cluster, for example theater:9092",
+     .type = XMQ_SETTING_STRING, .default_value = ""},
+    {.name = "kafka_topic", .label = "Kafka topic",
+     .description = "Topic that receives the exported JSON",
+     .type = XMQ_SETTING_STRING, .default_value = ""},
+    {.name = "kafka_timeout_ms", .label = "Kafka timeout, ms",
+     .description = "Producer timeout in milliseconds",
+     .type = XMQ_SETTING_INTEGER, .default_value = "5000", .pattern = "[0-9]+"},
     {.name = "template", .label = "Body template", .description = "Body to post: {{topic}}, {{message}}, {{level}} and the other names are "
      "substituted and JSON-escaped. For a message {{message}} is the base64 "
      "payload and {{level}} is \"message\"; for a log record {{topic}} is empty",
@@ -1683,6 +1948,17 @@ constexpr xmq_setting settings[] = {
     {.name = "concurrency", .label = "Concurrency", .description = "How many requests may be in flight to this destination, 1 to 64", .type = XMQ_SETTING_INTEGER, .default_value = "4", .pattern = "[1-9]|[1-5][0-9]|6[0-4]"},
 #if defined(XMQ_MESSAGES_WEBHOOK) || defined(XMQ_LOG_WEBHOOK)
     XMQ_DB_SINK_SETTINGS,
+#ifdef XMQ_PERSISTENT_DELIVERY
+    {.name = "persistent_delivery", .label = "Persistent delivery",
+     .description = "Write exports to the queue file on disk before delivery. Off by default.",
+     .type = XMQ_SETTING_BOOLEAN, .default_value = "false"},
+    {.name = "delivery_queue_path", .label = "Persistent queue file",
+     .description = "Optional absolute SQLite file path in a private directory on the broker. Use a unique file per exporter and destination configuration. Blank uses memory-only delivery.",
+     .type = XMQ_SETTING_STRING},
+    {.name = "delivery_queue_mib", .label = "Queue limit (MiB)",
+     .description = "Maximum live queued record bytes, including bindings, but excluding SQLite overhead. New records are dropped when full.",
+     .type = XMQ_SETTING_INTEGER, .default_value = "256", .pattern = "[0-9]{1,5}"},
+#endif
     {.name = "sink", .label = "Sink", .description = "Installed module that delivers the exported JSON. Choose HTTP POST or a database INSERT. Each exporter has its own destination settings.",
      .type = XMQ_SETTING_STRING, .default_value = "http_sink", .pattern = "[a-z][a-z0-9_]*_sink"},
 #endif

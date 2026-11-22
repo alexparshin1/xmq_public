@@ -6,14 +6,31 @@ still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrat
 copy each source's settings to its replacement and turn off the old extension to
 avoid duplicate deliveries.
 
-## Next task: persistent delivery queue
+## Persistent delivery queue
 
-Add opt-in disk-backed delivery for both exporters and both sinks. Persist the
-rendered body and bindings; replay after a restart and remove records only after
-confirmed delivery. Keep disk I/O off the MQTT path, bound queue growth, and
-prevent queued records from being sent to a changed destination. Verify at-least-once
-delivery for persisted records with an outage and crash/restart test; duplicates
-are possible. Kafka import and export are separate future integrations.
+With SQLite support, set `persistent_delivery = true` to opt in, then set
+`delivery_queue_path` to an absolute SQLite file path inside an existing private
+directory (mode 0700 on Unix). Persistent delivery is off by default. Use one file
+per exporter and sink settings. An empty path while the switch is on prevents the
+extension from starting. `delivery_queue_mib` caps live encoded data (default 256 MiB,
+excluding SQLite overhead); new records are dropped when full.
+
+A separate writer stores the rendered body and bindings. MQTT acknowledgement
+does not imply export persistence. One worker delivers the queue head and removes
+it only after success. Persistent mode overrides the HTTP retry count and concurrency.
+Failures, including permanent ones, block later records
+and retry with a delay capped at 60 seconds. Restart replays persisted records;
+a crash after delivery but before removal can cause duplicates. Changing sink
+settings requires a different queue file. Kafka import and export are separate
+future integrations.
+
+## Kafka sink
+
+On Linux builds with librdkafka, select `kafka_sink` under Delivery. Set
+`bootstrap_servers` to a comma-separated `host:port` list and `topic` to the
+target topic; `timeout_ms` bounds each produce. The exported JSON is the record
+value. A selected field or alias named `key` is used as the record key. Kafka
+import (Kafka to MQTT) is not yet available.
 
 ## Sinks for the export extensions
 
@@ -21,6 +38,7 @@ The SQL rule engine, syntax validation, Test rule and the rule editor are shared
 by both export extensions. Delivery is a sink selected inside each extension:
 
 - `http_sink` — POST the JSON produced by the rule.
+- `kafka_sink` — sends the exported JSON to a Kafka topic (Linux builds with librdkafka).
 - `db_sink` — parameterized INSERT through SPTK into PostgreSQL, MySQL, Oracle,
   SQLite or MSSQL. Parameters are bound, never concatenated into the SQL text.
   A bounded queue and a worker thread keep the MQTT path free. On a connection

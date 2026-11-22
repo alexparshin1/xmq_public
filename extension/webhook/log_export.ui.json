@@ -56,6 +56,26 @@
       ]
     },
     {
+      "title": "Persistent delivery",
+      "fields": [
+        {
+          "name": "persistent_delivery"
+        },
+        {
+          "name": "delivery_queue_path"
+        },
+        {
+          "name": "delivery_queue_mib",
+          "visible_when": {
+            "setting": "persistent_delivery",
+            "values": [
+              "true"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "title": "HTTP/HTTPS request",
       "fields": [
         {
@@ -177,6 +197,26 @@
         "setting": "sink",
         "values": [
           "db_sink"
+        ]
+      }
+    },
+    {
+      "title": "Kafka",
+      "fields": [
+        {
+          "name": "bootstrap_servers"
+        },
+        {
+          "name": "kafka_topic"
+        },
+        {
+          "name": "kafka_timeout_ms"
+        }
+      ],
+      "visible_when": {
+        "setting": "sink",
+        "values": [
+          "kafka_sink"
         ]
       }
     }

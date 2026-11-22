@@ -241,7 +241,7 @@ private:
     SocketHandle        m_fd {invalidSocket};
     uint16_t            m_port {0};
     std::atomic<int>    m_served {0};
-    int                 m_failFirst {0};
+    std::atomic<int>    m_failFirst {0};
     std::atomic<bool>   m_stopping {false};
     std::thread         m_thread;
     mutable std::mutex  m_mutex;
@@ -398,6 +398,53 @@ TEST_F(WebhookTests, exporterDeliversThroughSelectedHttpSink)
     EXPECT_NE(string::npos, bodies.front().find(R"("client":"client")"));
     EXPECT_NE(string::npos, bodies.front().find(R"("payload":"{\"greeting\":\"Hello\"}")"));
 }
+
+#ifdef XMQ_TEST_PERSISTENT_DELIVERY_QUEUE
+TEST_F(WebhookTests, persistentExportReplaysAfterRestartWithoutReevaluatingSql)
+{
+    Receiver receiver;
+    receiver.failFirst(100);
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver, "sensors/#", "0");
+    config.m_name = "message_export";
+    config.m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY;
+    config.m_settings["sink"] = "http_sink";
+    config.m_settings["mqtt_filter"] = "SQL rules";
+    config.m_settings["sql_rule"] = R"(SELECT topic FROM "sensors/#")";
+    auto pattern = (filesystem::temp_directory_path() / "xmq-export-replay-XXXXXX").string();
+    ASSERT_NE(nullptr, mkdtemp(pattern.data()));
+    auto cleanup = [](const std::string* directory) { filesystem::remove_all(*directory); };
+    const std::unique_ptr<const std::string, decltype(cleanup)> guard(&pattern, cleanup);
+    config.m_settings["persistent_delivery"] = "true";
+    config.m_settings["delivery_queue_path"] = (filesystem::path(pattern) / "queue.sqlite").string();
+    const auto waitFor = [&](size_t count)
+    {
+        const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+        while (receiver.requests() < count && chrono::steady_clock::now() < deadline)
+            this_thread::sleep_for(chrono::milliseconds(20));
+        return receiver.requests() >= count;
+    };
+    {
+        ExtensionHost host(m_logEngine, "webhook");
+        host.start({config});
+        ASSERT_TRUE(host.tapping());
+        host.publishMessage("client", "user", "sensors/1", "payload", 7, 1, false);
+        ASSERT_TRUE(waitFor(1));
+        host.stop();
+    }
+    const auto failedAttempts = receiver.requests();
+    receiver.failFirst(0);
+    config.m_settings["sql_rule"] = R"(SELECT client_id FROM "other/#")";
+    {
+        ExtensionHost host(m_logEngine, "webhook");
+        host.start({config});
+        ASSERT_TRUE(waitFor(failedAttempts + 1));
+        host.stop();
+    }
+    for (const auto& body: receiver.bodies())
+        EXPECT_EQ(R"({"topic":"sensors/1"})", body);
+}
+#endif
 
 TEST_F(WebhookTests, exporterWritesSelectedFieldsThroughDbSink)
 {
@@ -826,3 +873,45 @@ TEST_F(WebhookTests, aListSettingIsCheckedItemByItem)
     error_code errorCode;
     filesystem::remove_all(directory, errorCode);
 }
+
+#ifdef XMQ_TEST_PERSISTENT_DELIVERY_QUEUE
+TEST_F(WebhookTests, DISABLED_persistentDeliveryRateComparedWithMemory)
+{
+    constexpr int recordCount = 2000;
+    const auto payload = string(2048, 'x');
+    auto makeQueue = [&]() {
+        auto pattern = (filesystem::temp_directory_path() / "xmq-export-rate-XXXXXX").string();
+        EXPECT_NE(nullptr, mkdtemp(pattern.data()));
+        return unique_ptr<const string, void(*)(const string*)>(
+            new string(pattern), [](const string* p) { filesystem::remove_all(*p); delete p; });
+    };
+    auto run = [&](bool persistent) {
+        Receiver receiver;
+        EXPECT_TRUE(receiver.start());
+        auto config = extension(receiver);
+        auto directory = makeQueue();
+        if (persistent)
+        {
+            config.m_settings["persistent_delivery"] = "true";
+            config.m_settings["delivery_queue_path"] = (*directory + "/queue.sqlite");
+        }
+        ExtensionHost host(m_logEngine, "rate");
+        host.start({config});
+        const auto start = chrono::steady_clock::now();
+        for (int i = 0; i < recordCount; ++i)
+            host.publishMessage("client", "user", "sensors/1", payload.data(), payload.size(), 0, false);
+        const auto deadline = start + chrono::seconds(30);
+        while (receiver.requests() < static_cast<size_t>(recordCount) &&
+               chrono::steady_clock::now() < deadline)
+            this_thread::sleep_for(chrono::milliseconds(10));
+        const auto elapsed = chrono::steady_clock::now() - start;
+        host.stop();
+        EXPECT_EQ(static_cast<size_t>(recordCount), receiver.requests());
+        return chrono::duration<double>(elapsed).count();
+    };
+    const auto memorySeconds = run(false);
+    const auto persistentSeconds = run(true);
+    std::printf("Export rate: memory %.1f records/s, persistent %.1f records/s\n",
+                recordCount / memorySeconds, recordCount / persistentSeconds);
+}
+#endif

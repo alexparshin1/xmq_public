@@ -113,6 +113,16 @@ export default function WebhookDocumentation() {
             <p>Timeout is in milliseconds; retries are additional attempts after the first. Concurrency
                 limits the number of in-flight requests. Delivery retries transient failures such as
                 connection failures, timeouts, HTTP 429 and 5xx.</p>
+            <h5 id="webhook-kafka">Kafka</h5>
+            <p>On Linux builds with librdkafka available, <code>kafka_sink</code> sends each
+                exported JSON body to a Kafka topic. Set <b>Kafka brokers</b> to the
+                comma-separated <code>host:port</code> list and <b>Kafka topic</b> to the destination
+                topic. The timeout bounds each produce request. The exported JSON is the record
+                value; in SQL rules mode, a selected field or alias named <code>key</code> is used
+                as the record key. This sink performs its own delivery retries.</p>
+            <p>Kafka is a destination only in this release. Importing records from Kafka into MQTT
+                is not yet available.</p>
+
             <h5>Database</h5>
             <p>The <code>db_sink</code> sink writes records with a parameterized INSERT statement. Choose an installed PostgreSQL, MySQL,
                 Oracle, SQLite or MSSQL driver and supply its connection settings, or choose an existing
@@ -131,10 +141,25 @@ export default function WebhookDocumentation() {
                 An <code>INSERT</code> that binds only those individual fields is not supported.</p>
 
             <h4 id="webhook-delivery">Queues and retries</h4>
-            <p>Queues are bounded and in memory. A full queue can drop records and a restart can lose
+            <p>By default, queues are bounded and in memory. A full queue can drop records and a restart can lose
                 queued records. On a database connection failure the export extension retries after 1, 2, 4, 8,
                 16 and 32 seconds, then every 60 seconds until delivery or shutdown. A lost response
                 after a commit can produce a duplicate; use idempotent writes where possible.</p>
+            <p>In builds with SQLite support, enable <b>Persistent delivery</b> and set
+                <b> Persistent queue file</b> to an absolute file path in an existing private directory
+                on the broker (mode 0700 on Unix). Persistent delivery is off by default. Use a separate
+                file for each extension and sink configuration. An empty path while the switch is on
+                prevents the extension from starting. The queue limit counts live record data and
+                bindings, not SQLite file overhead. When the limit is reached, new records are dropped.</p>
+            <p>Persistent delivery writes the rendered body and bindings to disk before attempting delivery.
+                It replays committed records after restart, in order, using one delivery worker.
+                Persistent mode uses its own retry policy instead of the HTTP retry count and
+                concurrency settings. The worker retries a failed head record, including permanent failures, with a delay
+                capped at 60 seconds. Later records wait behind it. Only successful delivery removes a
+                record; a crash before removal can cause a duplicate. An MQTT acknowledgement
+                does not confirm that the export has been written to disk.</p>
+            <p>Changing sink settings requires a different queue file. The previous file remains associated
+                with the original settings; the exporter will not deliver its records to the new destination.</p>
 
             <h4 id="webhook-limits">Integration scope</h4>
             <p>The integrations described here export data from XMQ. Kafka import and export

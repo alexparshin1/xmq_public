@@ -20,12 +20,30 @@ XMQ_ADD_EXTENSION(xmq_log_export SOURCES ${CMAKE_CURRENT_LIST_DIR}/Webhook.cpp O
 TARGET_COMPILE_DEFINITIONS(xmq_message_export PRIVATE XMQ_MESSAGES_WEBHOOK)
 TARGET_COMPILE_DEFINITIONS(xmq_log_export PRIVATE XMQ_LOG_WEBHOOK)
 
+FIND_PACKAGE(SQLite3 QUIET)
+IF (TARGET SQLite::SQLite3)
+    FOREACH (target xmq_message_export xmq_log_export)
+        TARGET_LINK_LIBRARIES(${target} PRIVATE SQLite::SQLite3)
+        TARGET_COMPILE_DEFINITIONS(${target} PRIVATE XMQ_PERSISTENT_DELIVERY)
+    ENDFOREACH ()
+ENDIF ()
+
 XMQ_ADD_EXTENSION(xmq_http_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/HttpSink.cpp OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/http_sink.ui.json")
 TARGET_COMPILE_DEFINITIONS(xmq_http_sink PRIVATE XMQ_SINK_BUILD)
 
 XMQ_ADD_EXTENSION(xmq_db_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/DbSink.cpp SPTK
                   UI "${CMAKE_CURRENT_LIST_DIR}/db_sink.ui.json")
+
+PKG_CHECK_MODULES(RDKAFKA QUIET rdkafka)
+IF (RDKAFKA_FOUND)
+    XMQ_ADD_EXTENSION(xmq_kafka_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/KafkaSink.cpp
+                      UI "${CMAKE_CURRENT_LIST_DIR}/kafka_sink.ui.json")
+    TARGET_COMPILE_DEFINITIONS(xmq_kafka_sink PRIVATE XMQ_SINK_BUILD)
+    TARGET_INCLUDE_DIRECTORIES(xmq_kafka_sink PRIVATE ${RDKAFKA_INCLUDE_DIRS})
+    TARGET_LINK_LIBRARIES(xmq_kafka_sink PRIVATE ${RDKAFKA_LIBRARIES})
+    SET(XMQ_HAVE_KAFKA_SINK 1 PARENT_SCOPE)
+ENDIF ()
 
 FOREACH (target xmq_webhook xmq_message_export xmq_log_export xmq_http_sink)
     TARGET_LINK_LIBRARIES(${target} PRIVATE OpenSSL::SSL)
@@ -35,7 +53,11 @@ FOREACH (target xmq_webhook xmq_message_export xmq_log_export xmq_http_sink)
     ENDIF ()
 ENDFOREACH ()
 
-INSTALL(TARGETS xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink
+SET(XMQ_EXPORT_TARGETS xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink)
+IF (XMQ_HAVE_KAFKA_SINK)
+    LIST(APPEND XMQ_EXPORT_TARGETS xmq_kafka_sink)
+ENDIF ()
+INSTALL(TARGETS ${XMQ_EXPORT_TARGETS}
         LIBRARY DESTINATION lib/xmq-extensions
         RUNTIME DESTINATION lib/xmq-extensions)
 

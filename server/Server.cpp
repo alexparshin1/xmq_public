@@ -1951,8 +1951,11 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     // Applied by re-reading the file that was just written, rather than from what arrived over the
     // wire: what the broker runs is then what is on disk, and the two cannot disagree.
     m_extensions.userDatabaseUri(getSettings()->userDatabaseUri());
-    report += m_extensions.reloadSettings(
+    const auto applied = m_extensions.reloadSettings(
         ExtensionHost::readConfiguration(getSettings()->configurationPath(), *getLogEngine()), name);
+    // Keep its refusals, but not a second success line: the write above already said "Settings applied".
+    for (const auto& problem: applied.m_problems)
+        report.m_problems.push_back(problem);
     return report;
 }
 
