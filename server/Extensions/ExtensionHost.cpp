@@ -237,8 +237,9 @@ LogPriority toLogPriority(const xmq_log_priority priority)
 
 } // namespace
 
-ExtensionHost::ExtensionHost(LogEngine& logEngine, string brokerVersion)
+ExtensionHost::ExtensionHost(LogEngine& logEngine, string brokerVersion, LocalPublisher publisher)
     : m_logger(logEngine, "[extensions] ")
+      , m_localPublisher(std::move(publisher))
       , m_brokerVersion(std::move(brokerVersion))
 {
 }
@@ -790,6 +791,30 @@ void ExtensionHost::publishLog(const sptk::LogPriority priority, const LogSubjec
     }
 }
 
+xmq_status ExtensionHost::hostPublishLocal(void* context, const xmq_str topic, const xmq_str payload)
+{
+    const auto* loaded = static_cast<Loaded*>(context);
+    if (!loaded || !loaded->m_table || !(loaded->m_table->capabilities & XMQ_CAP_SOURCE) ||
+        !loaded->m_host->m_localPublisher)
+        return XMQ_NOT_SUPPORTED;
+    if (!topic.data || topic.length == 0 || topic.length > 65535 ||
+        (!payload.data && payload.length != 0) || payload.length > 16 * 1024 * 1024)
+        return XMQ_ERROR;
+    const auto name = std::string_view(topic.data, topic.length);
+    if (name.starts_with('$') || name.find_first_of("+#") != name.npos ||
+        std::ranges::any_of(name, [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+        return XMQ_ERROR;
+    try
+    {
+        return loaded->m_host->m_localPublisher(loaded->m_name, name,
+            payload.length ? std::string_view(payload.data, payload.length) : std::string_view("")) ? XMQ_OK : XMQ_ERROR;
+    }
+    catch (...)
+    {
+        return XMQ_ERROR;
+    }
+}
+
 void ExtensionHost::hostInvalidateAcl(void* context)
 {
     auto* loaded = static_cast<Loaded*>(context);
@@ -883,7 +908,8 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
                            .want_event_attributes = &ExtensionHost::hostWantEventAttributes,
                            .event_attribute = &ExtensionHost::hostEventAttribute,
                            .tap_messages = &ExtensionHost::hostTapMessages,
-                           .request_logs = &ExtensionHost::hostRequestLogs};
+                           .request_logs = &ExtensionHost::hostRequestLogs,
+                           .publish_local = m_localPublisher ? &ExtensionHost::hostPublishLocal : nullptr};
 
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)

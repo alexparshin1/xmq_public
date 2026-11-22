@@ -17,20 +17,46 @@ excluding SQLite overhead); new records are dropped when full.
 
 A separate writer stores the rendered body and bindings. MQTT acknowledgement
 does not imply export persistence. One worker delivers the queue head and removes
-it only after success. Persistent mode overrides the HTTP retry count and concurrency.
+it when the sink reports success. With `kafka_sink`, this requires an acknowledgement
+from Kafka. Persistent mode overrides the HTTP retry count and concurrency.
 Failures, including permanent ones, block later records
 and retry with a delay capped at 60 seconds. Restart replays persisted records;
 a crash after delivery but before removal can cause duplicates. Changing sink
-settings requires a different queue file. Kafka import and export are separate
-future integrations.
+settings requires a different queue file.
 
 ## Kafka sink
 
 On Linux builds with librdkafka, select `kafka_sink` under Delivery. Set
-`bootstrap_servers` to a comma-separated `host:port` list and `topic` to the
-target topic; `timeout_ms` bounds each produce. The exported JSON is the record
-value. A selected field or alias named `key` is used as the record key. Kafka
-import (Kafka to MQTT) is not yet available.
+`bootstrap_servers` to a comma-separated `host:port` list and `kafka_topic` to the
+target topic. `kafka_timeout_ms` bounds the wait for the record's delivery report. The exported JSON
+is the Kafka record value. A nonempty selected field or alias named `key` becomes
+the record key. The sink uses PLAINTEXT by default and reports success only after
+Kafka acknowledges the record (`acks=all`). For TLS, set
+`kafka_security_protocol=SSL`; the broker certificate and hostname are verified
+against the system trust store or a PEM CA file at an absolute path in
+`kafka_ca_file`. For SASL, use `SASL_SSL` or `SASL_PLAINTEXT`, select
+`SCRAM-SHA-256` or `SCRAM-SHA-512`, and set `kafka_sasl_username` and
+`kafka_sasl_password`. On the test stand, Kafka offers SASL/SCRAM at
+`theater:9094` for user `xmqtest`; the unauthenticated listener remains at
+`theater:9092`. With persistent delivery, a timeout or outage leaves the record
+on disk for retry. A lost acknowledgement can cause a duplicate.
+
+## Kafka source
+
+On Linux builds with librdkafka, select the standalone `kafka_source` extension.
+Set `bootstrap_servers`, `kafka_topic`, `group_id`, and `mqtt_topic`. The Kafka topic
+must already exist. Use `security_protocol=SSL` (default) or `PLAINTEXT` on a trusted
+test network. For TLS, the Kafka certificate must match the Kafka broker hostname
+and chain to a CA trusted on the XMQ host. The MQTT listener's certificate is not
+used, and client certificates for mTLS are not configurable. For SASL, select
+`SASL_SSL` or `SASL_PLAINTEXT`, a SCRAM mechanism, and the username and password.
+The record value becomes the MQTT payload unchanged; Kafka null
+values become empty payloads. Imports are not retained or passed to the export tap.
+
+New groups read from the earliest available offset; existing groups resume from
+committed offsets. Offsets are committed after the broker accepts a record into
+its in-memory delivery queue, not after persistence or subscriber receipt.
+A crash can lose an accepted publish or cause a duplicate on replay.
 
 ## Sinks for the export extensions
 
@@ -52,8 +78,8 @@ Provide a database URI and an INSERT statement, for example
 `INSERT INTO exported (body) VALUES (:fields)`. The destination table must exist.
 The sink binds the entire exported body as the `fields` parameter.
 
-The engine is shared; sinks are selected per source. Adding a later sink (Kafka,
-republish) changes no existing extension's SQL rule code. If upgrading from a
+The engine is shared; sinks are selected per exporter. Adding a later sink
+changes no existing extension's SQL rule code. If upgrading from a
 development build with `messages_web_hook` and `log_web_hook`, rename the
 configuration entries and update their library paths to the new installed names.
 
@@ -209,7 +235,7 @@ DI-1 and DI-2 are the part that is certainly needed: every later connector, and 
 would use the same tap. DI-4 is the smallest useful endpoint; if Tomasz's answer asks for a
 different envelope or a different first connector, only DI-4 and DI-5 change.
 
-## Comparison
+## Historical comparison (XMQ 1.1.0)
 
 | | XMQ 1.1.0 after this | EMQX | HiveMQ |
 |---|---|---|---|

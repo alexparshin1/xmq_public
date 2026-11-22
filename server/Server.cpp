@@ -155,7 +155,16 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
       , m_messageDeliveryThreads(*m_subscriptionManager,
                                  resolveDeliveryThreadCount(settings->m_server_limits.m_delivery_threads.asString()))
       , m_cluster(make_shared<cluster::Cluster>(this))
-      , m_extensions(*logEngine, getVersion())
+      , m_extensions(*logEngine, getVersion(),
+          [this](string_view source, string_view topic, string_view payload)
+          {
+              if (isStopping() || m_messageDeliveryThreads.queueLength() >= 1024)
+                  return false;
+              auto message = make_shared<mqtt::PublishMessage>(getTopic(topic), payload);
+              message->setSender(source);
+              publishMessage(message);
+              return true;
+          })
       , m_systemStatistics(make_shared<SystemStatistics>(Version, getTopicManager(), m_subscriptionManager))
 {
     // Before anything serves: a node that could not read the cluster's configuration does not know

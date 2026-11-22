@@ -314,6 +314,20 @@ protected:
         }
     }
 
+protected:
+    [[nodiscard]] bool canPublishLocal() const
+    {
+        return m_host.struct_size >= offsetof(xmq_host, publish_local) + sizeof(m_host.publish_local) &&
+               m_host.publish_local != nullptr;
+    }
+
+    [[nodiscard]] bool publishLocal(std::string_view topic, std::string_view payload) const
+    {
+        return canPublishLocal() &&
+               m_host.publish_local(m_host.context, {topic.data(), topic.size()},
+                                    {payload.data(), payload.size()}) == XMQ_OK;
+    }
+
 private:
     /**
      * @brief Read a string copied out by the host, retrying with a larger buffer if needed.

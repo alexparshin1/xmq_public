@@ -15,13 +15,17 @@ export default function WebhookDocumentation() {
                 {" "}<code>log_export</code> extension exports broker log records. Each extension has
                 its own filters, delivery settings and queue,
                 even when both use the same sink type.</p>
+            <p>Kafka integration works in both directions: <a href="#webhook-kafka"><code>kafka_sink</code></a>
+                {" "}sends exports to Kafka, and <a href="#webhook-limits"><code>kafka_source</code></a>
+                {" "}imports Kafka records into MQTT. Both are available on Linux builds with librdkafka.</p>
 
             <h4 id="webhook-enable">Set up an export</h4>
             <ol>
                 <li>Select <code>message_export</code> or <code>log_export</code> on the
                     {" "}<b>Extensions</b> screen, then choose a filter mode.</li>
-                <li>Under <b>Delivery</b>, choose a sink: <code>http_sink</code> for HTTP delivery
-                    or <code>db_sink</code> for database delivery. Configure the selected sink.</li>
+                <li>Under <b>Delivery</b>, choose <code>http_sink</code> for HTTP,
+                    <code> db_sink</code> for a database, or <code>kafka_sink</code> for Kafka.
+                    Configure the selected sink.</li>
                 <li>Click <b>Apply</b> to save the settings. If the extension is not running, click <b>Enable</b>.</li>
             </ol>
 
@@ -113,15 +117,30 @@ export default function WebhookDocumentation() {
             <p>Timeout is in milliseconds; retries are additional attempts after the first. Concurrency
                 limits the number of in-flight requests. Delivery retries transient failures such as
                 connection failures, timeouts, HTTP 429 and 5xx.</p>
-            <h5 id="webhook-kafka">Kafka</h5>
-            <p>On Linux builds with librdkafka available, <code>kafka_sink</code> sends each
-                exported JSON body to a Kafka topic. Set <b>Kafka brokers</b> to the
-                comma-separated <code>host:port</code> list and <b>Kafka topic</b> to the destination
-                topic. The timeout bounds each produce request. The exported JSON is the record
-                value; in SQL rules mode, a selected field or alias named <code>key</code> is used
-                as the record key. This sink performs its own delivery retries.</p>
-            <p>Kafka is a destination only in this release. Importing records from Kafka into MQTT
-                is not yet available.</p>
+            <h5 id="webhook-kafka">Export to Kafka: kafka_sink</h5>
+            <p>In <code>message_export</code> or <code>log_export</code>, select <code>kafka_sink</code>
+                {" "}under <b>Delivery</b>. Set <b>Kafka brokers</b> to a comma-separated list of
+                <code> host:port</code> addresses and <b>Kafka topic</b> to the destination topic.
+                <b> Kafka timeout, ms</b> limits how long the sink waits for the record's delivery report.
+                The sink reports success only after Kafka acknowledges the record
+                (<code>acks=all</code>, meaning all in-sync replicas). The current sink uses
+                To use TLS, set <b>Kafka transport</b> to <code>SSL</code>. The broker certificate and
+                hostname are verified against the system trust store, or against <b>Kafka CA certificate</b>
+                {" "}if an absolute path to a PEM file is given. The default transport is
+                <code> PLAINTEXT</code>. For SASL, choose <code>SASL_SSL</code> or
+                <code> SASL_PLAINTEXT</code>, set the mechanism to <code>SCRAM-SHA-256</code> or
+                <code> SCRAM-SHA-512</code>, and provide the Kafka username and password. SASL
+                credentials require a SASL transport. The test stand's SASL listener is at
+                <code> theater:9094</code> (user <code>xmqtest</code>); <code>theater:9092</code>
+                remains unauthenticated.</p>
+            <p>An unavailable broker or a timeout triggers a retry. With persistent delivery,
+                XMQ keeps the record on disk until Kafka acknowledges it. A retry can produce a
+                duplicate if Kafka stored the record but XMQ did not receive the acknowledgement.</p>
+            <p>The exported JSON becomes the Kafka record value. A nonempty projected field or
+                alias named <code>key</code> becomes the record key. For example:</p>
+            <pre className="integrationSqlExample"><code>{'SELECT topic, client_id AS key, payload FROM "sensors/#"'}</code></pre>
+            <p>To verify the export, start a Kafka consumer on the destination topic, publish an
+                MQTT message that matches the export filter, and check the consumer output.</p>
 
             <h5>Database</h5>
             <p>The <code>db_sink</code> sink writes records with a parameterized INSERT statement. Choose an installed PostgreSQL, MySQL,
@@ -155,15 +174,34 @@ export default function WebhookDocumentation() {
                 It replays committed records after restart, in order, using one delivery worker.
                 Persistent mode uses its own retry policy instead of the HTTP retry count and
                 concurrency settings. The worker retries a failed head record, including permanent failures, with a delay
-                capped at 60 seconds. Later records wait behind it. Only successful delivery removes a
-                record; a crash before removal can cause a duplicate. An MQTT acknowledgement
-                does not confirm that the export has been written to disk.</p>
+                capped at 60 seconds. Later records wait behind it. A record is removed when the
+                sink reports success; for <code>kafka_sink</code> this requires a Kafka acknowledgement.
+                A crash before removal can cause a duplicate. An MQTT acknowledgement does not confirm
+                that the export has been written to disk.</p>
             <p>Changing sink settings requires a different queue file. The previous file remains associated
                 with the original settings; the exporter will not deliver its records to the new destination.</p>
 
-            <h4 id="webhook-limits">Integration scope</h4>
-            <p>The integrations described here export data from XMQ. Kafka import and export
-                are not currently available.</p>
+            <h4 id="webhook-limits">Import from Kafka: kafka_source</h4>
+            <p>On Linux builds with librdkafka, configure <code>kafka_source</code> as a separate
+                extension on the <b>Extensions</b> screen, not as a delivery sink. Enter the Kafka
+                brokers, an existing Kafka topic, a consumer group and a local MQTT destination topic.
+                Click <b>Apply</b>, then <b>Enable</b>. To verify the import, subscribe to
+                the MQTT destination topic before enabling the extension and write a record
+                to the configured Kafka topic.</p>
+            <p><b>Kafka transport</b> defaults to <code>SSL</code>. The Kafka broker presents the
+                certificate; the client checks the certificate chain and broker hostname. A private CA
+                must be trusted on the XMQ host. The XMQ MQTT listener certificate is not used, and
+                client certificates for mutual TLS are not configurable. Select <code>PLAINTEXT</code>
+                {" "}only on a trusted test network. For SASL, choose <code>SASL_SSL</code> or
+                <code> SASL_PLAINTEXT</code>, select the SCRAM mechanism and set the username and
+                password; the password is masked on the screen and in the stored settings.</p>
+            <p>The Kafka record value becomes the MQTT payload unchanged; a null value becomes an
+                empty payload. Messages are not retained or passed to the export tap. A new consumer
+                group starts at the earliest available offset; an existing group resumes from its
+                committed offsets. Use separate group IDs if each broker must receive a copy.</p>
+            <p>The source commits the Kafka offset after the broker accepts the message into its
+                in-memory delivery queue, not after a subscriber receives it. A crash can therefore
+                lose a queued publish or cause a duplicate. A refused publish does not advance the offset.</p>
         </section>
     </DocumentationPage>;
 }

@@ -205,6 +205,51 @@
         },
         {
           "name": "kafka_timeout_ms"
+        },
+        {
+          "name": "kafka_security_protocol",
+          "visible_when": {
+            "setting": "sink",
+            "values": [
+              "kafka_sink"
+            ]
+          }
+        },
+        {
+          "name": "kafka_ca_file",
+          "visible_when": {
+            "setting": "sink",
+            "values": [
+              "kafka_sink"
+            ]
+          }
+        },
+        {
+          "name": "kafka_sasl_mechanism",
+          "visible_when": {
+            "setting": "sink",
+            "values": [
+              "kafka_sink"
+            ]
+          }
+        },
+        {
+          "name": "kafka_sasl_username",
+          "visible_when": {
+            "setting": "sink",
+            "values": [
+              "kafka_sink"
+            ]
+          }
+        },
+        {
+          "name": "kafka_sasl_password",
+          "visible_when": {
+            "setting": "sink",
+            "values": [
+              "kafka_sink"
+            ]
+          }
         }
       ],
       "visible_when": {

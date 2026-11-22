@@ -35,13 +35,12 @@ XMQ_ADD_EXTENSION(xmq_http_sink SOURCES "${CMAKE_CURRENT_LIST_DIR}/HttpSink.cpp"
 XMQ_ADD_EXTENSION(xmq_db_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/DbSink.cpp SPTK
                   UI "${CMAKE_CURRENT_LIST_DIR}/db_sink.ui.json")
 
-PKG_CHECK_MODULES(RDKAFKA QUIET rdkafka)
-IF (RDKAFKA_FOUND)
+IF (TARGET PkgConfig::RDKAFKA)
     XMQ_ADD_EXTENSION(xmq_kafka_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/KafkaSink.cpp
                       UI "${CMAKE_CURRENT_LIST_DIR}/kafka_sink.ui.json")
-    TARGET_INCLUDE_DIRECTORIES(xmq_kafka_sink PRIVATE ${RDKAFKA_INCLUDE_DIRS})
-    TARGET_LINK_LIBRARIES(xmq_kafka_sink PRIVATE ${RDKAFKA_LIBRARIES})
-    SET(XMQ_HAVE_KAFKA_SINK 1 PARENT_SCOPE)
+    TARGET_LINK_LIBRARIES(xmq_kafka_sink PRIVATE PkgConfig::RDKAFKA)
+    XMQ_ADD_EXTENSION(xmq_kafka_source SOURCES ${CMAKE_CURRENT_LIST_DIR}/KafkaSource.cpp)
+    TARGET_LINK_LIBRARIES(xmq_kafka_source PRIVATE PkgConfig::RDKAFKA)
 ENDIF ()
 
 FOREACH (target xmq_webhook xmq_message_export xmq_log_export xmq_http_sink)
@@ -53,8 +52,8 @@ FOREACH (target xmq_webhook xmq_message_export xmq_log_export xmq_http_sink)
 ENDFOREACH ()
 
 SET(XMQ_EXPORT_TARGETS xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink)
-IF (XMQ_HAVE_KAFKA_SINK)
-    LIST(APPEND XMQ_EXPORT_TARGETS xmq_kafka_sink)
+IF (TARGET xmq_kafka_sink)
+    LIST(APPEND XMQ_EXPORT_TARGETS xmq_kafka_sink xmq_kafka_source)
 ENDIF ()
 INSTALL(TARGETS ${XMQ_EXPORT_TARGETS}
         LIBRARY DESTINATION lib/xmq-extensions

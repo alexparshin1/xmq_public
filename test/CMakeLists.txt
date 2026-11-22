@@ -56,10 +56,11 @@ ADD_EXECUTABLE(xmq_unit_tests ${XMQ_TEST_FILES} ${XMQ_EXTENSION_TEST_FILES} Serv
 
 TARGET_LINK_LIBRARIES(xmq_unit_tests xmq_base xmq_storage xmq_common xmq_service xmq_server_core xmq_client xmq_utils xmq_scenario ${GTest_LIBRARY} ${GTest_MAIN_LIBRARY})
 
-IF (XMQ_HAVE_KAFKA_SINK)
+IF (TARGET PkgConfig::RDKAFKA)
     TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE XMQ_TEST_KAFKA_SINK XMQ_TEST_KAFKA_BROKERS="theater:9092")
-    TARGET_LINK_LIBRARIES(xmq_unit_tests ${RDKAFKA_LIBRARIES})
-    TARGET_INCLUDE_DIRECTORIES(xmq_unit_tests PRIVATE ${RDKAFKA_INCLUDE_DIRS})
+    TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE XMQ_TEST_KAFKA_SOURCE_LIBRARY="$<TARGET_FILE:xmq_kafka_source>")
+    TARGET_LINK_LIBRARIES(xmq_unit_tests PkgConfig::RDKAFKA)
+    ADD_DEPENDENCIES(xmq_unit_tests xmq_kafka_sink xmq_kafka_source)
 ENDIF ()
 
 IF (UNIX)

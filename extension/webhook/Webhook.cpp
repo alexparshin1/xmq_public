@@ -706,6 +706,26 @@ private:
                     {
                         value = setting("kafka_topic");
                     }
+                    else if (fieldName == "security_protocol")
+                    {
+                        value = setting("kafka_security_protocol", "PLAINTEXT");
+                    }
+                    else if (fieldName == "ca_file")
+                    {
+                        value = setting("kafka_ca_file");
+                    }
+                    else if (fieldName == "sasl_mechanism")
+                    {
+                        value = setting("kafka_sasl_mechanism", "SCRAM-SHA-256");
+                    }
+                    else if (fieldName == "sasl_username")
+                    {
+                        value = setting("kafka_sasl_username");
+                    }
+                    else if (fieldName == "sasl_password")
+                    {
+                        value = setting("kafka_sasl_password");
+                    }
                     else if (fieldName == "timeout_ms")
                     {
                         value = setting("kafka_timeout_ms", "5000");
@@ -1049,6 +1069,18 @@ constexpr xmq_setting settings[] = {
     {.name = "kafka_timeout_ms", .label = "Kafka timeout, ms",
      .description = "Producer timeout in milliseconds",
      .type = XMQ_SETTING_INTEGER, .default_value = "5000", .pattern = "[0-9]+"},
+    {.name = "kafka_security_protocol", .label = "Kafka transport",
+     .description = "PLAINTEXT is unencrypted; SSL verifies the broker certificate and hostname.",
+     .type = XMQ_SETTING_CHOICE, .default_value = "PLAINTEXT",
+     .choices = "PLAINTEXT,SSL,SASL_PLAINTEXT,SASL_SSL"},
+    {.name = "kafka_sasl_mechanism", .label = "SASL mechanism",
+     .description = "SCRAM-SHA-256 or SCRAM-SHA-512. Used only with a SASL transport.",
+     .type = XMQ_SETTING_CHOICE, .default_value = "SCRAM-SHA-256", .choices = "SCRAM-SHA-256,SCRAM-SHA-512"},
+    {.name = "kafka_sasl_username", .label = "Kafka username", .type = XMQ_SETTING_STRING, .default_value = ""},
+    {.name = "kafka_sasl_password", .label = "Kafka password", .type = XMQ_SETTING_SECRET, .default_value = ""},
+    {.name = "kafka_ca_file", .label = "Kafka CA certificate",
+     .description = "Absolute path to a PEM CA certificate on the broker; blank uses the system trust store. Requires SSL transport.",
+     .type = XMQ_SETTING_STRING, .default_value = ""},
     {.name = "template", .label = "Body template", .description = "Body to post: {{topic}}, {{message}}, {{level}} and the other names are "
      "substituted and JSON-escaped. For a message {{message}} is the base64 "
      "payload and {{level}} is \"message\"; for a log record {{topic}} is empty",

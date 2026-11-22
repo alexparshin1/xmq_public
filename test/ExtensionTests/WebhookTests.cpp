@@ -151,6 +151,8 @@ public:
     /// How many requests to answer with 500 before succeeding, so a retry can be observed without
     /// every test paying for one.
     void failFirst(const int count) { m_failFirst = count; }
+    void keepAlive() { m_keepAlive = true; }
+    [[nodiscard]] size_t connections() const { return m_connections.load(); }
 
     [[nodiscard]] uint16_t port() const { return m_port; }
     [[nodiscard]] size_t requests() const
@@ -184,64 +186,76 @@ private:
             {
                 break;
             }
-            std::string request;
-            char        buffer[4096];
-            size_t      headerEnd = std::string::npos;
-            size_t      contentLength = 0;
-            while (true)
+            m_connections.fetch_add(1);
+            while (readRequest(client))
             {
-                const auto received = ::recv(client, buffer, static_cast<SocketLength>(sizeof(buffer)), 0);
-                if (received <= 0)
-                {
+                const bool fail = m_served.fetch_add(1) < m_failFirst;
+                std::string response = fail ? "HTTP/1.1 500 Oops\r\n" : "HTTP/1.1 200 OK\r\n";
+                response += m_keepAlive ? "Content-Length: 0\r\n\r\n" :
+                    "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                ::send(client, response.data(), static_cast<int>(response.size()), sendFlags);
+                if (!m_keepAlive)
                     break;
-                }
-                request.append(buffer, static_cast<size_t>(received));
-                if (headerEnd == std::string::npos)
-                {
-                    headerEnd = request.find("\r\n\r\n");
-                    if (headerEnd != std::string::npos)
-                    {
-                        const auto header = request.substr(0, headerEnd);
-                        const auto lengthAt = header.find("Content-Length: ");
-                        if (lengthAt != std::string::npos)
-                        {
-                            contentLength = static_cast<size_t>(std::stoul(header.substr(lengthAt + 16)));
-                        }
-                        const auto signatureAt = header.find("X-XMQ-Signature: ");
-                        if (signatureAt != std::string::npos)
-                        {
-                            const auto end = header.find("\r\n", signatureAt);
-                            const std::scoped_lock lock(m_mutex);
-                            m_signatures.push_back(
-                                header.substr(signatureAt + 17, end - signatureAt - 17));
-                        }
-                    }
-                }
-                if (headerEnd != std::string::npos &&
-                    request.size() >= headerEnd + 4 + contentLength)
-                {
-                    break;
-                }
             }
-            if (headerEnd != std::string::npos)
-            {
-                const std::scoped_lock lock(m_mutex);
-                m_bodies.push_back(request.substr(headerEnd + 4, contentLength));
-                m_headerBlocks.push_back(request.substr(0, headerEnd));
-            }
-            const bool fail = m_served.fetch_add(1) < m_failFirst;
-            const std::string response = fail
-                ? "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                : "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            ::send(client, response.data(), static_cast<int>(response.size()), sendFlags);
             closeSocket(client);
         }
+    }
+
+    bool readRequest(SocketHandle client)
+    {
+        std::string request;
+        char        buffer[4096];
+        size_t      headerEnd = std::string::npos;
+        size_t      contentLength = 0;
+        while (true)
+        {
+            const auto received = ::recv(client, buffer, static_cast<SocketLength>(sizeof(buffer)), 0);
+            if (received <= 0)
+            {
+                break;
+            }
+            request.append(buffer, static_cast<size_t>(received));
+            if (headerEnd == std::string::npos)
+            {
+                headerEnd = request.find("\r\n\r\n");
+                if (headerEnd != std::string::npos)
+                {
+                    const auto header = request.substr(0, headerEnd);
+                    const auto lengthAt = header.find("Content-Length: ");
+                    if (lengthAt != std::string::npos)
+                    {
+                        contentLength = static_cast<size_t>(std::stoul(header.substr(lengthAt + 16)));
+                    }
+                    const auto signatureAt = header.find("X-XMQ-Signature: ");
+                    if (signatureAt != std::string::npos)
+                    {
+                        const auto end = header.find("\r\n", signatureAt);
+                        const std::scoped_lock lock(m_mutex);
+                        m_signatures.push_back(
+                            header.substr(signatureAt + 17, end - signatureAt - 17));
+                    }
+                }
+            }
+            if (headerEnd != std::string::npos &&
+                request.size() >= headerEnd + 4 + contentLength)
+            {
+                break;
+            }
+        }
+        if (headerEnd == std::string::npos || request.size() < headerEnd + 4 + contentLength)
+            return false;
+        const std::scoped_lock lock(m_mutex);
+        m_bodies.push_back(request.substr(headerEnd + 4, contentLength));
+        m_headerBlocks.push_back(request.substr(0, headerEnd));
+        return true;
     }
 
     SocketHandle        m_fd {invalidSocket};
     uint16_t            m_port {0};
     std::atomic<int>    m_served {0};
     std::atomic<int>    m_failFirst {0};
+    std::atomic<size_t> m_connections{0};
+    bool                m_keepAlive{false};
     std::atomic<bool>   m_stopping {false};
     std::thread         m_thread;
     mutable std::mutex  m_mutex;
@@ -659,6 +673,51 @@ TEST_F(WebhookTests, sendsTheConfiguredTemplateAndHeaders)
 
     host.stop();
     receiver.stop();
+}
+
+TEST_F(WebhookTests, preservesQueryAndEncodesBinaryPayload)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    const auto authority = "127.0.0.1:" + to_string(receiver.port());
+    config.m_settings["url"] = "http://" + authority + "/hook?tag=a%2Fb&tag=a+b#local";
+
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    const string payload("\0\xff\x80", 3);
+    host.publishMessage("client", "user", "sensors/1", payload.data(), payload.size(), 0, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+
+    const auto headers = receiver.headerBlocks();
+    ASSERT_EQ(1u, headers.size());
+    EXPECT_TRUE(headers.front().starts_with("POST /hook?tag=a%2Fb&tag=a+b HTTP/1.1\r\n"));
+    EXPECT_NE(string::npos, headers.front().find("HOST: " + authority + "\r\n"));
+    EXPECT_EQ((vector<string>{R"({"topic":"sensors/1","message":"AP+A","level":"message"})"}), receiver.bodies());
+}
+
+TEST_F(WebhookTests, reusesHttpConnectionForMultipleRecords)
+{
+    Receiver receiver;
+    receiver.keepAlive();
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_settings["concurrency"] = "1";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    for (int i = 0; i < 3; ++i)
+        host.publishMessage("client", "user", "sensors/1", "hello", 5, 0, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 3 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    EXPECT_EQ(3u, receiver.requests());
+    EXPECT_EQ(1u, receiver.connections());
 }
 
 TEST_F(WebhookTests, refusesASourceThatIsNotOneOfTheThree)

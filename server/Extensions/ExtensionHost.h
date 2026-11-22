@@ -179,7 +179,8 @@ public:
         bool m_enabled {true};
     };
 
-    explicit ExtensionHost(sptk::LogEngine& logEngine, std::string brokerVersion);
+    using LocalPublisher = std::function<bool(std::string_view source, std::string_view topic, std::string_view payload)>;
+    explicit ExtensionHost(sptk::LogEngine& logEngine, std::string brokerVersion, LocalPublisher publisher = {});
 
     /**
      * @brief Read the extension list from a file beside the broker's configuration.
@@ -873,6 +874,7 @@ private:
     static int64_t hostTapMessages(void* context, const char* const* filters, size_t filterCount,
                                    size_t maxPayload);
     static int64_t hostRequestLogs(void* context, uint32_t minLevel);
+    static xmq_status hostPublishLocal(void* context, xmq_str topic, xmq_str payload);
 
     /// The bit for a name this broker publishes, or zero for one it does not.
     [[nodiscard]] static uint32_t attributeBit(std::string_view name);
@@ -888,6 +890,7 @@ private:
     static constexpr size_t MaxQueuedLogRecords = 4096;
 
     sptk::Logger                         m_logger;
+    LocalPublisher                       m_localPublisher;
     std::string                          m_brokerVersion;
     /**
      * @brief Everything ever loaded, in configuration order. Append-only.

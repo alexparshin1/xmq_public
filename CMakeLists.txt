@@ -563,8 +563,8 @@ add_subdirectory(server)
 # particular, CMake's generated install target first builds "all"; without EXCLUDE_FROM_ALL a
 # normal `make install` spends most of its time compiling xmq_unit_tests even though that binary is
 # not part of a production installation.
-IF (NOT XMQ_HAVE_KAFKA_SINK AND RDKAFKA_FOUND)
-    SET(XMQ_HAVE_KAFKA_SINK 1)
+IF (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    PKG_CHECK_MODULES(RDKAFKA QUIET IMPORTED_TARGET rdkafka)
 ENDIF ()
 add_subdirectory(test EXCLUDE_FROM_ALL)
 add_subdirectory(utilities)
@@ -759,16 +759,6 @@ ADD_SUBDIRECTORY(extension/ldap)
 ADD_SUBDIRECTORY(extension/jwt)
 ADD_SUBDIRECTORY(extension/http-auth)
 ADD_SUBDIRECTORY(extension/webhook)
-
-IF (NOT XMQ_HAVE_KAFKA_SINK AND RDKAFKA_FOUND)
-    SET(XMQ_HAVE_KAFKA_SINK 1)
-ENDIF ()
-IF (XMQ_HAVE_KAFKA_SINK)
-    MESSAGE(STATUS "Kafka sink enabled (librdkafka found)")
-ELSE ()
-    MESSAGE(STATUS "Kafka sink disabled (librdkafka not found)")
-ENDIF ()
-SET(XMQ_HAVE_KAFKA_SINK ${XMQ_HAVE_KAFKA_SINK} PARENT_SCOPE)
 
 # The extension interface. These two headers are the whole of what an extension compiles against;
 # nothing else of the broker is needed, and nothing else should be relied on.

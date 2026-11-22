@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 5
+#define XMQ_EXTENSION_ABI_MINOR 6
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -321,6 +321,14 @@ typedef struct xmq_host
      * @return 0 when the tap is accepted, -1 when it is not.
      */
     int64_t (*request_logs)(void* context, uint32_t min_level);
+
+    /**
+     * Queue a non-retained publish from an extension declaring XMQ_CAP_SOURCE.
+     * The host copies topic and payload before returning. XMQ_OK means accepted
+     * for asynchronous delivery, not persisted or acknowledged by subscribers.
+     * Imported messages do not pass through the message export tap.
+     */
+    xmq_status (*publish_local)(void* context, xmq_str topic, xmq_str payload);
 } xmq_host;
 
 /**
@@ -476,7 +484,8 @@ typedef enum xmq_capability
     XMQ_CAP_AUTHORIZER = 1u << 2,    /**< Decides what a connected client may publish and subscribe to. */
     XMQ_CAP_MESSAGE_TAP = 1u << 3,   /**< Receives the messages the broker accepted, body included. */
     XMQ_CAP_LOG_TAP = 1u << 4,       /**< Receives the broker's own log records. */
-    XMQ_CAP_SINK = 1u << 5           /**< A delivery destination selected by an export extension. */
+    XMQ_CAP_SINK = 1u << 5,          /**< A delivery destination selected by an export extension. */
+    XMQ_CAP_SOURCE = 1u << 6         /**< Publishes externally sourced data into MQTT. */
 } xmq_capability;
 
 /**

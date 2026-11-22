@@ -58,18 +58,22 @@ export default function ExtensionsDocumentation() {
                     <td><code>log tap</code></td>
                     <td>To copy the broker's own log records, from a level the extension asked for.</td>
                 </tr>
+                <tr>
+                    <td><code>source</code></td>
+                    <td>To publish externally sourced data into a local MQTT topic, as <code>kafka_source</code> does.</td>
+                </tr>
                 </tbody>
             </table>
 
             <p>
-                Five extensions ship with this release, and each has its own page in the
-                <b>Extensions</b> menu: the accounts database
+                See the <b>Extensions</b> menu for the accounts database
                 (<Link to="/xmq_doc_user_database">User Database Authentication</Link>), the
                 <Link to="/xmq_doc_ldap">LDAP Authentication</Link> directory authenticator,
                 <Link to="/xmq_doc_jwt">JWT Authentication</Link>,
                 <Link to="/xmq_doc_http_auth">HTTP Authentication</Link>, and the
                 <Link to="/xmq_doc_webhook">Data Integration</Link> extensions that export MQTT
-                messages and broker logs to HTTP or a database.
+                messages and broker logs to HTTP, a database, or Kafka. The standalone
+                <code> kafka_source</code> extension imports Kafka records into MQTT.
             </p>
         </section>
 
