@@ -1923,6 +1923,9 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
 
 ExtensionHost::Report Server::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
+    const auto described = m_extensions.describe();
+    const auto target = ranges::find(described, name, &ExtensionHost::Description::m_name);
+    const bool stopped = target != described.end() && !target->m_running;
     auto report = m_extensions.writeSettings(name, settings);
     if (report.failed())
     {
@@ -1930,6 +1933,9 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
         // the settings the extension already has as though they had just been accepted.
         return report;
     }
+    // Staging settings for a stopped extension must not start it or retry unrelated extensions.
+    if (stopped)
+        return report;
 
     // The user-database extension's database_uri is also the broker's authentication.database_uri:
     // the two must agree, or accounts written on the Users page go to a different database than
@@ -1944,7 +1950,9 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
 
     // Applied by re-reading the file that was just written, rather than from what arrived over the
     // wire: what the broker runs is then what is on disk, and the two cannot disagree.
-    report += reloadExtensions();
+    m_extensions.userDatabaseUri(getSettings()->userDatabaseUri());
+    report += m_extensions.reloadSettings(
+        ExtensionHost::readConfiguration(getSettings()->configurationPath(), *getLogEngine()), name);
     return report;
 }
 

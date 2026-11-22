@@ -1,4 +1,5 @@
 import React from "react";
+import {createPortal} from "react-dom";
 import {parameterHelp} from "../help/ParameterHelp";
 import MessageSign from "./MessageSign";
 import "../components/DialogWindow.css";
@@ -53,8 +54,14 @@ export default class HelpButton extends React.Component
 
     renderPopup(help)
     {
-        return <div className="modalBackground">
-            <div className="modalContainer helpContainer">
+        return createPortal(<div className="modalBackground">
+            <div className="modalContainer helpContainer" role="dialog" aria-modal="true"
+                 aria-label={help.title} onKeyDown={event => {
+                     if (event.key === "Escape") {
+                         event.stopPropagation();
+                         this.setState({showHelp: false});
+                     }
+                 }}>
                 <div className="title">{help.title}</div>
                 <div className="helpContent">
                     <div className="helpSign">
@@ -64,18 +71,19 @@ export default class HelpButton extends React.Component
                         {help.text.flatMap((paragraph, index) =>
                             sentences(paragraph).map((sentence, at) =>
                                 <p key={index + "." + at}>{sentence}</p>))}
+                        {this.props.details}
                         {this.renderHelpFact("Range", help.range)}
                         {this.renderHelpFact("Suggested", help.suggested)}
                     </div>
                 </div>
                 <div className="modalFooter">
-                    <button type="button" className="modalOkButton"
+                    <button type="button" className="modalOkButton" autoFocus
                             onClick={() => this.setState({showHelp: false})}>
                         Ok
                     </button>
                 </div>
             </div>
-        </div>;
+        </div>, document.body);
     }
 
     render()

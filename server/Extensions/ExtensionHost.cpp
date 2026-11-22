@@ -1232,12 +1232,14 @@ vector<ExtensionHost::Configured> ExtensionHost::discoverInstalled(vector<Config
     return configured;
 }
 
-ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& extensions)
+ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& extensions, const string_view only)
 {
     Report report;
 
     for (const auto& configured: extensions)
     {
+        if (!only.empty() && configured.m_name != only)
+            continue;
         const auto loaded = ranges::find_if(m_loaded, [&configured](const auto& candidate)
         {
             return candidate->m_name == configured.m_name;
@@ -1297,6 +1299,9 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
         }
         report.m_notes.push_back(configured.m_name + ": settings applied.");
     }
+
+    if (!only.empty())
+        return report;
 
     // Switched on: an entry that names an extension nothing has loaded, or one that was switched
     // off earlier. readConfiguration() drops disabled entries, so everything here is meant to run.
@@ -1768,10 +1773,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         described.push_back(std::move(one));
     }
 
-    // And the ones the configuration switched off. Their libraries were never opened, so what can
-    // be said about them is what the file says: name, library, source, settings. Version and
-    // description would have to come from inside the library, and opening it is exactly what being
-    // switched off forbids.
+    // Read the descriptor of a disabled extension without creating or starting an instance.
     for (const auto& configured: m_configuredOnly)
     {
         Description one;
@@ -1781,10 +1783,46 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_running = false;
         one.m_required = configured.m_required;
 
-        for (const auto& [name, value]: configured.m_settings)
+        auto remaining = configured.m_settings;
+        if (auto* handle = openLibrary(configured.m_library))
         {
-            one.m_settings.push_back({.m_name = name, .m_label = name, .m_value = value,
-                                      .m_declared = false});
+            const std::unique_ptr<void, decltype(&closeLibrary)> library(handle, &closeLibrary);
+            const auto describe = reinterpret_cast<xmq_extension_describe_fn>(
+                findSymbol(handle, XMQ_EXTENSION_DESCRIBE_SYMBOL));
+            if (const auto* table = describe ? describe(XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR) : nullptr)
+            {
+                one.m_version = table->version ? table->version : "";
+                one.m_description = table->description ? table->description : "";
+                one.m_capabilities = table->capabilities;
+                for (size_t i = 0; table->settings && i < table->setting_count; ++i)
+                {
+                    const auto& field = table->settings[i];
+                    if (!field.name)
+                        continue;
+                    SettingDescription setting;
+                    setting.m_name = field.name;
+                    setting.m_label = field.label ? field.label : field.name;
+                    setting.m_description = field.description ? field.description : "";
+                    setting.m_type = static_cast<xmq_setting_type>(field.type);
+                    setting.m_defaultValue = field.default_value ? field.default_value : "";
+                    setting.m_choices = field.choices ? field.choices : "";
+                    setting.m_pattern = field.pattern ? field.pattern : "";
+                    setting.m_required = field.required != 0;
+                    if (const auto held = remaining.find(field.name); held != remaining.end())
+                    {
+                        setting.m_value = held->second;
+                        remaining.erase(held);
+                    }
+                    one.m_settings.push_back(std::move(setting));
+                }
+                describePresets(*table, one.m_presets);
+            }
+        }
+        for (const auto& [name, value]: remaining)
+        {
+            // Without a declaration we cannot know whether a value is safe to expose.
+            one.m_settings.push_back({.m_name = name, .m_label = name, .m_type = XMQ_SETTING_SECRET,
+                                      .m_value = value, .m_declared = false});
         }
         described.push_back(std::move(one));
     }
@@ -1874,6 +1912,13 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                 {
                     return Report::note(name + ": is not configured, so there is nothing to disable.");
                 }
+                if (!discovered->m_configured.m_source.empty())
+                {
+                    source = discovered->m_configured.m_source;
+                    m_discovered.erase(discovered);
+                }
+                else
+                {
                 const auto directory = configurationDirectoryFor(m_configurationPath);
                 error_code errorCode;
                 if (directory.empty())
@@ -1910,8 +1955,10 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                 const auto note = name + ": enabled in " + fragment.string() + ".";
                 m_logger.info(note);
                 return Report::note(note);
+                }
             }
-            source = known->m_source;
+            else
+                source = known->m_source;
         }
     }
 
@@ -1973,7 +2020,84 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         });
         if (loaded == m_loaded.end())
         {
-            return refusedWrite(m_logger, name, "no such extension");
+            const auto stopped = ranges::find(m_configuredOnly, name, &Configured::m_name);
+            const auto discovered = ranges::find_if(m_discovered, [&name](const auto& item)
+            {
+                return item.m_configured.m_name == name;
+            });
+            if (discovered == m_discovered.end() && stopped == m_configuredOnly.end())
+                return refusedWrite(m_logger, name, "no such extension");
+            if (discovered != m_discovered.end() && (discovered->m_description.m_capabilities & XMQ_CAP_SINK) != 0)
+                return refusedWrite(m_logger, name, "configure the sink in its export extension");
+            auto& configuration = stopped != m_configuredOnly.end() ? *stopped : discovered->m_configured;
+            try
+            {
+                const auto directory = configurationDirectoryFor(m_configurationPath);
+                if (directory.empty() || name.empty() || name.find_first_not_of(
+                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != string::npos)
+                    return refusedWrite(m_logger, name, "cannot create a configuration fragment");
+                filesystem::create_directories(directory);
+                source = configuration.m_source.empty() ? directory / ("90-" + name + ".conf") : configuration.m_source;
+                xdoc::Document document;
+                if (filesystem::exists(source))
+                {
+                    Buffer existing;
+                    existing.loadFromFile(source);
+                    document.load(existing);
+                }
+                else
+                {
+                    document.load(String(R"({"extensions":[{}]})"));
+                }
+                const auto entries = document.root()->nodes("extensions");
+                const auto found = ranges::find_if(entries, [&name](const auto& node)
+                {
+                    return node->getString("name") == name;
+                });
+                if (filesystem::exists(source) && found == entries.end())
+                    return refusedWrite(m_logger, name, "configuration fragment is already in use");
+                const auto& entry = found != entries.end() ? *found : entries.front();
+                entry->set("name", name);
+                entry->set("library", configuration.m_library.string());
+                entry->set("enabled", false);
+                auto values = entry->findFirst("settings", xdoc::SearchMode::Recursive);
+                if (!values)
+                    values = entry->pushNode("settings");
+                values->clear();
+                for (auto& [key, value]: merged)
+                {
+                    if (value == secretMask)
+                    {
+                        const auto previous = configuration.m_settings.find(key);
+                        if (previous != configuration.m_settings.end())
+                            value = previous->second;
+                    }
+                    values->set(key, value);
+                }
+                Buffer written;
+                document.exportTo(xdoc::DataFormat::JSON, written, true);
+                if (!filesystem::exists(source))
+                {
+                    std::ofstream empty(source);
+                    if (!empty)
+                        return refusedWrite(m_logger, name, "cannot create configuration fragment");
+                    filesystem::permissions(source, filesystem::perms::owner_read | filesystem::perms::owner_write);
+                }
+                written.saveToFile(source);
+                configuration.m_source = source;
+                configuration.m_settings = merged;
+                if (discovered != m_discovered.end())
+                {
+                    discovered->m_description.m_source = source;
+                    for (auto& field: discovered->m_description.m_settings)
+                        field.m_value = merged.contains(field.m_name) ? merged.at(field.m_name) : "";
+                }
+                return Report::note(name + ": settings saved; extension remains stopped.");
+            }
+            catch (const std::exception&)
+            {
+                return refusedWrite(m_logger, name, "could not save its configuration fragment");
+            }
         }
         source = (*loaded)->m_source;
         if (source.empty())
@@ -2142,6 +2266,21 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
     catch (const Exception& e)
     {
         return refusedWrite(m_logger, name, "could not write " + source.string() + ": " + e.what());
+    }
+
+    // Apply does not reload a stopped extension. Reflect the saved values in the
+    // control response rather than returning the settings from its last start attempt.
+    {
+        const std::scoped_lock lock(m_loadedLock);
+        const auto loaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
+        {
+            return candidate->m_name == name;
+        });
+        if (loaded != m_loaded.end() && !(*loaded)->m_started)
+        {
+            const std::scoped_lock settingsLock((*loaded)->m_settingsLock);
+            (*loaded)->m_settings = merged;
+        }
     }
 
     const auto written = name + ": settings written to " + source.string() + ".";

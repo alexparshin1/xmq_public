@@ -1,4 +1,84 @@
-# Data integration, 1.1.0
+# Data integration
+
+Use `message_export` for MQTT messages and `log_export` for broker logs.
+Each has its own filters, destination and delivery queue. The old `webhook`
+still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrate,
+copy each source's settings to its replacement and turn off the old extension to
+avoid duplicate deliveries.
+
+## Sinks for the export extensions
+
+The SQL rule engine, syntax validation, Test rule and the rule editor are shared
+by both export extensions. Delivery is a sink selected inside each extension:
+
+- `http_sink` — POST the JSON produced by the rule.
+- `db_sink` — parameterized INSERT through SPTK into PostgreSQL, MySQL, Oracle,
+  SQLite or MSSQL. Parameters are bound, never concatenated into the SQL text.
+  A bounded queue and a worker thread keep the MQTT path free. On a connection
+  failure the worker reconnects with 1, 2, 4, 8, 16, 32 and then 60-second
+  intervals, continuing once a minute until the record is written or the
+  extension stops. A successful write resets the interval. A full queue drops
+  records. The in-memory queue is not durable; a disconnect after a server-side
+  commit may also cause a duplicate on retry. Use an idempotent INSERT if needed.
+
+Provide a database URI and an INSERT statement, for example
+`INSERT INTO exported (body) VALUES (:fields)`. The destination table must exist.
+The sink binds the entire exported body as the `fields` parameter.
+
+The engine is shared; sinks are selected per source. Adding a later sink (Kafka,
+republish) changes no existing extension's SQL rule code. If upgrading from a
+development build with `messages_web_hook` and `log_web_hook`, rename the
+configuration entries and update their library paths to the new installed names.
+
+## SQL rules for MQTT messages and logs (1.2.0)
+
+Set the optional `sql_rule` to filter MQTT messages and construct the JSON request body:
+
+```sql
+SELECT payload.device_id, payload.temperature AS temperature, qos
+FROM "sensors/1", "sensors/2"
+WHERE CAST(payload.temperature AS DOUBLE) > 80 AND NOT retain
+```
+
+Enable each exporter independently. MQTT **Filter** selects
+**Topics** or **SQL rules**, not both. `FROM` accepts comma-separated quoted MQTT filters
+and matches any of them. After a topic match, the export
+worker dequeues the message and evaluates `WHERE`; only TRUE is sent. `SELECT` replaces
+the body template in SQL mode. Separate rules with semicolons; the first matching rule
+produces one request. Logs have their own **Filter** choice and accept, for example,
+`SELECT timestamp, level, message FROM logs WHERE level = 'error'`. Log SQL mode replaces
+the level/subject filter and log template. Existing configurations retain their behavior.
+No SQL database is involved.
+
+Use **Test rule** beside the SQL editor to evaluate the current draft against a
+sample MQTT message or log record. The result shows whether it matched, the
+number of the first matching rule, and its JSON field names and values. Testing
+does not save settings, publish an MQTT message, or send an HTTP request.
+
+Fields include `topic`, `client_id`, `username`, numeric `qos`, boolean `retain`, and
+scalar `payload.field` paths. `SELECT *` also includes the complete `payload` as a UTF-8
+JSON string (`null` for invalid UTF-8). Only rules using a payload path require valid JSON.
+Comparisons do not coerce mixed types. Missing fields and failed casts yield NULL;
+ordinary comparisons involving NULL yield UNKNOWN, including under NOT. Use
+`IS [NOT] NULL` for explicit tests. `AND` binds before `OR`; parentheses override it.
+Numeric comparisons use double precision. Strings are compared bytewise.
+
+### WHERE syntax
+
+- Comparisons: `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+- Boolean expressions: `AND`, `OR`, `NOT`, parentheses, and boolean fields such as `NOT retain`.
+- Null tests: `IS NULL` and `IS NOT NULL`.
+- Numeric conversion: `CAST(payload.temperature AS DOUBLE) > 80`.
+
+Only `TRUE` matches; `FALSE` and `UNKNOWN` do not. `LIKE`, `IN`, `BETWEEN`,
+regular expressions and `==` are not supported. Log `level` is text, not a severity
+rank. To select warnings and errors:
+
+```sql
+SELECT * FROM logs WHERE level = 'warning' OR level = 'error'
+```
+
+## Original webhook implementation (1.1.0)
 
 `[x]` means done; `[ ]` means not done, with what is left said underneath.
 

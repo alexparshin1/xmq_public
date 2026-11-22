@@ -68,8 +68,9 @@ export default function ExtensionsDocumentation() {
                 <Link to="/xmq_doc_ldap">LDAP Authentication</Link> directory authenticator,
                 <Link to="/xmq_doc_jwt">JWT Authentication</Link>,
                 <Link to="/xmq_doc_http_auth">HTTP Authentication</Link>, and the
-                <Link to="/xmq_doc_webhook">Webhook</Link> that posts messages and log records to an
-                endpoint. The first four decide who may connect; the webhook moves data out.
+                <Link to="/xmq_doc_webhook">message_export and log_export</Link> extensions that
+                export MQTT messages and broker logs to HTTP or a database. They replace the
+                deprecated <code>webhook</code>.
             </p>
         </section>
 

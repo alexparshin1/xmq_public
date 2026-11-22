@@ -21,6 +21,8 @@ TEST(CBridgeTest, DefaultConstructor)
     CBridge bridge;
     EXPECT_STREQ(bridge.name().c_str(), "bridge");
     EXPECT_FALSE(bridge.isOptional());
+    EXPECT_TRUE(bridge.m_local_prefix.isNull());
+    EXPECT_TRUE(bridge.m_remote_prefix.isNull());
 }
 
 // Test constructor with custom parameters
@@ -44,6 +46,8 @@ TEST(CBridgeTest, CopyConstructor)
     bridge1.m_encrypted = true;
     bridge1.m_clean_session = false;
     bridge1.m_mode = "active";
+    bridge1.m_local_prefix = "local/";
+    bridge1.m_remote_prefix = "remote/";
 
     CBridge bridge2(bridge1);
     EXPECT_EQ(bridge2.m_id.value().asInteger(), 42);
@@ -55,6 +59,8 @@ TEST(CBridgeTest, CopyConstructor)
     EXPECT_EQ(bridge2.m_encrypted.value().asBool(), true);
     EXPECT_EQ(bridge2.m_clean_session.value().asBool(), false);
     EXPECT_EQ(bridge2.m_mode.value().asString(), "active");
+    EXPECT_EQ(bridge2.m_local_prefix.value().asString(), "local/");
+    EXPECT_EQ(bridge2.m_remote_prefix.value().asString(), "remote/");
 }
 
 // Test move constructor

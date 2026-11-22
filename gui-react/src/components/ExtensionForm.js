@@ -28,10 +28,16 @@ export function extensionForm(extension) {
         check(Array.isArray(form.sections), "Sections must be an array");
         const seen = new Set();
         form.sections.forEach(section => {
-            keys(section, ["title", "description", "fields"]);
+            keys(section, ["title", "description", "fields", "toggle", "visible_when"]);
+            condition(section.visible_when);
             check(text(section.title) && section.title.length > 0, "A section needs a title");
             check(section.description === undefined || text(section.description), "Invalid section description");
             check(Array.isArray(section.fields), "Section fields must be an array");
+            if (section.toggle !== undefined) {
+                check(known(section.toggle) && !seen.has(section.toggle) &&
+                      settings.get(section.toggle).type === "boolean", "Invalid section toggle");
+                seen.add(section.toggle);
+            }
             section.fields.forEach(field => {
                 keys(field, ["name", "visible_when", "enabled_when", "widget"]);
                 check(known(field.name) && !seen.has(field.name), "Unknown or duplicate field");

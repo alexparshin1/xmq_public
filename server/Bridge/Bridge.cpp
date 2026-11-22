@@ -57,6 +57,15 @@ bool isOutboundTopic(const CBridgeTopic& topic)
     return direction.empty() || direction == "out" || direction == "inout";
 }
 
+String topicPrefix(const String& value)
+{
+    if (value.find_first_of("+#") != String::npos || value.find('\0') != String::npos)
+    {
+        throw Exception("Bridge topic prefixes cannot contain MQTT wildcards or NUL.");
+    }
+    return value;
+}
+
 } // namespace
 
 Bridge::Bridge(Server* server, const CBridge& settings)
@@ -72,6 +81,9 @@ Bridge::Bridge(Server* server, const CBridge& settings)
                    "(bridge " + settings.m_node_name.asString() +
                        (settings.m_id.isNull() ? String("") : "#" + settings.m_id.asString()) + ") ")
 {
+    topicPrefix(m_settings.m_local_prefix.asString());
+    topicPrefix(m_settings.m_remote_prefix.asString());
+
     // The configured client id, or one derived the way the cluster names its node connections.
     // Either way it must be stable across reconnects: a non-clean bridge session on the remote
     // broker is keyed by it.
@@ -301,11 +313,11 @@ bool Bridge::connectAndSubscribe()
             continue;
         }
 
-        const auto pattern = topic.m_pattern.asString();
-        if (pattern.empty())
+        if (topic.m_pattern.asString().empty())
         {
             continue;
         }
+        const auto pattern = m_settings.m_remote_prefix.asString() + topic.m_pattern.asString();
 
         const auto qos = topic.m_qos.isNull() ? Qos::Qos1 : static_cast<Qos>(topic.m_qos.asInteger());
 
@@ -386,11 +398,11 @@ void Bridge::subscribeOutboundTopics()
             continue;
         }
 
-        const auto pattern = topic.m_pattern.asString();
-        if (pattern.empty())
+        if (topic.m_pattern.asString().empty())
         {
             continue;
         }
+        const auto pattern = m_settings.m_local_prefix.asString() + topic.m_pattern.asString();
 
         const auto qos = topic.m_qos.isNull() ? Qos::Qos1 : static_cast<Qos>(topic.m_qos.asInteger());
 
@@ -427,7 +439,23 @@ void Bridge::forwardToRemote(const SPublishMessage& message)
 
     try
     {
-        m_mqttClient.publish(*message);
+        const auto local = m_settings.m_local_prefix.asString();
+        const auto remote = m_settings.m_remote_prefix.asString();
+        if (local.empty() && remote.empty())
+        {
+            m_mqttClient.publish(*message);
+            return;
+        }
+        const string_view name = message->destination()->fullName();
+        if (!name.starts_with(local))
+        {
+            return;
+        }
+        const auto mapped = remote + string(name.substr(local.size()));
+        if (!mapped.empty() && mapped.size() <= 65535)
+        {
+            m_mqttClient.publish(*message, client::MqttClient::getTopic(mapped));
+        }
     }
     catch (const Exception& exception)
     {
@@ -453,7 +481,19 @@ void Bridge::acceptRemoteMessage(const SPublishMessage& message) const
     // subscription beside the one local subscribers hold. Live delivery does not notice - the
     // whole group for the topic is visited - but the retained message would be kept where nobody
     // ever looks for it, and the topic counted twice.
-    message->setDestination(m_server->getTopic(message->destination()->fullName()));
+    const auto local = m_settings.m_local_prefix.asString();
+    const auto remote = m_settings.m_remote_prefix.asString();
+    const string_view name = message->destination()->fullName();
+    if (!name.starts_with(remote))
+    {
+        return;
+    }
+    const auto mapped = local + string(name.substr(remote.size()));
+    if (mapped.empty() || mapped.size() > 65535)
+    {
+        return;
+    }
+    message->setDestination(m_server->getTopic(mapped));
 
     // Stamping the source node is what marks this as bridged traffic: Subscription::deliverTo()
     // refuses to hand a message with a source node to a bridge subscription, so it cannot travel

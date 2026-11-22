@@ -103,9 +103,11 @@ TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_USER_DATABASE_LIBRARY="$<TARGET_FILE:xmq_test_user_database>")
 
 IF (UNIX)
-    ADD_DEPENDENCIES(xmq_unit_tests xmq_webhook)
+    ADD_DEPENDENCIES(xmq_unit_tests xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink)
     TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
-            XMQ_TEST_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_webhook>")
+            XMQ_TEST_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_webhook>"
+            XMQ_TEST_LOG_EXPORT_LIBRARY="$<TARGET_FILE:xmq_log_export>"
+            XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_message_export>")
 ENDIF ()
 
 # The external-client tests drive xmq_pub and xmq_sub as separate processes. They are told where

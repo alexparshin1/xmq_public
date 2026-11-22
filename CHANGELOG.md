@@ -12,6 +12,16 @@ are not upgrading anything, and most releases do not get one.
 
 Requires SPTK 5.6.22.
 
+### Added
+
+- **Optional SQL rules for webhook MQTT messages.** `sql_rule` selects an MQTT topic
+  filter, a typed predicate and JSON output fields. The webhook evaluates and renders
+  the rule in its worker, without a database or changes to log delivery.
+
+- **MQTT bridge topic mapping.** Optional `local_prefix` and `remote_prefix` settings
+  map topic namespaces in both directions. Existing bridges keep their topic names
+  unchanged by default. Bridge-to-bridge forwarding remains disabled.
+
 ## 1.1.2 — 2026-11-20
 
 Requires SPTK 5.6.21.

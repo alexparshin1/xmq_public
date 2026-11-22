@@ -34,6 +34,26 @@ export default function SetupDocumentation() {
                 Redis can use database number 0 through 16 and optional username and password;
                 its host, port and credentials are checked when they are entered.
             </p>
+            <p>
+                Initial Setup starts from the installed configuration template, not the active
+                settings. The control API&apos;s <code>InitialSetupControl</code> action
+                <code>get</code> returns those template values for the form; it is not a read-back
+                of settings already applied, and it answers the same before and after setup. The
+                <code>set</code> reply is the one to check: it echoes the applied node, ports, Redis
+                settings and database URI, with the account and Redis passwords removed but the
+                database password still present, so redact it before sharing. After submitting,
+                the server log and the Settings page show the connections actually in use.
+            </p>
+            <p>
+                A reset does not replace the accounts. Afterwards the server uses the accounts
+                database named by the starting configuration &mdash; normally the local SQLite
+                file &mdash; so <code>admin</code> there may already have a password even though the
+                node has to be set up again. The startup log says
+                <code>No password is set for the &apos;admin&apos; account</code> only while that
+                account is still passwordless; sign in with the existing password otherwise, or set
+                a new one with <code>xmq_server --set-password admin</code> before opening the
+                interface.
+            </p>
 
             <p>
                 The <code>admin</code> account is the administrator account for the interface.
@@ -42,6 +62,23 @@ export default function SetupDocumentation() {
                 administrator and cluster passwords are checked against the existing accounts;
                 setup preserves those users. On an empty database, it initializes the administrator
                 and cluster accounts. A local SQLite setup replaces the local accounts.
+            </p>
+            <p>
+                Both passwords must be at least eight characters long and contain a lowercase
+                letter, an uppercase letter, a digit and a punctuation character. A password that
+                does not meet those rules is refused with the list of what is missing, and nothing is
+                applied.
+            </p>
+
+            <p>
+                The deployment values themselves &mdash; node name, advertised address, ports, the
+                Redis database number, the SQL URI and both account passwords &mdash; are not part
+                of this documentation and are not published with it: they belong to the
+                installation. Keep them in the deployment&apos;s own configuration or secret store,
+                and read them from there rather than substituting defaults or choosing a password
+                for the occasion. On a shared database the passwords are the ones the accounts
+                already have; anything else is refused with
+                <code>The admin password does not match the one in the shared database</code>.
             </p>
 
             <p>
@@ -125,9 +162,37 @@ export default function SetupDocumentation() {
                 where nothing needs to be running:
             </p>
 
-            <pre className="userManualCode">{`sudo systemctl stop xmq
-sudo xmq_server --reset-configuration   # or start the service again afterwards`}</pre>
+            <pre className="userManualCode">{`pgrep -af xmq_server
+sudo systemctl stop xmq_server
+pgrep -af xmq_server
+sudo pkill -TERM -x xmq_server
+pgrep -x xmq_server || true
+xmq_server --reset-configuration`}</pre>
 
+            <p>
+                Stop every running <code>xmq_server</code> process before resetting, using the
+                service manager or supervisor that owns it. Stopping a systemd service needs root,
+                so <code>systemctl</code> is run with <code>sudo</code>; a
+                <code>not-found</code> or <code>not loaded</code> answer only means this
+                installation is not run by systemd under that name, and the process cleanup below
+                still applies. The service name and executable path vary by installation; a
+                user-local install may have no systemd unit. If any broker processes remain after
+                stopping the service, terminate them gracefully (SIGTERM) and verify none remain
+                before resetting.
+            </p>
+            <p>
+                Verify with <code>pgrep -x xmq_server</code>, which matches the process name exactly.
+                The <code>-f</code> form also matches shells whose command line merely mentions the
+                name, and those are not brokers.
+            </p>
+            <p>
+                Run the reset as the account that owns the installation and its configuration. The
+                reset command starts XMQ in the foreground; use the installation&apos;s persistent
+                service/supervisor, or start it detached (<code>nohup</code>) when running over SSH,
+                because the broker ends with the session otherwise. Before the administrator
+                password is set, the interface is available only on the server at
+                <code>https://127.0.0.1:18883</code>.
+            </p>
             <p>
                 It replaces <code>xmq_server.conf</code> with the starting configuration and carries
                 on into a normal start. The file it replaced is kept beside it as
@@ -367,7 +432,13 @@ sudo xmq_server --reset-configuration   # or start the service again afterwards`
                 Each topic entry carries a pattern, a direction of its own, and the QoS to
                 subscribe with. A topic's direction narrows the bridge's: a topic marked
                 <code>out</code> on an <code>inout</code> bridge travels outbound only. Topics keep
-                the name they were published with; there is no rewriting between the two servers.
+                the name they were published with by default. Set <code>local_prefix</code> and
+                <code>remote_prefix</code> to map a namespace between brokers. For example, with
+                the filter <code>sensors/#</code>, an empty local prefix and remote prefix
+                <code>site-a/</code>, outbound <code>sensors/temp</code> becomes
+                <code>site-a/sensors/temp</code>; inbound messages map in reverse. Prefixes apply
+                to every filter on the bridge, cannot contain wildcards, and are concatenated
+                literally: include the slash if needed.
                 A bridge with no topics carries nothing.
             </p>
 

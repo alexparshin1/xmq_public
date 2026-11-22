@@ -96,7 +96,7 @@
    heading read as two unrelated things. */
 .extensionForm {
     display: grid;
-    grid-template-columns: 190px 420px auto;
+    grid-template-columns: minmax(110px, 190px) minmax(0, 420px) max-content;
     align-items: center;
     row-gap: 8px;
     text-align: left;
@@ -283,6 +283,64 @@
     resize: vertical;
 }
 
-.extensionFormSection h3 {
-    margin: 20px 0 12px;
+.extensionFormSection {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    align-items: center;
+    row-gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid #dce4ec;
+}
+
+.extensionHttpUrl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px;
+}
+
+.extensionFormSection > h3,
+.extensionFormSection > p,
+.extensionForm > .extensionValueError {
+    grid-column: 1 / -1;
+}
+
+.extensionFormSection > h3 {
+    margin: 0 0 4px;
+}
+
+.mqttSqlHelpFields {
+    width: 100%;
+    text-align: left;
+    border-collapse: collapse;
+    margin: 8px 0;
+}
+
+.mqttSqlHelpFields th,
+.mqttSqlHelpFields td {
+    border-bottom: 1px solid #dce4ec;
+    padding: 4px 8px 4px 0;
+}
+
+.webhookRuleTest {
+    width: min(640px, 94vw);
+}
+
+.webhookRuleTestBody {
+    max-height: 70vh;
+    overflow: auto;
+    padding: 12px 18px;
+}
+
+.webhookRuleTestBody fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.webhookRuleTestField {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
 }

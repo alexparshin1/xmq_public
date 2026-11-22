@@ -20,11 +20,16 @@
     background-color: royalblue;
 }
 
-.helpContainer {
-    width: 460px;
+.modalContainer.helpContainer {
+    width: min(460px, calc(100vw - 24px));
     height: auto;
-    max-height: 80%;
+    max-height: calc(100vh - 24px);
     padding-bottom: 4px;
+}
+
+.helpContainer > .title,
+.helpContainer > .modalFooter {
+    flex-shrink: 0;
 }
 
 .helpContent {
@@ -32,6 +37,8 @@
     align-items: flex-start;
     gap: 12px;
     padding: 0 12px;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 /* The same fixed square the message windows use, so the text starts at one place whatever the
@@ -44,7 +51,8 @@
 
 .helpBody {
     flex: 1;
-    overflow-y: auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
     text-align: left;
 }
 

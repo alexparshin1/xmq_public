@@ -715,6 +715,7 @@
                          of zeroes for a capability the extension does not have reads as a fault. -->
                     <xsd:element name="message_tap" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="log_tap" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="sink" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="events_delivered" type="xsd:int"/>
                     <xsd:element name="admitted" type="xsd:int"/>
                     <xsd:element name="refused" type="xsd:int"/>
@@ -761,6 +762,7 @@
                                     <!-- Write the settings back to the file the entry came from,
                                          then apply them without stopping the broker. -->
                                     <xsd:enumeration value="set"></xsd:enumeration>
+                                    <xsd:enumeration value="test_sql"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
@@ -1618,6 +1620,8 @@
                     <xsd:element name="clean_session" type="xsd:boolean"
                                  maxOccurs="1" minOccurs="1">
                     </xsd:element>
+                    <xsd:element name="local_prefix" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="remote_prefix" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="topics" type="tns:BridgeTopic"
                                  maxOccurs="unbounded" minOccurs="0">
                     </xsd:element>

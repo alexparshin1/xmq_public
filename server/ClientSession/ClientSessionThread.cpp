@@ -16,16 +16,30 @@
 #include "base/ProtocolException.h"
 #include "server/Server.h"
 
+#include <string_view>
+
+#ifdef __linux__
+#include <pthread.h>
+#endif
+
 using namespace std;
 using namespace sptk;
 
 namespace xmq {
 
-ClientSessionThread::ClientSessionThread(Server* server, LogEngine& logEngine, const size_t sessionBatch)
+ClientSessionThread::ClientSessionThread(Server* server, LogEngine& logEngine, const size_t sessionBatch,
+                                         const bool sendWorker)
     : m_server(server)
     , m_sessionBatch(sessionBatch < 1 ? size_t {1} : sessionBatch)
     , m_logger(logEngine)
 {
+    // Unset keeps the production queue unchanged. Explicit 0 and 1 select identical queues
+    // for the experiment, differing only in the notification policy.
+    if (const auto* policy = getenv("XMQ_SEND_COALESCE"); sendWorker && policy != nullptr)
+    {
+        m_sendQueue = make_unique<SendSessionQueue<SClientSession>>(
+            string_view(policy) == "1", getenv("XMQ_SEND_QUEUE_STATS") != nullptr);
+    }
     initializeSynchronized();
 }
 
@@ -59,15 +73,32 @@ void ClientSessionThread::threadFunction()
 {
     vector<SClientSession> batch;
     batch.reserve(m_sessionBatch);
+    const bool measure = m_sendQueue && m_sendQueue->measuring();
+#ifdef __linux__
+    if (measure)
+    {
+        pthread_setname_np(pthread_self(), "xmq-send");
+    }
+#endif
+    auto nextReport = chrono::steady_clock::now() + 1s;
 
     while (!terminated())
     {
         // One lock for the whole round: this form waits for the first session and then drains
         // whatever else is already queued, where taking them one at a time re-acquired the
         // queue's mutex for each. An idle worker still blocks exactly as it did before.
-        if (m_sessionQueue.pop_front(batch, m_sessionBatch, 1s) && !terminated())
+        const bool ready = m_sendQueue ? m_sendQueue->pop(batch, m_sessionBatch, 1s)
+                                       : m_sessionQueue.pop_front(batch, m_sessionBatch, 1s);
+        if (ready && !terminated())
         {
             processBatch(batch);
+        }
+        if (measure && chrono::steady_clock::now() >= nextReport)
+        {
+            nextReport = chrono::steady_clock::now() + 1s;
+            const auto stats = m_sendQueue->takeStats();
+            COUT("SEND-QUEUE enqueued=" << stats.enqueued << " notifications=" << stats.notifications
+                 << " empty_pops=" << stats.emptyPops << " rounds=" << stats.rounds);
         }
     }
 }
@@ -144,7 +175,7 @@ void ClientSessionThread::terminate()
     // An empty session instead: a real item, so the waiting pop_front() returns at once, sees
     // m_terminated and leaves without processing it. Waiting out the 1-second timeout instead cost
     // up to a second per server stop - a second of nearly every test that starts a server.
-    m_sessionQueue.push_back(SClientSession {});
+    queueProcessSession(SClientSession {});
 }
 
 void ClientSessionThread::log(const LogPriority priority, const String& message) const
@@ -154,7 +185,14 @@ void ClientSessionThread::log(const LogPriority priority, const String& message)
 
 void ClientSessionThread::clear()
 {
-    m_sessionQueue.clear();
+    if (m_sendQueue)
+    {
+        m_sendQueue->clear();
+    }
+    else
+    {
+        m_sessionQueue.clear();
+    }
 }
 
 } // namespace xmq

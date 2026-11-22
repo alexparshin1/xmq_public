@@ -686,8 +686,13 @@ MessageId MqttClient::publish(const string& destination, const string& payload, 
 
 MessageId MqttClient::publish(const PublishMessage& publishMessage)
 {
+    return publish(publishMessage, publishMessage.destination());
+}
+
+MessageId MqttClient::publish(const PublishMessage& publishMessage, const Topic* destination)
+{
     // Pass the payload straight through as a string_view - no intermediate Buffer copy.
-    return publishPayload(publishMessage.destination(), publishMessage.payload(),
+    return publishPayload(destination, publishMessage.payload(),
                           publishMessage.getQos(), publishMessage.getProperties(),
                           publishMessage.isRetain(), publishMessage.isDuplicate());
 }

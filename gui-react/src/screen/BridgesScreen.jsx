@@ -26,6 +26,8 @@ const NewBridge = {
     username: "",
     password: "",
     client_id: "",
+    local_prefix: "",
+    remote_prefix: "",
     clean_session: false,
     encrypted: false,
     cafile: "",
@@ -110,6 +112,8 @@ export default class BridgesScreen extends BasicScreen {
             username: bridge.username ? bridge.username : "",
             password: bridge.password ? bridge.password : "",
             client_id: bridge.client_id ? bridge.client_id : "",
+            local_prefix: bridge.local_prefix || "",
+            remote_prefix: bridge.remote_prefix || "",
             clean_session: bridge.clean_session === true,
             encrypted: bridge.encrypted === true,
             cafile: sslKeys.cafile ? sslKeys.cafile : "",
@@ -139,6 +143,8 @@ export default class BridgesScreen extends BasicScreen {
             username: selected.username,
             password: selected.password,
             client_id: selected.client_id,
+            local_prefix: selected.local_prefix,
+            remote_prefix: selected.remote_prefix,
             clean_session: selected.clean_session,
             encrypted: selected.encrypted,
             mode: selected.mode,
@@ -332,6 +338,12 @@ export default class BridgesScreen extends BasicScreen {
                 </div>
 
                 <div className="inputScreenRow">
+                    <label htmlFor="local_prefix" className="inputScreenLabel">Local topic prefix:</label>
+                    <input id="local_prefix" className="inputScreenInput" value={selected.local_prefix}
+                           onChange={(e) => this.setField("local_prefix", e.target.value)}/>
+                    <label htmlFor="remote_prefix" className="inputScreenLabel">Remote topic prefix:</label>
+                    <input id="remote_prefix" className="inputScreenInput" value={selected.remote_prefix}
+                           onChange={(e) => this.setField("remote_prefix", e.target.value)}/>
                     <label htmlFor="mode" className="inputScreenLabel">Mode:</label>
                     <select name="mode" className="inputScreenSelect" value={selected.mode}
                             onChange={(e) => this.setField("mode", e.target.value)}>

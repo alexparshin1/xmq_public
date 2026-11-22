@@ -6,6 +6,7 @@ import "./ExtensionsScreen.css";
 import PageTitle from "../components/PageTitle";
 import HelpButton from "../components/HelpButton";
 import PasswordInput from "../components/PasswordInput";
+import WebhookRuleTest from "../components/WebhookRuleTest";
 import {extensionForm, conditionMatches} from "../components/ExtensionForm";
 
 /**
@@ -93,8 +94,28 @@ export default class ExtensionsScreen extends React.Component {
             return edited;
         }
         const value = setting.value === undefined ? "" : setting.value;
+        if (setting.name === "db_type" && setting.default_value === "Use saved URI" &&
+            (value === "" || value === "Use saved URI") &&
+            !(this.selected()?.settings || []).some(field => field.name === "database_uri" && field.value)) {
+            return "postgresql";
+        }
         if (value !== "") {
             return value;
+        }
+        const extension = this.selected();
+        if (extension?.name === "webhook") {
+            const find = name => (extension.settings || []).find(field => field.name === name);
+            const stored = name => find(name)?.value;
+            const sources = stored("sources") || "Send messages";
+            const template = find("template");
+            const legacy = {
+                mqtt_messages: sources !== "Send log" ? "true" : "false",
+                log_messages: sources !== "Send messages" ? "true" : "false",
+                mqtt_filter: stored("sql_rule") ? "SQL rules" : "Topics",
+                mqtt_template: template?.value || template?.default_value || "",
+                log_template: template?.value || template?.default_value || ""
+            };
+            if (Object.hasOwn(legacy, setting.name)) return legacy[setting.name];
         }
         // An unset setting starts at the value the extension would use anyway, rather than as an
         // empty field that Apply would write back as an empty string.
@@ -187,6 +208,39 @@ export default class ExtensionsScreen extends React.Component {
             .filter(setting => !ExtensionsScreen.matches(setting, this.valueOf(setting)));
     }
 
+    /**
+     * Parse a rule draft before showing the test form or saving it. The broker uses the same
+     * parser in both places; this call is a preflight and sends no HTTP request.
+     */
+    validateSqlSetting = async setting => {
+        const test = {
+            source: setting.name === "log_sql_rule" ? "logs" : "mqtt",
+            sql: this.valueOf(setting), topic: "test/topic", payload: "", message: "",
+            client_id: "", username: "", qos: "1", retain: "false",
+            level: "error", subject: "server_events", timestamp: new Date().toISOString()
+        };
+        try {
+            const response = await ControlAPI.asyncMakeAPICall("ExtensionControl", {
+                action: "test_sql",
+                settings: Object.entries(test).map(([name, value]) => ({name, value}))
+            }, true);
+            const problem = response ? ControlAPI.apiError(response) : "No response from the broker.";
+            if (problem) {
+                errorWindow(`Invalid ${setting.label || setting.name}: ${problem}`, "Cannot test or save the rule");
+                return false;
+            }
+        } catch {
+            errorWindow(`Could not validate ${setting.label || setting.name}.`, "Cannot test or save the rule");
+            return false;
+        }
+        return true;
+    };
+
+    openRuleTest = async (setting, sql, logs) => {
+        if (!await this.validateSqlSetting(setting)) return;
+        this.setState({ruleTest: {sql, logs}});
+    };
+
     apply = () => {
         const extension = this.selected();
         if (!extension) {
@@ -209,17 +263,35 @@ export default class ExtensionsScreen extends React.Component {
             value: this.valueOf(setting)
         }));
 
+        // SQL is not a pattern the extension can declare. The broker checks the draft before it
+        // writes settings; this screen only supplies the reason for a refusal.
+        const sqlSettings = (extension.settings || [])
+            .filter(setting => ["sql_rule", "log_sql_rule"].includes(setting.name) &&
+                               this.valueOf(setting).trim());
+        const validateSql = async () => {
+            for (const setting of sqlSettings) {
+                if (!await this.validateSqlSetting(setting)) return false;
+            }
+            return true;
+        };
+
         this.setState({busy: true});
-        ControlAPI.asyncMakeAPICall("ExtensionControl",
-                                    {action: "set", name: extension.name, settings: settings})
-            .then(data => {
+        validateSql().then(valid => {
+            if (!valid) {
                 this.setState({busy: false});
-                if (!ExtensionsScreen.succeeded(data)) {
-                    this.restore(data);
-                    return;
-                }
-                this.refresh(data.message);
-            });
+                return;
+            }
+            ControlAPI.asyncMakeAPICall("ExtensionControl",
+                                        {action: "set", name: extension.name, settings: settings})
+                .then(data => {
+                    this.setState({busy: false});
+                    if (!ExtensionsScreen.succeeded(data)) {
+                        this.restore(data);
+                        return;
+                    }
+                    this.refresh(data.message);
+                });
+        });
     }
 
     /**
@@ -266,6 +338,9 @@ export default class ExtensionsScreen extends React.Component {
         if (extension.authorizer) {
             declared.push("authorizer");
         }
+        if (extension.sink) {
+            declared.push("sink");
+        }
         return declared.length ? declared.join(", ") : "none declared";
     }
 
@@ -293,7 +368,7 @@ export default class ExtensionsScreen extends React.Component {
             </tr>
             </thead>
             <tbody>
-            {this.state.extensions.map(extension =>
+            {this.state.extensions.filter(extension => !extension.sink).map(extension =>
                 <tr key={extension.name}
                     className={extension.name === this.state.selected ? "extensionRowSelected" : ""}
                     onClick={() => this.setState({selected: extension.name, edited: {}, preset: "",
@@ -484,31 +559,81 @@ export default class ExtensionsScreen extends React.Component {
         const byName = new Map(settings.map(setting => [setting.name, setting]));
         const valueOf = name => this.valueOf(byName.get(name));
         const listed = new Set();
+        const splitHttpUrl = ["message_export", "log_export"].includes(extension.name) &&
+            byName.has("url") && byName.has("allow_http");
+        if (form && splitHttpUrl) listed.add("allow_http");
         const sections = form ? form.sections.map((section, index) => {
+            if (section.toggle) listed.add(section.toggle);
+            const visible = conditionMatches(section.visible_when, valueOf);
+            const open = visible && (!section.toggle || valueOf(section.toggle) === "true");
             const fields = section.fields.map(field => {
                 listed.add(field.name);
-                return conditionMatches(field.visible_when, valueOf)
+                if (splitHttpUrl && field.name === "allow_http") return null;
+                return open && conditionMatches(field.visible_when, valueOf)
                     ? this.renderSetting(byName.get(field.name), field,
                                          !conditionMatches(field.enabled_when, valueOf)) : null;
             }).filter(Boolean);
-            return fields.length ? <section className="extensionFormSection" key={index}>
-                <h3>{section.title}</h3>
-                {section.description ? <p className="extensionNote">{section.description}</p> : null}
+            return visible && (section.toggle || fields.length) ? <section className="extensionFormSection" key={index}>
+                {section.toggle ? this.renderSetting(byName.get(section.toggle)) : <h3>{section.title}</h3>}
+                {open && section.description ? <p className="extensionNote">{section.description}</p> : null}
                 {fields}
             </section> : null;
         }) : [];
         return <div className="extensionForm">
             {error ? <p role="alert" className="extensionValueError">{error}</p> : null}
             {sections}
-            {settings.filter(setting => !listed.has(setting.name)).map(setting => this.renderSetting(setting))}
+            {settings.filter(setting => !listed.has(setting.name) &&
+                !(form && extension.name === "webhook" && ["sources", "template"].includes(setting.name)))
+                .map(setting => this.renderSetting(setting))}
         </div>;
     }
 
     renderSetting(setting, presentation = {}, disabled = false) {
         const value = this.valueOf(setting);
         const change = event => this.onSettingChange(setting.name, event.target.value);
+        const exporter = this.selected();
+        const isExporter = ["message_export", "log_export"].includes(exporter?.name);
+        const isLogSource = ["webhook", "log_export"].includes(exporter?.name);
+        const isMqttSource = ["webhook", "message_export"].includes(exporter?.name);
+        const webhookHeaders = setting.name === "headers" &&
+            (isExporter || exporter?.name === "webhook");
+        const mqttSqlHelp = setting.name === "sql_rule" && isMqttSource;
+        const sinkNames = setting.name === "sink"
+            ? (this.state.extensions || []).filter(extension => extension.sink).map(extension => extension.name)
+            : [];
 
         let control;
+        if (setting.name === "url" && isExporter &&
+            exporter.settings.some(field => field.name === "allow_http")) {
+            const prefix = value.startsWith("http://") ||
+                (!value && this.valueOf(exporter.settings.find(field => field.name === "allow_http")) === "true")
+                ? "http://" : "https://";
+            const address = value.replace(/^https?:\/\//, "");
+            const changeUrl = (protocol, host, explicitProtocol = false) => {
+                const pasted = host.match(/^(https?:\/\/)(.*)$/i);
+                const scheme = pasted ? pasted[1].toLowerCase() : protocol;
+                const target = pasted ? pasted[2] : host;
+                this.setState(({edited}) => ({edited: {...edited,
+                    url: target ? scheme + target : "",
+                    ...(explicitProtocol || pasted || !value ? {allow_http: String(scheme === "http://")} : {})
+                }}));
+            };
+            control = <div className="extensionHttpUrl">
+                <select aria-label="URL protocol" value={prefix}
+                        onChange={event => changeUrl(event.target.value, address, true)}>
+                    <option>https://</option>
+                    <option>http://</option>
+                </select>
+                <input aria-label="URL address" type="text" value={address}
+                       placeholder="example.com/hook"
+                       onChange={event => changeUrl(prefix, event.target.value)}/>
+            </div>;
+        } else if (sinkNames.length) {
+            control = <select value={value} onChange={change}>
+                {value && !sinkNames.includes(value) ? <option key={value} value={value}>{value}</option> : null}
+                {sinkNames.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>;
+        } else
         if (setting.type === "choice") {
             control = <select value={value}
                               onChange={event => this.onChoiceChange(setting, event.target.value)}>
@@ -517,7 +642,9 @@ export default class ExtensionsScreen extends React.Component {
                 {value && !(setting.choices || "").split(",").map(one => one.trim()).includes(value)
                     ? <option key={value} value={value}>{value}</option>
                     : null}
-                {(setting.choices || "").split(",").map(choice => choice.trim()).filter(Boolean)
+                {(setting.choices || "").split(",").map(choice => choice.trim()).filter(choice => choice &&
+                    (setting.name !== "db_type" || choice !== "Use saved URI" ||
+                        (this.selected()?.settings || []).some(field => field.name === "database_uri" && field.value)))
                     .map(choice => <option key={choice} value={choice}>{choice}</option>)}
             </select>;
         } else if (setting.type === "boolean") {
@@ -542,7 +669,7 @@ export default class ExtensionsScreen extends React.Component {
                     {items.length
                         ? null
                         : <span className="extensionListEmpty">
-                            No items; the extension's default applies.
+                            {webhookHeaders ? "No custom headers." : "No items; the extension's default applies."}
                           </span>}
                 </div>
             </div>;
@@ -588,7 +715,7 @@ export default class ExtensionsScreen extends React.Component {
                (setting.pattern
                    ? (setting.type === "list" ? "Each item must match " : "Format: must match ") +
                      setting.pattern + ". " : "") +
-               (setting.type === "list" ? "An empty list leaves the setting at its default." : ""))
+               (setting.type === "list" && !webhookHeaders ? "An empty list leaves the setting at its default." : ""))
                   .trim();
 
         return <div className="extensionRow" key={setting.name}>
@@ -597,19 +724,135 @@ export default class ExtensionsScreen extends React.Component {
                 {setting.required ? <b className="extensionRequired"> *</b> : null}:
             </label>
             <div className={matches ? "extensionValue" : "extensionValue extensionValueInvalid"}>
-                <fieldset className="extensionFieldControl" disabled={disabled}>{control}</fieldset>
+                <fieldset className="extensionFieldControl" disabled={disabled || this.selected()?.sink}>{control}
+                    {(mqttSqlHelp || (setting.name === "log_sql_rule" &&
+                        isLogSource)) &&
+                        <button type="button" disabled={!value.trim()}
+                                onClick={() => this.openRuleTest(setting, value, !mqttSqlHelp)}>
+                            Test rule
+                        </button>}
+                </fieldset>
+                {this.state.ruleTest?.sql === value &&
+                    this.state.ruleTest.logs === (setting.name === "log_sql_rule") &&
+                    (mqttSqlHelp || setting.name === "log_sql_rule") &&
+                    <WebhookRuleTest {...this.state.ruleTest}
+                                     onClose={() => this.setState({ruleTest: null})}/>}
                 {matches ? null
                     : <div className="extensionValueError">
-                        This value does not match the format: {setting.pattern}
+                        {/sql_rule:/.test(help) ? help : "This value does not match the format: " + setting.pattern}
                       </div>}
             </div>
             <div className="extensionHelp">
-                {help ? <HelpButton title={setting.label || setting.name} text={help}/> : null}
+                {help ? <HelpButton title={setting.label || setting.name} text={help}
+                    details={mqttSqlHelp ? <div>
+                        <table className="mqttSqlHelpFields">
+                            <thead><tr><th>SELECT field</th><th>Value</th></tr></thead>
+                            <tbody>
+                                <tr><td><code>topic</code></td><td>MQTT topic name</td></tr>
+                                <tr><td><code>client_id</code></td><td>Publisher client ID</td></tr>
+                                <tr><td><code>username</code></td><td>Publisher username</td></tr>
+                                <tr><td><code>timestamp</code></td><td>Webhook timestamp (ISO 8601)</td></tr>
+                                <tr><td><code>qos</code></td><td>MQTT QoS (number)</td></tr>
+                                <tr><td><code>retain</code></td><td>MQTT retain flag (boolean)</td></tr>
+                                <tr><td><code>payload</code></td><td>Whole message body as UTF-8 text; null for invalid UTF-8</td></tr>
+                                <tr><td><code>payload.field</code></td><td>Scalar JSON value; nested paths work too</td></tr>
+                            </tbody>
+                        </table>
+                        <p><code>FROM</code> takes one or more comma-separated quoted MQTT topic
+                            filters. <code>WHERE</code> is optional.
+                            <code> SELECT *</code> includes metadata and the whole <code>payload</code> as text,
+                            but does not expand JSON paths.
+                            Use <code>AS</code> to rename a JSON key, for example
+                            <code> payload.temperature AS temp</code>.</p>
+                        <p>Rules may select different fields. Each message produces at most one request:
+                            its JSON contains only the fields of the first rule whose topic filter
+                            matches and whose WHERE is true (or omitted). Fields from other rules are
+                            not merged or filled with nulls.</p>
+                        <p><a href="/xmq_doc_webhook#webhook-sql-where" target="_blank" rel="noopener noreferrer">
+                            WHERE syntax and examples (opens in a new tab)
+                        </a></p>
+                    </div> : setting.name === "log_sql_rule" && isLogSource ? <div>
+                        <p><code>logs</code> is the only table available in <code>FROM</code>.
+                            It represents broker log records, not a table in the destination database.
+                            <code> SELECT * FROM logs</code> returns all four fields.</p>
+                        <table className="mqttSqlHelpFields">
+                            <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                            <tbody>
+                                <tr><td><code>timestamp</code></td><td>Export timestamp (ISO 8601, UTC)</td></tr>
+                                <tr><td><code>level</code></td><td>Severity: debug, info, warning or error</td></tr>
+                                <tr><td><code>subject</code></td><td>Log category, for example server_connections</td></tr>
+                                <tr><td><code>message</code></td><td>Log message text</td></tr>
+                            </tbody>
+                        </table>
+                        <p>Use these fields in <code>SELECT</code> or optional <code>WHERE</code>.
+                            The level and subject controls do not apply in SQL mode. The log source
+                            includes broker log categories, not internal <code>[extensions]</code> diagnostics.</p>
+                        <pre style={{whiteSpace: "pre-wrap"}}>
+                            {"SELECT timestamp, message FROM logs\nWHERE level = 'error'"}
+                        </pre>
+                        <p><a href="/xmq_doc_webhook#webhook-sql-where" target="_blank" rel="noopener noreferrer">
+                            WHERE syntax and examples (opens in a new tab)
+                        </a></p>
+                    </div> : setting.name === "log_template" && isLogSource ? <div>
+                        <p>Quote string placeholders in JSON. Values are escaped and unknown
+                            placeholders stay unchanged. SQL rules use SELECT instead.</p>
+                        <pre style={{whiteSpace: "pre-wrap"}}>
+                            {'{"level":"{{level}}","subject":"{{subject}}","message":"{{message}}"}'}
+                        </pre>
+                        <p>Available placeholders: <code>{"{{id}}, {{source}}, {{timestamp}}, {{level}}, {{subject}}, {{message}}, {{topic}}"}</code>.
+                            Source is <code>log</code>; topic is empty. A blank template uses the default
+                            JSON with topic, message and level.</p>
+                    </div> : setting.name === "insert_sql" && isExporter ? <div>
+                        <p>The destination table must already exist. Bind the complete JSON body
+                            with <code>:fields</code>; this parameter is required.</p>
+                        <pre style={{whiteSpace: "pre-wrap"}}>
+                            {"INSERT INTO exported (body) VALUES (:fields)"}
+                        </pre>
+                        <p>In SQL mode, use a selected name or alias as another parameter, e.g.
+                            <code> SELECT client_id AS client</code> provides <code>:client</code>.
+                            In template mode, template values are available by name.
+                            Additional bindings are passed as strings.</p>
+                    </div> : setting.name === "mqtt_template" && isMqttSource ? <div>
+                        <p>Insert a field as <code>{"{{field_name}}"}</code>, without spaces.
+                            Values are JSON-escaped, but the editor does not add quotes.</p>
+                        <pre style={{whiteSpace: "pre-wrap"}}>
+                            {'{"topic":"{{topic}}","body":"{{payload_base64}}","qos":{{qos}},"retain":{{retain}}}'}
+                        </pre>
+                        <table className="mqttSqlHelpFields">
+                            <thead><tr><th>Placeholder</th><th>Value</th></tr></thead>
+                            <tbody>{[
+                                ["id", "Webhook record ID"],
+                                ["source", 'Always "message"'],
+                                ["timestamp", "Webhook timestamp (ISO 8601)"],
+                                ["topic", "MQTT topic name"],
+                                ["qos", "MQTT QoS: 0, 1 or 2"],
+                                ["retain", "MQTT retain flag: true or false"],
+                                ["client_id", "Publisher client ID"],
+                                ["username", "Publisher username"],
+                                ["payload", "Message body as UTF-8 text, without Base64"],
+                                ["payload_base64", "Message body encoded as Base64"],
+                                ["message", "Same as payload_base64"],
+                                ["level", 'Always "message" for MQTT']
+                            ].map(([field, meaning]) => <tr key={field}>
+                                <td><code>{`{{${field}}}`}</code></td><td>{meaning}</td>
+                            </tr>)}</tbody>
+                        </table>
+                        <p>Quote <code>{'"{{payload}}"'}</code> to insert a JSON string, not an object.
+                            If the body is not valid UTF-8, use <code>{"{{payload_base64}}"}</code>;
+                            a text template skips such messages.</p>
+                        <p>Put quotes around string fields. Leave <code>qos</code> and <code>retain</code>
+                            {" "}unquoted for JSON numbers and booleans. Unknown placeholders stay unchanged.
+                            A blank template uses the default JSON with topic, Base64 message and
+                            level. In SQL rules mode, SELECT builds the body instead.</p>
+                    </div> : null}/> : null}
             </div>
         </div>;
     }
 
     renderButtons(extension) {
+        if (extension.sink) {
+            return null;
+        }
         // Offline: extensions live inside the MQTT server, so there is nothing to act on. The page
         // still shows what is configured, which is what somebody diagnosing a stopped broker wants.
         if (!this.state.running) {
@@ -675,6 +918,10 @@ export default class ExtensionsScreen extends React.Component {
             <div className="extensionPanel">
                 <div className="extensionPanelTitle">Settings</div>
                 <div className="extensionPanelBody">
+                    {extension.sink && <p className="extensionNote">
+                        Configure this destination under Delivery in <code>message_export</code> or{" "}
+                        <code>log_export</code>. This page only shows the available settings.
+                    </p>}
                     {this.presetsOf(extension).length ? this.renderPresets(extension) : null}
                     {(extension.settings || []).length
                         ? this.renderFields(extension)

@@ -93,6 +93,66 @@ int64_t processCpuMicros()
 /// measurement has started.
 constexpr uint32_t warmupSequenceBit = 0x80000000u;
 
+// Opt-in tail sampling for standalone benchmark investigation. Keep only a bounded number
+// of slow traces and print them after measurement; never write a log from a receive callback.
+constexpr uint64_t slowTraceThresholdUs = 5000;
+constexpr size_t slowTraceCapacity = 4096;
+struct SlowTraceSample
+{
+    uint32_t sequence;
+    LatencyTrace trace;
+};
+
+mutex slowTraceMutex;
+vector<SlowTraceSample> slowTraces;
+size_t slowTraceCount = 0;
+
+bool slowTraceEnabled()
+{
+    static const bool enabled = std::getenv("XMQ_LATENCY_TAIL") != nullptr;
+    return enabled;
+}
+
+void collectSlowTrace(uint32_t sequence, const LatencyTrace& trace)
+{
+    const auto begin = trace.get(LatencyPhase::ClientSend);
+    const auto end = trace.get(LatencyPhase::ClientReceive);
+    if (!begin || end <= begin || end - begin <= slowTraceThresholdUs)
+    {
+        return;
+    }
+    const scoped_lock lock(slowTraceMutex);
+    ++slowTraceCount;
+    if (slowTraces.size() < slowTraceCapacity)
+    {
+        slowTraces.push_back({sequence, trace});
+    }
+}
+
+void printSlowTraces()
+{
+    vector<SlowTraceSample> samples;
+    size_t total;
+    {
+        const scoped_lock lock(slowTraceMutex);
+        samples.swap(slowTraces);
+        total = std::exchange(slowTraceCount, 0);
+    }
+    COUT("TAIL_TRACE count=" << total << " retained=" << samples.size() << " threshold_us=" << slowTraceThresholdUs);
+    COUT("TAIL_TRACE_FIELDS sequence client_send client_connect client_connected client_wire_out server_event_ready "
+         "server_wire_in server_before_decode server_decode server_handler server_delivery server_wire_out client_wire_in "
+         "client_before_decode client_decode client_receive");
+    for (const auto& sample: samples)
+    {
+        string values = to_string(sample.sequence);
+        for (const auto stamp: sample.trace.m_trace)
+        {
+            values += " " + to_string(stamp);
+        }
+        COUT("TAIL_TRACE_SAMPLE " << values);
+    }
+}
+
 // The payload's first four bytes, not a message property: the sequence has to survive MQTT 3,
 // which has no properties. LatencyTrace, the other per-message metadata, is an MQTT 5 user
 // property (see common/mqtt/properties/MessageProperties.cpp), so the two never overlap.
@@ -735,8 +795,8 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
             }
             if (message->is(Message::Type::Publish))
             {
-                if (const auto sequence = messageSequence(*message);
-                    sequence && (*sequence & warmupSequenceBit) == 0)
+                const auto sequence = messageSequence(*message);
+                if (sequence && (*sequence & warmupSequenceBit) == 0)
                 {
                     clientPublishLatency[latencyIndex].received(*sequence);
                 }
@@ -748,6 +808,10 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
                     if (const auto* latencyTrace = properties->getLatencyTrace())
                     {
                         m_latencyTraceTotal.add(latencyTrace);
+                        if (slowTraceEnabled() && sequence && (*sequence & warmupSequenceBit) == 0)
+                        {
+                            collectSlowTrace(*sequence, *latencyTrace);
+                        }
                     }
                 }
             }
@@ -1558,7 +1622,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
 
             try
             {
-                if (latencyTraceEnabled || publishProperties)
+                const bool traceThisMessage = latencyTraceEnabled &&
+                    (!slowTraceEnabled() || ((sequence & warmupSequenceBit) == 0 &&
+                                             (uint32_t(sequence * 0x9e3779b9u) >> 25) == 0));
+                if (traceThisMessage || publishProperties)
                 {
                     // A fresh properties object per message, not one reused across the loop: MqttClient's
                     // publish() stores the shared_ptr as-is (Message::setProperties() is an alias, not a
@@ -1568,7 +1635,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                     auto messageProperties = publishProperties
                                                  ? make_shared<MessageProperties>(*publishProperties)
                                                  : make_shared<MessageProperties>();
-                    if (latencyTraceEnabled)
+                    if (traceThisMessage)
                     {
                         messageProperties->getLatencyTrace(true)->snap(LatencyPhase::ClientSend);
                     }
@@ -1672,6 +1739,10 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     if (latencyTraceEnabled)
     {
         m_latencyTraceTotal.print(scenarioTitle);
+        if (slowTraceEnabled())
+        {
+            printSlowTraces();
+        }
     }
     if (publishFailure) rethrow_exception(publishFailure);
     if (reporter.failure) rethrow_exception(reporter.failure);

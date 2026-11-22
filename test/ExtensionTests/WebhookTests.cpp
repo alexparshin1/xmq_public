@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 #include <sptk5/FileLogEngine.h>
+#include <sptk5/db/AutoDatabaseConnection.h>
+#include <sptk5/db/DatabaseConnectionPool.h>
+#include <sptk5/db/Query.h>
 
 #include <openssl/hmac.h>
 
@@ -341,6 +344,178 @@ TEST_F(WebhookTests, postsJSONAndRetriesAServerError)
 
     host.stop();
     receiver.stop();
+}
+
+TEST_F(WebhookTests, sqlRuleFiltersAndProjectsTypedValues)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver, "ignored/#", "0");
+    config.m_settings["concurrency"] = "1";
+    config.m_settings["sql_rule"] =
+        R"(SELECT payload.temperature AS temp, qos, retain FROM "sensors/#"
+           WHERE NOT (payload.temperature <= 80) AND qos >= 1)";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    const auto publish = [&](const string& payload, const string& topic = "sensors/1")
+    {
+        host.publishMessage("client", "user", topic, payload.data(), payload.size(), 1, false);
+    };
+    publish(R"({"temperature":"100"})");
+    publish(R"({"temperature":79})");
+    publish(R"({"temperature":100} trailing)");
+    publish(R"({"temperature":100})", "ignored/1");
+    publish(R"({"temperature":100})");
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    EXPECT_EQ((vector<string>{R"({"temp":100,"qos":1,"retain":false})"}), receiver.bodies());
+}
+
+TEST_F(WebhookTests, exporterDeliversThroughSelectedHttpSink)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_name = "message_export";
+    config.m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY;
+    config.m_settings["sink"] = "http_sink";
+    config.m_settings["mqtt_filter"] = "SQL rules";
+    config.m_settings["sql_rule"] = R"(select *, client_id as client from "sensors/#")";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    const string payload = R"({"greeting":"Hello"})";
+    host.publishMessage("client", "user", "sensors/1", payload.data(), payload.size(), 1, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    const auto bodies = receiver.bodies();
+    ASSERT_EQ(1u, bodies.size());
+    EXPECT_NE(string::npos, bodies.front().find(R"("topic":"sensors/1")"));
+    EXPECT_NE(string::npos, bodies.front().find(R"("client":"client")"));
+    EXPECT_NE(string::npos, bodies.front().find(R"("payload":"{\"greeting\":\"Hello\"}")"));
+}
+
+TEST_F(WebhookTests, exporterWritesSelectedFieldsThroughDbSink)
+{
+    const auto file = filesystem::temp_directory_path() /
+        ("xmq-db-sink-" + to_string(chrono::steady_clock::now().time_since_epoch().count()) + ".db");
+    const auto uri = "sqlite3://localhost/" + file.string();
+    {
+        DatabaseConnectionPool pool(uri, 1);
+        const AutoDatabaseConnection connection(pool);
+        Query create(connection.connection(), "CREATE TABLE exported (body TEXT, client TEXT)");
+        create.exec();
+        ExtensionHost::Configured config{
+            .m_name = "message_export",
+            .m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY,
+            .m_settings = {{"sink", "db_sink"}, {"database_uri", uri},
+                           {"insert_sql", "INSERT INTO exported (body, client) VALUES (:fields, :client)"},
+                           {"mqtt_filter", "SQL rules"},
+                           {"sql_rule", R"(SELECT topic, client_id AS client FROM "sensors/#")"}},
+        };
+        ExtensionHost host(m_logEngine, "webhook");
+        host.start({config});
+        host.publishMessage("client", "user", "sensors/1", "", 0, 1, false);
+        string result;
+        const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+        while (result.empty() && chrono::steady_clock::now() < deadline)
+        {
+            Query read(connection.connection(), "SELECT body, client FROM exported");
+            read.open();
+            if (!read.eof())
+                result = std::string(read["body"].asString().c_str()) + "|" +
+                         read["client"].asString().c_str();
+            else
+                this_thread::sleep_for(chrono::milliseconds(20));
+        }
+        host.stop();
+        EXPECT_EQ(R"({"topic":"sensors/1","client":"client"}|client)", result);
+    }
+    filesystem::remove(file);
+}
+
+TEST_F(WebhookTests, sqlMetadataRuleDoesNotRequireJson)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_settings["sql_rule"] =
+        R"(SELECT topic, CAST('100' AS DOUBLE) AS number FROM "sensors/#"
+           WHERE qos >= 1 AND NOT retain AND CAST('100' AS DOUBLE) > 80)";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    const string payload("\0\xff", 2);
+    host.publishMessage("client", "user", "sensors/1", payload.data(), payload.size(), 1, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    EXPECT_EQ((vector<string>{R"({"topic":"sensors/1","number":100})"}), receiver.bodies());
+}
+
+TEST_F(WebhookTests, refusesInvalidSqlRule)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_settings["sql_rule"] = R"(SELECT qos FROM "sensors/#" WHERE qos >=)";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    EXPECT_FALSE(host.tapping());
+    host.stop();
+}
+
+TEST_F(WebhookTests, sqlTopicListsAndFirstMatchingRule)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_settings["mqtt_filter"] = "SQL rules";
+    config.m_settings["concurrency"] = "1";
+    config.m_settings["sql_rule"] =
+        R"(SELECT topic FROM "topic/1", "topic/2";
+           SELECT 'fallback' AS topic FROM "topic/#")";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.tapping());
+    for (const auto* topic: {"topic/1", "topic/2", "topic/3"})
+        host.publishMessage("client", "user", topic, "", 0, 1, false);
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() < 3 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    EXPECT_EQ((vector<string>{R"({"topic":"topic/1"})", R"({"topic":"topic/2"})",
+                              R"({"topic":"fallback"})"}), receiver.bodies());
+}
+
+TEST_F(WebhookTests, logExportSqlIsIndependentOfMqttAndLevelFilters)
+{
+    Receiver receiver;
+    ASSERT_TRUE(receiver.start());
+    auto config = extension(receiver);
+    config.m_name = "log_export";
+    config.m_library = XMQ_TEST_LOG_EXPORT_LIBRARY;
+    config.m_settings["log_min_level"] = "error";
+    config.m_settings["log_subjects"] = "publish";
+    config.m_settings["log_filter"] = "SQL rules";
+    config.m_settings["log_sql_rule"] =
+        "SELECT message FROM logs WHERE level = 'info' AND message = 'wanted'";
+    ExtensionHost host(m_logEngine, "webhook");
+    host.start({config});
+    ASSERT_TRUE(host.logTapping());
+    host.publishMessage("client", "user", "sensors/1", "mqtt", 4, 1, false);
+    host.publishLog(LogPriority::Error, LogSubject::Connect, "not wanted");
+    host.publishLog(LogPriority::Info, LogSubject::Connect, "wanted");
+    const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+    while (receiver.requests() == 0 && chrono::steady_clock::now() < deadline)
+        this_thread::sleep_for(chrono::milliseconds(20));
+    host.stop();
+    EXPECT_EQ((vector<string>{R"({"message":"wanted"})"}), receiver.bodies());
 }
 
 

@@ -26,7 +26,7 @@ public:
      * @brief Constructor.
      */
     ClientSessionSendThread(Server* server, sptk::LogEngine& logEngine)
-        : ClientSessionThread(server, logEngine, sendSessionBatchSize())
+        : ClientSessionThread(server, logEngine, sendSessionBatchSize(), true)
     {
     }
 

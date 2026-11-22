@@ -316,7 +316,7 @@ public:
         }
     };
 
-    Report reloadSettings(const std::vector<Configured>& extensions);
+    Report reloadSettings(const std::vector<Configured>& extensions, std::string_view only = {});
 
     /**
      * @brief Tell the extensions where the broker's accounts live.

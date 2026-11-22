@@ -83,6 +83,71 @@ std::string XMQ_ControlServiceTests::Login(const string& username, const string&
     return output.m_token.asString().c_str();
 }
 
+TEST_F(XMQ_ControlServiceTests, testsWebhookSqlWithoutAnExtensionDestination)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    CExtensionControl input;
+    input.m_action = "test_sql";
+    for (const auto& [name, value]: {
+             std::pair{"source", "mqtt"}, {"topic", "sensors/1"}, {"payload", R"({"temp":95})"},
+             {"client_id", "sensor1"}, {"username", "user"}, {"qos", "1"}, {"retain", "false"},
+             {"timestamp", "2026-11-21T00:00:00Z"},
+             {"sql", R"(SELECT payload.temp FROM "other/#"; SELECT payload.temp, client_id FROM "sensors/#" WHERE qos = 1)"}})
+    {
+        CExtensionSettingValue field;
+        field.m_name = name;
+        field.m_value = value;
+        input.m_settings.push_back(field);
+    }
+    CExtensionControlResponse output;
+    m_controlService->ExtensionControl(input, output, &authentication);
+    EXPECT_TRUE(output.m_result.m_success.asBool()) << output.m_result.m_description.asString();
+    EXPECT_EQ(output.m_message.asString(),
+              R"({"matched":true,"rule":2,"invalid_json":false,"fields":{"temp":95,"client_id":"sensor1"}})");
+}
+
+TEST_F(XMQ_ControlServiceTests, rejectsInvalidSqlFieldAndTopic)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    for (const auto* sql: {R"(SELECT x FROM "test/topic")", R"(SELECT topic FROM "/topic/1")",
+                           R"(FROM "test/topic")", R"(SELECT topic)",
+                           R"(SELECT topic FROM "test//topic")"})
+    {
+        CExtensionControl input;
+        input.m_action = "test_sql";
+        for (const auto& [name, value]: {
+                 std::pair{"source", "mqtt"}, {"topic", "test/topic"}, {"payload", ""},
+                 {"client_id", ""}, {"username", ""}, {"qos", "1"}, {"retain", "false"},
+                 {"timestamp", "2026-11-21T00:00:00Z"}, {"sql", sql}})
+        {
+            CExtensionSettingValue field;
+            field.m_name = name;
+            field.m_value = value;
+            input.m_settings.push_back(field);
+        }
+        CExtensionControlResponse output;
+        m_controlService->ExtensionControl(input, output, &authentication);
+        EXPECT_FALSE(output.m_result.m_success.asBool()) << sql;
+        EXPECT_FALSE(output.m_result.m_description.asString().empty()) << sql;
+    }
+}
+
+TEST_F(XMQ_ControlServiceTests, refusesToSaveAnInvalidSqlRule)
+{
+    HttpAuthentication authentication("bearer " + Login("admin", "admin"));
+    CExtensionControl input;
+    input.m_action = "set";
+    input.m_name = "webhook";
+    CExtensionSettingValue setting;
+    setting.m_name = "sql_rule";
+    setting.m_value = R"(SELECT unknown_field FROM "/topic/1")";
+    input.m_settings.push_back(setting);
+    CExtensionControlResponse output;
+    m_controlService->ExtensionControl(input, output, &authentication);
+    EXPECT_FALSE(output.m_result.m_success.asBool());
+    EXPECT_NE(string::npos, output.m_result.m_description.asString().find("sql_rule:"));
+}
+
 TEST_F(XMQ_ControlServiceTests, login)
 {
     // As admin:

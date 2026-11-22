@@ -931,7 +931,7 @@ TEST_F(XMQ_ExtensionHostTests, settingsAreWrittenBackToTheFileTheyCameFrom)
     filesystem::remove_all(directory, errorCode);
 }
 
-TEST_F(XMQ_ExtensionHostTests, aDisabledEntryIsListedButNeverLoaded)
+TEST_F(XMQ_ExtensionHostTests, aDisabledEntryExposesItsDescriptorWithoutStarting)
 {
     const auto directory = uniqueTemporary("conf");
     filesystem::create_directories(directory);
@@ -954,7 +954,7 @@ TEST_F(XMQ_ExtensionHostTests, aDisabledEntryIsListedButNeverLoaded)
     ExtensionHost host(m_logEngine, "test");
     host.start(configured);
 
-    EXPECT_FALSE(host.watching()) << "its library must not have been opened";
+    EXPECT_FALSE(host.watching()) << "a disabled extension must not receive events";
 
     const auto described = host.describe();
     const auto listed = ranges::find_if(described, [](const auto& one) { return one.m_name == "event-log"; });
@@ -962,11 +962,13 @@ TEST_F(XMQ_ExtensionHostTests, aDisabledEntryIsListedButNeverLoaded)
     EXPECT_EQ("event-log", listed->m_name);
     EXPECT_FALSE(listed->m_running);
 
-    // Nothing came from inside the library, because it was never opened - that is what being
-    // switched off has to mean.
-    EXPECT_TRUE(listed->m_version.empty());
+    // The settings screen reads the installed descriptor without starting the extension.
+    EXPECT_FALSE(listed->m_version.empty());
+    EXPECT_FALSE(host.watching());
     ASSERT_EQ(1U, listed->m_settings.size());
     EXPECT_EQ("file", listed->m_settings[0].m_name);
+    EXPECT_TRUE(listed->m_settings[0].m_declared);
+    EXPECT_EQ("nowhere.log", listed->m_settings[0].m_value);
 
     host.stop();
 

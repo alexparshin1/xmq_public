@@ -183,6 +183,15 @@ curl -i http://broker-1:9184/readyz    # 200 ready, 503 not ready with a reason`
                 </tbody>
             </table>
 
+            <p>
+                The process figures are also published on <code>$SYS</code>, for a client that already
+                has a session with the broker and would rather not open a second port:
+                <code>$SYS/broker/system/cpu/percent</code> (this process, percent of one core, rounded
+                to a whole percent, may exceed 100 on a multi-core machine) and
+                <code>$SYS/broker/system/memory/rss_bytes</code> (resident memory, bytes). Both are read
+                once a second from the same sampler that produces the gauges above, so the two agree.
+            </p>
+
             <h4 id="prometheus-logs">Logs</h4>
 
             <p>

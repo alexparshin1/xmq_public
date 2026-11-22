@@ -252,6 +252,7 @@ public:
      * @param publishMessage    Publish message.
      */
     MessageId publish(const PublishMessage& publishMessage);
+    MessageId publish(const PublishMessage& publishMessage, const Topic* destination);
 
     /**
      * @brief Send ping.

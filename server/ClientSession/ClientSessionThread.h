@@ -14,6 +14,7 @@
 #pragma once
 
 #include "common/SessionThread.h"
+#include "SendSessionQueue.h"
 #include "server/MessageDelivery.h"
 #include "server/Settings/Settings.h"
 
@@ -41,7 +42,7 @@ public:
      * @param logEngine         Log engine.
      * @param sessionBatch      How many sessions this worker takes from its queue per round.
      */
-    ClientSessionThread(Server* server, sptk::LogEngine& logEngine, size_t sessionBatch = 1);
+    ClientSessionThread(Server* server, sptk::LogEngine& logEngine, size_t sessionBatch = 1, bool sendWorker = false);
 
     /**
      * @brief Destructor.
@@ -69,13 +70,20 @@ public:
 
     void queueProcessSession(const SClientSession& clientSession)
     {
-        m_sessionQueue.push_back(clientSession);
+        if (m_sendQueue)
+        {
+            m_sendQueue->push(clientSession);
+        }
+        else
+        {
+            m_sessionQueue.push_back(clientSession);
+        }
     }
 
     size_t sessionQueueLength() const
     {
         std::scoped_lock lock(m_mutex);
-        return m_sessionQueue.size();
+        return m_sendQueue ? m_sendQueue->size() : m_sessionQueue.size();
     }
 
     Server& server() const
@@ -163,6 +171,7 @@ private:
     mutable std::mutex                      m_mutex;
     Server*                                 m_server;
     sptk::SynchronizedQueue<SClientSession> m_sessionQueue;
+    std::unique_ptr<SendSessionQueue<SClientSession>> m_sendQueue;
     const size_t                            m_sessionBatch;               ///< Sessions taken per round; 1 for receive workers.
     sptk::Logger                            m_logger;
     std::thread                             m_sessionThread;

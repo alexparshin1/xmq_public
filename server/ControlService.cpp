@@ -29,6 +29,7 @@
 #include "Cluster/NodeIdentity.h"
 #include "OSService.h"
 #include "storage/RedisStorage.h"
+#include "extension/webhook/SqlEngine.h"
 
 #include <sptk5/net/RedisCommand.h>
 #include <sptk5/net/RedisConnect.h>
@@ -502,6 +503,7 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_authorizer = (from.m_capabilities & XMQ_CAP_AUTHORIZER) != 0;
     into.m_message_tap = (from.m_capabilities & XMQ_CAP_MESSAGE_TAP) != 0;
     into.m_log_tap = (from.m_capabilities & XMQ_CAP_LOG_TAP) != 0;
+    into.m_sink = (from.m_capabilities & XMQ_CAP_SINK) != 0;
     into.m_events_delivered = static_cast<int>(from.m_eventsDelivered);
     into.m_admitted = static_cast<int>(from.m_admitted);
     into.m_refused = static_cast<int>(from.m_refused);
@@ -579,12 +581,78 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
             }
             report = m_controller->switchExtension(name.c_str(), action == "enable");
         }
+        else if (action == "test_sql")
+        {
+            using namespace xmq::webhook_sql;
+            map<string, string> fields;
+            for (const auto& item: input.m_settings)
+                fields[item.m_name.asString()] = item.m_value.asString();
+            SqlRow row;
+            const auto source = fields["source"];
+            if (source != "mqtt" && source != "logs")
+                throw Exception("Expected MQTT or log test input.");
+            row.log = source == "logs";
+            row.timestamp = fields["timestamp"];
+            if (row.log)
+            {
+                row.level = fields["level"];
+                row.subject = fields["subject"];
+                row.message = fields["message"];
+                if (row.message.size() > 1048576)
+                    throw Exception("Test log body exceeds 1 MiB.");
+            }
+            else
+            {
+                row.topic = fields["topic"];
+                row.clientId = fields["client_id"];
+                row.username = fields["username"];
+                row.payload = fields["payload"];
+                const auto& qos = fields["qos"];
+                if (qos != "0" && qos != "1" && qos != "2")
+                    throw Exception("QoS must be 0, 1 or 2.");
+                row.qos = qos.front() - '0';
+                const auto& retain = fields["retain"];
+                if (retain != "true" && retain != "false")
+                    throw Exception("Retain must be true or false.");
+                row.retain = retain == "true";
+                if (row.topic.empty() || row.topic.size() > 65535 ||
+                    row.topic.find_first_of("+#") != string::npos || row.topic.find('\0') != string::npos)
+                    throw Exception("Enter a valid MQTT topic name, not a filter.");
+                if (row.payload.size() > 1048576)
+                    throw Exception("Test payload exceeds 1 MiB.");
+            }
+            // The draft is parsed here before any test input is evaluated, so the two ways to
+            // reach this call - Test rule and Apply's preflight - report the same syntax errors.
+            auto rules = sqlRules(trimmed(fields["sql"]), row.log);
+            const auto match = evaluateSql(rules, row);
+            output.m_message = "{\"matched\":" + string(match.body ? "true" : "false") +
+                ",\"rule\":" + to_string(match.rule) +
+                ",\"invalid_json\":" + (match.invalidJson ? "true" : "false") +
+                ",\"fields\":" + match.body.value_or("null") + "}";
+            output.m_result.m_success = true;
+            return;
+        }
         else if (action == "set")
         {
             const auto name = input.m_name.asString();
             if (name.empty())
             {
                 throw Exception("Which extension? The action needs a name");
+            }
+
+            // Reject a malformed rule before the controller writes settings to disk. The webhook
+            // extension validates its own rules when it starts, but by then Apply has reported
+            // success and the operator has a configuration file the broker cannot use. Use the
+            // same parser as Test rule, with the same error text.
+            using namespace xmq::webhook_sql;
+            for (const auto& setting: input.m_settings)
+            {
+                const auto key = setting.m_name.asString();
+                if (key != "sql_rule" && key != "log_sql_rule")
+                    continue;
+                const auto value = trimmed(setting.m_value.asString());
+                if (!value.empty())
+                    sqlRules(value, key == "log_sql_rule");
             }
 
             map<string, string> settings;
@@ -597,7 +665,7 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
             }
             report = m_controller->setExtensionSettings(name.c_str(), settings);
         }
-        else if (action != "list")
+        else if (action != "list" && action != "test_sql")
         {
             throw Exception("Unknown action: " + action);
         }

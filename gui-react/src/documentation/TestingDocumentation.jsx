@@ -72,6 +72,16 @@ xmq_scn -s 1M-Connections-5K-rate.json -h broker -p 1883`}</pre>
                     <td><code>--progress</code></td>
                     <td>Show a progress bar</td>
                 </tr>
+                <tr>
+                    <td><code>--output</code></td>
+                    <td><code>terminal</code> for the progress bar, the same as <code>--progress</code>;
+                        <code>runner</code> for no bar and one machine-readable <code>INTERVAL</code>
+                        line per completed interval instead - start, sample count, average latency,
+                        p95, p99, delivered rate, and the client's own CPU and memory. Intended for
+                        a program that starts the run and shows its progress live. The two cannot be
+                        combined: the bar and the lines share one stdout.
+                    </td>
+                </tr>
                 </tbody>
             </table>
 

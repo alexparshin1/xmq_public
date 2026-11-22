@@ -125,7 +125,7 @@ protected:
      *                          verify it at all.
      * @param topicName         Topic the bridge carries.
      */
-    void startEncryptedBridge(const int verifyDepth, const String& topicName)
+    void startEncryptedBridge(const int verifyDepth, const String& topicName, const bool mapped = false)
     {
         CBridge bridge;
         bridge.m_node_name = "other-encrypted";
@@ -135,7 +135,12 @@ protected:
         bridge.m_password = "secret";
         bridge.m_client_id = "xmq_bridge_encrypted";
         bridge.m_clean_session = true;
-        bridge.m_mode = "in";
+        bridge.m_mode = mapped ? "inout" : "in";
+        if (mapped)
+        {
+            bridge.m_local_prefix = "local/";
+            bridge.m_remote_prefix = "remote/";
+        }
         bridge.m_encrypted = true;
 
         bridge.m_ssl_keys.m_certfile = clientCertificate().string();
@@ -145,7 +150,7 @@ protected:
 
         CBridgeTopic topic;
         topic.m_pattern = topicName;
-        topic.m_direction = "in";
+        topic.m_direction = mapped ? "inout" : "in";
         bridge.m_topics.push_back(topic);
 
         const auto bridgingServer = server("primary");
@@ -258,6 +263,37 @@ TEST_F(XMQ_EncryptedBridgeTests, carriesMessagesOverTls)
     }
     // toString() describes the whole publish, so the payload is looked for inside it.
     EXPECT_NE(String::npos, carried.find("Hello over TLS")) << carried.c_str();
+}
+
+TEST_F(XMQ_EncryptedBridgeTests, mapsTopicPrefixesInBothDirections)
+{
+    auto [local, remote, topic] = createTestSubscriberAndPublisher(m_otherServerHost, m_xmqServerHost);
+    const auto localName = client::MqttClient::getTopic("local/" + topic);
+    const auto remoteName = client::MqttClient::getTopic("remote/" + topic);
+    const auto options = SubscriptionOptions(Qos::Qos1);
+    local->subscribe(Destination(localName, options));
+    remote->subscribe(Destination(remoteName, options));
+    ASSERT_TRUE(local->waitForSubscribeAck(5s));
+    ASSERT_TRUE(remote->waitForSubscribeAck(5s));
+
+    startEncryptedBridge(1, topic, true);
+    ASSERT_TRUE(bridgesConnectedWithin(15s));
+    const auto inbound = make_shared<Semaphore>();
+    const auto outbound = make_shared<Semaphore>();
+    local->onMessage([inbound](const SMessage& message)
+    {
+        if (message->toString().find("mapped inbound") != String::npos)
+            inbound->post();
+    });
+    remote->onMessage([outbound](const SMessage& message)
+    {
+        if (message->toString().find("mapped outbound") != String::npos)
+            outbound->post();
+    });
+    remote->publish(remoteName, Buffer("mapped inbound"), Qos::Qos1);
+    local->publish(localName, Buffer("mapped outbound"), Qos::Qos1);
+    EXPECT_TRUE(inbound->wait_for(5s));
+    EXPECT_TRUE(outbound->wait_for(5s));
 }
 
 // A negative case - the same link with a certificate that vouches for nobody - is deliberately

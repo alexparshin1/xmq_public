@@ -16,8 +16,6 @@ import "./InputScreen.css";
 export default class LoginScreen extends React.Component {
 
     state = {
-        username: "admin",
-        password: "",
         signedIn: false,
         // Nothing is offered until the server has said whether it has been set up: showing a
         // sign-in form for a moment and replacing it is worse than showing nothing for it.
@@ -40,8 +38,10 @@ export default class LoginScreen extends React.Component {
             });
     }
 
-    doLogin() {
-        ControlAPI.login(this.state.username, this.state.password)
+    doLogin = event => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        ControlAPI.login(fields.get("username") || "", fields.get("password") || "")
             .then(succeeded => {
                 if (succeeded) {
                     this.setState({signedIn: true});
@@ -77,6 +77,7 @@ export default class LoginScreen extends React.Component {
             alignItems: "center",
             minHeight: "60vh"
         }}>
+            <form autoComplete="on" onSubmit={this.doLogin}>
             <table style={{borderSpacing: "8px 6px"}}>
                 <tbody>
                 <tr>
@@ -85,29 +86,24 @@ export default class LoginScreen extends React.Component {
                 </tr>
                 <tr>
                     <td style={{textAlign: "right"}}>Username:</td>
-                    <td><input name="username" style={{width: "200px", boxSizing: "border-box"}}
-                               value={this.state.username}
-                               onChange={event => this.setState({username: event.target.value})}/></td>
+                    <td><input name="username" autoComplete="username"
+                               style={{width: "200px", boxSizing: "border-box"}}
+                               defaultValue="admin"/></td>
                 </tr>
                 <tr>
                     <td style={{textAlign: "right"}}>Password:</td>
-                    <td><PasswordInput name="password" style={{width: "200px"}}
-                                       value={this.state.password}
-                                       onChange={event => this.setState({password: event.target.value})}
-                                       onKeyDown={event => {
-                                           if (event.key === "Enter") {
-                                               this.doLogin();
-                                           }
-                                       }}/></td>
+                    <td><PasswordInput name="password" autoComplete="current-password"
+                                       style={{width: "200px"}}/></td>
                 </tr>
                 <tr>
                     <td colSpan={2} style={{textAlign: "center", paddingTop: "10px"}}>
-                        <button className="inputScreenSaveButton inputScreenActionButton"
-                                onClick={() => this.doLogin()}>Login to XMQ</button>
+                        <button type="submit" className="inputScreenSaveButton inputScreenActionButton"
+                                >Login to XMQ</button>
                     </td>
                 </tr>
                 </tbody>
             </table>
+            </form>
         </div>;
     }
 }
