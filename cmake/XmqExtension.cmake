@@ -101,6 +101,20 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
     ENDIF ()
 
     ADD_LIBRARY(${extensionName} SHARED ${EXTENSION_SOURCES})
+
+    # Installed into lib/xmq-extensions, one level below the SPTK libraries in lib, an extension
+    # that links SPTK has to be able to find them on its own. Loaded through the broker it would
+    # inherit the broker's RPATH and hide a missing one; a package check, ldd and any other program
+    # that dlopen()s it would not. Set here rather than in each extension's CMakeLists so a new
+    # extension cannot forget it, and carry the FreeBSD libstdc++ pin along.
+    IF (UNIX AND NOT APPLE)
+        SET(xmqExtensionRpath "$ORIGIN/..")
+        IF (GCC_LIBSTDCXX_DIR)
+            SET(xmqExtensionRpath "${xmqExtensionRpath}:${GCC_LIBSTDCXX_DIR}")
+        ENDIF ()
+        SET_TARGET_PROPERTIES(${extensionName} PROPERTIES INSTALL_RPATH "${xmqExtensionRpath}")
+    ENDIF ()
+
     IF (EXTENSION_UI)
         ADD_CUSTOM_COMMAND(TARGET ${extensionName} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different "${EXTENSION_UI}"

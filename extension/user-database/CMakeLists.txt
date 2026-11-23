@@ -17,17 +17,6 @@ IF (XMQ_CRYPT_LIBRARY)
     TARGET_LINK_LIBRARIES(xmq_user_database ${XMQ_CRYPT_LIBRARY})
 ENDIF ()
 
-# The SPTK it links lives in the prefix's lib directory, one level above the extensions. Inside a
-# running broker the libraries are already loaded by soname and this changes nothing; it is what
-# makes the library resolve on its own, for ldd and for anything else that loads it.
-IF (UNIX AND NOT APPLE)
-    SET(xmqUserDatabaseRpath "$ORIGIN/..")
-    IF (GCC_LIBSTDCXX_DIR)
-        SET(xmqUserDatabaseRpath "${xmqUserDatabaseRpath}:${GCC_LIBSTDCXX_DIR}")
-    ENDIF ()
-    SET_TARGET_PROPERTIES(xmq_user_database PROPERTIES INSTALL_RPATH "${xmqUserDatabaseRpath}")
-ENDIF ()
-
 # Not lib/xmq: that is the directory the web interface is served from, so anything left there can be
 # fetched over HTTP by anyone who can reach the control service.
 # LIBRARY for the .so, RUNTIME for the .dll. In CMake's taxonomy a Windows DLL is a runtime
