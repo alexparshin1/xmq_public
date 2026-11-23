@@ -150,6 +150,10 @@ export default function WebhookDocumentation() {
             <p><code>:fields</code> contains the entire JSON body. Extra parameters can reference names
                 or aliases selected by SQL, or placeholder values in template mode, as strings. Only
                 available fields can be bound in addition to <code>:fields</code>.</p>
+            <p>The database sink's own bounded queue is in memory and is used only when persistent delivery
+                is off: it can drop records and is lost on restart. Enable <b>Persistent delivery</b> on the
+                exporter to route INSERTs through the same SQLite queue as the other sinks, so committed
+                records are replayed after a restart.</p>
             <p>In SQL rules mode, <code>:fields</code> contains the JSON produced by <code>SELECT</code>,
                 not the original MQTT message. To store only a few fields from a large payload,
                 select them explicitly:</p>
@@ -171,6 +175,8 @@ export default function WebhookDocumentation() {
                 prevents the extension from starting. The queue limit counts live record data and
                 bindings, not SQLite file overhead. When the limit is reached, new records are dropped.</p>
             <p>Persistent delivery writes the rendered body and bindings to disk before attempting delivery.
+                The same queue and worker serve every sink — <code>http_sink</code>, <code>db_sink</code>
+                and <code>kafka_sink</code> — so retries, backoff and dead-lettering behave alike.
                 It replays committed records after restart, in order, using one delivery worker.
                 Persistent mode uses its own retry policy instead of the HTTP retry count and
                 concurrency settings. The worker retries a failed head record, including permanent failures, with a delay

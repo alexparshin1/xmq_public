@@ -61,8 +61,10 @@ excluding SQLite overhead). A full queue rejects new records, which can be route
 to the dead-letter topic.
 
 A separate writer stores the rendered body and bindings. MQTT acknowledgement
-does not imply export persistence. One worker delivers the queue head and removes
-it when the sink reports success. With `kafka_sink`, this requires an acknowledgement
+does not imply export persistence. The same queue and worker serve every sink —
+`http_sink`, `db_sink` and `kafka_sink` — so retry, backoff and dead-lettering
+behave alike. One worker delivers the queue head and removes it when the sink
+reports success. With `kafka_sink`, this requires an acknowledgement
 from Kafka. Persistent mode overrides the HTTP retry count and concurrency.
 Failures retry with a delay capped at 60 seconds. Without a dead-letter topic,
 permanent failures also block later records. Restart replays persisted records;
@@ -139,12 +141,15 @@ by both export extensions. Delivery is a sink selected inside each extension:
 - `kafka_sink` — sends the exported JSON to a Kafka topic (Linux builds with librdkafka).
 - `db_sink` — parameterized INSERT through SPTK into PostgreSQL, MySQL, Oracle,
   SQLite or MSSQL. Parameters are bound, never concatenated into the SQL text.
-  A bounded queue and a worker thread keep the MQTT path free. On a connection
-  failure the worker reconnects with 1, 2, 4, 8, 16, 32 and then 60-second
-  intervals, continuing once a minute until the record is written or the
-  extension stops. A successful write resets the interval. A full queue drops
-  records. The in-memory queue is not durable; a disconnect after a server-side
-  commit may also cause a duplicate on retry. Use an idempotent INSERT if needed.
+  A bounded queue and a worker thread keep the MQTT path free. That in-memory
+  queue is used only when persistent delivery is off: it is not durable and a
+  full queue drops records. Enable persistent delivery on the exporter to route
+  INSERTs through the same SQLite queue as the other sinks; committed records
+  are then replayed after a restart. On a connection failure the worker reconnects
+  with 1, 2, 4, 8, 16, 32 and then 60-second intervals, continuing once a minute
+  until the record is written or the extension stops. A successful write resets
+  the interval. A disconnect after a server-side commit may also cause a duplicate
+  on retry. Use an idempotent INSERT if needed.
 
 Provide a database URI and an INSERT statement, for example
 `INSERT INTO exported (body) VALUES (:fields)`. The destination table must exist.

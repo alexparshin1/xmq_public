@@ -632,6 +632,63 @@ TEST_F(WebhookTests, exporterWritesSelectedFieldsThroughDbSink)
     filesystem::remove(file);
 }
 
+#ifdef XMQ_TEST_PERSISTENT_DELIVERY_QUEUE
+TEST_F(WebhookTests, persistentExportWritesSelectedFieldsThroughDbSinkAndDrainsTheQueue)
+{
+    const auto file = filesystem::temp_directory_path() /
+        ("xmq-db-sink-durable-" + to_string(chrono::steady_clock::now().time_since_epoch().count()) + ".db");
+    const auto uri = "sqlite3://localhost/" + file.string();
+    auto directory = (filesystem::temp_directory_path() / "xmq-export-db-XXXXXX").string();
+    ASSERT_NE(nullptr, mkdtemp(directory.data()));
+    const auto cleanup = [&](const std::string* path)
+    {
+        filesystem::remove_all(*path);
+        filesystem::remove(file);
+    };
+    const std::unique_ptr<const std::string, decltype(cleanup)> guard(&directory, cleanup);
+    const auto queuePath = (filesystem::path(directory) / "queue.sqlite").string();
+    {
+        DatabaseConnectionPool pool(uri, 1);
+        const AutoDatabaseConnection connection(pool);
+        Query create(connection.connection(), "CREATE TABLE exported (body TEXT, client TEXT)");
+        create.exec();
+    }
+    const auto config = [&]
+    {
+        return ExtensionHost::Configured{
+            .m_name = "message_export",
+            .m_library = XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY,
+            .m_settings = {{"sink", "db_sink"}, {"database_uri", uri},
+                           {"insert_sql", "INSERT INTO exported (body, client) VALUES (:fields, :client)"},
+                           {"mqtt_filter", "SQL rules"},
+                           {"sql_rule", R"(SELECT topic, client_id AS client FROM "sensors/#")"},
+                           {"persistent_delivery", "true"}, {"delivery_queue_path", queuePath}},
+        };
+    };
+    const auto countRows = [&]
+    {
+        DatabaseConnectionPool pool(uri, 1);
+        const AutoDatabaseConnection connection(pool);
+        Query read(connection.connection(), "SELECT COUNT(*) AS total FROM exported");
+        read.open();
+        return read.eof() ? -1 : std::stoi(std::string(read["total"].asString().c_str()));
+    };
+    for (int restart = 0; restart < 2; ++restart)
+    {
+        ExtensionHost host(m_logEngine, "webhook");
+        host.start({config()});
+        ASSERT_TRUE(host.tapping());
+        if (restart == 0)
+            host.publishMessage("client", "user", "sensors/1", "", 0, 1, false);
+        const auto deadline = chrono::steady_clock::now() + chrono::seconds(5);
+        while (countRows() < 1 && chrono::steady_clock::now() < deadline)
+            this_thread::sleep_for(chrono::milliseconds(20));
+        host.stop();
+    }
+    EXPECT_EQ(1, countRows());
+}
+#endif
+
 TEST_F(WebhookTests, sqlMetadataRuleDoesNotRequireJson)
 {
     Receiver receiver;

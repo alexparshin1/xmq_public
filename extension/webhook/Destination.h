@@ -20,6 +20,7 @@
 
 #ifdef XMQ_PERSISTENT_DELIVERY
 #include "DeliveryQueue.h"
+#include "PersistentDelivery.h"
 #endif
 
 #ifdef XMQ_SPTK_JSON_SCHEMA
@@ -69,12 +70,11 @@ struct Destination
 #endif
 #ifdef XMQ_PERSISTENT_DELIVERY
     std::shared_ptr<xmq::exporter::DeliveryQueue>     spool;
+    std::unique_ptr<xmq::exporter::PersistentDelivery> persistent;
     std::string                                     spoolPath, spoolKey, deadLetterTopic;
     std::int64_t                                    spoolLimit{};
-    std::mutex                                      spoolLock;
-    std::condition_variable                         spoolReady;
 #endif
-    bool                                            stopping{false};
+    std::atomic<bool>                               stopping{false};
     std::vector<std::thread>                        threads;
     std::atomic<uint64_t>                           sent{0};
     std::atomic<uint64_t>                           failed{0};

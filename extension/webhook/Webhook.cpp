@@ -190,6 +190,12 @@ public:
         return configure();
     }
 
+    bool stop() override
+    {
+        stopDestinations();
+        return true;
+    }
+
     void onMessage(const xmq_message& message) override
     {
         const auto destinations = snapshot();
@@ -452,7 +458,7 @@ private:
             reportExport(XMQ_EXPORT_SCHEMA_REJECTED, result.instancePath,
                          result.keyword.empty() ? "invalid JSON" : result.keyword);
 #ifdef XMQ_PERSISTENT_DELIVERY
-            if (publishDeadLetter(destination, entry))
+            if (publishDeadLetter(destination, PersistentDelivery::Record{entry.body, entry.fields}))
                 return false;
 #endif
             destination.dropped.fetch_add(1, std::memory_order_relaxed);
@@ -479,159 +485,67 @@ private:
     }
 
 #ifdef XMQ_PERSISTENT_DELIVERY
-    static void appendPart(std::string& out, std::string_view part)
-    {
-        for (unsigned shift = 0; shift < 64; shift += 8)
-            out.push_back(static_cast<char>((static_cast<uint64_t>(part.size()) >> shift) & 0xff));
-        out.append(part);
-    }
-
-    static std::string readPart(std::string_view& data)
-    {
-        if (data.size() < 8)
-            throw std::runtime_error("invalid delivery queue record");
-        uint64_t length{};
-        for (unsigned index = 0; index < 8; ++index)
-            length |= static_cast<uint64_t>(static_cast<unsigned char>(data[index])) << (index * 8);
-        data.remove_prefix(8);
-        if (length > data.size())
-            throw std::runtime_error("invalid delivery queue record length");
-        std::string result(data.substr(0, length));
-        data.remove_prefix(length);
-        return result;
-    }
-
-    bool publishDeadLetter(const Destination& destination, const WebhookEntry& entry) const
+    bool publishDeadLetter(const Destination& destination, const PersistentDelivery::Record& record) const
     {
         if (destination.deadLetterTopic.empty())
             return false;
-        const bool accepted = publishLocal(destination.deadLetterTopic, entry.body);
+        const bool accepted = publishLocal(destination.deadLetterTopic, record.body);
         reportExport(accepted ? XMQ_EXPORT_DEAD_LETTER_ACCEPTED : XMQ_EXPORT_DEAD_LETTER_FAILED);
         return accepted;
     }
 
-    void persist(Destination& destination)
+    /// Bind the shared worker to one destination: its prepared queue, its sink and this extension's
+    /// counters. Every sink gets the same retry, backoff and dead-letter behaviour this way.
+    void startPersistentDelivery(const std::shared_ptr<Destination>& destination)
     {
-        for (;;)
-        {
-            WebhookEntry entry;
+        // The callbacks live inside the worker, which lives inside the destination. Capturing the
+        // shared_ptr here would keep the destination - and with it the queue file lock - alive
+        // after the last outside reference is gone. A raw pointer is safe: the worker is stopped
+        // and joined before the destination is destroyed.
+        auto*             target = destination.get();
+        auto&             sink = *target->sink;
+        const auto        instance = std::shared_ptr<void>(
+            sink.api->create(SinkModule::setting, &sink, nullptr, 0), sink.api->destroy);
+        target->persistent = std::make_unique<PersistentDelivery>(
+            target->spool, target->spoolLimit,
+            [this, target]() -> std::optional<PersistentDelivery::Record>
             {
-                std::unique_lock lock(destination.lock);
-                destination.condition.wait(lock, [&] { return destination.stopping || !destination.queue.empty(); });
-                if (destination.queue.empty())
-                    return;
-                entry = std::move(destination.queue.front());
-                destination.queue.pop_front();
-            }
-            if (!prepare(destination, entry))
-                continue;
-            std::string encoded;
-            appendPart(encoded, entry.body);
-            for (const auto& [name, value]: entry.fields)
-            {
-                appendPart(encoded, name);
-                appendPart(encoded, value);
-            }
-            try
-            {
-                bool appended;
+                WebhookEntry entry;
                 {
-                    const std::scoped_lock lock(destination.spoolLock);
-                    appended = destination.spool->append(encoded, destination.spoolLimit);
+                    std::unique_lock lock(target->lock);
+                    target->condition.wait(lock, [&]
+                    {
+                        return target->stopping.load(std::memory_order_acquire) || !target->queue.empty();
+                    });
+                    if (target->queue.empty())
+                        return std::nullopt;
+                    entry = std::move(target->queue.front());
+                    target->queue.pop_front();
                 }
-                if (appended)
-                    destination.spoolReady.notify_one();
+                if (!prepare(*target, entry))
+                    return std::nullopt;
+                return PersistentDelivery::Record{std::move(entry.body), std::move(entry.fields)};
+            },
+            [this, target, &sink, instance](const PersistentDelivery::Record& record)
+            {
+                const int status = sendToSink(sink, instance.get(),
+                                              WebhookEntry{record.body, {}, record.fields});
+                if (status == 0)
+                    target->sent.fetch_add(1, std::memory_order_relaxed);
                 else
-                {
-                    reportExport(XMQ_EXPORT_QUEUE_FAILED);
-                    if (!publishDeadLetter(destination, entry))
-                        destination.dropped.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-            catch (const std::exception&)
+                    target->failed.fetch_add(1, std::memory_order_relaxed);
+                return status;
+            },
+            [this, target](const PersistentDelivery::Record& record)
             {
-                reportExport(XMQ_EXPORT_QUEUE_FAILED);
-                destination.dropped.fetch_add(1, std::memory_order_relaxed);
-            }
-        }
+                return publishDeadLetter(*target, record);
+            },
+            [this](uint32_t outcome) { reportExport(static_cast<xmq_export_outcome>(outcome)); },
+            [target] { return target->stopping.load(std::memory_order_acquire); },
+            [target] { target->condition.notify_all(); },
+            [target] { target->dropped.fetch_add(1, std::memory_order_relaxed); });
     }
 
-    void deliverPersisted(Destination& destination)
-    {
-        auto& sink = *destination.sink;
-        const std::unique_ptr<void, void(*)(void*)> instance(
-            sink.api->create(SinkModule::setting, &sink, nullptr, 0), sink.api->destroy);
-        unsigned delay = 1;
-        std::optional<std::int64_t> deliveredId;
-        bool deadLetterPending = false;
-        for (;;)
-        {
-            {
-                const std::scoped_lock lock(destination.lock);
-                if (destination.stopping && !deliveredId)
-                    return;
-            }
-            try
-            {
-                if (deliveredId)
-                {
-                    const std::scoped_lock lock(destination.spoolLock);
-                    if (!destination.spool->acknowledge(*deliveredId))
-                        throw std::runtime_error("delivery queue head changed before acknowledgement");
-                    deliveredId.reset();
-                    delay = 1;
-                    continue;
-                }
-                std::optional<xmq::exporter::DeliveryQueue::Record> record;
-                {
-                    const std::scoped_lock lock(destination.spoolLock);
-                    record = destination.spool->front();
-                }
-                if (!record)
-                {
-                    std::unique_lock lock(destination.lock);
-                    if (!destination.stopping)
-                        destination.spoolReady.wait_for(lock, std::chrono::milliseconds(250));
-                    continue;
-                }
-                std::string_view data(record->data);
-                WebhookEntry entry;
-                entry.body = readPart(data);
-                while (!data.empty())
-                {
-                    auto name = readPart(data);
-                    entry.fields.emplace_back(std::move(name), readPart(data));
-                }
-                if (!deadLetterPending)
-                {
-                    const int status = sendToSink(sink, instance.get(), entry);
-                    if (status == 0)
-                    {
-                        destination.sent.fetch_add(1, std::memory_order_relaxed);
-                        deliveredId = record->id;
-                        continue;
-                    }
-                    reportExport(XMQ_EXPORT_SINK_FAILED);
-                    destination.failed.fetch_add(1, std::memory_order_relaxed);
-                    deadLetterPending = instance && status == 1 && !destination.deadLetterTopic.empty();
-                }
-                if (deadLetterPending && publishDeadLetter(destination, entry))
-                {
-                    deadLetterPending = false;
-                    deliveredId = record->id;
-                    continue;
-                }
-            }
-            catch (const std::exception&)
-            {
-                reportExport(XMQ_EXPORT_QUEUE_FAILED);
-            }
-            std::unique_lock lock(destination.lock);
-            if (destination.spoolReady.wait_for(lock, std::chrono::seconds(delay), [&] { return destination.stopping; }))
-                return;
-            delay = std::min(60u, delay * 2);
-        }
-    }
 #endif
 
     void run(std::shared_ptr<Destination> destination)
@@ -676,7 +590,7 @@ private:
                         break;
                     std::unique_lock lock(destination->lock);
                     if (destination->condition.wait_for(lock, std::chrono::seconds(delay),
-                                                        [&] { return destination->stopping; }))
+                                                        [&] { return destination->stopping.load(); }))
                         return;
                     delay = std::min(60u, delay * 2);
                 }
@@ -712,7 +626,8 @@ private:
             }
             destination->condition.notify_all();
 #ifdef XMQ_PERSISTENT_DELIVERY
-            destination->spoolReady.notify_all();
+            if (destination->persistent)
+                destination->persistent->stop();
 #endif
             for (auto& thread: destination->threads)
             {
@@ -972,12 +887,12 @@ private:
                     throw std::invalid_argument("queue limit must be 1 to 65536 MiB");
                 destination->spoolLimit = mib * 1024 * 1024;
                 std::string identity;
-                appendPart(identity, mqttOnly ? "message_export:v1" : "log_export:v1");
-                appendPart(identity, destination->name);
+                PersistentDelivery::appendPart(identity, mqttOnly ? "message_export:v1" : "log_export:v1");
+                PersistentDelivery::appendPart(identity, destination->name);
                 for (const auto& [key, value]: destination->sink->settings)
                 {
-                    appendPart(identity, key);
-                    appendPart(identity, value);
+                    PersistentDelivery::appendPart(identity, key);
+                    PersistentDelivery::appendPart(identity, value);
                 }
                 unsigned char digest[SHA256_DIGEST_LENGTH];
                 SHA256(reinterpret_cast<const unsigned char*>(identity.data()), identity.size(), digest);
@@ -1100,8 +1015,7 @@ private:
 #ifdef XMQ_PERSISTENT_DELIVERY
             if (destination->spool)
             {
-                destination->threads.emplace_back([this, destination] { persist(*destination); });
-                destination->threads.emplace_back([this, destination] { deliverPersisted(*destination); });
+                startPersistentDelivery(destination);
                 continue;
             }
 #endif
