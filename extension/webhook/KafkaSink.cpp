@@ -52,10 +52,13 @@ struct KafkaDelivery
             set("sasl.username", username.c_str());
             set("sasl.password", password.c_str());
         }
-        if (!caFile.empty())
+        if (protocol == "SSL" || protocol == "SASL_SSL")
         {
-            set("ssl.ca.location", caFile.c_str());
+            // Explicit rather than relying on the librdkafka default: older releases leave
+            // hostname verification off, while the documentation promises it is checked.
             set("ssl.endpoint.identification.algorithm", "https");
+            if (!caFile.empty())
+                set("ssl.ca.location", caFile.c_str());
         }
         set("acks", "all");
         set("enable.idempotence", "true");

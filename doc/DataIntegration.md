@@ -115,9 +115,13 @@ On Linux builds with librdkafka, select the standalone `kafka_source` extension.
 Set `bootstrap_servers`, `kafka_topic`, `group_id`, and `mqtt_topic`. The Kafka topic
 must already exist. Use `security_protocol=SSL` (default) or `PLAINTEXT` on a trusted
 test network. For TLS, the Kafka certificate must match the Kafka broker hostname
-and chain to a CA trusted on the XMQ host. The MQTT listener's certificate is not
+and chain to a CA trusted on the XMQ host; hostname verification is enabled explicitly
+in both TLS transports. The MQTT listener's certificate is not
 used, and client certificates for mTLS are not configurable. For SASL, select
 `SASL_SSL` or `SASL_PLAINTEXT`, a SCRAM mechanism, and the username and password.
+`session_timeout_ms` (default 10000, allowed 6000–60000) controls how long Kafka
+waits for this consumer before rejoining the group; it also bounds the wait when
+the extension is applied or disabled.
 The record value becomes the MQTT payload unchanged; Kafka null
 values become empty payloads. Imports are not retained or passed to the export tap.
 

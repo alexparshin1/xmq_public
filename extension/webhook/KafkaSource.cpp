@@ -2,9 +2,11 @@
 
 #include <librdkafka/rdkafka.h>
 
+#include <charconv>
 #include <chrono>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 namespace {
@@ -32,6 +34,9 @@ constexpr xmq_setting settings[] = {
      .type = XMQ_SETTING_CHOICE, .default_value = "SCRAM-SHA-256", .choices = "SCRAM-SHA-256,SCRAM-SHA-512"},
     {.name = "sasl_username", .label = "Kafka username", .type = XMQ_SETTING_STRING, .default_value = ""},
     {.name = "sasl_password", .label = "Kafka password", .type = XMQ_SETTING_SECRET, .default_value = ""},
+    {.name = "session_timeout_ms", .label = "Consumer session timeout, ms",
+     .description = "How long Kafka waits for this consumer before rejoining the group. Shorter values make Apply and Disable faster.",
+     .type = XMQ_SETTING_INTEGER, .default_value = "10000"},
 };
 
 class KafkaSource final : public xmq::XmqExtensionBase
@@ -42,6 +47,7 @@ class KafkaSource final : public xmq::XmqExtensionBase
     {
         std::string brokers, kafkaTopic, group, mqttTopic, protocol;
         std::string mechanism, username, password;
+        int sessionTimeoutMs{10000};
     };
 
 public:
@@ -73,6 +79,12 @@ private:
             config.mechanism = setting("sasl_mechanism", "SCRAM-SHA-256");
             config.username = setting("sasl_username");
             config.password = setting("sasl_password");
+            const auto timeout = setting("session_timeout_ms", "10000");
+            const auto parsed = std::from_chars(timeout.data(), timeout.data() + timeout.size(),
+                                                config.sessionTimeoutMs);
+            if (parsed.ec != std::errc{} || parsed.ptr != timeout.data() + timeout.size() ||
+                config.sessionTimeoutMs < 6000 || config.sessionTimeoutMs > 60000)
+                throw std::runtime_error("session_timeout_ms must be an integer from 6000 to 60000");
             if (config.brokers.empty() || config.kafkaTopic.empty() || config.group.empty() || config.mqttTopic.empty())
                 throw std::runtime_error("Kafka brokers, Kafka topic, consumer group and MQTT topic are required");
             if (config.kafkaTopic.size() > 249 || config.kafkaTopic == "." || config.kafkaTopic == ".." ||
@@ -124,6 +136,13 @@ private:
         set("group.id", config.group.c_str());
         set("auto.offset.reset", "earliest");
         set("security.protocol", config.protocol.c_str());
+        // Explicit rather than relying on the librdkafka default: older releases leave hostname
+        // verification off, while the documentation promises the broker name is checked.
+        if (config.protocol == "SSL" || config.protocol == "SASL_SSL")
+            set("ssl.endpoint.identification.algorithm", "https");
+        // Bounds rd_kafka_consumer_close() in stop(): without it librdkafka waits up to the default
+        // 45 s session timeout for the group rebalance.
+        set("session.timeout.ms", std::to_string(config.sessionTimeoutMs).c_str());
         if (config.protocol.starts_with("SASL_"))
         {
             set("sasl.mechanism", config.mechanism.c_str());
