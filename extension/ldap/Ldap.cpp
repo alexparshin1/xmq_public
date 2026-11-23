@@ -403,10 +403,11 @@ public:
                 std::clamp(number("negative_cache_ttl_seconds", "10"), 0, 3600);
             config->cacheEntries = static_cast<size_t>(std::clamp(number("cache_max_entries", "4096"), 1, 1000000));
             validate(*config);
+            auto cache = std::make_shared<DecisionCache>();
+            cache->configure(config->cacheSeconds, config->negativeCacheSeconds, config->cacheEntries);
             const std::lock_guard lock(m_mutex);
             m_config = std::move(config);
-            m_cache.configure(m_config->cacheSeconds, m_config->negativeCacheSeconds,
-                              m_config->cacheEntries);
+            m_cache = std::move(cache);
             return true;
         }
         catch (const std::exception& error)
@@ -427,7 +428,8 @@ public:
     {
         groups.clear();
         std::shared_ptr<const Config> config;
-        { const std::lock_guard lock(m_mutex); config = m_config; }
+        std::shared_ptr<DecisionCache> cache;
+        { const std::lock_guard lock(m_mutex); config = m_config; cache = m_cache; }
         if (!config) return XMQ_AUTH_SUBSYSTEM_ERROR;
         const std::string_view username(request.username.data ? request.username.data : "", request.username.length);
         if (!username.starts_with(config->prefix)) return XMQ_AUTH_NOT_HANDLED;
@@ -439,16 +441,16 @@ public:
         {
             xmq_auth_decision cached {};
             std::vector<std::string> cachedGroups;
-            if (m_cache.find(key, cached, cachedGroups))
+            if (cache->find(key, cached, cachedGroups))
             {
                 groups = std::move(cachedGroups);
                 return cached;
             }
         }
         auto filter = userSearchFilter(*config, username.substr(config->prefix.size()));
-        const auto remember = [this, &key](const xmq_auth_decision decision)
+        const auto remember = [&cache, &key](const xmq_auth_decision decision)
         {
-            if (!key.empty()) m_cache.store(key, decision, {});
+            if (!key.empty()) cache->store(key, decision, {});
             return decision;
         };
         filter.replace(filter.find("{username}"), 10, escapeFilter(username.substr(config->prefix.size())));
@@ -519,7 +521,7 @@ public:
                     std::find(groups.begin(), groups.end(), nativeGroup) == groups.end())
                     groups.push_back(nativeGroup);
             }
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_ALLOW, groups);
+            if (!key.empty()) cache->store(key, XMQ_AUTH_ALLOW, groups);
             return XMQ_AUTH_ALLOW;
         }
         catch (const std::exception& error)
@@ -540,7 +542,7 @@ private:
 
     std::mutex m_mutex;
     std::shared_ptr<const Config> m_config;
-    DecisionCache                 m_cache;
+    std::shared_ptr<DecisionCache> m_cache;
     std::array<unsigned char, 32> m_salt {};
 };
 } // namespace

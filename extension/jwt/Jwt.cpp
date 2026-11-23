@@ -424,7 +424,9 @@ public:
         {
             return false;
         }
-        if (found->second.expires <= Clock::now())
+        if (found->second.expires <= Clock::now() ||
+            (found->second.tokenExpiry && *found->second.tokenExpiry <=
+                static_cast<int64_t>(std::time(nullptr)) - found->second.skew))
         {
             m_order.erase(found->second.order);
             m_entries.erase(found);
@@ -438,18 +440,19 @@ public:
 
     /// An outage is never stored: it must not become a remembered answer in either direction.
     void store(const std::string&              key, const xmq_auth_decision decision,
-               const std::vector<std::string>& groups)
+               const std::vector<std::string>& groups, std::optional<int64_t> tokenExpiry = {},
+               int skew = 0)
     {
         if (decision == XMQ_AUTH_SUBSYSTEM_ERROR)
         {
             return;
         }
+        const std::scoped_lock lock(m_mutex);
         const auto lifetime = decision == XMQ_AUTH_ALLOW ? m_positive : m_negative;
         if (lifetime.count() == 0)
         {
             return;
         }
-        const std::scoped_lock lock(m_mutex);
         const auto             now = Clock::now();
         for (auto entry = m_entries.begin(); entry != m_entries.end();)
         {
@@ -474,7 +477,7 @@ public:
             m_order.pop_back();
         }
         m_order.push_front(key);
-        m_entries.emplace(key, Entry{now + lifetime, decision, groups, m_order.begin()});
+        m_entries.emplace(key, Entry{now + lifetime, decision, groups, m_order.begin(), tokenExpiry, skew});
     }
 
 private:
@@ -484,6 +487,8 @@ private:
         xmq_auth_decision                decision;
         std::vector<std::string>         groups;
         std::list<std::string>::iterator order;
+        std::optional<int64_t>           tokenExpiry;
+        int                             skew;
     };
 
     std::mutex                             m_mutex;
@@ -635,6 +640,13 @@ public:
                (config.audience.empty() || XmqClaims::audienceMatches(claims, config.audience));
     }
 
+    int64_t expiry() const
+    {
+        int64_t value = 0;
+        XmqClaims::number(m_jwt.grants.root(), "exp", value);
+        return value;
+    }
+
     std::string identity(const Config& config) const
     {
         return m_verified ? XmqClaims::string(m_jwt.grants.root(), config.usernameClaim) : std::string{};
@@ -702,23 +714,22 @@ public:
             validate(*config);
             if (!config->jwksUrl.empty() && !plainHttpAllowed(config->jwksUrl))
                 throw std::runtime_error("JWT jwks_url must use https outside loopback");
+            auto jwks = std::make_shared<XmqJwksProvider>();
+            jwks->configure(keySetLifetimeSeconds);
             if (!config->jwksUrl.empty() && config->publicKeyPem.empty())
             {
                 // One fetch at load time, so a wrong URL or CA is reported where it is configured
                 // rather than on the first connection.
                 std::string error;
-                m_jwks.configure(keySetLifetimeSeconds);
-                if (!m_jwks.key(*config, config->algorithm, "", error))
+                if (!jwks->key(*config, config->algorithm, "", error))
                     throw std::runtime_error("JWT key set is not available: " + error);
             }
-            else
-            {
-                m_jwks.configure(keySetLifetimeSeconds);
-            }
+            auto cache = std::make_shared<XmqDecisionCache>();
+            cache->configure(config->cacheSeconds, config->negativeCacheSeconds, config->cacheEntries);
             const std::scoped_lock lock(m_mutex);
             m_config = std::move(config);
-            m_cache.configure(m_config->cacheSeconds, m_config->negativeCacheSeconds,
-                              m_config->cacheEntries);
+            m_cache = std::move(cache);
+            m_jwks = std::move(jwks);
             return true;
         }
         catch (const std::exception& error)
@@ -739,9 +750,13 @@ public:
     {
         groups.clear();
         std::shared_ptr<const Config> config;
+        std::shared_ptr<XmqDecisionCache> cache;
+        std::shared_ptr<XmqJwksProvider> jwks;
         {
             const std::scoped_lock lock(m_mutex);
             config = m_config;
+            cache = m_cache;
+            jwks = m_jwks;
         }
         if (!config)
         {
@@ -763,7 +778,7 @@ public:
         {
             xmq_auth_decision        cached{};
             std::vector<std::string> cachedGroups;
-            if (m_cache.find(key, cached, cachedGroups))
+            if (cache->find(key, cached, cachedGroups))
             {
                 groups = std::move(cachedGroups);
                 return cached;
@@ -779,7 +794,7 @@ public:
         }
         catch (const std::exception&)
         {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
         const auto algorithm = decodedToken.algorithm();
@@ -789,7 +804,7 @@ public:
         {
             log(XMQ_LOG_WARNING, "rejected a token that asks for " + algorithm + ", not " +
                                  config->algorithm);
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
@@ -803,7 +818,7 @@ public:
         else
         {
             const auto keyId = decodedToken.keyId();
-            signingKey = m_jwks.key(*config, config->algorithm, keyId, error);
+            signingKey = jwks->key(*config, config->algorithm, keyId, error);
             if (!signingKey)
             {
                 // A missing/unavailable JWKS is a subsystem failure, not a bad password.
@@ -826,13 +841,13 @@ public:
         }
         catch (const std::exception&)
         {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
         if (!decodedToken.accepts(*config))
         {
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
@@ -840,7 +855,7 @@ public:
         if (identity.empty())
         {
             log(XMQ_LOG_WARNING, "rejected a token with no " + config->usernameClaim + " claim");
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
@@ -851,7 +866,7 @@ public:
         {
             log(XMQ_LOG_WARNING, "rejected a token for " + identity + " presented as " +
                                  std::string(presentedName));
-            if (!key.empty()) m_cache.store(key, XMQ_AUTH_DENY, {});
+            if (!key.empty()) cache->store(key, XMQ_AUTH_DENY, {});
             return XMQ_AUTH_DENY;
         }
 
@@ -880,7 +895,7 @@ public:
                     "token for " + identity + " names no group that is mapped, so it gets no access");
             }
         }
-        if (!key.empty()) m_cache.store(key, XMQ_AUTH_ALLOW, groups);
+        if (!key.empty()) cache->store(key, XMQ_AUTH_ALLOW, groups, decodedToken.expiry(), config->skewSeconds);
         return XMQ_AUTH_ALLOW;
     }
 
@@ -897,8 +912,8 @@ private:
 
     mutable std::mutex            m_mutex;
     std::shared_ptr<const Config> m_config;
-    XmqDecisionCache              m_cache;
-    XmqJwksProvider                m_jwks;
+    std::shared_ptr<XmqDecisionCache> m_cache;
+    std::shared_ptr<XmqJwksProvider>  m_jwks;
     std::array<unsigned char, 32> m_salt{};
 };
 } // namespace

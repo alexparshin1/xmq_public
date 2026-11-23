@@ -506,6 +506,11 @@ int main()
             cache.store("allow", XMQ_AUTH_ALLOW, {"Operators"});
             expect(cache.find("allow", decision, groups) && decision == XMQ_AUTH_ALLOW &&
                    groups.size() == 1, "an allow is remembered with its groups");
+            const auto now = static_cast<int64_t>(std::time(nullptr));
+            cache.store("expired-token", XMQ_AUTH_ALLOW, {}, now - 60, 30);
+            expect(!cache.find("expired-token", decision, groups), "token expiry overrides cache TTL");
+            cache.store("within-skew", XMQ_AUTH_ALLOW, {}, now - 1, 30);
+            expect(cache.find("within-skew", decision, groups), "token clock skew still applies");
             cache.store("deny", XMQ_AUTH_DENY, {});
             expect(cache.find("deny", decision, groups) && decision == XMQ_AUTH_DENY,
                    "a refusal is remembered");

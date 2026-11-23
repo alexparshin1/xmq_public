@@ -64,9 +64,13 @@ std::string attribute(Session& session, LDAPMessage* entry, const std::string_vi
 
 #ifdef _WIN32
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <limits>
+#include <thread>
 #include <vector>
 #include <wincrypt.h>
 
@@ -75,6 +79,37 @@ namespace {
 struct TlsContext { HCERTSTORE roots = nullptr; HCERTCHAINENGINE engine = nullptr; std::wstring hostname; };
 std::mutex tlsMutex;
 std::map<LDAP*, TlsContext> tlsContexts;
+
+// WinLDAP offers no response deadline for synchronous StartTLS or SASL bind.
+// Interrupt network I/O on the connected socket without closing WinLDAP's handle
+// from another thread. A timed-out session is discarded by the caller.
+template<class Operation>
+int withDeadline(Session& session, unsigned seconds, Operation operation)
+{
+    SOCKET socket = INVALID_SOCKET;
+    const auto status = ldap_get_optionW(session.handle, LDAP_OPT_DESC, &socket);
+    if (status != LDAP_SUCCESS) return static_cast<int>(status);
+    if (socket == INVALID_SOCKET) return LDAP_LOCAL_ERROR;
+
+    std::mutex mutex;
+    std::condition_variable_any condition;
+    std::atomic<bool> timedOut{false};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    std::jthread watchdog([&](std::stop_token stop)
+    {
+        std::unique_lock lock(mutex);
+        condition.wait_until(lock, stop, deadline, [] { return false; });
+        if (!stop.stop_requested())
+        {
+            timedOut = true;
+            ::shutdown(socket, SD_BOTH);
+        }
+    });
+    const auto result = operation();
+    watchdog.request_stop();
+    watchdog.join();
+    return timedOut || std::chrono::steady_clock::now() >= deadline ? LDAP_TIMEOUT : result;
+}
 
 BOOLEAN LDAPAPI verifyServerCertificate(PLDAP connection, PCCERT_CONTEXT certificate)
 {
@@ -215,6 +250,10 @@ int open(Session& session, const std::string_view host, const unsigned short por
     if (result != LDAP_SUCCESS) return static_cast<int>(result);
     result = ldap_set_optionW(session.handle, LDAP_OPT_REFERRALS, &referrals);
     if (result != LDAP_SUCCESS) return static_cast<int>(result);
+    const ULONG reconnect = 0;
+    result = ldap_set_optionW(session.handle, LDAP_OPT_AUTO_RECONNECT, &reconnect);
+    if (result != LDAP_SUCCESS) return static_cast<int>(result);
+    session.timeoutSeconds = timeoutSeconds;
     auto roots = loadRoots(caFile);
     if (!roots) return LDAP_LOCAL_ERROR;
     HCERTCHAINENGINE engine = nullptr;
@@ -239,9 +278,11 @@ int open(Session& session, const std::string_view host, const unsigned short por
     return static_cast<int>(ldap_connect(session.handle, &timeout));
 }
 
-int startTls(Session& session, const unsigned)
+int startTls(Session& session, const unsigned timeoutSeconds)
 {
-    return static_cast<int>(ldap_start_tls_sW(session.handle, nullptr, nullptr, nullptr, nullptr));
+    return withDeadline(session, timeoutSeconds, [&] {
+        return static_cast<int>(ldap_start_tls_sW(session.handle, nullptr, nullptr, nullptr, nullptr));
+    });
 }
 
 int bind(Session& session, const std::string_view dn, const std::string_view password)
@@ -249,8 +290,11 @@ int bind(Session& session, const std::string_view dn, const std::string_view pas
     const auto name = utf16(dn);
     if (password.size() > std::numeric_limits<ULONG>::max()) return LDAP_PARAM_ERROR;
     berval credential {static_cast<ULONG>(password.size()), const_cast<char*>(password.data())};
-    return ldap_sasl_bind_sW(session.handle, dn.empty() ? nullptr : const_cast<PWCHAR>(name.c_str()),
-                             const_cast<PWCHAR>(L""), &credential, nullptr, nullptr, nullptr);
+    return withDeadline(session, session.timeoutSeconds, [&] {
+        return static_cast<int>(ldap_sasl_bind_sW(session.handle,
+            dn.empty() ? nullptr : const_cast<PWCHAR>(name.c_str()),
+            const_cast<PWCHAR>(L""), &credential, nullptr, nullptr, nullptr));
+    });
 }
 
 int search(Session& session, const std::string_view base, const int scope, const std::string_view filter,

@@ -2,6 +2,7 @@
 #pragma once
 
 #ifdef _WIN32
+#include <winsock2.h>
 #include <windows.h>
 #include <winldap.h>
 #include <string>
@@ -16,6 +17,7 @@ bool validDn(std::string_view value);
 std::string error(unsigned long code);
 struct Session {
     LDAP* handle = nullptr;
+    unsigned timeoutSeconds = 0;
     ~Session();
     Session() = default;
     Session(const Session&) = delete;

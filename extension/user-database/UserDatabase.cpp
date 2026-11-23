@@ -449,7 +449,14 @@ public:
         return slot.m_allowed ? Answer::Allowed : Answer::Refused;
     }
 
-    void remember(const std::string& username, const std::string& password, const bool allowed)
+    uint64_t generation() const
+    {
+        const std::shared_lock lock(m_mutex);
+        return m_generation;
+    }
+
+    void remember(const std::string& username, const std::string& password, const bool allowed,
+                  const uint64_t generation)
     {
         if (!m_usable)
         {
@@ -458,6 +465,8 @@ public:
 
         const auto digest = tag(username, password);
         const std::scoped_lock lock(m_mutex);
+        if (generation != m_generation)
+            return;
 
         auto& slot = m_slots[index(digest)];
         slot.m_digest = digest;
@@ -469,6 +478,7 @@ public:
     void forget()
     {
         const std::scoped_lock lock(m_mutex);
+        ++m_generation;
         for (auto& slot: m_slots)
         {
             slot.m_expiresAtMs = 0;
@@ -526,6 +536,7 @@ private:
     static constexpr int64_t lifetimeMs = 60000;
 
     mutable std::shared_mutex        m_mutex;
+    uint64_t                         m_generation{0};
     std::array<Slot, slotCount>      m_slots {};
     std::array<unsigned char, 32>    m_key {};
     bool                             m_usable {true};
@@ -908,9 +919,8 @@ public:
         {
             const std::scoped_lock lock(m_databaseLock);
             m_database = std::move(pool);
+            m_cache.forget();
         }
-        // The answers belonged to the store that has just been replaced.
-        m_cache.forget();
 
         // Changed from a local file to a shared database, or the other way: polling
         // follows, restarted from the new URI.
@@ -967,9 +977,11 @@ public:
         // Copied under the lock and used outside it, so a reload() that swaps the pool mid-query
         // cannot pull it out from under this call: the pool stays alive as long as this reference.
         std::shared_ptr<sptk::DatabaseConnectionPool> database;
+        uint64_t generation;
         {
             const std::scoped_lock lock(m_databaseLock);
             database = m_database;
+            generation = m_cache.generation();
         }
         if (database == nullptr)
         {
@@ -1013,12 +1025,12 @@ public:
         if (!enabled || verifier.empty() || !verify(password, verifier))
         {
             ++m_refused;
-            m_cache.remember(username, password, false);
+            m_cache.remember(username, password, false, generation);
             return XMQ_AUTH_DENY;
         }
 
         ++m_admitted;
-        m_cache.remember(username, password, true);
+        m_cache.remember(username, password, true, generation);
         return XMQ_AUTH_ALLOW;
     }
 
