@@ -192,9 +192,14 @@ export default function WebhookDocumentation() {
                 certificate; the client checks the certificate chain and broker hostname. A private CA
                 must be trusted on the XMQ host. The XMQ MQTT listener certificate is not used, and
                 client certificates for mutual TLS are not configurable. Select <code>PLAINTEXT</code>
-                {" "}only on a trusted test network. For SASL, choose <code>SASL_SSL</code> or
+                {" "}only on a trusted test network. Hostname verification is enabled explicitly for
+                both TLS transports. For SASL, choose <code>SASL_SSL</code> or
                 <code> SASL_PLAINTEXT</code>, select the SCRAM mechanism and set the username and
                 password; the password is masked on the screen and in the stored settings.</p>
+            <p><b>Consumer session timeout, ms</b> defaults to <code>10000</code> (allowed
+                <code> 6000</code>–<code>60000</code>). It sets how long Kafka waits for this consumer
+                before rejoining the group, and also bounds the wait when the extension is applied
+                or disabled.</p>
             <p>The Kafka record value becomes the MQTT payload unchanged; a null value becomes an
                 empty payload. Messages are not retained or passed to the export tap. A new consumer
                 group starts at the earliest available offset; an existing group resumes from its
