@@ -12,6 +12,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
+#include "test/TestServers.h"
 #include "common/DirectoryNames.h"
 #include "server/Cluster/NodeIdentity.h"
 #include "server/Settings/ClusterStore.h"
@@ -30,7 +31,7 @@ using namespace xmq;
 
 namespace {
 
-constexpr const char* pgUri = "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+const String pgUri = TestServers::sharedDatabaseUri("dbhost_pg");
 
 bool pgAnswers()
 {
@@ -53,7 +54,7 @@ bool pgAnswers()
 /// is about; everything else is the least a configuration can hold.
 String configurationText()
 {
-    return R"({
+    String text = R"({
         "connections": {
             "listener": [{"id": 1, "name": "Default", "protocol": "MQTT", "bind_ip": "127.0.0.1", "port": 18886, "threads": 1, "enable": true}],
             "ssl_keys": {"cafile": "", "keyfile": "${ProgramCerts}/node.key", "certfile": "${ProgramCerts}/node.crt", "verify_depth": 0}
@@ -70,6 +71,8 @@ String configurationText()
         "bridges": [],
         "cluster": {"this_node": {"node_name": "bootstrap-node", "host_port": "localhost:8883"}}
     })";
+    text.replace("xmq_test", TestServers::databaseName());
+    return text;
 }
 
 } // namespace
@@ -146,7 +149,7 @@ TEST(XMQ_ClusterBootstrapTests, theNodeRowIsCreatedOnceAndReadAfterwards)
         document.load(text);
         const auto rootDatabaseUri = document.root()->findFirst("database_uri");
         ASSERT_TRUE(rootDatabaseUri) << text.c_str();
-        EXPECT_EQ(String("postgresql://gtest:test#123@dbhost_pg/xmq_test"), rootDatabaseUri->getText());
+        EXPECT_EQ(TestServers::sharedDatabaseUri("dbhost_pg"), rootDatabaseUri->getText());
         EXPECT_FALSE(document.root()->findFirst("cluster"))
             << "the cluster section still carries a setting the root now holds";
     }
@@ -732,7 +735,7 @@ TEST(XMQ_ClusterBootstrapTests, theDefaultListenerOfABootstrapFileStaysEnabledTh
     filesystem::create_directories(directory);
 
     const auto configurationPath = directory / "xmq_server.conf";
-    Buffer(R"({
+    String bootstrapText = R"({
         "database_uri": "postgresql://gtest:test#123@dbhost_pg/xmq_test",
         "connections": {
             "ssl_keys": {"cafile": "", "keyfile": "/tmp/node.key", "certfile": "/tmp/node.crt", "verify_depth": 0}
@@ -740,7 +743,9 @@ TEST(XMQ_ClusterBootstrapTests, theDefaultListenerOfABootstrapFileStaysEnabledTh
         "authentication": {"allow_anonymous": false,
                            "database_uri": "postgresql://gtest:test#123@dbhost_pg/xmq_test"},
         "web_service": {"certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"}
-    })").saveToFile(configurationPath);
+    })";
+    bootstrapText.replace("xmq_test", TestServers::databaseName());
+    Buffer(bootstrapText).saveToFile(configurationPath);
 
     String nodeId;
     {
@@ -791,7 +796,7 @@ TEST(XMQ_ClusterBootstrapTests, aNodeWithLocalAccountsKeepsEverySectionInTheFile
 
     const auto configurationPath = directory / "xmq_server.conf";
     std::string text(configurationText().c_str());
-    const std::string from = "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+    const std::string from = TestServers::sharedDatabaseUri("dbhost_pg").c_str();
     const auto at = text.find(from);
     ASSERT_NE(std::string::npos, at);
     text.replace(at, from.size(),
@@ -1156,10 +1161,11 @@ TEST(XMQ_ClusterBootstrapTests, aResetThatCannotRetireTheRowChangesNothing)
 
     const auto configurationPath = directory / "xmq_server.conf";
     std::string text(configurationText().c_str());
-    const std::string from = "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+    const std::string from = TestServers::sharedDatabaseUri("dbhost_pg").c_str();
     const auto at = text.find(from);
     ASSERT_NE(std::string::npos, at);
-    text.replace(at, from.size(), "postgresql://gtest:test#123@no-such-host.invalid/xmq_test");
+    text.replace(at, from.size(),
+                 string(TestServers::sharedDatabaseUri("no-such-host.invalid").c_str()));
     Buffer(text).saveToFile(configurationPath);
 
     Buffer before;

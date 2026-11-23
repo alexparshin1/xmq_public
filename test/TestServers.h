@@ -31,6 +31,18 @@ public:
     static sptk::String                dbConnectString(StorageType type);
 
     /**
+     * @brief The test database name on the shared SQL servers.
+     * @remarks XMQ_TEST_DATABASE overrides it. The farm runs the Linux and FreeBSD sequences at
+     *          the same time, and both drop and recreate the same tables; each sequence must use a
+     *          different database or they destroy each other's schemas.
+     */
+    static std::string                 databaseName();
+
+    /// A URI on the shared SQL test server, using databaseName().
+    static sptk::String                sharedDatabaseUri(const std::string& host,
+                                                        const std::string& scheme = "postgresql");
+
+    /**
      * @brief The Redis the tests actually connect to.
      * @remarks Named here rather than written into each suite's configuration so that the cleanup
      *          after every test and the servers under test cannot drift apart.

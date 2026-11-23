@@ -43,7 +43,7 @@ vector<pair<String, String>> reachableDatabases()
     databases.emplace_back("SQLite3", DirectoryNames::sqliteUri(sqlite));
 
     vector<pair<String, String>> candidates {
-        {"PostgreSQL", "postgresql://gtest:test#123@dbhost_pg/xmq_test"}};
+        {"PostgreSQL", TestServers::sharedDatabaseUri("dbhost_pg")}};
 
 #if !defined(_WIN32) || !defined(_DEBUG)
     // Not in a Windows debug build. MySQL ships its Windows client library release-only, so calling
@@ -53,7 +53,7 @@ vector<pair<String, String>> reachableDatabases()
     //
     // Skipped rather than caught, because it cannot be caught: the damage is done inside the
     // driver, and the exception never arrives.
-    candidates.emplace_back("MySQL", "mysql://gtest:test#123@dbhost_mysql/xmq_test");
+    candidates.emplace_back("MySQL", TestServers::sharedDatabaseUri("dbhost_mysql", "mysql"));
 #endif
 
     for (const auto& [name, uri]: candidates)

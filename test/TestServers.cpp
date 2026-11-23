@@ -76,6 +76,17 @@ String TestServers::dbConnectString(const StorageType type)
     return connectString;
 } // namespace xmq
 
+string TestServers::databaseName()
+{
+    const char* configured = std::getenv("XMQ_TEST_DATABASE");
+    return configured != nullptr && *configured != '\0' ? configured : "xmq_test";
+}
+
+String TestServers::sharedDatabaseUri(const string& host, const string& scheme)
+{
+    return String(scheme + "://gtest:test#123@" + host + "/" + databaseName());
+}
+
 String TestServers::redisUri()
 {
     if (const auto* fromEnvironment = ::getenv("XMQ_TEST_REDIS");

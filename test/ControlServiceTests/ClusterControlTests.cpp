@@ -44,10 +44,10 @@ vector<pair<String, String>> reachableClusterDatabases()
     vector<pair<String, String>> databases;
 
     vector<pair<String, String>> candidates{
-        {"PostgreSQL", "postgresql://gtest:test#123@dbhost_pg/xmq_test"}};
+        {"PostgreSQL", TestServers::sharedDatabaseUri("dbhost_pg")}};
 
 #if !defined(_WIN32) || !defined(_DEBUG)
-    candidates.emplace_back("MySQL", "mysql://gtest:test#123@dbhost_mysql/xmq_test");
+    candidates.emplace_back("MySQL", TestServers::sharedDatabaseUri("dbhost_mysql", "mysql"));
 #endif
 
     for (const auto& [name, uri]: candidates)

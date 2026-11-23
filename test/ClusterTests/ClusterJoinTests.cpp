@@ -125,7 +125,7 @@ String adminToken(xmq::ControlService& service)
 TEST_F(XMQ_ClusterTests, sharedDatabaseJoinNeedsOneConfirmationAndCanLeaveAgain)
 {
     const auto configured = getenv("XMQ_TEST_JOIN_DATABASE_URI");
-    const String uri = configured && *configured ? configured : "postgresql://gtest:test#123@dbhost_pg/xmq_test";
+    const String uri = configured && *configured ? configured : TestServers::sharedDatabaseUri("dbhost_pg");
     if (uri.find("postgresql://") != 0)
     {
         GTEST_SKIP() << "This test isolates its accounts in a PostgreSQL schema";
