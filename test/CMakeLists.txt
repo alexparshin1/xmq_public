@@ -89,7 +89,7 @@ XMQ_ADD_EXTENSION(xmq_test_authorizer SOURCES ${CMAKE_CURRENT_LIST_DIR}/../examp
 # source the broker ships. SPTK gives it the database layer and OPENSSL the KDF it verifies with -
 # both opt-in, see cmake/XmqExtension.cmake for why.
 XMQ_ADD_EXTENSION(xmq_test_user_database
-        SOURCES ${CMAKE_CURRENT_LIST_DIR}/../extension/user-database/UserDatabase.cpp SPTK OPENSSL)
+        SOURCES ${CMAKE_CURRENT_LIST_DIR}/../extension/user-database/UserDatabase.cpp SPTK_DB OPENSSL)
 
 # Not a sample, and deliberately not under examples/: it blocks inside authorize(), which the ABI
 # forbids, so that an invalidation can be made to land while the broker is inside the extension.

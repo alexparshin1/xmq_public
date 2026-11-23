@@ -24,7 +24,7 @@
 # and rather than a query service in the ABI, which would put the broker on that path.
 #
 FUNCTION(XMQ_ADD_EXTENSION extensionName)
-    CMAKE_PARSE_ARGUMENTS(EXTENSION "SPTK;OPENSSL" "UI" "SOURCES" ${ARGN})
+    CMAKE_PARSE_ARGUMENTS(EXTENSION "SPTK;SPTK_DB;OPENSSL" "UI" "SOURCES" ${ARGN})
 
     IF (NOT EXTENSION_SOURCES)
         MESSAGE(FATAL_ERROR "XMQ_ADD_EXTENSION(${extensionName}) needs SOURCES")
@@ -44,10 +44,15 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
     SET(extensionIncludes "${XMQ_EXTENSION_INCLUDE_DIR}")
     SET(extensionLibraries "")
 
-    IF (EXTENSION_SPTK)
-        IF (NOT SPTK_INCLUDE_DIR OR NOT SPTK_LIBRARY_CORE OR NOT SPTK_LIBRARY_SPDB)
+    IF (EXTENSION_SPTK OR EXTENSION_SPTK_DB)
+        IF (NOT SPTK_INCLUDE_DIR OR NOT SPTK_LIBRARY_CORE)
             MESSAGE(FATAL_ERROR
-                    "XMQ_ADD_EXTENSION(${extensionName} ... SPTK) needs SPTK with database support. "
+                    "XMQ_ADD_EXTENSION(${extensionName} ... SPTK) needs SPTK. "
+                    "FIND_PACKAGE(SPTK) has to have run in a directory that reaches this one.")
+        ENDIF ()
+        IF (EXTENSION_SPTK_DB AND NOT SPTK_LIBRARY_SPDB)
+            MESSAGE(FATAL_ERROR
+                    "XMQ_ADD_EXTENSION(${extensionName} ... SPTK_DB) needs SPTK with database support. "
                     "FIND_PACKAGE(SPTK) has to have run in a directory that reaches this one.")
         ENDIF ()
 
@@ -55,7 +60,11 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
         # library in a process that already has one, with its own statics and its own idea of what
         # is fixed in it. FindSPTK restricts its own search to the shared suffix, so this catches a
         # cache variable somebody set by hand.
-        FOREACH (sptkLibrary "${SPTK_LIBRARY_CORE}" "${SPTK_LIBRARY_SPDB}")
+        SET(extensionSptkLibraries "${SPTK_LIBRARY_CORE}")
+        IF (EXTENSION_SPTK_DB)
+            LIST(APPEND extensionSptkLibraries "${SPTK_LIBRARY_SPDB}")
+        ENDIF ()
+        FOREACH (sptkLibrary ${extensionSptkLibraries})
             IF (sptkLibrary MATCHES "_static|\\.a$")
                 MESSAGE(FATAL_ERROR
                         "XMQ_ADD_EXTENSION(${extensionName} ... SPTK) will not link a static SPTK: "
@@ -80,7 +89,10 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
                 LIST(APPEND extensionIncludes "${${sptkDependency}}")
             ENDIF ()
         ENDFOREACH ()
-        LIST(APPEND extensionLibraries "${SPTK_LIBRARY_SPDB}" "${SPTK_LIBRARY_CORE}")
+        # Only an extension that actually reaches a database links spdb5. Pulling it into every
+        # SPTK extension made the Windows linker see two copies of the STL symbols that SPTK's
+        # import library exports and the extension's own objects instantiate (LNK2005).
+        LIST(APPEND extensionLibraries ${extensionSptkLibraries})
     ENDIF ()
 
     # OpenSSL's crypto library, for an extension that hashes or verifies something itself.

@@ -53,7 +53,7 @@ XMQ_ADD_EXTENSION(xmq_http_sink SOURCES "${CMAKE_CURRENT_LIST_DIR}/HttpSink.cpp"
                                        "${CMAKE_CURRENT_LIST_DIR}/HttpPeer.cpp" SPTK OPENSSL
                   UI "${CMAKE_CURRENT_LIST_DIR}/http_sink.ui.json")
 
-XMQ_ADD_EXTENSION(xmq_db_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/DbSink.cpp SPTK
+XMQ_ADD_EXTENSION(xmq_db_sink SOURCES ${CMAKE_CURRENT_LIST_DIR}/DbSink.cpp SPTK_DB
                   UI "${CMAKE_CURRENT_LIST_DIR}/db_sink.ui.json")
 
 IF (TARGET PkgConfig::RDKAFKA)

@@ -9,7 +9,7 @@
 #
 # SPTK, because its store is a database and it reaches SQL the way the broker does rather than
 # linking libsqlite3 or libpq itself.
-XMQ_ADD_EXTENSION(xmq_user_database SOURCES ${CMAKE_CURRENT_LIST_DIR}/UserDatabase.cpp SPTK OPENSSL)
+XMQ_ADD_EXTENSION(xmq_user_database SOURCES ${CMAKE_CURRENT_LIST_DIR}/UserDatabase.cpp SPTK_DB OPENSSL)
 
 # $6$ verifiers are checked with the platform's crypt(), the same one the broker uses. There is no
 # such library on Windows, and the extension reports that format as unusable there.

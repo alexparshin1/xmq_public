@@ -253,7 +253,7 @@ TEST_F(XMQ_ReliableStoreTests, UnsafeSettingsAndLiveReconfigurationAreRejected)
     // belongs to the control service, which knows whether MQTT is serving and can route the change
     // through the apply action - so drive the interface a client actually reaches.
     TestServerController controller(server().get(), settings);
-    ControlService controlService(&controller);
+    xmq::ControlService controlService(&controller);
 
     CLogin login;
     login.m_username = "admin";
