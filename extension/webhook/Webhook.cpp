@@ -439,6 +439,29 @@ private:
         return true;
     }
 
+    bool prepare(Destination& destination, WebhookEntry& entry) const
+    {
+        if (!project(destination, entry))
+            return false;
+#ifdef XMQ_SPTK_JSON_SCHEMA
+        if (destination.schema)
+        {
+            const auto result = destination.schema->validate(entry.body);
+            if (result)
+                return true;
+            reportExport(XMQ_EXPORT_SCHEMA_REJECTED, result.instancePath,
+                         result.keyword.empty() ? "invalid JSON" : result.keyword);
+#ifdef XMQ_PERSISTENT_DELIVERY
+            if (publishDeadLetter(destination, entry))
+                return false;
+#endif
+            destination.dropped.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+#endif
+        return true;
+    }
+
     static int sendToSink(SinkModule& sink, void* instance, const WebhookEntry& entry)
     {
         if (!instance)
@@ -478,7 +501,16 @@ private:
         return result;
     }
 
-    static void persist(Destination& destination)
+    bool publishDeadLetter(const Destination& destination, const WebhookEntry& entry) const
+    {
+        if (destination.deadLetterTopic.empty())
+            return false;
+        const bool accepted = publishLocal(destination.deadLetterTopic, entry.body);
+        reportExport(accepted ? XMQ_EXPORT_DEAD_LETTER_ACCEPTED : XMQ_EXPORT_DEAD_LETTER_FAILED);
+        return accepted;
+    }
+
+    void persist(Destination& destination)
     {
         for (;;)
         {
@@ -491,7 +523,7 @@ private:
                 entry = std::move(destination.queue.front());
                 destination.queue.pop_front();
             }
-            if (!project(destination, entry))
+            if (!prepare(destination, entry))
                 continue;
             std::string encoded;
             appendPart(encoded, entry.body);
@@ -502,27 +534,36 @@ private:
             }
             try
             {
+                bool appended;
                 {
                     const std::scoped_lock lock(destination.spoolLock);
-                    if (!destination.spool->append(encoded, destination.spoolLimit))
+                    appended = destination.spool->append(encoded, destination.spoolLimit);
+                }
+                if (appended)
+                    destination.spoolReady.notify_one();
+                else
+                {
+                    reportExport(XMQ_EXPORT_QUEUE_FAILED);
+                    if (!publishDeadLetter(destination, entry))
                         destination.dropped.fetch_add(1, std::memory_order_relaxed);
                 }
-                destination.spoolReady.notify_one();
             }
-            catch (const std::exception& error)
+            catch (const std::exception&)
             {
+                reportExport(XMQ_EXPORT_QUEUE_FAILED);
                 destination.dropped.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
 
-    static void deliverPersisted(Destination& destination)
+    void deliverPersisted(Destination& destination)
     {
         auto& sink = *destination.sink;
         const std::unique_ptr<void, void(*)(void*)> instance(
             sink.api->create(SinkModule::setting, &sink, nullptr, 0), sink.api->destroy);
         unsigned delay = 1;
         std::optional<std::int64_t> deliveredId;
+        bool deadLetterPending = false;
         for (;;)
         {
             {
@@ -561,16 +602,29 @@ private:
                     auto name = readPart(data);
                     entry.fields.emplace_back(std::move(name), readPart(data));
                 }
-                if (sendToSink(sink, instance.get(), entry) == 0)
+                if (!deadLetterPending)
                 {
-                    destination.sent.fetch_add(1, std::memory_order_relaxed);
+                    const int status = sendToSink(sink, instance.get(), entry);
+                    if (status == 0)
+                    {
+                        destination.sent.fetch_add(1, std::memory_order_relaxed);
+                        deliveredId = record->id;
+                        continue;
+                    }
+                    reportExport(XMQ_EXPORT_SINK_FAILED);
+                    destination.failed.fetch_add(1, std::memory_order_relaxed);
+                    deadLetterPending = instance && status == 1 && !destination.deadLetterTopic.empty();
+                }
+                if (deadLetterPending && publishDeadLetter(destination, entry))
+                {
+                    deadLetterPending = false;
                     deliveredId = record->id;
                     continue;
                 }
-                destination.failed.fetch_add(1, std::memory_order_relaxed);
             }
-            catch (const std::exception& error)
+            catch (const std::exception&)
             {
+                reportExport(XMQ_EXPORT_QUEUE_FAILED);
             }
             std::unique_lock lock(destination.lock);
             if (destination.spoolReady.wait_for(lock, std::chrono::seconds(delay), [&] { return destination.stopping; }))
@@ -580,7 +634,7 @@ private:
     }
 #endif
 
-    static void run(std::shared_ptr<Destination> destination)
+    void run(std::shared_ptr<Destination> destination)
     {
         auto* sink = destination->sink.get();
         std::unique_ptr<void, void(*)(void*)> instance(nullptr, sink ? sink->api->destroy : +[](void*) {});
@@ -605,7 +659,7 @@ private:
                 entry = std::move(destination->queue.front());
                 destination->queue.pop_front();
             }
-            if (!project(*destination, entry))
+            if (!prepare(*destination, entry))
                 continue;
             bool delivered = false;
             if (sink && instance)
@@ -615,7 +669,10 @@ private:
                 {
                     const int status = sendToSink(*sink, instance.get(), entry);
                     delivered = status == 0;
-                    if (status != 2)
+                    if (!delivered)
+                        reportExport(XMQ_EXPORT_SINK_FAILED);
+                    // The HTTP sink already applied its configured retry budget.
+                    if (status != 2 || destination->name == "http_sink")
                         break;
                     std::unique_lock lock(destination->lock);
                     if (destination->condition.wait_for(lock, std::chrono::seconds(delay),
@@ -632,6 +689,8 @@ private:
             }
             else
             {
+                if (sink && !instance)
+                    reportExport(XMQ_EXPORT_SINK_FAILED);
                 destination->failed.fetch_add(1, std::memory_order_relaxed);
             }
         }
@@ -681,6 +740,24 @@ private:
         destination->name = "destination 1";
         if constexpr (mqttOnly || logOnly)
         {
+            if (const auto schema = trimmed(setting("json_schema")); !schema.empty())
+            {
+#ifdef XMQ_SPTK_JSON_SCHEMA
+                try
+                {
+                    destination->schema.emplace(sptk::xdoc::JsonSchema::compile(schema));
+                }
+                catch (const std::exception& exception)
+                {
+                    error = std::string("json_schema: ") + exception.what();
+                    return nullptr;
+                }
+#else
+                error = "json_schema requires SPTK built with JSON Schema support";
+                return nullptr;
+#endif
+            }
+
             auto sink = std::make_unique<SinkModule>();
             const auto name = settingOr("sink", "http_sink");
             if (!sink->open(name))
@@ -859,6 +936,18 @@ private:
 #ifdef XMQ_PERSISTENT_DELIVERY
         const auto queuePath = setting("persistent_delivery") == "true"
             ? setting("delivery_queue_path") : std::string{};
+        destination->deadLetterTopic = setting("dead_letter_topic");
+        if (!destination->deadLetterTopic.empty())
+        {
+            const auto& topic = destination->deadLetterTopic;
+            if (!destination->sink || queuePath.empty() || !canPublishLocal() ||
+                topic.size() > 65535 || topic.starts_with('$') || topic.find_first_of("+#") != topic.npos ||
+                std::ranges::any_of(topic, [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+            {
+                error = "dead_letter_topic requires persistent sink delivery, broker publish support and a valid MQTT topic";
+                return nullptr;
+            }
+        }
         if (destination->sink && !queuePath.empty())
         {
             try
@@ -1011,14 +1100,14 @@ private:
 #ifdef XMQ_PERSISTENT_DELIVERY
             if (destination->spool)
             {
-                destination->threads.emplace_back([destination] { persist(*destination); });
-                destination->threads.emplace_back([destination] { deliverPersisted(*destination); });
+                destination->threads.emplace_back([this, destination] { persist(*destination); });
+                destination->threads.emplace_back([this, destination] { deliverPersisted(*destination); });
                 continue;
             }
 #endif
             for (int at = 0; at < destination->concurrency; ++at)
             {
-                destination->threads.emplace_back([destination]
+                destination->threads.emplace_back([this, destination]
                 {
                     run(destination);
                 });
@@ -1116,6 +1205,9 @@ constexpr xmq_setting settings[] = {
     {.name = "concurrency", .label = "Concurrency", .description = "How many requests may be in flight to this destination, 1 to 64", .type = XMQ_SETTING_INTEGER, .default_value = "4", .pattern = "[1-9]|[1-5][0-9]|6[0-4]"},
 #if defined(XMQ_MESSAGES_WEBHOOK) || defined(XMQ_LOG_WEBHOOK)
     XMQ_DB_SINK_SETTINGS,
+    {.name = "json_schema", .label = "JSON Schema",
+     .description = "Draft 2020-12 schema for the rendered export body. Leave blank to skip validation. Requires SPTK JSON Schema support when set.",
+     .type = XMQ_SETTING_STRING, .default_value = ""},
 #ifdef XMQ_PERSISTENT_DELIVERY
     {.name = "persistent_delivery", .label = "Persistent delivery",
      .description = "Write exports to the queue file on disk before delivery. Off by default.",
@@ -1123,8 +1215,11 @@ constexpr xmq_setting settings[] = {
     {.name = "delivery_queue_path", .label = "Persistent queue file",
      .description = "Optional absolute SQLite file path in a private directory on the broker. Use a unique file per exporter and destination configuration. Blank uses memory-only delivery.",
      .type = XMQ_SETTING_STRING},
+    {.name = "dead_letter_topic", .label = "Dead-letter topic",
+     .description = "Republish permanently rejected exports and SQLite queue overflow to this MQTT topic. Blank disables dead-letter publishing.",
+     .type = XMQ_SETTING_STRING, .default_value = ""},
     {.name = "delivery_queue_mib", .label = "Queue limit (MiB)",
-     .description = "Maximum live queued record bytes, including bindings, but excluding SQLite overhead. New records are dropped when full.",
+     .description = "Maximum live queued record bytes, including bindings, but excluding SQLite overhead. Overflow can be sent to the dead-letter topic.",
      .type = XMQ_SETTING_INTEGER, .default_value = "256", .pattern = "[0-9]{1,5}"},
 #endif
     {.name = "sink", .label = "Sink", .description = "Installed module that delivers the exported JSON. Choose HTTP POST or a database INSERT. Each exporter has its own destination settings.",
@@ -1162,11 +1257,11 @@ constexpr auto sourceSettings = []
 } // namespace
 
 #if defined(XMQ_MESSAGES_WEBHOOK)
-XMQ_DEFINE_EXTENSION_IMPL(Webhook, "message_export", "1.2", XMQ_CAP_MESSAGE_TAP,
+XMQ_DEFINE_EXTENSION_IMPL(Webhook, "message_export", "1.2", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_SOURCE,
                           "Exports MQTT messages using a configurable delivery sink.",
                           sourceSettings.items, sourceSettings.count, nullptr, 0)
 #elif defined(XMQ_LOG_WEBHOOK)
-XMQ_DEFINE_EXTENSION_IMPL(Webhook, "log_export", "1.2", XMQ_CAP_LOG_TAP,
+XMQ_DEFINE_EXTENSION_IMPL(Webhook, "log_export", "1.2", XMQ_CAP_LOG_TAP | XMQ_CAP_SOURCE,
                           "Exports broker log records using a configurable delivery sink.",
                           sourceSettings.items, sourceSettings.count, nullptr, 0)
 #else

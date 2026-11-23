@@ -815,6 +815,28 @@ xmq_status ExtensionHost::hostPublishLocal(void* context, const xmq_str topic, c
     }
 }
 
+void ExtensionHost::hostReportExport(void* context, uint32_t outcome, xmq_str path, xmq_str keyword) noexcept
+{
+    auto* loaded = static_cast<Loaded*>(context);
+    if (!loaded || outcome >= XMQ_EXPORT_OUTCOME_COUNT)
+        return;
+
+    try
+    {
+        const std::scoped_lock lock(loaded->m_exportLock);
+        ++loaded->m_exportOutcomes[outcome];
+        if (outcome == XMQ_EXPORT_SCHEMA_REJECTED)
+        {
+            loaded->m_lastSchemaPath = path.data ? std::string(path.data, path.length) : std::string{};
+            loaded->m_lastSchemaKeyword = keyword.data ? std::string(keyword.data, keyword.length) : std::string{};
+        }
+    }
+    catch (...)
+    {
+        // Diagnostics must never interrupt an extension worker.
+    }
+}
+
 void ExtensionHost::hostInvalidateAcl(void* context)
 {
     auto* loaded = static_cast<Loaded*>(context);
@@ -824,9 +846,18 @@ void ExtensionHost::hostInvalidateAcl(void* context)
     }
 }
 
-unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configured)
+unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configured, std::string* reason)
 {
     auto loaded = make_unique<Loaded>();
+    const auto fail = [&](const std::string& message)
+    {
+        if (reason)
+            *reason = message;
+        m_logger.error(configured.m_name + ": " + message);
+        if (loaded->m_handle)
+            closeLibrary(loaded->m_handle);
+        return unique_ptr<Loaded>{};
+    };
     loaded->m_name = configured.m_name;
     loaded->m_library = configured.m_library;
     loaded->m_settings = configured.m_settings;
@@ -837,29 +868,23 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     loaded->m_handle = openLibrary(configured.m_library);
     if (loaded->m_handle == nullptr)
     {
-        m_logger.error(format("{}: cannot load {}: {}.", configured.m_name,
-                              configured.m_library.string(), libraryError()));
-        return nullptr;
+        return fail(format("cannot load {}: {}", configured.m_library.string(), libraryError()));
     }
 
     auto* describe = reinterpret_cast<xmq_extension_describe_fn>(
         findSymbol(loaded->m_handle, XMQ_EXTENSION_DESCRIBE_SYMBOL));
     if (describe == nullptr)
     {
-        m_logger.error(format("{}: {} exports no {}, so it is not an XMQ extension.",
-                              configured.m_name, configured.m_library.string(),
+        return fail(format("{} exports no {}, so it is not an XMQ extension.",
+                           configured.m_library.string(),
                               XMQ_EXTENSION_DESCRIBE_SYMBOL));
-        closeLibrary(loaded->m_handle);
-        return nullptr;
     }
 
     loaded->m_table = describe(XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR);
     if (loaded->m_table == nullptr)
     {
-        m_logger.error(format("{}: declined ABI {}.{}, so it was built for another broker.",
-                              configured.m_name, XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR));
-        closeLibrary(loaded->m_handle);
-        return nullptr;
+        return fail(format("declined ABI {}.{}, so it was built for another broker.",
+                            XMQ_EXTENSION_ABI_MAJOR, XMQ_EXTENSION_ABI_MINOR));
     }
 
     // ABI 1.4 appends native identity authentication, 1.5 appends setting presets. Accept the
@@ -869,18 +894,14 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         loaded->m_table->struct_size != offsetof(xmq_extension, presets) &&
         loaded->m_table->struct_size != offsetof(xmq_extension, authenticate_identity))
     {
-        m_logger.error(format("{}: describes itself with {} bytes where this broker knows {} - rebuild "
+        return fail(format("describes itself with {} bytes where this broker knows {} - rebuild "
                               "it against this broker's xmq_extension.h.",
-                              configured.m_name, loaded->m_table->struct_size, sizeof(xmq_extension)));
-        closeLibrary(loaded->m_handle);
-        return nullptr;
+                              loaded->m_table->struct_size, sizeof(xmq_extension)));
     }
 
     if (loaded->m_table->create == nullptr || loaded->m_table->destroy == nullptr)
     {
-        m_logger.error(configured.m_name + ": has no create/destroy pair.");
-        closeLibrary(loaded->m_handle);
-        return nullptr;
+        return fail("has no create/destroy pair.");
     }
 
     const string declared = loaded->m_table->name == nullptr ? string{} : loaded->m_table->name;
@@ -890,12 +911,10 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         // another, which is exactly the confusion a name is for. Both names and the file, because
         // the entry is usually right and the spelling wrong - and say it was not loaded, or an
         // author reads one error line and still waits for the extension to answer.
-        m_logger.error(format("{}: not loaded - the library in {} calls itself '{}'. Make the two "
+        return fail(format("the library in {} calls itself '{}'. Make the two "
                               "names match, in {} or in the extension.",
-                              configured.m_name, configured.m_library.string(), declared,
+                              configured.m_library.string(), declared,
                               configured.m_source.string()));
-        closeLibrary(loaded->m_handle);
-        return nullptr;
     }
 
     loaded->m_hostTable = {.struct_size = sizeof(xmq_host),
@@ -909,14 +928,14 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
                            .event_attribute = &ExtensionHost::hostEventAttribute,
                            .tap_messages = &ExtensionHost::hostTapMessages,
                            .request_logs = &ExtensionHost::hostRequestLogs,
-                           .publish_local = m_localPublisher ? &ExtensionHost::hostPublishLocal : nullptr};
+                           .publish_local = m_localPublisher ? &ExtensionHost::hostPublishLocal : nullptr,
+                           .report_export = &ExtensionHost::hostReportExport};
 
     loaded->m_instance = loaded->m_table->create(&loaded->m_hostTable);
     if (loaded->m_instance == nullptr)
     {
-        m_logger.error(configured.m_name + ": failed to create an instance.");
-        closeLibrary(loaded->m_handle);
-        return nullptr;
+        const auto detail = takeLastError(*loaded);
+        return fail(detail.empty() ? "failed to create an instance." : detail);
     }
 
     return loaded;
@@ -1264,7 +1283,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
 
     for (const auto& configured: extensions)
     {
-        if (!only.empty() && configured.m_name != only)
+        if (!configured.m_enabled || (!only.empty() && configured.m_name != only))
             continue;
         const auto loaded = ranges::find_if(m_loaded, [&configured](const auto& candidate)
         {
@@ -1329,10 +1348,11 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
     if (!only.empty())
         return report;
 
-    // Switched on: an entry that names an extension nothing has loaded, or one that was switched
-    // off earlier. readConfiguration() drops disabled entries, so everything here is meant to run.
+    // Start entries that request it and are not already running.
     for (const auto& configured: extensions)
     {
+        if (!configured.m_enabled)
+            continue;
         const auto known = ranges::find_if(m_loaded, [&configured](const auto& candidate)
         {
             return candidate->m_name == configured.m_name;
@@ -1354,7 +1374,7 @@ ExtensionHost::Report ExtensionHost::reloadSettings(const vector<Configured>& ex
         }
         if (ranges::none_of(extensions, [&loaded](const auto& configured)
         {
-            return configured.m_name == loaded->m_name;
+            return configured.m_enabled && configured.m_name == loaded->m_name;
         }))
         {
             departed.push_back(loaded->m_name);
@@ -1752,6 +1772,12 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_messagesDropped = loaded->m_messagesDropped.load(std::memory_order_relaxed);
         one.m_logsDelivered = loaded->m_logsDelivered.load(std::memory_order_relaxed);
         one.m_logsDropped = loaded->m_logsDropped.load(std::memory_order_relaxed);
+        {
+            const std::scoped_lock lock(loaded->m_exportLock);
+            one.m_exportOutcomes = loaded->m_exportOutcomes;
+            one.m_lastSchemaPath = loaded->m_lastSchemaPath;
+            one.m_lastSchemaKeyword = loaded->m_lastSchemaKeyword;
+        }
 
         if (loaded->m_table != nullptr)
         {
@@ -1941,6 +1967,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                 if (!discovered->m_configured.m_source.empty())
                 {
                     source = discovered->m_configured.m_source;
+                    m_configuredOnly.push_back(discovered->m_configured);
                     m_discovered.erase(discovered);
                 }
                 else
@@ -1977,6 +2004,9 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                                         filesystem::perms::owner_read | filesystem::perms::owner_write |
                                         filesystem::perms::group_read,
                                         errorCode);
+                auto configured = discovered->m_configured;
+                configured.m_source = fragment;
+                m_configuredOnly.push_back(std::move(configured));
                 m_discovered.erase(discovered);
                 const auto note = name + ": enabled in " + fragment.string() + ".";
                 m_logger.info(note);
@@ -2337,23 +2367,15 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
 
         if (found == nullptr)
         {
-            // Switched off in the file until now, so its library has never been opened. It leaves
-            // the not-loaded list here and joins the loaded one below.
+            std::string reason;
+            auto loaded = load(configured, &reason);
+            if (!loaded)
+                return Report::problem(configured.m_name + ": " +
+                    (reason.empty() ? "could not load the extension; see the broker log." : reason));
             std::erase_if(m_configuredOnly, [&configured](const auto& candidate)
             {
                 return candidate.m_name == configured.m_name;
             });
-
-            // First time: the library has to be opened. load() also creates the instance.
-            auto loaded = load(configured);
-            if (!loaded)
-            {
-                if (const auto reason = takeLastError(*found); !reason.empty())
-                {
-                    return Report::problem(configured.m_name + ": could not be loaded.\n\n" + reason + ".");
-                }
-                return Report::problem(configured.m_name + ": could not be loaded, see the log.");
-            }
             m_loaded.push_back(std::move(loaded));
             found = m_loaded.back().get();
         }
@@ -2366,20 +2388,25 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
                 found->m_settings = configured.m_settings;
             }
 
+            takeLastError(*found);
             found->m_instance = found->m_table->create(&found->m_hostTable);
             if (found->m_instance == nullptr)
             {
-                return Report::problem(configured.m_name + ": could not be created again.");
+                const auto reason = takeLastError(*found);
+                return Report::problem(configured.m_name + ": could not be created again." +
+                    (reason.empty() ? string{} : "\n\n" + reason));
             }
         }
 
+        takeLastError(*found);
         if (found->m_table->start != nullptr && found->m_table->start(found->m_instance) != XMQ_OK)
         {
+            const auto reason = takeLastError(*found);
             // Destroyed rather than left half-alive: an instance whose start() failed has said it
             // cannot work, and keeping it would put it in the snapshot on the next attempt.
             found->m_table->destroy(found->m_instance);
             found->m_instance = nullptr;
-            if (const auto reason = takeLastError(*found); !reason.empty())
+            if (!reason.empty())
             {
                 return Report::problem(configured.m_name + ": refused to start.\n\n" + reason + ".");
             }

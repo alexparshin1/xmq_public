@@ -1517,6 +1517,29 @@ void ClientSession::handleMessage(const SMessage& sharedMessage)
                 const auto rc = Server::grantPublish(shared(), publishMessage->destination(), &refusal);
                 if (rc == ReasonCode::Success)
                 {
+                    if (const auto* policies = server().publishSchemaPolicies(); policies &&
+                        !publishMessage->destination()->isCluster())
+                    {
+                        const auto& destination = *publishMessage->destination();
+                        const auto topic = destination.fullName();
+                        const auto payload = publishMessage->payload();
+                        const bool retainedClear = publishMessage->isRetain() && payload.empty();
+                        const bool clusterControl = (topic == "cluster/hello" || topic == "cluster/join" ||
+                            topic == "cluster/node-action") && getUsername() == "cluster";
+                        if (!retainedClear && !clusterControl && !policies->accepts(destination.path(), payload))
+                        {
+                            auto reason = ReasonCode::PayloadFormatInvalid;
+                            // A QoS 2 delivery accepted before a restart can still be awaiting PUBREL.
+                            if (publishMessage->getQos() == Qos::Qos2)
+                            {
+                                const shared_lock lock(m_mutex);
+                                if (m_unreleasedQos2Ids.contains(publishMessage->getId()))
+                                    reason = ReasonCode::Success;
+                            }
+                            ackPublishMessage(msg, reason);
+                            break;
+                        }
+                    }
                     if (auto* store = server().reliableMessageStore(); store && !publishMessage->destination()->isSystem())
                     {
                         if (!server().deliversOnReceiveThread())

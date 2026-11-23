@@ -328,6 +328,15 @@ protected:
                                     {payload.data(), payload.size()}) == XMQ_OK;
     }
 
+    void reportExport(xmq_export_outcome outcome, std::string_view path = {},
+                      std::string_view keyword = {}) const
+    {
+        if (m_host.struct_size >= offsetof(xmq_host, report_export) + sizeof(m_host.report_export) &&
+            m_host.report_export)
+            m_host.report_export(m_host.context, outcome, {path.data(), path.size()},
+                                 {keyword.data(), keyword.size()});
+    }
+
 private:
     /**
      * @brief Read a string copied out by the host, retrying with a larger buffer if needed.

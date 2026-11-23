@@ -398,6 +398,9 @@ public:
         uint64_t                        m_messagesDropped {0};
         uint64_t                        m_logsDelivered {0};
         uint64_t                        m_logsDropped {0};
+        std::array<uint64_t, XMQ_EXPORT_OUTCOME_COUNT> m_exportOutcomes{};
+        std::string                     m_lastSchemaPath;
+        std::string                     m_lastSchemaKeyword;
     };
 
     /**
@@ -756,6 +759,11 @@ private:
         std::mutex  m_lastErrorLock;
         std::string m_lastError;
 
+        std::mutex m_exportLock;
+        std::array<uint64_t, XMQ_EXPORT_OUTCOME_COUNT> m_exportOutcomes{};
+        std::string m_lastSchemaPath;
+        std::string m_lastSchemaKeyword;
+
         /// What this extension has actually done. Relaxed throughout: they are read for a screen,
         /// where being one behind is not worth an ordering constraint on the paths that write them.
         std::atomic<uint64_t> m_eventsDelivered {0};
@@ -821,7 +829,7 @@ private:
         std::chrono::steady_clock::time_point m_queuedAt {std::chrono::steady_clock::now()};
     };
 
-    [[nodiscard]] std::unique_ptr<Loaded> load(const Configured& configured);
+    [[nodiscard]] std::unique_ptr<Loaded> load(const Configured& configured, std::string* reason = nullptr);
     void                                  unload(Loaded& loaded);
     void                                  deliveryThread();
     void                                  authenticationThread();
@@ -874,6 +882,7 @@ private:
     static int64_t hostTapMessages(void* context, const char* const* filters, size_t filterCount,
                                    size_t maxPayload);
     static int64_t hostRequestLogs(void* context, uint32_t minLevel);
+    static void hostReportExport(void* context, uint32_t outcome, xmq_str path, xmq_str keyword) noexcept;
     static xmq_status hostPublishLocal(void* context, xmq_str topic, xmq_str payload);
 
     /// The bit for a name this broker publishes, or zero for one it does not.

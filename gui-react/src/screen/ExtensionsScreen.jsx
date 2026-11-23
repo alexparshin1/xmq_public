@@ -433,6 +433,22 @@ export default class ExtensionsScreen extends React.Component {
                        "taps have separate queues, so a slow log receiver does not delay messages."]);
         }
 
+        if (["message_export", "log_export"].includes(extension.name) &&
+            extension.schema_rejected != null) {
+            rows.push(["Schema rejections", extension.schema_rejected, null],
+                      ["Sink failures", extension.sink_failures, "Failed delivery attempts, including retries."],
+                      ["SQLite queue failures", extension.queue_failures, "SQLite queue operations that failed, including when the queue limit was reached."],
+                      ["Dead-letter publishes accepted", extension.dead_letter_accepted,
+                       "The broker accepted these publishes for asynchronous delivery."],
+                      ["Dead-letter publish failures", extension.dead_letter_failures,
+                       "Dead-letter publish attempts the broker refused."]);
+            if (extension.last_schema_keyword) {
+                rows.push(["Last schema rejection",
+                           <code>{extension.last_schema_path || "(root)"} · {extension.last_schema_keyword}</code>,
+                           "JSON Pointer and validation keyword for the most recent rejection."]);
+            }
+        }
+
         return <div className="extensionForm">
             {rows.map(([label, value, help]) => this.renderRow(label, value, help))}
         </div>;
@@ -744,7 +760,20 @@ export default class ExtensionsScreen extends React.Component {
             </div>
             <div className="extensionHelp">
                 {help ? <HelpButton title={setting.label || setting.name} text={help}
-                    details={mqttSqlHelp ? <div>
+                    details={setting.name === "json_schema" && isExporter ? <div>
+                        <p>Use the field names produced by your SQL rule or template.</p>
+                        <pre style={{whiteSpace: "pre-wrap"}}>{JSON.stringify({
+                            type: "object",
+                            required: [isLogSource ? "level" : "temperature"],
+                            properties: isLogSource
+                                ? {level: {type: "string"}}
+                                : {temperature: {type: "number"}}
+                        }, null, 2)}</pre>
+                        <p><a href="https://json-schema.org/learn/getting-started-step-by-step"
+                              target="_blank" rel="noopener noreferrer">
+                            JSON Schema documentation (opens in a new tab)
+                        </a></p>
+                    </div> : mqttSqlHelp ? <div>
                         <table className="mqttSqlHelpFields">
                             <thead><tr><th>SELECT field</th><th>Value</th></tr></thead>
                             <tbody>

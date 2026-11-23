@@ -52,6 +52,10 @@
       "fields": [
         {
           "name": "sink"
+        },
+        {
+          "name": "json_schema",
+          "widget": "multiline"
         }
       ]
     },
@@ -63,6 +67,13 @@
         },
         {
           "name": "delivery_queue_path"
+        },
+        {
+          "name": "dead_letter_topic",
+          "visible_when": {
+            "setting": "persistent_delivery",
+            "values": ["true"]
+          }
         },
         {
           "name": "delivery_queue_mib",

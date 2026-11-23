@@ -13,6 +13,10 @@
 */
 
 #include "Server.h"
+#include "extension/webhook/SqlEngine.h"
+#ifdef XMQ_SPTK_JSON_SCHEMA
+#include <sptk5/xdoc/JsonSchema.h>
+#endif
 #include "ReliableMessageStore.h"
 #include "common/RedisCredentials.h"
 #include "Settings/UriSecret.h"
@@ -145,6 +149,7 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
                const std::optional<bool>        cleanStart)
     : ServerData(settings, logEngine, socketEventsMode)
       , m_sessionTimer(make_shared<Timer>())
+      , m_publishSchemaPolicies(PublishSchemaPolicies::load(settings->configurationPath()))
       , m_storage(initializeStorage(*settings, cleanStart))
       , m_redisStorage(initializeRedis(*settings, logEngine, cleanStart))
       , m_subscriptionManager(make_shared<SubscriptionManager>(this, getTopicManager(), *logEngine))
@@ -1900,8 +1905,16 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
 {
     // Written before anything is switched, for the same reason a changed setting is: a decision
     // that cannot be recorded must not be acted on, or a restart quietly undoes it and nothing says
-    // why. It is also required for enabling - the configuration is read again below, and an entry
-    // still marked disabled would not be found.
+    // why. If an enable attempt fails, restore the previous disabled flag.
+    const auto configurationPath = getSettings()->configurationPath();
+    const auto readExtensions = [&]
+    {
+        return ExtensionHost::readConfiguration(configurationPath, *getLogEngine());
+    };
+    const bool alreadyEnabled = on && std::ranges::any_of(readExtensions(), [&name](const auto& item)
+    {
+        return item.m_name == name && item.m_enabled;
+    });
     auto written = m_extensions.writeEnabled(name, on);
     if (written.failed())
     {
@@ -1916,22 +1929,50 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
 
     // Read afresh, because the entry may have been edited while the extension was off - and because
     // there is one way a configuration reaches the broker, not two that can disagree.
-    const auto configured = ExtensionHost::readConfiguration(getSettings()->configurationPath(),
-                                                             *getLogEngine());
+    const auto configured = readExtensions();
     const auto wanted = ranges::find_if(configured, [&name](const auto& candidate)
     {
         return candidate.m_name == name;
     });
-    if (wanted == configured.end())
+    auto enabled = wanted == configured.end()
+        ? ExtensionHost::Report::problem(name + ": the configuration no longer lists it")
+        : m_extensions.enable(*wanted);
+    if (enabled.failed())
     {
-        return ExtensionHost::Report::problem(name + ": the configuration no longer lists it");
+        if (!alreadyEnabled)
+            enabled += m_extensions.writeEnabled(name, false);
+        return enabled;
     }
-    written += m_extensions.enable(*wanted);
+    written += enabled;
     return written;
 }
 
 ExtensionHost::Report Server::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
+    if (name == "message_export" || name == "log_export")
+    {
+        const auto schema = settings.find("json_schema");
+        if (schema != settings.end())
+        {
+            const auto text = webhook_sql::trimmed(schema->second);
+            if (!text.empty())
+            {
+#ifdef XMQ_SPTK_JSON_SCHEMA
+                try
+                {
+                    (void)sptk::xdoc::JsonSchema::compile(text);
+                }
+                catch (const std::exception& error)
+                {
+                    return ExtensionHost::Report::problem(name + ": json_schema: " + error.what());
+                }
+#else
+                return ExtensionHost::Report::problem(name + ": json_schema requires SPTK built with JSON Schema support");
+#endif
+            }
+        }
+    }
+
     const auto described = m_extensions.describe();
     const auto target = ranges::find(described, name, &ExtensionHost::Description::m_name);
     const bool stopped = target != described.end() && !target->m_running;

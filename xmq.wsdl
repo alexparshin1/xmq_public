@@ -727,6 +727,13 @@
                     <xsd:element name="messages_dropped" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="logs_delivered" type="xsd:int" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="logs_dropped" type="xsd:int" maxOccurs="1" minOccurs="0"/>
+                    <xsd:element name="schema_rejected" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="sink_failures" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="queue_failures" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="dead_letter_accepted" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="dead_letter_failures" type="xsd:int" minOccurs="0"/>
+                    <xsd:element name="last_schema_path" type="xsd:string" minOccurs="0"/>
+                    <xsd:element name="last_schema_keyword" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="settings" type="tns:ExtensionSetting"
                                  maxOccurs="unbounded" minOccurs="0"/>
                     <!-- Fills the form, applies nothing. Absent when the extension offers none. -->
