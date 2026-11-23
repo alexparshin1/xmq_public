@@ -84,7 +84,7 @@ const XmqSinkV1 deliveryApi{
         catch (const std::exception& exception)
         {
             if (error && capacity)
-                std::snprintf(error, capacity, "%s", exception.what());
+                snprintf(error, capacity, "%s", exception.what());
             return nullptr;
         }
     },

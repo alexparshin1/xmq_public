@@ -195,7 +195,7 @@ extern "C" XMQ_EXTENSION_EXPORT const XmqSinkV1* xmq_sink_v1()
             catch (const std::exception& e)
             {
                 if (error && capacity)
-                    std::snprintf(error, capacity, "%s", e.what());
+                    snprintf(error, capacity, "%s", e.what());
                 return nullptr;
             }
         },

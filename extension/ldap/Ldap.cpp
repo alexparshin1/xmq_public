@@ -486,7 +486,7 @@ public:
             {
                 LDAPMessage* stateRaw = nullptr;
                 char        stateAttribute[128];
-                std::snprintf(stateAttribute, sizeof(stateAttribute), "%s",
+                snprintf(stateAttribute, sizeof(stateAttribute), "%s",
                               config->accountStateAttribute.c_str());
                 char* stateAttributes[] = {stateAttribute, nullptr};
                 const auto stateCode = ldap_platform::search(search, dn, LDAP_SCOPE_BASE,

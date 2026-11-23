@@ -73,7 +73,7 @@ const XmqSinkV1 api{
         catch (const std::exception& exception)
         {
             if (error && size)
-                std::snprintf(error, size, "%s", exception.what());
+                snprintf(error, size, "%s", exception.what());
             return nullptr;
         }
     },

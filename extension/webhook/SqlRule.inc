@@ -48,12 +48,16 @@ using SqlPredicate = std::function<SqlTruth(const SqlRow&)>;
 
 std::optional<double> sqlNumber(std::string_view text)
 {
-    if (text.empty())
+    if (text.empty() || std::isspace(static_cast<unsigned char>(text.front())))
         return {};
-    double number{};
-    const auto end = text.data() + text.size();
-    const auto [ptr, ec] = std::from_chars(text.data(), end, number);
-    if (ec != std::errc{} || ptr != end || !std::isfinite(number))
+    // Floating-point from_chars is missing from FreeBSD's base libc++ and from older MSVC
+    // libraries. strtod needs a terminated string, so copy the field and insist that the whole
+    // of it was consumed - the same strictness from_chars had, without accepting "1.5 junk".
+    const std::string terminated(text);
+    char*          end = nullptr;
+    errno = 0;
+    const double number = std::strtod(terminated.c_str(), &end);
+    if (errno == ERANGE || end != terminated.c_str() + terminated.size() || !std::isfinite(number))
         return {};
     return number;
 }

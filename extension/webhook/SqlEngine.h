@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <optional>
 #include <ranges>
