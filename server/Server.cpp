@@ -20,6 +20,7 @@
 #include "ReliableMessageStore.h"
 #include "common/RedisCredentials.h"
 #include "Settings/UriSecret.h"
+#include "Settings/DataIntegrationStore.h"
 
 #include <sptk5/net/SSLSocket.h>
 #include "CertificateIdentity.h"
@@ -252,6 +253,24 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
         }
     }
     m_extensions.enableEvents(enabledEvents);
+
+    // Data integrations are rows in the shared cluster database, one node's rows per node. The
+    // accounts pool is that database in steady state; with no database they stay in config files.
+    if (auto pool = settings->accountsPool())
+    {
+        try
+        {
+            auto store = make_shared<DataIntegrationStore>(pool, settings->nodeIdentity().c_str());
+            store->createSchema();
+            m_extensions.dataIntegrationStore(std::move(store));
+        }
+        catch (const std::exception& error)
+        {
+            logMessage(LogSubject::ServerEvents, LogPriority::Warning,
+                       format("Cannot open the data integrations table: {}. Configured exports keep working.",
+                              error.what()));
+        }
+    }
 
     // Before start(), because an authenticator asks for it there: an extension that answers out of
     // the broker's own accounts is told where they are rather than configured with the address a
@@ -1893,7 +1912,7 @@ ExtensionHost::Report Server::reloadExtensions()
     // Read afresh from disk, exactly as start-up does, so there is one way a configuration reaches
     // the broker and not two that can disagree.
     return m_extensions.reloadSettings(
-        ExtensionHost::readConfiguration(getSettings()->configurationPath(), *getLogEngine()));
+        m_extensions.configured(getSettings()->configurationPath()));
 }
 
 vector<ExtensionHost::Description> Server::describeExtensions() const
@@ -1909,11 +1928,11 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
     const auto configurationPath = getSettings()->configurationPath();
     const auto readExtensions = [&]
     {
-        return ExtensionHost::readConfiguration(configurationPath, *getLogEngine());
+        return m_extensions.configured(configurationPath);
     };
     const bool alreadyEnabled = on && std::ranges::any_of(readExtensions(), [&name](const auto& item)
     {
-        return item.m_name == name && item.m_enabled;
+        return item.identity() == name && item.m_enabled;
     });
     auto written = m_extensions.writeEnabled(name, on);
     if (written.failed())
@@ -1932,7 +1951,7 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
     const auto configured = readExtensions();
     const auto wanted = ranges::find_if(configured, [&name](const auto& candidate)
     {
-        return candidate.m_name == name;
+        return candidate.identity() == name;
     });
     auto enabled = wanted == configured.end()
         ? ExtensionHost::Report::problem(name + ": the configuration no longer lists it")
@@ -1947,9 +1966,16 @@ ExtensionHost::Report Server::switchExtension(const string& name, const bool on)
     return written;
 }
 
+ExtensionHost::Report Server::addExtensionInstance(const string& name, const string& instance,
+                                                    const string& displayName)
+{
+    return m_extensions.addInstance(name, instance, displayName);
+}
+
 ExtensionHost::Report Server::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
-    if (name == "message_export" || name == "log_export")
+    const auto extensionName = ExtensionHost::splitIdentity(name).first;
+    if (extensionName == "message_export" || extensionName == "log_export")
     {
         const auto schema = settings.find("json_schema");
         if (schema != settings.end())
@@ -1974,7 +2000,10 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     }
 
     const auto described = m_extensions.describe();
-    const auto target = ranges::find(described, name, &ExtensionHost::Description::m_name);
+    const auto target = ranges::find_if(described, [&name](const auto& candidate)
+    {
+        return ExtensionHost::identityOf(candidate.m_name, candidate.m_instance) == name;
+    });
     const bool stopped = target != described.end() && !target->m_running;
     auto report = m_extensions.writeSettings(name, settings);
     if (report.failed())
@@ -1990,7 +2019,7 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     // The user-database extension's database_uri is also the broker's authentication.database_uri:
     // the two must agree, or accounts written on the Users page go to a different database than
     // the one the extension authenticates against.
-    if (name == "user-database")
+    if (extensionName == "user-database")
     {
         if (const auto it = settings.find("database_uri"); it != settings.end())
         {
@@ -2002,7 +2031,7 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     // wire: what the broker runs is then what is on disk, and the two cannot disagree.
     m_extensions.userDatabaseUri(getSettings()->userDatabaseUri());
     const auto applied = m_extensions.reloadSettings(
-        ExtensionHost::readConfiguration(getSettings()->configurationPath(), *getLogEngine()), name);
+        m_extensions.configured(getSettings()->configurationPath()), name);
     // Keep its refusals, but not a second success line: the write above already said "Settings applied".
     for (const auto& problem: applied.m_problems)
         report.m_problems.push_back(problem);

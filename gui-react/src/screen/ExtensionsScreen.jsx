@@ -3,6 +3,7 @@ import {errorWindow, informationWindow} from "../components/MessageWindow";
 import ControlAPI from "../ControlAPI";
 import "./InputScreen.css";
 import "./ExtensionsScreen.css";
+import "../components/DialogWindow.css";
 import PageTitle from "../components/PageTitle";
 import HelpButton from "../components/HelpButton";
 import PasswordInput from "../components/PasswordInput";
@@ -29,7 +30,11 @@ export default class ExtensionsScreen extends React.Component {
         preset: "",       // the starting point chosen from the extension's presets
         presetResult: null, // what pressing Preset filled, and what was already right
         running: true,    // whether the MQTT server is up; extensions live inside it
-        busy: false
+        busy: false,
+        showAdd: false,   // the Add Data Integration dialog
+        addType: "",
+        addName: "",
+        addError: ""
     }
 
     componentDidMount() {
@@ -57,7 +62,7 @@ export default class ExtensionsScreen extends React.Component {
     }
 
     /// Asks the broker for both facts this page needs: whether the server is up, and what it has.
-    refresh = (message) => {
+    refresh = (message, selectAfter) => {
         ControlAPI.asyncMakeAPICall("ServerControl", {action: "status"})
             .then(status => {
                 if (status) {
@@ -71,7 +76,8 @@ export default class ExtensionsScreen extends React.Component {
                     return;
                 }
                 this.setState({extensions: data.list ? data.list : [], edited: {}, preset: "",
-                       presetResult: null, busy: false});
+                       presetResult: null, busy: false,
+                       selected: selectAfter || this.state.selected});
                 if (message) {
                     // The title carries the verdict and the body carries what was done, because
                     // what the broker answers with is a list of lines - which file was written,
@@ -83,8 +89,114 @@ export default class ExtensionsScreen extends React.Component {
             });
     }
 
+    /// One settings set is named by its extension plus its instance; the default set has no
+    /// instance, so its id is just the extension name and old configurations keep working.
+    static extensionId(extension) {
+        return extension.instance ? extension.name + "/" + extension.instance : extension.name;
+    }
+
     selected() {
-        return this.state.extensions.find(one => one.name === this.state.selected);
+        return this.state.extensions.find(one => ExtensionsScreen.extensionId(one) === this.state.selected);
+    }
+
+    static humanName(extensionName) {
+        return String(extensionName || "")
+            .replace(/[_-]+/g, " ")
+            .replace(/\b\w/g, letter => letter.toUpperCase())
+            .trim();
+    }
+
+    /// One row per kind of data integration the broker can create; the description is the
+    /// extension's own, so adding a kind needs no change here.
+    addTypes() {
+        const seen = new Set();
+        return this.state.extensions.filter(extension => {
+            if (extension.sink || seen.has(extension.name)) return false;
+            seen.add(extension.name);
+            return true;
+        });
+    }
+
+    openAdd = () => {
+        const types = this.addTypes();
+        if (!types.length) return;
+        const first = types[0].name;
+        let name = ExtensionsScreen.humanName(first);
+        let suffix = 2;
+        while (this.state.extensions.some(one => (one.display_name || "").toLowerCase() === name.toLowerCase())) {
+            name = ExtensionsScreen.humanName(first) + " " + suffix++;
+        }
+        this.setState({showAdd: true, addType: first, addName: name, addError: ""});
+    }
+
+    addDescription() {
+        const type = this.addTypes().find(extension => extension.name === this.state.addType);
+        return type ? (type.description || "No description supplied by this extension.") : "";
+    }
+
+    submitAdd = () => {
+        const name = this.state.addName.trim();
+        if (!name) {
+            this.setState({addError: "Enter a name for the data integration."});
+            return;
+        }
+        if (this.state.extensions.some(one => (one.display_name || "").toLowerCase() === name.toLowerCase())) {
+            this.setState({addError: "A data integration with this name already exists."});
+            return;
+        }
+        const type = this.state.addType;
+        let instance = type.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || type;
+        let suffix = 2;
+        while (this.state.extensions.some(one => one.name === type && one.instance === instance)) {
+            instance = type + "-" + suffix++;
+        }
+        this.setState({busy: true, showAdd: false});
+        ControlAPI.asyncMakeAPICall("ExtensionControl",
+            {action: "add_instance", name: type, instance: instance, display_name: name})
+            .then(data => {
+                this.setState({busy: false});
+                if (!ExtensionsScreen.succeeded(data)) return;
+                this.refresh(data.message, type + "/" + instance);
+            });
+    }
+
+    renderAddDialog() {
+        if (!this.state.showAdd) return null;
+        return <div className="modalBackground">
+            <div className="modalContainer" role="dialog" aria-label="Add Data Integration">
+                <div className="title">Add Data Integration</div>
+                <div className="body">
+                    <label htmlFor="dataIntegrationType">Type:</label>
+                    <select id="dataIntegrationType" value={this.state.addType}
+                            onChange={event => {
+                                const type = event.target.value;
+                                let name = ExtensionsScreen.humanName(type);
+                                let suffix = 2;
+                                while (this.state.extensions.some(one =>
+                                    (one.display_name || "").toLowerCase() === name.toLowerCase())) {
+                                    name = ExtensionsScreen.humanName(type) + " " + suffix++;
+                                }
+                                this.setState({addType: type, addName: name, addError: ""});
+                            }}>
+                        {this.addTypes().map(extension =>
+                            <option key={extension.name} value={extension.name}>
+                                {ExtensionsScreen.humanName(extension.name)}
+                            </option>)}
+                    </select>
+                    <p className="extensionNote">{this.addDescription()}</p>
+                    <label htmlFor="dataIntegrationName">Name:</label>
+                    <input id="dataIntegrationName" type="text" value={this.state.addName}
+                           onChange={event => this.setState({addName: event.target.value, addError: ""})}/>
+                    {this.state.addError ? <p role="alert" className="extensionNote extensionValueError">
+                        {this.state.addError}
+                    </p> : null}
+                </div>
+                <div className="footer">
+                    <button className="modalCancelButton" onClick={() => this.setState({showAdd: false})}>Cancel</button>
+                    <button className="modalOkButton" disabled={this.state.busy} onClick={this.submitAdd}>Add</button>
+                </div>
+            </div>
+        </div>;
     }
 
     /// What a setting holds right now: what the operator typed, or what the broker reported.
@@ -282,7 +394,8 @@ export default class ExtensionsScreen extends React.Component {
                 return;
             }
             ControlAPI.asyncMakeAPICall("ExtensionControl",
-                                        {action: "set", name: extension.name, settings: settings})
+                                        {action: "set", name: extension.name,
+                                         instance: extension.instance || "", settings: settings})
                 .then(data => {
                     this.setState({busy: false});
                     if (!ExtensionsScreen.succeeded(data)) {
@@ -316,7 +429,8 @@ export default class ExtensionsScreen extends React.Component {
 
         this.setState({busy: true});
         ControlAPI.asyncMakeAPICall("ExtensionControl",
-                                    {action: on ? "enable" : "disable", name: extension.name})
+                                    {action: on ? "enable" : "disable", name: extension.name,
+                                     instance: extension.instance || ""})
             .then(data => {
                 this.setState({busy: false});
                 if (!ExtensionsScreen.succeeded(data)) {
@@ -357,10 +471,15 @@ export default class ExtensionsScreen extends React.Component {
             </div>;
         }
 
-        return <table className="extensionList">
+        return <div>
+            <div className="extensionListButtons">
+                <button className="modalOkButton" disabled={this.state.busy || !this.addTypes().length}
+                        onClick={this.openAdd}>Add Data Integration</button>
+            </div>
+            <table className="extensionList">
             <thead>
             <tr>
-                <th>Extension</th>
+                <th>Data Integration</th>
                 <th>Version</th>
                 <th>State</th>
                 <th>Role</th>
@@ -368,22 +487,40 @@ export default class ExtensionsScreen extends React.Component {
             </tr>
             </thead>
             <tbody>
-            {this.state.extensions.filter(extension => !extension.sink).map(extension =>
-                <tr key={extension.name}
-                    className={extension.name === this.state.selected ? "extensionRowSelected" : ""}
-                    onClick={() => this.setState({selected: extension.name, edited: {}, preset: "",
-                                  presetResult: null})}>
-                    <td>{extension.name}</td>
-                    <td>{extension.version || "—"}</td>
-                    <td className={extension.running ? "extensionRunning" : "extensionStopped"}>
-                        {extension.running ? "running" : "stopped"}
-                        {extension.required ? " (required)" : ""}
-                    </td>
-                    <td>{this.capabilitiesOf(extension)}</td>
-                    <td>{extension.description || "—"}</td>
-                </tr>)}
+            {[...new Set(this.state.extensions.filter(extension => !extension.sink).map(extension => extension.name))]
+                .map(name => {
+                    const sets = this.state.extensions.filter(extension => !extension.sink && extension.name === name);
+                    const canAdd = name === "message_export" || name === "log_export";
+                    return <React.Fragment key={name}>
+                        <tr className="extensionGroupRow"
+                            onClick={() => sets.length && this.setState({selected: ExtensionsScreen.extensionId(sets[0]),
+                                          edited: {}, preset: "", presetResult: null})}>
+                            <td colSpan="5">
+                                <b>{name}</b>
+                            </td>
+                        </tr>
+                        {sets.map(extension => {
+                            const id = ExtensionsScreen.extensionId(extension);
+                            return <tr key={id}
+                                className={id === this.state.selected ? "extensionRowSelected" : ""}
+                                onClick={() => this.setState({selected: id, edited: {}, preset: "",
+                                              presetResult: null})}>
+                                <td>{extension.display_name || extension.instance || "default"}</td>
+                                <td>{extension.version || "—"}</td>
+                                <td className={extension.running ? "extensionRunning" : "extensionStopped"}>
+                                    {extension.running ? "running" : "stopped"}
+                                    {extension.required ? " (required)" : ""}
+                                </td>
+                                <td>{this.capabilitiesOf(extension)}</td>
+                                <td>{extension.description || "—"}</td>
+                            </tr>;
+                        })}
+                    </React.Fragment>;
+                })}
             </tbody>
-        </table>;
+            </table>
+            {this.renderAddDialog()}
+        </div>;
     }
 
     /// One row of the form: a label, a value, and the [?] that explains it.
@@ -935,7 +1072,9 @@ export default class ExtensionsScreen extends React.Component {
         // editable half is not obviously editable.
         return <div className="extensionPage">
             <div className="extensionPanel">
-                <div className="extensionPanelTitle">{extension.name}</div>
+                <div className="extensionPanelTitle">
+                    {extension.display_name || ExtensionsScreen.humanName(extension.name)}
+                </div>
                 <div className="extensionPanelBody">
                     {extension.description
                         ? <p className="extensionAbout">{extension.description}</p>
@@ -976,8 +1115,11 @@ export default class ExtensionsScreen extends React.Component {
                     is declared.
                 </p>
                 <p>
-                    Everything configured is listed here, running or not. Select one to see what it
-                    is doing and to change what it takes.
+                    Everything configured is listed here, running or not. Extensions are grouped by
+                    what they do; each row under one is an independent settings set. An export can
+                    be added several times to write to different destinations - each set keeps its
+                    own filter, sink, queue and dead-letter topic. Select one to see what it is
+                    doing and to change what it takes.
                 </p>
             </div>
 

@@ -78,6 +78,12 @@ public:
         return ExtensionHost::Report::note(name + ": no broker behind this controller");
     }
 
+    ExtensionHost::Report addExtensionInstance(const std::string& name, const std::string& instance,
+                                               const std::string& displayName) override
+    {
+        return ExtensionHost::Report::note(displayName + " (" + name + "/" + instance + "): no broker behind this controller");
+    }
+
     ExtensionHost::Report setExtensionSettings(const std::string& name,
                                                const std::map<std::string, std::string>&) override
     {

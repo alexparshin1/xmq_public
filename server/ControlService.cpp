@@ -490,6 +490,8 @@ const char* settingTypeName(const xmq_setting_type type)
 void describeInto(const ExtensionHost::Description& from, CExtension& into)
 {
     into.m_name = from.m_name;
+    into.m_instance = from.m_instance;
+    into.m_display_name = from.m_displayName;
     into.m_version = from.m_version;
     into.m_description = from.m_description;
     into.m_library = from.m_library.string();
@@ -581,7 +583,8 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
         if (const auto action = input.m_action.asString();
             action == "enable" || action == "disable")
         {
-            const auto name = input.m_name.asString();
+            const auto name = ExtensionHost::identityOf(input.m_name.asString(),
+                                                        input.m_instance.asString());
             if (name.empty())
             {
                 throw Exception("Which extension? The action needs a name");
@@ -639,9 +642,21 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
             output.m_result.m_success = true;
             return;
         }
-        else if (action == "set")
+        else if (action == "add_instance")
         {
             const auto name = input.m_name.asString();
+            const auto instance = input.m_instance.asString();
+            const auto displayName = input.m_display_name.asString();
+            if (name.empty() || instance.empty() || displayName.empty())
+            {
+                throw Exception("Which data integration? The action needs a type and a name");
+            }
+            report = m_controller->addExtensionInstance(name, instance, displayName);
+        }
+        else if (action == "set")
+        {
+            const auto name = ExtensionHost::identityOf(input.m_name.asString(),
+                                                        input.m_instance.asString());
             if (name.empty())
             {
                 throw Exception("Which extension? The action needs a name");

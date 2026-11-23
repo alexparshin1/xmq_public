@@ -695,6 +695,11 @@
             <xsd:complexType name="Extension">
                 <xsd:sequence>
                     <xsd:element name="name" type="xsd:string"/>
+                    <!-- Which settings set of this extension this row is. Absent for the default
+                         set, so older screens and configuration files keep working unchanged. -->
+                    <xsd:element name="instance" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- The name the operator gave this settings set. -->
+                    <xsd:element name="display_name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="version" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="library" type="xsd:string" maxOccurs="1" minOccurs="0"/>
@@ -769,11 +774,19 @@
                                     <!-- Write the settings back to the file the entry came from,
                                          then apply them without stopping the broker. -->
                                     <xsd:enumeration value="set"></xsd:enumeration>
+                                    <!-- Create one more settings set of an already configured
+                                         extension; name and instance identify the new one. -->
+                                    <xsd:enumeration value="add_instance"></xsd:enumeration>
                                     <xsd:enumeration value="test_sql"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
                         <xsd:element name="name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                        <!-- Together with name, selects one settings set when the same extension
+                             is used for several exports. -->
+                        <xsd:element name="instance" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- The name the operator gave this settings set. -->
+                    <xsd:element name="display_name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                         <xsd:element name="settings" type="tns:ExtensionSettingValue"
                                      maxOccurs="unbounded" minOccurs="0"/>
                     </xsd:sequence>

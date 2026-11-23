@@ -14,15 +14,19 @@ export default function WebhookDocumentation() {
             <p>The <code>message_export</code> extension exports accepted MQTT messages. The
                 {" "}<code>log_export</code> extension exports broker log records. Each extension has
                 its own filters, delivery settings and queue,
-                even when both use the same sink type.</p>
+                even when both use the same sink type. An extension can also be configured several
+                times: each <b>settings set</b> has its own instance name, filters, sink and delivery
+                queue, so one <code>message_export</code> can write <code>orders/#</code> to one
+                database and <code>audit/#</code> to another. Use <b>Add Data Integration</b> on the Extensions
+                screen to make another set.</p>
             <p>Kafka integration works in both directions: <a href="#webhook-kafka"><code>kafka_sink</code></a>
                 {" "}sends exports to Kafka, and <a href="#webhook-limits"><code>kafka_source</code></a>
                 {" "}imports Kafka records into MQTT. Both are available on Linux builds with librdkafka.</p>
 
             <h4 id="webhook-enable">Set up an export</h4>
             <ol>
-                <li>Select <code>message_export</code> or <code>log_export</code> on the
-                    {" "}<b>Extensions</b> screen, then choose a filter mode.</li>
+                <li>Select a settings set of <code>message_export</code> or <code>log_export</code> on the
+                    {" "}<b>Extensions</b> screen, or press <b>Add Data Integration</b> to create one, then choose a filter mode.</li>
                 <li>Under <b>Delivery</b>, choose <code>http_sink</code> for HTTP,
                     <code> db_sink</code> for a database, or <code>kafka_sink</code> for Kafka.
                     Configure the selected sink.</li>

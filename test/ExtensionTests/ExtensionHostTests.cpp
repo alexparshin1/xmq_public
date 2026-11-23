@@ -1430,4 +1430,140 @@ TEST_F(XMQ_ExtensionHostTests, absentConfigurationMeansNoExtensions)
     EXPECT_TRUE(configured.empty());
 }
 
+TEST_F(XMQ_ExtensionHostTests, twoSettingsSetsOfOneExtensionAreBothConfigured)
+{
+    const auto directory = uniqueTemporary("conf-instances");
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    const auto library = testExtensionLibrary().generic_string();
+    {
+        ofstream file(extensionsFile);
+        file << R"({"extensions":[)"
+            << R"({"name":"event-log","instance":"orders","library":")" << library << R"(","settings":{"file":"/tmp/orders.log"}},)"
+            << R"({"name":"event-log","instance":"audit","library":")" << library << R"(","settings":{"file":"/tmp/audit.log"}})"
+            << "]}";
+    }
+
+    const auto configured = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
+    ASSERT_EQ(2U, configured.size());
+    EXPECT_EQ("event-log/orders", configured[0].identity());
+    EXPECT_EQ("event-log/audit", configured[1].identity());
+    EXPECT_EQ("orders", configured[0].m_instance);
+    EXPECT_EQ("/tmp/orders.log", configured[0].m_settings.at("file"));
+    EXPECT_EQ("/tmp/audit.log", configured[1].m_settings.at("file"));
+
+    // A repeat of one identity is still a mistake, even when the other instance is different.
+    {
+        ofstream file(ExtensionHost::configurationDirectoryFor(brokerConfiguration) / "90-duplicate.conf");
+        file << R"({"extensions":[{"name":"event-log","instance":"orders","library":")" << library << R"("}]})";
+    }
+    const auto repeated = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
+    EXPECT_EQ(2U, repeated.size()) << "the duplicate identity must not become a third instance";
+
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
+TEST_F(XMQ_ExtensionHostTests, settingsWrittenToOneInstanceLeaveTheOtherAlone)
+{
+    const auto directory = uniqueTemporary("conf-instances-write");
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    const auto library = testExtensionLibrary().generic_string();
+    const auto ordersFile = (directory / "orders.log").generic_string();
+    const auto auditFile = (directory / "audit.log").generic_string();
+    const auto movedFile = (directory / "moved.log").generic_string();
+    {
+        ofstream file(extensionsFile);
+        file << R"({"extensions":[)"
+            << R"({"name":"event-log","instance":"orders","library":")" << library << R"(","settings":{"file":")"
+            << ordersFile << R"("}},)"
+            << R"({"name":"event-log","instance":"audit","library":")" << library << R"(","settings":{"file":")"
+            << auditFile << R"("}})"
+            << "]}";
+    }
+
+    auto configured = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
+    ASSERT_EQ(2U, configured.size());
+    ExtensionHost host(m_logEngine, "test");
+    host.start(configured);
+
+    const auto described = host.describe();
+    std::vector<std::string> identities;
+    for (const auto& one: described)
+    {
+        if (one.m_name == "event-log")
+            identities.push_back(ExtensionHost::identityOf(one.m_name, one.m_instance));
+    }
+    ASSERT_EQ(2U, identities.size());
+    EXPECT_NE(identities.end(), std::ranges::find(identities, "event-log/orders"));
+    EXPECT_NE(identities.end(), std::ranges::find(identities, "event-log/audit"));
+
+    const auto report = host.writeSettings("event-log/audit", {{"file", movedFile}});
+    EXPECT_FALSE(report.failed()) << report.m_problems.join("; ");
+
+    ifstream writtenFile(extensionsFile);
+    const string writtenContent((istreambuf_iterator<char>(writtenFile)), istreambuf_iterator<char>());
+    EXPECT_NE(string::npos, writtenContent.find("instance")) << writtenContent;
+    EXPECT_NE(string::npos, writtenContent.find("orders")) << writtenContent;
+    EXPECT_NE(string::npos, writtenContent.find("audit")) << writtenContent;
+    EXPECT_NE(string::npos, writtenContent.find(ordersFile)) << writtenContent;
+    EXPECT_NE(string::npos, writtenContent.find(movedFile)) << writtenContent;
+    EXPECT_EQ(string::npos, writtenContent.find(auditFile)) << writtenContent;
+
+    const auto reloaded = host.reloadSettings(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine));
+    EXPECT_FALSE(reloaded.failed()) << reloaded.m_problems.join("; ");
+
+    // Both instances keep their own event file after a settings change to just one of them.
+    host.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, "instance", "dave", {}, 0, 0, false);
+    EXPECT_TRUE(waitFor([&ordersFile] { return countLines(ordersFile) >= 1; }));
+    EXPECT_TRUE(waitFor([&movedFile] { return countLines(movedFile) >= 1; }));
+    host.stop();
+
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
+
+TEST_F(XMQ_ExtensionHostTests, addInstanceCreatesAnotherSettingsSet)
+{
+    const auto directory = uniqueTemporary("conf-add-instance");
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    const auto library = testExtensionLibrary().generic_string();
+    {
+        ofstream file(extensionsFile);
+        file << "{\"extensions\":[{\"name\":\"event-log\",\"library\":\"" << library << "\","
+             << "\"settings\":{\"file\":\"" << m_eventFile.generic_string() << "\"}}]}";
+    }
+
+    ExtensionHost host(m_logEngine, "test");
+    host.start(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine), brokerConfiguration);
+    ASSERT_TRUE(host.watching());
+
+    const auto report = host.addInstance("event-log", "audit", "Audit log");
+    EXPECT_FALSE(report.failed()) << report.m_problems.join("; ");
+
+    const auto fragments = ExtensionHost::configurationDirectoryFor(brokerConfiguration);
+    EXPECT_TRUE(filesystem::exists(fragments / "90-event-log-audit.conf"));
+
+    size_t count = 0;
+    for (const auto& one: host.describe())
+    {
+        if (one.m_name == "event-log")
+            ++count;
+    }
+    EXPECT_EQ(2U, count);
+
+    const auto again = host.addInstance("event-log", "audit", "Audit log");
+    EXPECT_TRUE(again.failed()) << "the same instance cannot be added twice";
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
 } // namespace

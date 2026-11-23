@@ -107,6 +107,19 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
+                An entry may carry an <b>instance</b>, which names one <b>settings set</b> of that
+                extension. Several entries can share a name and a library when their instances
+                differ — two exports to two databases, each with its own filter, sink, SQLite queue
+                and dead-letter topic. The <b>Extensions</b> page groups them under one extension and
+                offers <b>Add Data Integration</b> to create another. Data integrations are rows in
+                <code>xmq_data_integration</code> in the shared SQL database, keyed to this node's
+                <code>xmq_node</code> row; the name is unique within the node and can be changed without
+                changing the technical instance. Entries without an instance remain the single default
+                set, so existing configurations need no change. Two entries with the same name and
+                instance are still refused.
+            </p>
+
+            <p>
                 The page lists every extension installed beside the configured ones, including those
                 no entry mentions. An unmentioned library appears <b>stopped</b>, with the version and
                 description it reports about itself, and is switched on with <b>Enable</b>; that writes

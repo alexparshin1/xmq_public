@@ -6,6 +6,33 @@ still owed.
 
 ## Planned
 
+- [ ] **One extension, many settings sets (named instances).** — the headline feature of 1.2.0.
+  Today the Extensions screen is a list of extensions, and each extension owns exactly one flat
+  settings map: two exports to two databases require loading the same library twice, which
+  `ExtensionHost` explicitly refuses. Change that to a list of *settings sets*, each with its own
+  label, using one extension library.
+
+  Config entries gain an `instance` label. Several entries may share a `name`/`library` as long as
+  their instances differ; the host keys loaded instances by name + instance and exposes the instance
+  to the extension through `hostSetting`. Existing entries without a label keep working as one
+  default instance, so no config migration is needed.
+
+  Data integrations configured from the screen are not written to config fragments. They are rows
+  in `xmq_data_integration` in the shared cluster SQL database: `node_id` is a foreign key to
+  `xmq_node`, `extension` and `instance` are the stable technical identity, `name` is the friendly
+  editable name (unique within the node, case-insensitive), `enabled` and `settings_json` hold the
+  rest. Renaming a data integration never changes its instance, so its persistent queue identity
+  survives. Brokers with no database keep file-backed settings sets.
+
+  For the export extensions this must give each settings set its own topic filter/SQL rules, sink,
+  SQLite queue, retry worker and dead-letter topic. The Extensions screen shows a flat list of
+  **Data Integrations**; **Add Data Integration** opens a dialog with a combo box of the available
+  kinds and the selected kind's description, plus an editable name generated as "Message Export",
+  "Log Export" and so on and checked for uniqueness. Accepting it creates the row and opens that
+  data integration's settings immediately. Acceptance: two `message_export` data integrations
+  writing to two different databases with different filters and queue files work at the same time,
+  survive a settings change and a broker restart, and the farm is green on every system.
+
 - [ ] **Rename `ControlService` to `RestService`.**
   Found in the 1.2.0 farm run `2026-11-23-2112`: the C++ class in
   `server/ControlService.{h,cpp}` collides with the Win32 `ControlService()` function from

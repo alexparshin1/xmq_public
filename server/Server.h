@@ -357,6 +357,10 @@ public:
     /// have been edited while it was off.
     ExtensionHost::Report switchExtension(const std::string& name, bool on);
 
+    /// Adds one more settings set of an extension and starts it.
+    ExtensionHost::Report addExtensionInstance(const std::string& name, const std::string& instance,
+                                                const std::string& displayName);
+
     /// Writes an extension's settings to the file its entry came from, then applies them.
     ExtensionHost::Report setExtensionSettings(const std::string&                        name,
                                                const std::map<std::string, std::string>& settings);

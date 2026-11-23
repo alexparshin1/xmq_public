@@ -235,3 +235,27 @@ test("the exporter shows sink and schema diagnostics separately from tap drops",
     expect(rowValue("SQLite queue failures")).toHaveTextContent("5");
     expect(rowValue("Last schema rejection")).toHaveTextContent("/reading · type");
 });
+
+test("one extension is listed as several settings sets and can gain another", async () => {
+    const exporter = name => ({
+        ...extension, name: "message_export", instance: name, message_tap: true,
+        settings: [{name: "url", label: "URL", type: "string", value: "https://example.org/hook",
+            declared: true}]
+    });
+    listed = [exporter("orders"), exporter("audit")];
+    render(<ExtensionsScreen/>);
+
+    expect(await screen.findByText("orders")).toBeInTheDocument();
+    expect(screen.getByText("audit")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("audit"));
+    expect(screen.getByText("Message Export")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Add Data Integration"));
+    const dialog = screen.getByRole("dialog", {name: "Add Data Integration"});
+    fireEvent.change(dialog.querySelector("#dataIntegrationName"), {target: {value: "Third export"}});
+    fireEvent.click(screen.getByText("Add", {selector: "button"}));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith(
+        "ExtensionControl", expect.objectContaining({action: "add_instance", name: "message_export",
+            display_name: "Third export"})));
+});

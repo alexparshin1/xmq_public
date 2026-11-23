@@ -448,6 +448,12 @@ more. The configuration is:
 the file - the Redis URI, the users database URI, the listeners and TLS key paths, `cluster_enabled`,
 `cluster_lease_seconds`, `cluster_links`.
 
+Data integrations — the export and import settings sets configured on the Extensions screen — live in
+`xmq_data_integration` in the same database. Each row carries the node's `node_id` as a foreign key to
+`xmq_node`, so the rows of different nodes do not mix and a name only has to be unique on its own node.
+The columns are `node_id`, `extension`, `instance` (the stable technical identifier), `name` (the name
+the operator edits), `enabled` and `settings_json`. Renaming a data integration changes only `name`.
+
 Redis keeps the runtime (see *The shared storage is the arbiter*): `cluster:members`, the leases, the coordinator
 keys, sessions, queues and retained messages. Those are written several times per lease and are not configuration.
 

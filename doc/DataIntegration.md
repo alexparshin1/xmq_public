@@ -1,8 +1,12 @@
 # Data integration
 
 Use `message_export` for MQTT messages and `log_export` for broker logs.
-Each has its own filters, destination and delivery queue. The old `webhook`
-still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrate,
+Each has its own filters, destination and delivery queue. One extension can be configured several
+times: the Extensions screen lists **settings sets**, not extensions, so a single `message_export`
+can have one set of filters and a database sink for `orders/#` and another set with a different
+sink for `audit/#`. Give each set its own `instance` label and, with persistent delivery enabled,
+its own `delivery_queue_path`; two sets that subscribe to the same topic each receive a copy.
+The old `webhook` still works in 1.2.x: **Deprecated. Will be disabled in version 1.3.** To migrate,
 copy each source's settings to its replacement and turn off the old extension to
 avoid duplicate deliveries.
 

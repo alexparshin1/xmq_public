@@ -520,6 +520,18 @@ ExtensionHost::Report ServerController::switchExtension(const string& name, cons
     return m_xmqServer->switchExtension(name, on);
 }
 
+ExtensionHost::Report ServerController::addExtensionInstance(const string& name, const string& instance,
+                                                              const string& displayName)
+{
+    const scoped_lock lock(m_mutex);
+
+    if (!m_xmqServer)
+    {
+        throw Exception("The MQTT server is not running, so there are no extensions to add to");
+    }
+    return m_xmqServer->addExtensionInstance(name, instance, displayName);
+}
+
 ExtensionHost::Report ServerController::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
     const scoped_lock lock(m_mutex);

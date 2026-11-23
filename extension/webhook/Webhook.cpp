@@ -652,7 +652,10 @@ private:
     std::shared_ptr<Destination> configuredDestination(std::string& error) const
     {
         auto destination = std::make_shared<Destination>();
-        destination->name = "destination 1";
+        // One extension can now serve several settings sets. The label keeps their log lines and
+        // their SQLite queue identities apart even when two sets name the same sink.
+        const auto instance = setting("xmq_instance");
+        destination->name = instance.empty() ? "destination 1" : "destination '" + instance + "'";
         if constexpr (mqttOnly || logOnly)
         {
             if (const auto schema = trimmed(setting("json_schema")); !schema.empty())

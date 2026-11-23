@@ -134,6 +134,26 @@ from the page; enabling writes the entry that the next start reads.
 file names one extension and the broker runs another. Everything under `settings` is the
 extension's own, reachable through `setting("key")`.
 
+An entry may also carry an `instance`, which names one **settings set** of that extension. Several
+entries can share the same `name` and `library` as long as their instances differ:
+
+```json
+{
+  "extensions": [
+    {"name": "message_export", "instance": "orders", "library": "/usr/local/lib/xmq-extensions/libxmq_message_export.so",
+     "settings": {"topic_filter": "orders/#", "url": "https://orders.example.org/export"}},
+    {"name": "message_export", "instance": "audit", "library": "/usr/local/lib/xmq-extensions/libxmq_message_export.so",
+     "settings": {"topic_filter": "audit/#", "url": "https://audit.example.org/export"}}
+  ]
+}
+```
+
+Each settings set has its own tap, worker, delivery queue and counters; the Extensions screen
+groups them under one extension and offers **Add export** to make another. An extension can read
+its instance name through `setting("xmq_instance")` — exporters use it in log lines and in the
+identity of their persistent queue. Entries without `instance` keep working as the single default
+set. Two entries with the same name *and* instance are still refused.
+
 ### Declaring settings and starting points
 
 An extension may declare its settings (`xmq_setting`) so the page shows labels, types, defaults and

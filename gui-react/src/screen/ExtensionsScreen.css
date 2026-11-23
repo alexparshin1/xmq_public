@@ -344,3 +344,19 @@
     gap: 8px;
     margin-bottom: 8px;
 }
+
+/* One extension can own several settings sets. The group row names the extension and offers a
+   way to add another set; the indented rows below it are the sets themselves. */
+.extensionGroupRow td {
+    padding-top: 10px;
+    background: #f3f5f7;
+}
+
+.extensionAddExport {
+    margin-left: 12px;
+    padding: 2px 8px;
+}
+
+.extensionList tbody tr:not(.extensionGroupRow) td:first-child {
+    padding-left: 20px;
+}
