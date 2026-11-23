@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MPL-2.0 */
 #include "server/ReliableMessageStore.h"
 #include "test/PersistenceTests/PersistenceTests.h"
+#include "test/ControlServiceTests/ControlServiceTests.h"
 #include "common/RedisCredentials.h"
 #include <limits>
 
@@ -245,10 +246,39 @@ TEST_F(XMQ_ReliableStoreTests, BinaryPayloadAndMultipleRecipientsCommitTogether)
 TEST_F(XMQ_ReliableStoreTests, UnsafeSettingsAndLiveReconfigurationAreRejected)
 {
     auto settings = server()->getSettings();
+    ASSERT_TRUE(settings->m_persistence.m_ack_after_store.asBool());
+
+    // Settings::persistenceControl is the storage primitive: since durable mode was added it
+    // deliberately applies whatever it is given. The guard against changing a live durable broker
+    // belongs to the control service, which knows whether MQTT is serving and can route the change
+    // through the apply action - so drive the interface a client actually reaches.
+    TestServerController controller(server().get(), settings);
+    ControlService controlService(&controller);
+
+    CLogin login;
+    login.m_username = "admin";
+    login.m_password = "admin";
+    CLoginResponse loginResponse;
+    controlService.Login(login, loginResponse, nullptr);
+    ASSERT_TRUE(loginResponse.m_result.m_success.asBool())
+        << loginResponse.m_result.m_description.asString();
+    const string token = loginResponse.m_token.asString().c_str();
+    HttpAuthentication authentication("bearer " + token);
+
+    CPersistenceControl input;
+    input.m_action = "set";
     CPersistence changed(settings->m_persistence);
     changed.m_enabled = false;
-    EXPECT_THROW(settings->persistenceControl("set", changed), Exception);
-    EXPECT_TRUE(settings->m_persistence.m_enabled.asBool());
+    input.m_persistence = changed;
+
+    CPersistenceControlResponse output;
+    controlService.PersistenceControl(input, output, &authentication);
+    EXPECT_FALSE(output.m_result.m_success.asBool());
+    EXPECT_NE(String::npos, output.m_result.m_description.asString().find("Use the apply action"))
+        << output.m_result.m_description.asString();
+    EXPECT_TRUE(settings->m_persistence.m_enabled.asBool())
+        << "a rejected live change must not take effect";
+
     EXPECT_THROW(server()->getCluster()->joinCluster(Host("localhost", 1), true), Exception);
 }
 
