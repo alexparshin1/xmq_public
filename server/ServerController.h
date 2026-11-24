@@ -97,6 +97,9 @@ public:
     /// Adds one more settings set of an extension, writing a new configuration fragment for it.
     virtual ExtensionHost::Report addExtensionInstance(const std::string& name, const std::string& instance,
                                                         const std::string& displayName) = 0;
+    virtual ExtensionHost::Report renameExtensionInstance(const std::string& name, const std::string& instance,
+                                                          const std::string& displayName) = 0;
+    virtual ExtensionHost::Report removeExtensionInstance(const std::string& name, const std::string& instance) = 0;
 
     /// Writes an extension's settings back to the file its entry came from, then applies them
     /// without stopping the broker. Written first: a value that cannot be written is never applied.
@@ -259,6 +262,9 @@ public:
     ExtensionHost::Report            switchExtension(const std::string& name, bool on) override;
     ExtensionHost::Report            addExtensionInstance(const std::string& name, const std::string& instance,
                                                           const std::string& displayName) override;
+    ExtensionHost::Report            renameExtensionInstance(const std::string& name, const std::string& instance,
+                                                              const std::string& displayName) override;
+    ExtensionHost::Report            removeExtensionInstance(const std::string& name, const std::string& instance) override;
     ExtensionHost::Report            setExtensionSettings(
         const std::string& name, const std::map<std::string, std::string>& settings) override;
     bool                             startServing(std::string& reason, std::optional<bool> cleanStart = std::nullopt) override;

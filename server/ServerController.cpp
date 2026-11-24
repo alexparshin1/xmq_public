@@ -532,6 +532,27 @@ ExtensionHost::Report ServerController::addExtensionInstance(const string& name,
     return m_xmqServer->addExtensionInstance(name, instance, displayName);
 }
 
+ExtensionHost::Report ServerController::renameExtensionInstance(const string& name, const string& instance,
+                                                               const string& displayName)
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        throw Exception("The MQTT server is not running, so there are no extensions to rename");
+    }
+    return m_xmqServer->renameExtensionInstance(name, instance, displayName);
+}
+
+ExtensionHost::Report ServerController::removeExtensionInstance(const string& name, const string& instance)
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        throw Exception("The MQTT server is not running, so there are no extensions to remove");
+    }
+    return m_xmqServer->removeExtensionInstance(name, instance);
+}
+
 ExtensionHost::Report ServerController::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
     const scoped_lock lock(m_mutex);

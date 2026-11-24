@@ -24,6 +24,8 @@
  */
 
 #include "server/Extensions/ExtensionHost.h"
+#include "server/Settings/DataIntegrationStore.h"
+#include "common/DirectoryNames.h"
 #include <sptk5/threads/JoiningThread.h>
 
 #include <gtest/gtest.h>
@@ -1440,8 +1442,8 @@ TEST_F(XMQ_ExtensionHostTests, twoSettingsSetsOfOneExtensionAreBothConfigured)
     {
         ofstream file(extensionsFile);
         file << R"({"extensions":[)"
-            << R"({"name":"event-log","instance":"orders","library":")" << library << R"(","settings":{"file":"/tmp/orders.log"}},)"
-            << R"({"name":"event-log","instance":"audit","library":")" << library << R"(","settings":{"file":"/tmp/audit.log"}})"
+            << R"({"name":"event-log","extension_instance":"orders","library":")" << library << R"(","settings":{"file":"/tmp/orders.log"}},)"
+            << R"({"name":"event-log","extension_instance":"audit","library":")" << library << R"(","settings":{"file":"/tmp/audit.log"}})"
             << "]}";
     }
 
@@ -1449,14 +1451,14 @@ TEST_F(XMQ_ExtensionHostTests, twoSettingsSetsOfOneExtensionAreBothConfigured)
     ASSERT_EQ(2U, configured.size());
     EXPECT_EQ("event-log/orders", configured[0].identity());
     EXPECT_EQ("event-log/audit", configured[1].identity());
-    EXPECT_EQ("orders", configured[0].m_instance);
+    EXPECT_EQ("orders", configured[0].m_extensionInstance);
     EXPECT_EQ("/tmp/orders.log", configured[0].m_settings.at("file"));
     EXPECT_EQ("/tmp/audit.log", configured[1].m_settings.at("file"));
 
     // A repeat of one identity is still a mistake, even when the other instance is different.
     {
         ofstream file(ExtensionHost::configurationDirectoryFor(brokerConfiguration) / "90-duplicate.conf");
-        file << R"({"extensions":[{"name":"event-log","instance":"orders","library":")" << library << R"("}]})";
+        file << R"({"extensions":[{"name":"event-log","extension_instance":"orders","library":")" << library << R"("}]})";
     }
     const auto repeated = ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine);
     EXPECT_EQ(2U, repeated.size()) << "the duplicate identity must not become a third instance";
@@ -1478,9 +1480,9 @@ TEST_F(XMQ_ExtensionHostTests, settingsWrittenToOneInstanceLeaveTheOtherAlone)
     {
         ofstream file(extensionsFile);
         file << R"({"extensions":[)"
-            << R"({"name":"event-log","instance":"orders","library":")" << library << R"(","settings":{"file":")"
+            << R"({"name":"event-log","extension_instance":"orders","library":")" << library << R"(","settings":{"file":")"
             << ordersFile << R"("}},)"
-            << R"({"name":"event-log","instance":"audit","library":")" << library << R"(","settings":{"file":")"
+            << R"({"name":"event-log","extension_instance":"audit","library":")" << library << R"(","settings":{"file":")"
             << auditFile << R"("}})"
             << "]}";
     }
@@ -1495,7 +1497,7 @@ TEST_F(XMQ_ExtensionHostTests, settingsWrittenToOneInstanceLeaveTheOtherAlone)
     for (const auto& one: described)
     {
         if (one.m_name == "event-log")
-            identities.push_back(ExtensionHost::identityOf(one.m_name, one.m_instance));
+            identities.push_back(ExtensionHost::identityOf(one.m_name, one.m_extensionInstance));
     }
     ASSERT_EQ(2U, identities.size());
     EXPECT_NE(identities.end(), std::ranges::find(identities, "event-log/orders"));
@@ -1506,7 +1508,7 @@ TEST_F(XMQ_ExtensionHostTests, settingsWrittenToOneInstanceLeaveTheOtherAlone)
 
     ifstream writtenFile(extensionsFile);
     const string writtenContent((istreambuf_iterator<char>(writtenFile)), istreambuf_iterator<char>());
-    EXPECT_NE(string::npos, writtenContent.find("instance")) << writtenContent;
+    EXPECT_NE(string::npos, writtenContent.find("extension_instance")) << writtenContent;
     EXPECT_NE(string::npos, writtenContent.find("orders")) << writtenContent;
     EXPECT_NE(string::npos, writtenContent.find("audit")) << writtenContent;
     EXPECT_NE(string::npos, writtenContent.find(ordersFile)) << writtenContent;
@@ -1517,7 +1519,7 @@ TEST_F(XMQ_ExtensionHostTests, settingsWrittenToOneInstanceLeaveTheOtherAlone)
     EXPECT_FALSE(reloaded.failed()) << reloaded.m_problems.join("; ");
 
     // Both instances keep their own event file after a settings change to just one of them.
-    host.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, "instance", "dave", {}, 0, 0, false);
+    host.publishEvent(XMQ_EVENT_CLIENT_CONNECTED, "extension_instance", "dave", {}, 0, 0, false);
     EXPECT_TRUE(waitFor([&ordersFile] { return countLines(ordersFile) >= 1; }));
     EXPECT_TRUE(waitFor([&movedFile] { return countLines(movedFile) >= 1; }));
     host.stop();
@@ -1560,6 +1562,78 @@ TEST_F(XMQ_ExtensionHostTests, addInstanceCreatesAnotherSettingsSet)
 
     const auto again = host.addInstance("event-log", "audit", "Audit log");
     EXPECT_TRUE(again.failed()) << "the same instance cannot be added twice";
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
+TEST_F(XMQ_ExtensionHostTests, aStoredDataIntegrationCanBeRenamedAndRemoved)
+{
+    const auto directory = uniqueTemporary("conf-rename-remove");
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    const auto library = testExtensionLibrary().generic_string();
+    const auto databaseFile = directory / "data-integrations.db";
+    {
+        ofstream file(extensionsFile);
+        file << "{\"extensions\":[{\"name\":\"event-log\",\"library\":\"" << library << "\","
+             << "\"settings\":{\"file\":\"" << m_eventFile.generic_string() << "\"}}]}";
+    }
+
+    auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(databaseFile), 2);
+    auto store = make_shared<DataIntegrationStore>(pool, "44444444-4444-4444-8444-444444444444");
+    {
+        const AutoDatabaseConnection connection(*pool);
+        Query                        node(connection.connection(),
+            "CREATE TABLE xmq_node (node_id varchar(36) PRIMARY KEY, name varchar(80) NOT NULL)");
+        node.exec();
+        Query insert(connection.connection(),
+            "INSERT INTO xmq_node (node_id, name) VALUES (:id, :name)");
+        insert.param("id") = "44444444-4444-4444-8444-444444444444";
+        insert.param("name") = "node-four";
+        insert.exec();
+    }
+    store->createSchema();
+
+    ExtensionHost host(m_logEngine, "test");
+    host.dataIntegrationStore(store);
+    host.start(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine), brokerConfiguration);
+    ASSERT_TRUE(host.watching());
+
+    const auto added = host.addInstance("event-log", "event-log-1", "Audit log");
+    ASSERT_FALSE(added.failed()) << added.m_problems.join("; ");
+    ASSERT_TRUE(store->find("event-log", "event-log-1").has_value());
+
+    const auto duplicated = host.addInstance("event-log", "event-log-2", "audit log");
+    EXPECT_TRUE(duplicated.failed()) << "names are unique regardless of case";
+
+    const auto renamed = host.renameInstance("event-log", "event-log-1", "Audit trail");
+    EXPECT_FALSE(renamed.failed()) << renamed.m_problems.join("; ");
+    auto row = store->find("event-log", "event-log-1");
+    ASSERT_TRUE(row.has_value());
+    EXPECT_EQ("Audit trail", row->m_name);
+
+    const auto queueFile = directory / "delivery.sqlite";
+    {
+        ofstream file(queueFile);
+        file << "queue";
+    }
+    {
+        ofstream owner(queueFile.string() + ".owner");
+        owner << "owner";
+    }
+    auto queuedRow = store->find("event-log", "event-log-1");
+    ASSERT_TRUE(queuedRow.has_value());
+    queuedRow->m_settings["delivery_queue_path"] = queueFile.string();
+    store->update(*queuedRow);
+
+    const auto removed = host.removeInstance("event-log", "event-log-1");
+    EXPECT_FALSE(removed.failed()) << removed.m_problems.join("; ");
+    EXPECT_FALSE(store->find("event-log", "event-log-1").has_value());
+    EXPECT_FALSE(filesystem::exists(queueFile)) << "the queue file belongs to this settings set alone";
+    EXPECT_FALSE(filesystem::exists(queueFile.string() + ".owner"));
 
     host.stop();
     error_code errorCode;

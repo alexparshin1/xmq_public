@@ -654,7 +654,7 @@ private:
         auto destination = std::make_shared<Destination>();
         // One extension can now serve several settings sets. The label keeps their log lines and
         // their SQLite queue identities apart even when two sets name the same sink.
-        const auto instance = setting("xmq_instance");
+        const auto instance = setting("xmq_extension_instance");
         destination->name = instance.empty() ? "destination 1" : "destination '" + instance + "'";
         if constexpr (mqttOnly || logOnly)
         {

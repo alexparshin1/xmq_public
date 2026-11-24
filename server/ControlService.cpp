@@ -490,7 +490,7 @@ const char* settingTypeName(const xmq_setting_type type)
 void describeInto(const ExtensionHost::Description& from, CExtension& into)
 {
     into.m_name = from.m_name;
-    into.m_instance = from.m_instance;
+    into.m_extension_instance = from.m_extensionInstance;
     into.m_display_name = from.m_displayName;
     into.m_version = from.m_version;
     into.m_description = from.m_description;
@@ -584,7 +584,7 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
             action == "enable" || action == "disable")
         {
             const auto name = ExtensionHost::identityOf(input.m_name.asString(),
-                                                        input.m_instance.asString());
+                                                        input.m_extension_instance.asString());
             if (name.empty())
             {
                 throw Exception("Which extension? The action needs a name");
@@ -645,7 +645,7 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
         else if (action == "add_instance")
         {
             const auto name = input.m_name.asString();
-            const auto instance = input.m_instance.asString();
+            const auto instance = input.m_extension_instance.asString();
             const auto displayName = input.m_display_name.asString();
             if (name.empty() || instance.empty() || displayName.empty())
             {
@@ -653,10 +653,32 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
             }
             report = m_controller->addExtensionInstance(name, instance, displayName);
         }
+        else if (action == "rename_instance" || action == "remove_instance")
+        {
+            const auto name = input.m_name.asString();
+            const auto instance = input.m_extension_instance.asString();
+            if (name.empty() || instance.empty())
+            {
+                throw Exception("Which data integration? The action needs a type and an instance");
+            }
+            if (action == "rename_instance")
+            {
+                const auto displayName = input.m_display_name.asString();
+                if (displayName.empty())
+                {
+                    throw Exception("Enter a name for the data integration");
+                }
+                report = m_controller->renameExtensionInstance(name, instance, displayName);
+            }
+            else
+            {
+                report = m_controller->removeExtensionInstance(name, instance);
+            }
+        }
         else if (action == "set")
         {
             const auto name = ExtensionHost::identityOf(input.m_name.asString(),
-                                                        input.m_instance.asString());
+                                                        input.m_extension_instance.asString());
             if (name.empty())
             {
                 throw Exception("Which extension? The action needs a name");

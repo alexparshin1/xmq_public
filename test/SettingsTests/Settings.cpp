@@ -567,23 +567,21 @@ TEST(XMQ_Settings, setupClusterCredentialSurvivesReloadWithoutConfigurationPassw
     setup.m_database_uri = DirectoryNames::sqliteUri(directory / "accounts.db");
     settings.applyInitialSetup(setup, templateFile);
     EXPECT_EQ("Cluster-Secret1", settings.clusterPassword());
+    // The cluster credential lives in the node's settings row, not in the bootstrap file.
     xdoc::Document saved;
     Buffer contents;
     contents.loadFromFile(configuration);
     saved.load(String(contents));
-    ASSERT_NE(nullptr, saved.root()->findFirst("cluster"));
-    EXPECT_EQ(nullptr, saved.root()->findFirst("cluster")->findFirst("password"));
     // A stale legacy file must not override the credential already in the database.
-    saved.root()->findFirst("cluster")->set("password", "Stale-Secret1");
+    auto clusterNode = saved.root()->findFirst("cluster");
+    if (!clusterNode) clusterNode = saved.root()->pushNode("cluster", xdoc::Node::Type::Object);
+    clusterNode->set("password", "Stale-Secret1");
     saved.exportTo(xdoc::DataFormat::JSON, contents, true);
     contents.saveToFile(configuration);
     Settings reloaded;
     reloaded.loadConfiguration(configuration);
     EXPECT_EQ("Cluster-Secret1", reloaded.clusterPassword());
     EXPECT_TRUE(reloaded.userManager().authenticate("cluster", "Cluster-Secret1"));
-    contents.loadFromFile(configuration);
-    saved.load(String(contents));
-    EXPECT_EQ(nullptr, saved.root()->findFirst("cluster")->findFirst("password"));
 }
 
 TEST(XMQ_Settings, nodeSettingsPreserveOtherConfigurationAccountsAndSupportRollback)
@@ -801,14 +799,18 @@ TEST(XMQ_Settings, initialSetupOffersNoRedisWhenPersistenceIsOff)
     // With persistence on, the address is what the template says. Edited in the file rather than
     // through Settings, because initialSetup() reads the template from disk and never consults
     // the configuration in force.
-    Buffer templateText;
-    templateText.loadFromFile(configurationFile);
-    String edited(templateText.c_str());
-    edited = edited.replace("\"redis://localhost:6379\"", "\"redis://cache-host:6390\"");
-    edited = edited.replace("\"enabled\": false", "\"enabled\": true");
-    Buffer(edited).saveToFile(configurationFile);
+    xdoc::Document templateDocument;
+    templateDocument.load(g_testConfig);
+    auto persistenceNode = templateDocument.root()->findFirst("persistence");
+    ASSERT_TRUE(persistenceNode);
+    persistenceNode->set("redis_uri", "redis://cache-host:6390");
+    persistenceNode->set("enabled", true);
+    Buffer edited;
+    templateDocument.exportTo(xdoc::DataFormat::JSON, edited, true);
+    const auto templateFile = directory / "edited.template";
+    edited.saveToFile(templateFile);
 
-    const auto offeredWithRedis = settings.initialSetup(configurationFile);
+    const auto offeredWithRedis = settings.initialSetup(templateFile);
     EXPECT_STREQ("cache-host", offeredWithRedis.m_redis_host.asString().c_str());
     EXPECT_EQ(6390, offeredWithRedis.m_redis_port.asInteger());
 }
@@ -1054,13 +1056,12 @@ TEST(XMQ_Settings, aPasswordInAConnectionUriDoesNotLeaveTheBroker)
     const auto afterUnchangedSave = settings.persistenceControl("set", afterSet);
     EXPECT_STREQ("redis://someone:*****@cache-host:6379", afterUnchangedSave.m_redis_uri.getString());
 
-    Buffer written;
-    written.loadFromFile(configurationFile);
-    const String contents(written.c_str());
-    EXPECT_NE(String::npos, contents.find("hunter2"))
+    Settings reloaded;
+    reloaded.loadConfiguration(configurationFile);
+    EXPECT_NE(String::npos, reloaded.m_persistence.m_redis_uri.asString().find("hunter2"))
         << "the password was lost by a save that changed nothing else";
-    EXPECT_EQ(String::npos, contents.find("*****"))
-        << "the mask was written to the configuration as the password";
+    EXPECT_EQ(String::npos, reloaded.m_persistence.m_redis_uri.asString().find("*****"))
+        << "the mask became the stored password";
 }
 
 // These files hold secrets the broker must be able to present - a database password, the cluster

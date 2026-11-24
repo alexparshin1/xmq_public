@@ -89,10 +89,10 @@ export default class ExtensionsScreen extends React.Component {
             });
     }
 
-    /// One settings set is named by its extension plus its instance; the default set has no
-    /// instance, so its id is just the extension name and old configurations keep working.
+    /// One settings set is named by its extension plus its ExtensionInstance; the default set has no
+    /// extension instance, so its id is just the extension name and old configurations keep working.
     static extensionId(extension) {
-        return extension.instance ? extension.name + "/" + extension.instance : extension.name;
+        return extension.extension_instance ? extension.name + "/" + extension.extension_instance : extension.name;
     }
 
     selected() {
@@ -147,16 +147,44 @@ export default class ExtensionsScreen extends React.Component {
         const type = this.state.addType;
         let instance = type.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || type;
         let suffix = 2;
-        while (this.state.extensions.some(one => one.name === type && one.instance === instance)) {
+        while (this.state.extensions.some(one => one.name === type && one.extension_instance === instance)) {
             instance = type + "-" + suffix++;
         }
         this.setState({busy: true, showAdd: false});
         ControlAPI.asyncMakeAPICall("ExtensionControl",
-            {action: "add_instance", name: type, instance: instance, display_name: name})
+            {action: "add_instance", name: type, extension_instance: instance, display_name: name})
             .then(data => {
                 this.setState({busy: false});
                 if (!ExtensionsScreen.succeeded(data)) return;
                 this.refresh(data.message, type + "/" + instance);
+            });
+    }
+
+    renameIntegration = (extension) => {
+        const current = extension.display_name || "";
+        const name = window.prompt("Rename data integration:", current);
+        if (!name || !name.trim() || name.trim() === current) return;
+        this.setState({busy: true});
+        ControlAPI.asyncMakeAPICall("ExtensionControl",
+            {action: "rename_instance", name: extension.name, extension_instance: extension.extension_instance,
+             display_name: name.trim()})
+            .then(data => {
+                this.setState({busy: false});
+                if (!ExtensionsScreen.succeeded(data)) return;
+                this.refresh(data.message, ExtensionsScreen.extensionId(extension));
+            });
+    }
+
+    deleteIntegration = (extension) => {
+        const label = extension.display_name || extension.extension_instance;
+        if (!window.confirm("Delete the data integration '" + label + "' and its persistent queue? This cannot be undone.")) return;
+        this.setState({busy: true});
+        ControlAPI.asyncMakeAPICall("ExtensionControl",
+            {action: "remove_instance", name: extension.name, extension_instance: extension.extension_instance})
+            .then(data => {
+                this.setState({busy: false});
+                if (!ExtensionsScreen.succeeded(data)) return;
+                this.refresh(data.message);
             });
     }
 
@@ -395,7 +423,7 @@ export default class ExtensionsScreen extends React.Component {
             }
             ControlAPI.asyncMakeAPICall("ExtensionControl",
                                         {action: "set", name: extension.name,
-                                         instance: extension.instance || "", settings: settings})
+                                         extension_instance: extension.extension_instance || "", settings: settings})
                 .then(data => {
                     this.setState({busy: false});
                     if (!ExtensionsScreen.succeeded(data)) {
@@ -430,7 +458,7 @@ export default class ExtensionsScreen extends React.Component {
         this.setState({busy: true});
         ControlAPI.asyncMakeAPICall("ExtensionControl",
                                     {action: on ? "enable" : "disable", name: extension.name,
-                                     instance: extension.instance || ""})
+                                     extension_instance: extension.extension_instance || ""})
             .then(data => {
                 this.setState({busy: false});
                 if (!ExtensionsScreen.succeeded(data)) {
@@ -484,6 +512,7 @@ export default class ExtensionsScreen extends React.Component {
                 <th>State</th>
                 <th>Role</th>
                 <th>What it is for</th>
+                <th>Actions</th>
             </tr>
             </thead>
             <tbody>
@@ -495,7 +524,7 @@ export default class ExtensionsScreen extends React.Component {
                         <tr className="extensionGroupRow"
                             onClick={() => sets.length && this.setState({selected: ExtensionsScreen.extensionId(sets[0]),
                                           edited: {}, preset: "", presetResult: null})}>
-                            <td colSpan="5">
+                            <td colSpan="6">
                                 <b>{name}</b>
                             </td>
                         </tr>
@@ -505,7 +534,7 @@ export default class ExtensionsScreen extends React.Component {
                                 className={id === this.state.selected ? "extensionRowSelected" : ""}
                                 onClick={() => this.setState({selected: id, edited: {}, preset: "",
                                               presetResult: null})}>
-                                <td>{extension.display_name || extension.instance || "default"}</td>
+                                <td>{extension.display_name || extension.extension_instance || "default"}</td>
                                 <td>{extension.version || "—"}</td>
                                 <td className={extension.running ? "extensionRunning" : "extensionStopped"}>
                                     {extension.running ? "running" : "stopped"}
@@ -513,6 +542,22 @@ export default class ExtensionsScreen extends React.Component {
                                 </td>
                                 <td>{this.capabilitiesOf(extension)}</td>
                                 <td>{extension.description || "—"}</td>
+                                <td>
+                                    {extension.extension_instance
+                                        ? <React.Fragment>
+                                            <button className="modalCancelButton"
+                                                    disabled={this.state.busy}
+                                                    onClick={(event) => { event.stopPropagation(); this.renameIntegration(extension); }}>
+                                                Rename
+                                            </button>
+                                            <button className="modalCancelButton"
+                                                    disabled={this.state.busy}
+                                                    onClick={(event) => { event.stopPropagation(); this.deleteIntegration(extension); }}>
+                                                Delete
+                                            </button>
+                                          </React.Fragment>
+                                        : null}
+                                </td>
                             </tr>;
                         })}
                     </React.Fragment>;

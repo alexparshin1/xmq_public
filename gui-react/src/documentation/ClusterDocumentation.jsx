@@ -32,7 +32,7 @@ export default function ClusterDocumentation() {
                 <li><b>XMQ 1.0.0 or newer, installed on both nodes</b> - see
                     <Link to="/xmq_doc_install#install">Download and install binaries</Link>.</li>
                 <li><b>PostgreSQL</b> (or MySQL) reachable from both nodes - the shared
-                    configuration and the shared accounts. The table <code>xmq_node</code> holds
+                    configuration and the shared accounts. Every node keeps its settings in <code>xmq_node</code>. PostgreSQL and MySQL may hold several nodes; SQLite holds only this machine's row, keyed by its local GUID. The table <code>xmq_node</code> holds
                     what an administrator edits: a row is a node, a column is a setting. A node
                     that cannot reach the database does not start.</li>
                 <li><b>Redis</b> reachable from both nodes - membership, leases, sessions and

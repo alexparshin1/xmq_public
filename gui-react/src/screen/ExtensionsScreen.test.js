@@ -238,7 +238,7 @@ test("the exporter shows sink and schema diagnostics separately from tap drops",
 
 test("one extension is listed as several settings sets and can gain another", async () => {
     const exporter = name => ({
-        ...extension, name: "message_export", instance: name, message_tap: true,
+        ...extension, name: "message_export", extension_instance: name, message_tap: true,
         settings: [{name: "url", label: "URL", type: "string", value: "https://example.org/hook",
             declared: true}]
     });
@@ -258,4 +258,28 @@ test("one extension is listed as several settings sets and can gain another", as
     await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith(
         "ExtensionControl", expect.objectContaining({action: "add_instance", name: "message_export",
             display_name: "Third export"})));
+});
+
+test("a data integration can be renamed and removed from its row", async () => {
+    listed = [{
+        ...extension, name: "message_export", extension_instance: "message_export-1",
+        display_name: "Orders to warehouse", message_tap: true,
+        settings: [{name: "url", label: "URL", type: "string", value: "https://example.org/hook",
+            declared: true}]
+    }];
+    render(<ExtensionsScreen/>);
+    await screen.findByText("Orders to warehouse");
+
+    window.prompt = jest.fn().mockReturnValue("Orders to the lake");
+    fireEvent.click(screen.getByText("Rename"));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith(
+        "ExtensionControl", {action: "rename_instance", name: "message_export",
+            extension_instance: "message_export-1", display_name: "Orders to the lake"}));
+
+    window.confirm = jest.fn().mockReturnValue(true);
+    await waitFor(() => expect(screen.getByText("Delete").disabled).toBe(false));
+    fireEvent.click(screen.getByText("Delete"));
+    await waitFor(() => expect(ControlAPI.asyncMakeAPICall).toHaveBeenCalledWith(
+        "ExtensionControl", {action: "remove_instance", name: "message_export",
+            extension_instance: "message_export-1"}));
 });

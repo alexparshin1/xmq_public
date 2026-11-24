@@ -24,7 +24,7 @@ public:
     struct Row
     {
         std::string                        m_extension;
-        std::string                        m_instance;
+        std::string                        m_extensionInstance;
         std::string                        m_name;
         bool                               m_enabled {true};
         std::map<std::string, std::string> m_settings;
@@ -37,15 +37,15 @@ public:
     void createSchema() const;
 
     [[nodiscard]] std::vector<Row> list() const;
-    [[nodiscard]] std::optional<Row> find(std::string_view extension, std::string_view instance) const;
+    [[nodiscard]] std::optional<Row> find(std::string_view extension, std::string_view extensionInstance) const;
     [[nodiscard]] bool nameTaken(std::string_view name, std::string_view exceptInstance = {}) const;
 
     /// Throws when the name is already used on this node or the row cannot be written.
     void insert(const Row& row) const;
     void update(const Row& row) const;
-    void remove(std::string_view extension, std::string_view instance) const;
-    void setName(std::string_view extension, std::string_view instance, std::string_view name) const;
-    void setEnabled(std::string_view extension, std::string_view instance, bool enabled) const;
+    void remove(std::string_view extension, std::string_view extensionInstance) const;
+    void setName(std::string_view extension, std::string_view extensionInstance, std::string_view name) const;
+    void setEnabled(std::string_view extension, std::string_view extensionInstance, bool enabled) const;
 
     [[nodiscard]] static std::string encodeSettings(const std::map<std::string, std::string>& settings);
     [[nodiscard]] static std::map<std::string, std::string> decodeSettings(const std::string& json);

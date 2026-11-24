@@ -158,6 +158,10 @@ public:
     /// True when the driver is PostgreSQL or MySQL - what a cluster configuration needs.
     [[nodiscard]] bool isClusterDatabase() const;
 
+    /// Any SQL database can hold this node's own settings row. Only a shared PostgreSQL/MySQL
+    /// database may hold other nodes - see isClusterDatabase().
+    [[nodiscard]] bool isLocalSettingsDatabase() const { return true; }
+
 private:
     [[nodiscard]] sptk::String tableSuffix() const;
     [[nodiscard]] bool          tableExists(const sptk::String& tableName);

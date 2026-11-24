@@ -1183,18 +1183,18 @@ void Settings::applyClusterConfigurationUnlocked()
     }
 
     // Asked of the URI rather than of a connection: an unreachable database is exactly the case
-    // this decides about, and reaching out to learn the driver would fail with it.
+    // this decides about, and reaching out to learn the driver would fail with it. Any SQL
+    // database holds this node's settings row; only a shared one may hold other nodes as well.
     const auto scheme = String(uri).toLowerCase().substr(0, String(uri).find(':'));
     const auto isClusterDatabase = scheme.starts_with("postgres") || scheme.starts_with("mysql") || scheme.starts_with("mariadb");
-    if (!isClusterDatabase)
-    {
-        // SQLite is one machine's file; a cluster's configuration cannot live in one.
-        return;
-    }
 
     m_clusterConfigurationError = "";
     if (!m_accountsPool)
     {
+        if (!isClusterDatabase)
+        {
+            return; // no shared configuration to fail over: the file is still usable
+        }
         // Recorded, not thrown: loading a configuration is also what tools and tests do without
         // starting anything, and failing there would take them down for a database they never
         // wanted. The server refuses to start with this, before it serves a single client - a node
@@ -1237,7 +1237,7 @@ void Settings::applyClusterConfigurationUnlocked()
             // row: it is the address this node reached the database by, and a different one there
             // says nothing about where this node is.
             m_persistence.m_redis_uri = row->m_redisUri;
-            m_cluster.m_database_uri = row->m_databaseUri;
+            if (isClusterDatabase) m_cluster.m_database_uri = row->m_databaseUri;
             m_cluster.m_enabled = row->m_clusterEnabled;
             m_cluster.m_lease_seconds = row->m_leaseSeconds;
             m_cluster.m_links = row->m_links;
@@ -1353,7 +1353,7 @@ void Settings::applyClusterConfigurationUnlocked()
             rewriteConfigurationFromRowUnlocked();
 
             // Synchronise certificates: every other node's PEM becomes a trusted peer file.
-            syncPeerCertificates(store, nodeId);
+            if (isClusterDatabase) syncPeerCertificates(store, nodeId);
             return;
         }
 
@@ -1362,6 +1362,8 @@ void Settings::applyClusterConfigurationUnlocked()
         // But a declaration with the same name may already exist — placed by another node that
         // expects this one to join (ControlService::addClusterNode).  If the name is taken, re-key
         // the existing row with the real GUID instead of inserting a duplicate.
+        if (isClusterDatabase)
+        {
         if (const auto existing = store.nodeByName(m_cluster.m_this_node.m_node_name.asString()))
         {
             auto updated = *existing;
@@ -1411,8 +1413,9 @@ void Settings::applyClusterConfigurationUnlocked()
             m_configurationInDatabase = true;
             rewriteConfigurationFromRowUnlocked();
 
-            syncPeerCertificates(store, nodeId);
+            if (isClusterDatabase) syncPeerCertificates(store, nodeId);
             return;
+        }
         }
 
         ClusterStore::Node row;
@@ -1421,7 +1424,9 @@ void Settings::applyClusterConfigurationUnlocked()
         row.m_hostPort = m_cluster.m_this_node.m_host_port.asString();
         row.m_state = "Standalone";
         row.m_redisUri = m_persistence.m_redis_uri.asString();
-        row.m_databaseUri = uri;
+        // In a local database the cluster section is still where a cluster database URI may be
+        // declared; do not replace it with the accounts URI simply because we now keep a row.
+        row.m_databaseUri = isClusterDatabase ? uri : m_cluster.m_database_uri.asString();
         row.m_clusterEnabled = !m_cluster.m_enabled.isNull() && m_cluster.m_enabled.asBool();
         row.m_leaseSeconds = m_cluster.m_lease_seconds.isNull() ? 0 : static_cast<int>(m_cluster.m_lease_seconds.asInteger());
         row.m_links = m_cluster.m_links.isNull() ? 0 : static_cast<int>(m_cluster.m_links.asInteger());
@@ -1460,12 +1465,12 @@ void Settings::applyClusterConfigurationUnlocked()
 
         // What was just written to the row, in memory too: the bootstrap file's root database_uri
         // is written from here, and it has to say what the row says.
-        m_cluster.m_database_uri = uri;
+        if (isClusterDatabase) m_cluster.m_database_uri = uri;
         m_configurationInDatabase = true;
         rewriteConfigurationFromRowUnlocked();
 
         // Synchronise certificates: every other node's PEM becomes a trusted peer file.
-        syncPeerCertificates(store, nodeId);
+        if (isClusterDatabase) syncPeerCertificates(store, nodeId);
     }
     catch (const Exception& e)
     {
@@ -1995,7 +2000,7 @@ void Settings::saveListenersToNodeRow()
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         return;
     }
@@ -2026,7 +2031,7 @@ void Settings::saveWebServiceToNodeRow()
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         return;
     }
@@ -2059,7 +2064,7 @@ void Settings::savePersistenceToNodeRow()
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         return;
     }
@@ -2071,6 +2076,7 @@ void Settings::savePersistenceToNodeRow()
     }
 
     auto updated = *row;
+    updated.m_redisUri = m_persistence.m_redis_uri.asString();
     updated.m_persistEnabled = m_persistence.m_enabled.asBool();
     updated.m_persistAckAfterStore = m_persistence.m_ack_after_store.asBool();
     updated.m_persistCleanStart = m_persistence.m_clean_start.asBool();
@@ -2094,7 +2100,7 @@ void Settings::saveBridgesToNodeRow()
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         return;
     }
@@ -2238,7 +2244,7 @@ void Settings::saveLimitsToNodeRow(const CServerLimits* serverLimits, const CQue
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         // A SQLite node is one machine's configuration, and the file is where it lives.
         return;
@@ -2287,7 +2293,7 @@ void Settings::saveLoggingToNodeRow(const CLogging& logging)
     }
 
     ClusterStore store(m_accountsPool);
-    if (!store.isClusterDatabase())
+    if (!store.isLocalSettingsDatabase())
     {
         return;
     }
@@ -2921,7 +2927,20 @@ String Settings::cloneNode(const filesystem::path& sourceFile,
     document.load(content);
     const auto root = document.root();
     CServerConfiguration validation;
-    validation.load(root);
+    try
+    {
+        validation.load(root);
+    }
+    catch (const Exception&)
+    {
+        // A database-backed node keeps its listeners and web port in xmq_node, so its file is a
+        // bootstrap stub. Read the node the way the broker does and clone the complete settings.
+        Settings sourceSettings;
+        sourceSettings.loadConfiguration(source);
+        Buffer full;
+        sourceSettings.saveFullConfigurationUnlocked(full);
+        document.load(String(full.c_str(), full.bytes()));
+    }
     const auto authentication = section(root, "authentication");
     String databaseUri = authentication->getString("database_uri");
     const bool localAccounts = databaseUri.empty() || databaseUri.toLowerCase().starts_with("sqlite");
@@ -3068,10 +3087,45 @@ filesystem::path Settings::configurationTemplatePath()
     return DirectoryNames::confDirectory() / "xmq_server.conf.template";
 }
 
+void Settings::loadBootstrapTemplate(const filesystem::path& templateFile, xdoc::Document& document) const
+{
+    loadConfigurationTemplate(templateFile, document);
+    if (!m_configurationInDatabase)
+    {
+        return;
+    }
+
+    // The live file is a bootstrap stub: the sections that live in xmq_node are left out of it.
+    // Fill only what the template does not say, so an operator who edits the template still wins.
+    Buffer full;
+    saveFullConfigurationUnlocked(full);
+    xdoc::Document running;
+    running.load(String(full.c_str(), full.bytes()));
+    const auto mergeMissing = [](const xdoc::SNode& into, const xdoc::SNode& from)
+    {
+        for (const auto& child: from->nodes())
+        {
+            if (into->findFirst(child->getName(), xdoc::SearchMode::ImmediateChild))
+            {
+                continue;
+            }
+            into->pushNode(child);
+        }
+    };
+    mergeMissing(document.root(), running.root());
+    for (const auto& section: document.root()->nodes())
+    {
+        if (const auto from = running.root()->findFirst(section->getName(), xdoc::SearchMode::ImmediateChild))
+        {
+            mergeMissing(section, from);
+        }
+    }
+}
+
 CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
 {
     xdoc::Document document;
-    loadConfigurationTemplate(templateFile, document);
+    loadBootstrapTemplate(templateFile, document);
 
     const auto root = document.root();
     const auto listeners = section(root, "connections")->findFirst("listener", xdoc::SearchMode::ImmediateChild);
@@ -3097,16 +3151,6 @@ CInitialSetup Settings::initialSetup(const filesystem::path& templateFile) const
     CInitialSetup setup;
     const auto thisNode = section(section(root, "cluster"), "this_node");
     setup.m_node_name = thisHostName();
-
-    // The template says "localhost", which is a placeholder rather than an answer: it is the one
-    // address certain to be wrong for every other node in a cluster, because it names each node's
-    // own machine. This machine's name is a better starting point, and the field can be set to
-    // whatever actually resolves from outside.
-    int        templateNodePort = 0;
-    const auto templateNodeHost = splitHostPort(thisNode->getString("host_port"), templateNodePort);
-    setup.m_node_host = (templateNodeHost.empty() || templateNodeHost == "localhost")
-                            ? thisHostName()
-                            : templateNodeHost;
 
     setup.m_mqtt_port = listeners ? templatePort(listeners, mqttProtocol) : 0;
     setup.m_mqtt_ssl_port = listeners ? templatePort(listeners, mqttSslProtocol) : 0;
@@ -3149,7 +3193,7 @@ void Settings::applyInitialSetup(const CInitialSetup& setup, const filesystem::p
     const WriteLock lock(m_mutex);
 
     xdoc::Document document;
-    loadConfigurationTemplate(templateFile, document);
+    loadBootstrapTemplate(templateFile, document);
 
     const auto root = document.root();
 
@@ -3477,9 +3521,9 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     const auto id = cluster::NodeIdentity::load(filesystem::path(m_configurationPath).replace_filename(cluster::NodeIdentity::FileName));
     auto pool = make_shared<DatabaseConnectionPool>(values.m_database_uri.asString(), 2);
     ClusterStore store(pool);
-    const bool shared = store.isClusterDatabase();
+    const bool localNode = store.isLocalSettingsDatabase();
     optional<ClusterStore::Node> previous;
-    if (shared)
+    if (localNode)
     {
         store.createSchema();
         previous = store.node(id);
@@ -3490,10 +3534,10 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     }
     const auto path = m_configurationPath;
     const String oldConfiguration(original);
-    const auto rollback = [pool, shared, previous, id, path, oldConfiguration] {
+    const auto rollback = [pool, localNode, previous, id, path, oldConfiguration] {
         // Restore the file even when restoring the database fails.
         saveAtomically(path, Buffer(oldConfiguration));
-        if (shared)
+        if (localNode)
         {
             ClusterStore target(pool);
             if (previous) target.updateNode(*previous);
@@ -3502,7 +3546,7 @@ std::function<void()> Settings::saveNodeSettings(const CNodeSettings& values)
     };
     try
     {
-        if (shared)
+        if (localNode)
         {
             auto updated = previous.value_or(ClusterStore::Node());
             updated.m_nodeId = id;

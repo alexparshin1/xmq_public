@@ -365,6 +365,27 @@ void ClusterStore::updateLogging(const String& nodeId, const std::optional<Strin
 
 void ClusterStore::insertNode(const Node& node)
 {
+    // A SQLite file belongs to one machine. It may hold that machine's own settings row, but a
+    // second node's row in the same file would be a cluster nobody can safely run.
+    if (m_database->driverName().toLowerCase().starts_with("sqlite"))
+    {
+        const AutoDatabaseConnection countConnection(*m_database);
+        Query                        count(countConnection.connection(), "SELECT count(*) AS count FROM " + String(nodeTable));
+        count.open();
+        const auto rows = count["count"].asInt64();
+        count.close();
+        if (rows > 0)
+        {
+            const auto current = this->node(node.m_nodeId);
+            if (!current)
+            {
+                throw Exception("A SQLite database can hold only this node's row, not another node's settings");
+            }
+            updateNode(node);
+            return;
+        }
+    }
+
     const AutoDatabaseConnection connection(*m_database);
     Query insert(connection.connection(),
                  "INSERT INTO " + String(nodeTable) +

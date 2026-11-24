@@ -439,11 +439,12 @@ The configuration file keeps only what a node needs to find everything else: the
 The node's GUID stays where it is - `xmq_node.id` beside the configuration, not in it, for the reason given in
 *Node identity and joining*.
 
-The SQL database (PostgreSQL or MySQL - SQLite does not apply to a cluster) holds what is shared and what an
-administrator edits. The configuration is one table, `xmq_node`, in which a column is a setting and a row is a node. Every node whose
-configuration lives in this database has a row, member or not: a node writes its own on its first start, keyed by its
-GUID. The bridge-era table that held the name before is dropped when the schema is created - nothing reads it any
-more. The configuration is:
+Every node keeps its settings in the SQL configuration database, in one table, `xmq_node`: a column is a
+setting and a row is a node. A node writes its own row on its first start, keyed by the local GUID from
+`xmq_node.id`. PostgreSQL and MySQL can hold many nodes and are the only databases a cluster can use;
+SQLite holds exactly one row — this machine's — and refuses a second node's row. The bridge-era table
+that held the name before is dropped when the schema is created — nothing reads it any more. The
+configuration is:
 `node_id` (the GUID, primary key), `name`, `host_port`, `state`, `last_error`, and the settings that used to be in
 the file - the Redis URI, the users database URI, the listeners and TLS key paths, `cluster_enabled`,
 `cluster_lease_seconds`, `cluster_links`.
@@ -451,7 +452,7 @@ the file - the Redis URI, the users database URI, the listeners and TLS key path
 Data integrations — the export and import settings sets configured on the Extensions screen — live in
 `xmq_data_integration` in the same database. Each row carries the node's `node_id` as a foreign key to
 `xmq_node`, so the rows of different nodes do not mix and a name only has to be unique on its own node.
-The columns are `node_id`, `extension`, `instance` (the stable technical identifier), `name` (the name
+The columns are `node_id`, `extension`, `extension_instance` (the stable technical ExtensionInstance), `name` (the name
 the operator edits), `enabled` and `settings_json`. Renaming a data integration changes only `name`.
 
 Redis keeps the runtime (see *The shared storage is the arbiter*): `cluster:members`, the leases, the coordinator

@@ -164,8 +164,8 @@ public:
          * to two databases are two settings sets, not two kinds of extension. Empty means the one
          * instance installations have always had, so old configuration files need no migration.
          */
-        std::string                        m_instance;
-        /// The name the operator sees. The technical instance never changes when this is edited.
+        std::string                        m_extensionInstance;
+        /// The name the operator sees. The technical ExtensionInstance never changes when this is edited.
         std::string                        m_displayName;
         /// True when this settings set came from xmq_data_integration rather than a config file.
         bool                               m_fromDatabase {false};
@@ -192,14 +192,14 @@ public:
         /// switched off has to mean.
         bool m_enabled {true};
 
-        [[nodiscard]] std::string identity() const { return identityOf(m_name, m_instance); }
+        [[nodiscard]] std::string identity() const { return identityOf(m_name, m_extensionInstance); }
     };
 
-    /// How one settings set is named to the outside: the extension's name, plus its instance when
+    /// How one settings set is named to the outside: the extension's name, plus its ExtensionInstance when
     /// there is one. Used as the key in the configuration and in the control interface.
-    [[nodiscard]] static std::string identityOf(std::string_view name, std::string_view instance)
+    [[nodiscard]] static std::string identityOf(std::string_view name, std::string_view extensionInstance)
     {
-        return instance.empty() ? std::string(name) : std::string(name) + "/" + std::string(instance);
+        return extensionInstance.empty() ? std::string(name) : std::string(name) + "/" + std::string(extensionInstance);
     }
 
     [[nodiscard]] static std::pair<std::string_view, std::string_view> splitIdentity(std::string_view identity)
@@ -410,7 +410,7 @@ public:
     struct Description
     {
         std::string                     m_name;
-        std::string                     m_instance;
+        std::string                     m_extensionInstance;
         std::string                     m_displayName;
         bool                            m_fromDatabase {false};
         std::string                     m_version;
@@ -469,7 +469,7 @@ public:
      * extension: the entry still reads enabled, so the next reload - or the next restart - starts
      * it again, and the operator is left wondering what undid their decision.
      */
-    /// @p name is an identity: `extension` for the default settings set, `extension/instance` for
+    /// @p name is an identity: `extension` for the default settings set, `extension/extension_instance` for
     /// a named one. The same applies to writeSettings(), disable() and reloadSettings()'s `only`.
     Report writeEnabled(const std::string& name, bool enabled);
 
@@ -481,12 +481,19 @@ public:
     /**
      * @brief Add one more settings set of an extension already configured on this broker.
      *
-     * Copies the library from an existing entry, writes a new fragment under its own instance
-     * label and starts it. This is what the screen's Add export button calls: a second export is
+     * Copies the library from an existing entry, writes a new entry under its own ExtensionInstance
+     * label and starts it. This is what the screen's Add Data Integration button calls: a second export is
      * another settings set of the same extension, not a second kind of extension.
      */
-    Report addInstance(const std::string& name, const std::string& instance,
+    Report addInstance(const std::string& name, const std::string& extensionInstance,
                        const std::string& displayName);
+
+    /// Renames one settings set. The technical instance is kept, so its queue identity survives.
+    Report renameInstance(const std::string& name, const std::string& extensionInstance,
+                          const std::string& displayName);
+
+    /// Stops and removes one settings set.
+    Report removeInstance(const std::string& name, const std::string& extensionInstance);
 
     /// Everything configured, from the files and from xmq_data_integration together. Used by the
     /// control interface when it re-reads configuration after a change.
@@ -796,9 +803,9 @@ private:
         std::string                        m_name;
         std::string                        m_displayName;
         bool                               m_fromDatabase {false};
-        /// Which settings set this instance was made from. Not the extension's own instance
-        /// pointer below - that one is called m_instance for historical reasons.
-        std::string                        m_instanceName;
+        /// Which ExtensionInstance this loaded extension was made from. Not the extension's own
+        /// instance pointer below - that one is called m_instance for historical reasons.
+        std::string                        m_extensionInstance;
         std::filesystem::path              m_library;
         void*                              m_handle {nullptr}; ///< dlopen handle.
         const xmq_extension*               m_table {nullptr};
@@ -880,7 +887,7 @@ private:
         ExtensionHost*                     m_host {nullptr};
         xmq_host                           m_hostTable {};
 
-        [[nodiscard]] std::string identity() const { return identityOf(m_name, m_instanceName); }
+        [[nodiscard]] std::string identity() const { return identityOf(m_name, m_extensionInstance); }
         /// Distinguishable in the log: two exports to two databases must not share a log prefix.
         [[nodiscard]] std::string label() const { return identity(); }
     };

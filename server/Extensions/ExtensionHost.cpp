@@ -48,9 +48,9 @@ string fragmentStem(string_view identity)
 
 bool nodeIsIdentity(const xdoc::Node::SNode& node, string_view identity)
 {
-    const auto [name, instance] = ExtensionHost::splitIdentity(identity);
+    const auto [name, extensionInstance] = ExtensionHost::splitIdentity(identity);
     return String(node->getString("name")).trim() == name &&
-           String(node->getString("instance")).trim() == instance;
+           String(node->getString("extension_instance")).trim() == extensionInstance;
 }
 
 /// The message tap of an extension, or nothing when the table was built before the field existed.
@@ -318,9 +318,9 @@ int64_t ExtensionHost::hostSetting(void* context, const char* key, char* buffer,
     }
     // The settings set an extension belongs to is a fact about the configuration, not a key an
     // operator typed. Exports use it in log lines and in the identity of their persistent queue.
-    if (std::strcmp(key, "xmq_instance") == 0)
+    if (std::strcmp(key, "xmq_extension_instance") == 0)
     {
-        return copyOut(loaded->m_instanceName, buffer, bufferSize);
+        return copyOut(loaded->m_extensionInstance, buffer, bufferSize);
     }
     std::string value;
     {
@@ -882,7 +882,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
         return unique_ptr<Loaded>{};
     };
     loaded->m_name = configured.m_name;
-    loaded->m_instanceName = configured.m_instance;
+    loaded->m_extensionInstance = configured.m_extensionInstance;
     loaded->m_displayName = configured.m_displayName;
     loaded->m_fromDatabase = configured.m_fromDatabase;
     loaded->m_library = configured.m_library;
@@ -1047,7 +1047,7 @@ void ExtensionHost::readConfigurationFile(const filesystem::path&        path, c
         {
             Configured configured;
             configured.m_name = node->getString("name").trim().c_str();
-            configured.m_instance = node->getString("instance").trim().c_str();
+            configured.m_extensionInstance = node->getString("extension_instance").trim().c_str();
             configured.m_library = node->getString("library").trim().c_str();
 
             // Recorded rather than skipped. It used to be dropped here, which made a switched-off
@@ -1527,7 +1527,7 @@ void ExtensionHost::appendDataIntegrations(vector<Configured>& extensions) const
     {
         const auto existing = ranges::find_if(extensions, [&](const auto& candidate)
         {
-            return candidate.m_name == row.m_extension && candidate.m_instance.empty();
+            return candidate.m_name == row.m_extension && candidate.m_extensionInstance.empty();
         });
         if (existing == extensions.end())
         {
@@ -1537,7 +1537,7 @@ void ExtensionHost::appendDataIntegrations(vector<Configured>& extensions) const
         }
         Configured configured;
         configured.m_name = row.m_extension;
-        configured.m_instance = row.m_instance;
+        configured.m_extensionInstance = row.m_extensionInstance;
         configured.m_displayName = row.m_name;
         configured.m_fromDatabase = true;
         configured.m_enabled = row.m_enabled;
@@ -1823,7 +1823,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
     {
         Description one;
         one.m_name = loaded->m_name;
-        one.m_instance = loaded->m_instanceName;
+        one.m_extensionInstance = loaded->m_extensionInstance;
         one.m_displayName = loaded->m_displayName;
         one.m_fromDatabase = loaded->m_fromDatabase;
         one.m_library = loaded->m_library;
@@ -1896,7 +1896,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
     {
         Description one;
         one.m_name = configured.m_name;
-        one.m_instance = configured.m_instance;
+        one.m_extensionInstance = configured.m_extensionInstance;
         one.m_displayName = configured.m_displayName;
         one.m_fromDatabase = configured.m_fromDatabase;
         one.m_library = configured.m_library;
@@ -2001,7 +2001,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
 {
     if (m_dataIntegrationStore)
     {
-        const auto [extensionName, instance] = ExtensionHost::splitIdentity(name);
+        const auto [extensionName, extensionInstance] = ExtensionHost::splitIdentity(name);
         const std::scoped_lock lock(m_loadedLock);
         const auto loaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
         {
@@ -2017,7 +2017,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
         {
             try
             {
-                m_dataIntegrationStore->setEnabled(extensionName, instance, enabled);
+                m_dataIntegrationStore->setEnabled(extensionName, extensionInstance, enabled);
             }
             catch (const Exception& error)
             {
@@ -2049,7 +2049,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
             {
                 // Installed but never configured: enabling it writes a fragment of its own, which
                 // becomes its configuration source from then on.
-                const auto [extensionName, instance] = ExtensionHost::splitIdentity(name);
+                const auto [extensionName, extensionInstance] = ExtensionHost::splitIdentity(name);
                 const auto discovered = ranges::find_if(m_discovered, [&extensionName](const auto& candidate)
                 {
                     return candidate.m_configured.m_name == extensionName;
@@ -2089,9 +2089,9 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                 std::ofstream out(fragment);
                 out << "{\n  \"extensions\": [{\n"
                     << "    \"name\": \"" << extensionName << "\",\n";
-                if (!instance.empty())
+                if (!extensionInstance.empty())
                 {
-                    out << "    \"instance\": \"" << instance << "\",\n";
+                    out << "    \"extension_instance\": \"" << extensionInstance << "\",\n";
                 }
                 out << "    \"library\": \"" << discovered->m_configured.m_library.string() << "\",\n"
                     << "    \"enabled\": true,\n"
@@ -2107,7 +2107,7 @@ ExtensionHost::Report ExtensionHost::writeEnabled(const string& name, const bool
                                         filesystem::perms::group_read,
                                         errorCode);
                 auto configured = discovered->m_configured;
-                configured.m_instance = instance;
+                configured.m_extensionInstance = extensionInstance;
                 configured.m_source = fragment;
                 m_configuredOnly.push_back(std::move(configured));
                 m_discovered.erase(discovered);
@@ -2179,7 +2179,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         });
         if (loaded == m_loaded.end())
         {
-            const auto [extensionName, instance] = ExtensionHost::splitIdentity(name);
+            const auto [extensionName, extensionInstance] = ExtensionHost::splitIdentity(name);
             const auto stopped = ranges::find_if(m_configuredOnly, [&name](const auto& candidate)
             {
                 return candidate.identity() == name;
@@ -2222,13 +2222,13 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                     return refusedWrite(m_logger, name, "configuration fragment is already in use");
                 const auto& entry = found != entries.end() ? *found : entries.front();
                 entry->set("name", string(extensionName));
-                if (instance.empty())
+                if (extensionInstance.empty())
                 {
-                    entry->remove("instance");
+                    entry->remove("extension_instance");
                 }
                 else
                 {
-                    entry->set("instance", string(instance));
+                    entry->set("extension_instance", string(extensionInstance));
                 }
                 entry->set("library", configuration.m_library.string());
                 entry->set("enabled", false);
@@ -2257,7 +2257,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
                 }
                 written.saveToFile(source);
                 configuration.m_source = source;
-                configuration.m_instance = instance;
+                configuration.m_extensionInstance = extensionInstance;
                 configuration.m_settings = merged;
                 if (discovered != m_discovered.end())
                 {
@@ -2396,7 +2396,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
     });
     if (dbLoaded != m_loaded.end() && (*dbLoaded)->m_fromDatabase && m_dataIntegrationStore)
     {
-        auto row = m_dataIntegrationStore->find((*dbLoaded)->m_name, (*dbLoaded)->m_instanceName);
+        auto row = m_dataIntegrationStore->find((*dbLoaded)->m_name, (*dbLoaded)->m_extensionInstance);
         if (!row)
         {
             return refusedWrite(m_logger, name, "its row is no longer in the database");
@@ -2492,18 +2492,164 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
     return Report::note("Settings applied");
 }
 
-ExtensionHost::Report ExtensionHost::addInstance(const string& name, const string& instance,
-                                                   const string& displayName)
+ExtensionHost::Report ExtensionHost::renameInstance(const string& name, const string& extensionInstance,
+                                                     const string& displayName)
 {
-    if (name.empty() || instance.empty() || instance.size() > 64 ||
-        instance.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
-            string::npos)
+    const auto identity = identityOf(name, extensionInstance);
+    if (displayName.empty())
     {
-        return refusedWrite(m_logger, name + "/" + instance,
-                            "the instance must use letters, digits, '-' or '_', and at most 64 characters");
+        return refusedWrite(m_logger, identity, "a data integration needs a name");
+    }
+    if (m_dataIntegrationStore && m_dataIntegrationStore->nameTaken(displayName, extensionInstance))
+    {
+        return refusedWrite(m_logger, identity,
+                            "a data integration named '" + displayName + "' already exists on this node");
+    }
+    if (m_dataIntegrationStore)
+    {
+        try
+        {
+            m_dataIntegrationStore->setName(name, extensionInstance, displayName);
+        }
+        catch (const Exception& error)
+        {
+            return refusedWrite(m_logger, identity, error.what());
+        }
+    }
+    const std::scoped_lock lock(m_loadedLock);
+    auto changed = false;
+    for (const auto& loaded: m_loaded)
+    {
+        if (loaded->identity() == identity)
+        {
+            loaded->m_displayName = displayName;
+            changed = true;
+        }
+    }
+    for (auto& configured: m_configuredOnly)
+    {
+        if (configured.identity() == identity)
+        {
+            configured.m_displayName = displayName;
+            changed = true;
+        }
+    }
+    if (!changed)
+    {
+        return refusedWrite(m_logger, identity, "no such data integration");
+    }
+    return Report::note(identity + ": renamed to " + displayName + ".");
+}
+
+ExtensionHost::Report ExtensionHost::removeInstance(const string& name, const string& extensionInstance)
+{
+    const auto identity = identityOf(name, extensionInstance);
+    bool       loaded = false;
+    bool       started = false;
+    {
+        const std::scoped_lock lock(m_loadedLock);
+        const auto found = ranges::find_if(m_loaded, [&](const auto& candidate)
+        {
+            return candidate->identity() == identity;
+        });
+        loaded = found != m_loaded.end();
+        started = loaded && (*found)->m_started;
+        if (!loaded && ranges::none_of(m_configuredOnly, [&](const auto& candidate)
+        {
+            return candidate.identity() == identity;
+        }))
+        {
+            return refusedWrite(m_logger, identity, "no such data integration");
+        }
     }
 
-    const auto identity = identityOf(name, instance);
+    // The queue is owned by this settings set alone. Remember its path before the instance and
+    // its settings are gone, and remove it only after the row has been deleted successfully.
+    string queuePath;
+    {
+        const std::scoped_lock lock(m_loadedLock);
+        const auto found = ranges::find_if(m_loaded, [&](const auto& candidate)
+        {
+            return candidate->identity() == identity;
+        });
+        if (found != m_loaded.end())
+        {
+            const std::scoped_lock settingsLock((*found)->m_settingsLock);
+            if (const auto setting = (*found)->m_settings.find("delivery_queue_path");
+                setting != (*found)->m_settings.end())
+            {
+                queuePath = setting->second;
+            }
+        }
+    }
+    if (queuePath.empty() && m_dataIntegrationStore)
+    {
+        if (const auto row = m_dataIntegrationStore->find(name, extensionInstance))
+        {
+            if (const auto setting = row->m_settings.find("delivery_queue_path");
+                setting != row->m_settings.end())
+            {
+                queuePath = setting->second;
+            }
+        }
+    }
+
+    auto report = Report {};
+    if (started)
+    {
+        report += disable(identity); // takes the lock itself, so never call it while holding it
+        if (report.failed())
+        {
+            return report;
+        }
+    }
+
+    if (m_dataIntegrationStore)
+    {
+        try
+        {
+            m_dataIntegrationStore->remove(name, extensionInstance);
+        }
+        catch (const Exception& error)
+        {
+            return refusedWrite(m_logger, identity, error.what());
+        }
+    }
+    {
+        const std::scoped_lock lock(m_loadedLock);
+        std::erase_if(m_loaded, [&](const auto& candidate) { return candidate->identity() == identity; });
+        std::erase_if(m_configuredOnly, [&](const auto& candidate) { return candidate.identity() == identity; });
+        publishActiveUnlocked();
+    }
+    if (!queuePath.empty())
+    {
+        error_code errorCode;
+        const filesystem::path file(queuePath);
+        if (file.is_absolute())
+        {
+            for (const auto& suffix: {"", ".owner", "-wal", "-shm"})
+            {
+                filesystem::remove(filesystem::path(queuePath + suffix), errorCode);
+            }
+            report += Report::note(identity + ": delivery queue at " + queuePath + " removed.");
+        }
+    }
+    report += Report::note(identity + ": removed.");
+    return report;
+}
+
+ExtensionHost::Report ExtensionHost::addInstance(const string& name, const string& extensionInstance,
+                                                   const string& displayName)
+{
+    if (name.empty() || extensionInstance.empty() || extensionInstance.size() > 64 ||
+        extensionInstance.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
+            string::npos)
+    {
+        return refusedWrite(m_logger, name + "/" + extensionInstance,
+                            "the ExtensionInstance must use letters, digits, '-' or '_', and at most 64 characters");
+    }
+
+    const auto identity = identityOf(name, extensionInstance);
     if (displayName.empty())
     {
         return refusedWrite(m_logger, identity, "a data integration needs a name");
@@ -2518,7 +2664,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
         }
         DataIntegrationStore::Row row;
         row.m_extension = name;
-        row.m_instance = instance;
+        row.m_extensionInstance = extensionInstance;
         row.m_name = displayName;
         try
         {
@@ -2529,7 +2675,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
             return refusedWrite(m_logger, identity, error.what());
         }
         fresh.m_name = row.m_extension;
-        fresh.m_instance = row.m_instance;
+        fresh.m_extensionInstance = row.m_extensionInstance;
         fresh.m_displayName = row.m_name;
         fresh.m_fromDatabase = true;
         fresh.m_enabled = true;
@@ -2546,7 +2692,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
             });
             if (loaded == m_loaded.end() && stopped == m_configuredOnly.end())
             {
-                m_dataIntegrationStore->remove(name, instance);
+                m_dataIntegrationStore->remove(name, extensionInstance);
                 return refusedWrite(m_logger, identity, "no such extension is configured");
             }
             fresh.m_library = loaded != m_loaded.end() ? (*loaded)->m_library : stopped->m_library;
@@ -2558,7 +2704,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
         auto report = enable(fresh);
         if (report.failed())
         {
-            m_dataIntegrationStore->remove(name, instance);
+            m_dataIntegrationStore->remove(name, extensionInstance);
             const std::scoped_lock lock(m_loadedLock);
             std::erase_if(m_configuredOnly, [&](const auto& candidate) { return candidate.identity() == identity; });
         }
@@ -2579,10 +2725,10 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
         if (ranges::any_of(m_loaded, [&](const auto& candidate) { return candidate->identity() == identity; }) ||
             ranges::any_of(m_configuredOnly, [&](const auto& candidate) { return candidate.identity() == identity; }))
         {
-            return refusedWrite(m_logger, identity, "a settings set with this instance already exists");
+            return refusedWrite(m_logger, identity, "a settings set with this ExtensionInstance already exists");
         }
         fresh.m_name = name;
-        fresh.m_instance = instance;
+        fresh.m_extensionInstance = extensionInstance;
         fresh.m_library = loaded != m_loaded.end() ? (*loaded)->m_library : stopped->m_library;
         fresh.m_enabled = true;
     }
@@ -2603,7 +2749,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
         std::ofstream out(fragment);
         out << "{\n  \"extensions\": [{\n"
             << "    \"name\": \"" << name << "\",\n"
-            << "    \"instance\": \"" << instance << "\",\n"
+            << "    \"extension_instance\": \"" << extensionInstance << "\",\n"
             << "    \"library\": \"" << fresh.m_library.generic_string() << "\",\n"
             << "    \"enabled\": true,\n    \"required\": false,\n"
             << "    \"settings\": {}\n"

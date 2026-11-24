@@ -254,8 +254,9 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     }
     m_extensions.enableEvents(enabledEvents);
 
-    // Data integrations are rows in the shared cluster database, one node's rows per node. The
-    // accounts pool is that database in steady state; with no database they stay in config files.
+    // Data integrations are rows in xmq_data_integration, beside this node's xmq_node row in the
+    // configuration database. Every SQL database holds one node's settings; only PostgreSQL/MySQL
+    // may hold several. With no database at all the old configuration entries remain the fallback.
     if (auto pool = settings->accountsPool())
     {
         try
@@ -1972,6 +1973,17 @@ ExtensionHost::Report Server::addExtensionInstance(const string& name, const str
     return m_extensions.addInstance(name, instance, displayName);
 }
 
+ExtensionHost::Report Server::renameExtensionInstance(const string& name, const string& instance,
+                                                     const string& displayName)
+{
+    return m_extensions.renameInstance(name, instance, displayName);
+}
+
+ExtensionHost::Report Server::removeExtensionInstance(const string& name, const string& instance)
+{
+    return m_extensions.removeInstance(name, instance);
+}
+
 ExtensionHost::Report Server::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
     const auto extensionName = ExtensionHost::splitIdentity(name).first;
@@ -2002,7 +2014,7 @@ ExtensionHost::Report Server::setExtensionSettings(const string& name, const map
     const auto described = m_extensions.describe();
     const auto target = ranges::find_if(described, [&name](const auto& candidate)
     {
-        return ExtensionHost::identityOf(candidate.m_name, candidate.m_instance) == name;
+        return ExtensionHost::identityOf(candidate.m_name, candidate.m_extensionInstance) == name;
     });
     const bool stopped = target != described.end() && !target->m_running;
     auto report = m_extensions.writeSettings(name, settings);

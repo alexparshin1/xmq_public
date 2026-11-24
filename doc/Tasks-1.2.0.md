@@ -6,23 +6,25 @@ still owed.
 
 ## Planned
 
-- [ ] **One extension, many settings sets (named instances).** — the headline feature of 1.2.0.
+- [ ] **One extension, many settings sets (named ExtensionInstances).** — the headline feature of 1.2.0.
   Today the Extensions screen is a list of extensions, and each extension owns exactly one flat
   settings map: two exports to two databases require loading the same library twice, which
   `ExtensionHost` explicitly refuses. Change that to a list of *settings sets*, each with its own
   label, using one extension library.
 
-  Config entries gain an `instance` label. Several entries may share a `name`/`library` as long as
-  their instances differ; the host keys loaded instances by name + instance and exposes the instance
+  Config entries gain an `extension_instance` label. Several entries may share a `name`/`library` as long as
+  their ExtensionInstances differ; the host keys loaded instances by name + ExtensionInstance and exposes it
   to the extension through `hostSetting`. Existing entries without a label keep working as one
-  default instance, so no config migration is needed.
+  default ExtensionInstance, so no config migration is needed.
 
   Data integrations configured from the screen are not written to config fragments. They are rows
   in `xmq_data_integration` in the shared cluster SQL database: `node_id` is a foreign key to
-  `xmq_node`, `extension` and `instance` are the stable technical identity, `name` is the friendly
+  `xmq_node`, `extension` and `extension_instance` are the stable technical identity, `name` is the friendly
   editable name (unique within the node, case-insensitive), `enabled` and `settings_json` hold the
-  rest. Renaming a data integration never changes its instance, so its persistent queue identity
-  survives. Brokers with no database keep file-backed settings sets.
+  rest. Renaming a data integration never changes its ExtensionInstance, so its persistent queue identity
+  survives. Every SQL database holds a local `xmq_node` row keyed by the node's GUID, including
+  SQLite; SQLite refuses a second node's row while PostgreSQL/MySQL may hold many. Brokers with no
+  database at all keep file-backed settings sets.
 
   For the export extensions this must give each settings set its own topic filter/SQL rules, sink,
   SQLite queue, retry worker and dead-letter topic. The Extensions screen shows a flat list of

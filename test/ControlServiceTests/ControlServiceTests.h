@@ -84,6 +84,17 @@ public:
         return ExtensionHost::Report::note(displayName + " (" + name + "/" + instance + "): no broker behind this controller");
     }
 
+    ExtensionHost::Report renameExtensionInstance(const std::string& name, const std::string& instance,
+                                                 const std::string& displayName) override
+    {
+        return ExtensionHost::Report::note(name + "/" + instance + ": renamed to " + displayName);
+    }
+
+    ExtensionHost::Report removeExtensionInstance(const std::string& name, const std::string& instance) override
+    {
+        return ExtensionHost::Report::note(name + "/" + instance + ": removed");
+    }
+
     ExtensionHost::Report setExtensionSettings(const std::string& name,
                                                const std::map<std::string, std::string>&) override
     {

@@ -626,9 +626,9 @@ TEST(XMQ_ClusterBootstrapTests, aFullFileWithTheDatabaseInTheClusterSectionIsRew
     const auto rootDatabaseUri = document.root()->findFirst("database_uri");
     ASSERT_TRUE(rootDatabaseUri) << saved.c_str();
     EXPECT_EQ(String("postgresql://someone:secret@localhost/xmq"), rootDatabaseUri->getText());
-    const auto cluster = document.root()->findFirst("cluster");
-    ASSERT_TRUE(cluster) << "the cluster section still holds this node's identity";
-    EXPECT_FALSE(cluster->findFirst("database_uri")) << "the cluster section still carries the database";
+    // The local node's identity is in xmq_node now; the bootstrap file carries neither it nor
+    // the database address inside cluster, only the root address a start reads first.
+    EXPECT_EQ(nullptr, document.root()->findFirst("cluster"));
 
     filesystem::remove_all(directory);
 }
@@ -809,13 +809,18 @@ TEST(XMQ_ClusterBootstrapTests, aNodeWithLocalAccountsKeepsEverySectionInTheFile
     Settings settings;
     settings.loadConfiguration(configurationPath, directory / "xmq_users.conf");
 
+    // The local node's settings are in xmq_node now; the file is a bootstrap stub.
+    ClusterStore store(make_shared<DatabaseConnectionPool>(settings.userDatabaseUri(), 2));
+    const auto   node = store.node(cluster::NodeIdentity::load(
+        configurationPath.parent_path() / cluster::NodeIdentity::FileName));
+    ASSERT_TRUE(node.has_value());
+    EXPECT_TRUE(node->m_queueMaxSize.has_value());
+    EXPECT_TRUE(node->m_logging.has_value());
+    EXPECT_TRUE(node->m_sendThreads.has_value());
     Buffer after;
     after.loadFromFile(configurationPath);
     const String written(after.c_str(), after.bytes());
-
-    EXPECT_NE(String::npos, written.find("\"queue_limits\"")) << "a local node's file has to keep its own settings";
-    EXPECT_NE(String::npos, written.find("\"logging\""));
-    EXPECT_NE(String::npos, written.find("\"server_limits\""));
+    EXPECT_EQ(String::npos, written.find("\"queue_limits\""));
 
     filesystem::remove_all(directory);
 }

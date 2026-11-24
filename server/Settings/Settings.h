@@ -400,6 +400,11 @@ private:
      */
     void saveFullConfigurationUnlocked(sptk::Buffer& config) const;
 
+    /// The configuration the setup screens work from, complete in both storage modes: a template
+    /// file when the file is authoritative, or a full snapshot of what the node runs when its
+    /// settings live in xmq_node and the file is only a bootstrap stub.
+    void loadBootstrapTemplate(const std::filesystem::path& templateFile, sptk::xdoc::Document& document) const;
+
     /**
      * @brief Rewrites the file in its StartupSettings form, when this node's database holds the rest.
      *

@@ -360,6 +360,9 @@ public:
     /// Adds one more settings set of an extension and starts it.
     ExtensionHost::Report addExtensionInstance(const std::string& name, const std::string& instance,
                                                 const std::string& displayName);
+    ExtensionHost::Report renameExtensionInstance(const std::string& name, const std::string& instance,
+                                                  const std::string& displayName);
+    ExtensionHost::Report removeExtensionInstance(const std::string& name, const std::string& instance);
 
     /// Writes an extension's settings to the file its entry came from, then applies them.
     ExtensionHost::Report setExtensionSettings(const std::string&                        name,
