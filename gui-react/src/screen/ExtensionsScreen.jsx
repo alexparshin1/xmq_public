@@ -191,7 +191,7 @@ export default class ExtensionsScreen extends React.Component {
     renderAddDialog() {
         if (!this.state.showAdd) return null;
         return <div className="modalBackground">
-            <div className="modalContainer" role="dialog" aria-label="Add Data Integration">
+            <div className="modalContainer dataIntegrationDialog" role="dialog" aria-label="Add Data Integration">
                 <div className="title">Add Data Integration</div>
                 <div className="body">
                     <label htmlFor="dataIntegrationType">Type:</label>

@@ -71,7 +71,9 @@ String configurationText()
         "bridges": [],
         "cluster": {"this_node": {"node_name": "bootstrap-node", "host_port": "localhost:8883"}}
     })";
-    text.replace("xmq_test", TestServers::databaseName());
+    const auto oldPgUri = String("postgresql://gtest:test#123@dbhost_pg/xmq_test\"");
+    const auto newPgUri = String(TestServers::sharedDatabaseUri("dbhost_pg").c_str()) + "\"";
+    text = text.replace(oldPgUri, newPgUri);
     return text;
 }
 
@@ -744,7 +746,9 @@ TEST(XMQ_ClusterBootstrapTests, theDefaultListenerOfABootstrapFileStaysEnabledTh
                            "database_uri": "postgresql://gtest:test#123@dbhost_pg/xmq_test"},
         "web_service": {"certfile": "/tmp/node.crt", "keyfile": "/tmp/node.key"}
     })";
-    bootstrapText.replace("xmq_test", TestServers::databaseName());
+    const auto oldBootstrapUri = String("postgresql://gtest:test#123@dbhost_pg/xmq_test\"");
+    const auto newBootstrapUri = String(TestServers::sharedDatabaseUri("dbhost_pg").c_str()) + "\"";
+    bootstrapText = bootstrapText.replace(oldBootstrapUri, newBootstrapUri);
     Buffer(bootstrapText).saveToFile(configurationPath);
 
     String nodeId;

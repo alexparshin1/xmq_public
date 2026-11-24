@@ -360,3 +360,51 @@
 .extensionList tbody tr:not(.extensionGroupRow) td:first-child {
     padding-left: 20px;
 }
+
+/* The shared dialog styles are built for the grid editor: a fixed 500x500 box with 1.7rem body
+   text. This dialog has two ordinary fields, so it needs its own sizing or the select and the name
+   input grow to fill the box and the description runs into the labels. */
+.modalContainer.dataIntegrationDialog {
+    width: 560px;
+    height: auto;
+    max-height: 90vh;
+}
+
+.modalContainer.dataIntegrationDialog .body {
+    display: block;
+    flex: none;
+    font-size: 1rem;
+    padding: 0 14px;
+    overflow: auto;
+}
+
+.modalContainer.dataIntegrationDialog .body label {
+    display: inline-block;
+    width: 70px;
+    vertical-align: top;
+    margin-top: 7px;
+    font-weight: bold;
+}
+
+.modalContainer.dataIntegrationDialog .body select,
+.modalContainer.dataIntegrationDialog .body input[type="text"] {
+    box-sizing: border-box;
+    width: 440px;
+    height: 34px;
+    padding: 4px 6px;
+    font-size: 1rem;
+}
+
+.modalContainer.dataIntegrationDialog .body p.extensionNote {
+    margin: 8px 0 12px 78px;
+    max-width: 440px;
+    font-size: 0.9rem;
+    white-space: normal;
+    color: #444;
+}
+
+.modalContainer.dataIntegrationDialog .footer {
+    flex: none;
+    justify-content: flex-start;
+    padding: 6px 10px 14px;
+}
