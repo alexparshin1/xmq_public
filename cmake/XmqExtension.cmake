@@ -140,6 +140,14 @@ FUNCTION(XMQ_ADD_EXTENSION extensionName)
                 RENAME "${CMAKE_SHARED_LIBRARY_PREFIX}${extensionName}${CMAKE_SHARED_LIBRARY_SUFFIX}.ui.json")
     ENDIF ()
 
+    IF (WIN32)
+        # sputil5.dll exports STL instantiations that the extension's own objects also define
+        # after including the same headers. MSVC reports the two COMDAT definitions as LNK2005
+        # even though both come from the same toolset and runtime; the import library's copy is
+        # the one that wins either way. FORCE:MULTIPLE keeps those four export modules buildable.
+        TARGET_LINK_OPTIONS(${extensionName} PRIVATE /FORCE:MULTIPLE)
+    ENDIF ()
+
     # PRIVATE and exclusive: set, not appended, so nothing the enclosing directory added survives.
     SET_TARGET_PROPERTIES(${extensionName} PROPERTIES
             INCLUDE_DIRECTORIES "${extensionIncludes}"
