@@ -117,13 +117,14 @@ TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_TAP_RECORDER_LIBRARY="$<TARGET_FILE:xmq_test_tap_recorder>"
         XMQ_TEST_USER_DATABASE_LIBRARY="$<TARGET_FILE:xmq_test_user_database>")
 
-IF (UNIX)
-    ADD_DEPENDENCIES(xmq_unit_tests xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink)
-    TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
-            XMQ_TEST_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_webhook>"
-            XMQ_TEST_LOG_EXPORT_LIBRARY="$<TARGET_FILE:xmq_log_export>"
-            XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_message_export>")
-ENDIF ()
+# The export extensions are built on every platform now, and the webhook tests use their DLLs
+# on Windows as well as their shared objects on Unix. Each build tells the tests where its own
+# copy landed rather than looking one up on PATH.
+ADD_DEPENDENCIES(xmq_unit_tests xmq_webhook xmq_message_export xmq_log_export xmq_http_sink xmq_db_sink)
+TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
+        XMQ_TEST_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_webhook>"
+        XMQ_TEST_LOG_EXPORT_LIBRARY="$<TARGET_FILE:xmq_log_export>"
+        XMQ_TEST_MESSAGES_WEBHOOK_LIBRARY="$<TARGET_FILE:xmq_message_export>")
 
 # The external-client tests drive xmq_pub and xmq_sub as separate processes. They are told where
 # this build put them rather than looking them up on PATH: on PATH they resolve to whatever copy is
