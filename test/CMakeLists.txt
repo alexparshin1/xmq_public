@@ -109,6 +109,11 @@ FOREACH (testExtension ${XMQ_TEST_EXTENSION_TARGETS})
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test/extensions"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/test/extensions")
 ENDFOREACH ()
+IF (WIN32)
+    # The test binary instantiates the same STL symbols that SPTK's import libraries export;
+    # MSVC reports them as LNK2005 even with one toolset and one runtime.
+    TARGET_LINK_OPTIONS(xmq_unit_tests PRIVATE /FORCE:MULTIPLE)
+ENDIF ()
 TARGET_COMPILE_DEFINITIONS(xmq_unit_tests PRIVATE
         XMQ_TEST_EXTENSION_LIBRARY="$<TARGET_FILE:xmq_test_extension>"
         XMQ_TEST_AUTHENTICATOR_LIBRARY="$<TARGET_FILE:xmq_test_authenticator>"
