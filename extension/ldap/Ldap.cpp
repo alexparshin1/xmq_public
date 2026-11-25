@@ -601,4 +601,4 @@ const xmq_setting_preset ldapPresets[] {
 };
 XMQ_DEFINE_EXTENSION_WITH_PRESETS(LdapAuthenticator, "ldap", "0.1", XMQ_CAP_AUTHENTICATOR,
     "LDAP and Active Directory authentication over verified TLS; explicit username namespace",
-    ldapSettings, ldapPresets)
+    ldapSettings, ldapPresets, "authentication")

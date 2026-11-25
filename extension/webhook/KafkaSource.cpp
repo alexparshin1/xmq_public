@@ -213,4 +213,4 @@ private:
 } // namespace
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(KafkaSource, "kafka_source", "1.2", XMQ_CAP_SOURCE,
-                               "Imports Kafka records into a local MQTT topic.", settings)
+                               "Imports Kafka records into a local MQTT topic.", settings, "data-integrations")

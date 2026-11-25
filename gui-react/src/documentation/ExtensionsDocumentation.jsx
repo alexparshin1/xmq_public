@@ -112,7 +112,7 @@ export default function ExtensionsDocumentation() {
                 differ — two exports to two databases, each with its own filter, sink, SQLite queue
                 and dead-letter topic. The <b>Extensions</b> page groups them under one extension and
                 offers <b>Add Data Integration</b> to create another. Data integrations are rows in
-                <code>xmq_data_integration</code> in the shared SQL database, keyed to this node's
+                <code>xmq_extension_instance</code> in the shared SQL database, keyed to this node's
                 <code>xmq_node</code> row; the name is unique within the node and can be changed without
                 changing the technical instance — use <b>Rename</b> and <b>Delete</b> on its row.
                 Renaming keeps the queue identity and the accumulated records; deleting stops the

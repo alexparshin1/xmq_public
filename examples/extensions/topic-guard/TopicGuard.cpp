@@ -91,4 +91,4 @@ private:
 
 } // namespace
 
-XMQ_DEFINE_EXTENSION(TopicGuard, "topic-guard", "1.0", XMQ_CAP_AUTHORIZER)
+XMQ_DEFINE_EXTENSION(TopicGuard, "topic-guard", "1.0", XMQ_CAP_AUTHORIZER, nullptr)

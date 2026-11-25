@@ -68,7 +68,7 @@ int processId()
 filesystem::path testDirectory()
 {
     const auto directory = filesystem::temp_directory_path() /
-                           ("xmq_configuration_" + to_string(processId()));
+                           ("xmq_extension_instance_" + to_string(processId()));
     filesystem::remove_all(directory);
     filesystem::create_directories(directory);
     return directory;

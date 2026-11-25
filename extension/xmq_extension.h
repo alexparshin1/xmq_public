@@ -92,7 +92,7 @@ extern "C" {
  * both of which carry their own size - so each side can tell how much of the other's table exists.
  */
 #define XMQ_EXTENSION_ABI_MAJOR 1
-#define XMQ_EXTENSION_ABI_MINOR 7
+#define XMQ_EXTENSION_ABI_MINOR 8
 
 /** @brief Outcome of a call into an extension. */
 typedef enum xmq_status
@@ -755,6 +755,14 @@ typedef struct xmq_extension
      */
     const xmq_setting_preset* presets;
     size_t                    preset_count;
+
+    /**
+     * @brief ABI 1.8: the settings page this extension's configurations belong to.
+     *
+     * "data-integrations", "authentication", or NULL for an extension whose configurations are
+     * not edited on either page. A broker older than this field does not read it.
+     */
+    const char* page;
 } xmq_extension;
 
 /**

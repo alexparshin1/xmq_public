@@ -139,7 +139,7 @@ public:
 
 XMQ_DEFINE_EXTENSION_IMPL(KafkaSink, "kafka_sink", "1.2", XMQ_CAP_SINK,
                           "Writes exported JSON to a Kafka topic.",
-                          kafkaSinkSettings, sizeof(kafkaSinkSettings) / sizeof(kafkaSinkSettings[0]), nullptr, 0)
+                          kafkaSinkSettings, sizeof(kafkaSinkSettings) / sizeof(kafkaSinkSettings[0]), nullptr, 0, nullptr)
 
 extern "C" XMQ_EXTENSION_EXPORT const XmqSinkV1* xmq_sink_v1()
 {

@@ -148,7 +148,7 @@ private:
     Decisions                 m_subscribe;
 };
 
-class DataIntegrationStore;
+class ConfigurationStore;
 
 class ExtensionHost
 {
@@ -167,7 +167,7 @@ public:
         std::string                        m_extensionInstance;
         /// The name the operator sees. The technical ExtensionInstance never changes when this is edited.
         std::string                        m_displayName;
-        /// True when this settings set came from xmq_data_integration rather than a config file.
+        /// True when this settings set came from xmq_extension_instance rather than a config file.
         bool                               m_fromDatabase {false};
         std::filesystem::path              m_library;  ///< Path to the shared library.
         std::map<std::string, std::string> m_settings; ///< The extension's own configuration block.
@@ -413,11 +413,14 @@ public:
         std::string                     m_extensionInstance;
         std::string                     m_displayName;
         bool                            m_fromDatabase {false};
+        std::string                     m_page;
         std::string                     m_version;
         std::string                     m_description;
         std::filesystem::path           m_library;
         std::filesystem::path           m_source;
         bool                            m_running {false};
+        bool                            m_extensionEnabled {false};
+        bool                            m_configurationEnabled {false};
         bool                            m_required {false};
         uint32_t                        m_capabilities {0};
         std::vector<SettingDescription> m_settings;
@@ -478,6 +481,11 @@ public:
 
     Report enable(const Configured& configured);
 
+    /// Enable/disable an entire extension: every settings set that uses it is affected, while each
+    /// configuration keeps its own enabled flag for the next time the extension is available.
+    Report enableExtension(const std::string& name);
+    Report disableExtension(const std::string& name);
+
     /**
      * @brief Add one more settings set of an extension already configured on this broker.
      *
@@ -495,13 +503,13 @@ public:
     /// Stops and removes one settings set.
     Report removeInstance(const std::string& name, const std::string& extensionInstance);
 
-    /// Everything configured, from the files and from xmq_data_integration together. Used by the
+    /// Everything configured, from the files and from xmq_extension_instance together. Used by the
     /// control interface when it re-reads configuration after a change.
     [[nodiscard]] std::vector<Configured> configured(const std::filesystem::path& brokerConfiguration) const;
 
     /// Where data integrations are stored. Set before start(); without it they live in config
     /// fragments as they always have, which is how tests and brokers with no database work.
-    void dataIntegrationStore(std::shared_ptr<DataIntegrationStore> store)
+    void dataIntegrationStore(std::shared_ptr<ConfigurationStore> store)
     {
         m_dataIntegrationStore = std::move(store);
     }
@@ -1008,7 +1016,7 @@ private:
     /// Where the broker's configuration lives, so a discovered extension can be given a fragment.
     sptk::LogEngine*      m_logEngine {nullptr};
     std::filesystem::path m_configurationPath;
-    std::shared_ptr<DataIntegrationStore> m_dataIntegrationStore;
+    std::shared_ptr<ConfigurationStore> m_dataIntegrationStore;
 
     /// Fills m_discovered from the directories the configured libraries live in, and returns the
     /// entries that should be started now - the configured ones plus a mandatory accounts database

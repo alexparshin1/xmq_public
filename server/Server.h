@@ -363,6 +363,8 @@ public:
     ExtensionHost::Report renameExtensionInstance(const std::string& name, const std::string& instance,
                                                   const std::string& displayName);
     ExtensionHost::Report removeExtensionInstance(const std::string& name, const std::string& instance);
+    ExtensionHost::Report switchExtensionEnabled(const std::string& name, bool on);
+    ExtensionHost::Report setConfigurationEnabled(const std::string& identity, bool on);
 
     /// Writes an extension's settings to the file its entry came from, then applies them.
     ExtensionHost::Report setExtensionSettings(const std::string&                        name,

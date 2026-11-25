@@ -18,7 +18,7 @@ still owed.
   default ExtensionInstance, so no config migration is needed.
 
   Data integrations configured from the screen are not written to config fragments. They are rows
-  in `xmq_data_integration` in the shared cluster SQL database: `node_id` is a foreign key to
+  in `xmq_extension_instance` in the shared cluster SQL database: `node_id` is a foreign key to
   `xmq_node`, `extension` and `extension_instance` are the stable technical identity, `name` is the friendly
   editable name (unique within the node, case-insensitive), `enabled` and `settings_json` hold the
   rest. Renaming a data integration never changes its ExtensionInstance, so its persistent queue identity

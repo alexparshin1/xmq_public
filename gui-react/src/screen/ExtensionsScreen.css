@@ -408,3 +408,42 @@
     justify-content: flex-start;
     padding: 6px 10px 14px;
 }
+
+/* The configuration editor is the full settings form inside a dialog, shared by Data Integrations
+   and Authentication. The grid editor's fixed 500px box and 1.7rem body are wrong for it. */
+.modalContainer.configurationEditor {
+    width: 720px;
+    height: auto;
+    max-height: 90vh;
+    /* A capped flex column must not let its children grow past the cap; without this the long
+       form spills out of the dialog and off the screen instead of scrolling. */
+    min-height: 0;
+    overflow: hidden;
+}
+
+.modalContainer.configurationEditor .body {
+    display: block;
+    /* The default min-height:auto keeps a flex item at its content height, so overflow:auto
+       never sees anything to scroll. min-height:0 lets the body shrink inside the capped dialog. */
+    flex: 1 1 auto;
+    min-height: 0;
+    font-size: 1rem;
+    padding: 0 14px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.modalContainer.configurationEditor .configurationEditorDivider {
+    flex: none;
+    width: 100%;
+    height: 0;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid #ddd;
+}
+
+.modalContainer.configurationEditor .footer {
+    flex: none;
+    justify-content: flex-end;
+    padding: 6px 10px 14px;
+}

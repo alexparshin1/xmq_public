@@ -700,6 +700,8 @@
                     <xsd:element name="extension_instance" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <!-- The name the operator gave this settings set. -->
                     <xsd:element name="display_name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- Which settings page this extension's configurations belong to. -->
+                    <xsd:element name="page" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="version" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="library" type="xsd:string" maxOccurs="1" minOccurs="0"/>
@@ -709,6 +711,10 @@
                     <xsd:element name="ui_definition" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="ui_error" type="xsd:string" minOccurs="0"/>
                     <xsd:element name="running" type="xsd:boolean"/>
+                    <!-- Two independent switches: the extension itself (broker-wide) and this
+                         configuration. A settings set is active only when both are enabled. -->
+                    <xsd:element name="extension_enabled" type="xsd:boolean"/>
+                    <xsd:element name="configuration_enabled" type="xsd:boolean"/>
                     <!-- The broker does not serve MQTT without a required extension, so it gets no
                          enable or disable button: that would be a way to stop serving that does not
                          say it is one. -->
@@ -780,11 +786,17 @@
                                     <!-- Rename or delete one named settings set. -->
                                     <xsd:enumeration value="rename_instance"></xsd:enumeration>
                                     <xsd:enumeration value="remove_instance"></xsd:enumeration>
+                                    <!-- Enabling an extension affects every configuration of it;
+                                         the configuration's own flag survives the switch. -->
+                                    <xsd:enumeration value="enable_extension"></xsd:enumeration>
+                                    <xsd:enumeration value="disable_extension"></xsd:enumeration>
+                                    <xsd:enumeration value="set_configuration_enabled"></xsd:enumeration>
                                     <xsd:enumeration value="test_sql"></xsd:enumeration>
                                 </xsd:restriction>
                             </xsd:simpleType>
                         </xsd:element>
                         <xsd:element name="name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                        <xsd:element name="enabled" type="xsd:boolean" maxOccurs="1" minOccurs="0"/>
                         <!-- Together with name, selects one ExtensionInstance when the same extension
                              is used for several exports. -->
                         <xsd:element name="extension_instance" type="xsd:string" maxOccurs="1" minOccurs="0"/>

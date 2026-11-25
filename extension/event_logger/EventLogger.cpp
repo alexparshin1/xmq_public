@@ -266,4 +266,4 @@ const xmq_setting eventLoggerSettings[] {
 XMQ_DEFINE_EXTENSION_DESCRIBED(EventLogger, "event_logger", "1.0", XMQ_CAP_OBSERVER,
                                "Writes every broker event to syslog: connections, subscriptions "
                                "and publishes, one line each",
-                               eventLoggerSettings)
+                               eventLoggerSettings, nullptr)

@@ -20,7 +20,7 @@
 #include "ReliableMessageStore.h"
 #include "common/RedisCredentials.h"
 #include "Settings/UriSecret.h"
-#include "Settings/DataIntegrationStore.h"
+#include "Settings/ConfigurationStore.h"
 
 #include <sptk5/net/SSLSocket.h>
 #include "CertificateIdentity.h"
@@ -254,14 +254,14 @@ Server::Server(const std::shared_ptr<Settings>& settings, const shared_ptr<LogEn
     }
     m_extensions.enableEvents(enabledEvents);
 
-    // Data integrations are rows in xmq_data_integration, beside this node's xmq_node row in the
+    // Data integrations are rows in xmq_extension_instance, beside this node's xmq_node row in the
     // configuration database. Every SQL database holds one node's settings; only PostgreSQL/MySQL
     // may hold several. With no database at all the old configuration entries remain the fallback.
     if (auto pool = settings->accountsPool())
     {
         try
         {
-            auto store = make_shared<DataIntegrationStore>(pool, settings->nodeIdentity().c_str());
+            auto store = make_shared<ConfigurationStore>(pool, settings->nodeIdentity().c_str());
             store->createSchema();
             m_extensions.dataIntegrationStore(std::move(store));
         }
@@ -1982,6 +1982,16 @@ ExtensionHost::Report Server::renameExtensionInstance(const string& name, const 
 ExtensionHost::Report Server::removeExtensionInstance(const string& name, const string& instance)
 {
     return m_extensions.removeInstance(name, instance);
+}
+
+ExtensionHost::Report Server::switchExtensionEnabled(const string& name, const bool on)
+{
+    return on ? m_extensions.enableExtension(name) : m_extensions.disableExtension(name);
+}
+
+ExtensionHost::Report Server::setConfigurationEnabled(const string& identity, const bool on)
+{
+    return m_extensions.writeEnabled(identity, on);
 }
 
 ExtensionHost::Report Server::setExtensionSettings(const string& name, const map<string, string>& settings)

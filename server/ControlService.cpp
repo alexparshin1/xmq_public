@@ -491,6 +491,9 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
 {
     into.m_name = from.m_name;
     into.m_extension_instance = from.m_extensionInstance;
+    into.m_page = from.m_page;
+    into.m_extension_enabled = from.m_extensionEnabled;
+    into.m_configuration_enabled = from.m_configurationEnabled;
     into.m_display_name = from.m_displayName;
     into.m_version = from.m_version;
     into.m_description = from.m_description;
@@ -652,6 +655,25 @@ void ControlService::ExtensionControl(const CExtensionControl& input, CExtension
                 throw Exception("Which data integration? The action needs a type and a name");
             }
             report = m_controller->addExtensionInstance(name, instance, displayName);
+        }
+        else if (action == "enable_extension" || action == "disable_extension")
+        {
+            const auto name = input.m_name.asString();
+            if (name.empty())
+            {
+                throw Exception("Which extension? The action needs a name");
+            }
+            report = m_controller->switchExtensionEnabled(name, action == "enable_extension");
+        }
+        else if (action == "set_configuration_enabled")
+        {
+            const auto name = input.m_name.asString();
+            if (name.empty())
+            {
+                throw Exception("Which data integration? The action needs an extension name");
+            }
+            const auto identity = ExtensionHost::identityOf(name, input.m_extension_instance.asString());
+            report = m_controller->setConfigurationEnabled(identity, input.m_enabled.asBool());
         }
         else if (action == "rename_instance" || action == "remove_instance")
         {

@@ -27,7 +27,9 @@ import SettingsScreen from "./screen/SettingsScreen";
 import UserManualScreen from "./screen/UserManualScreen";
 import Documentation from "./documentation/Documentation";
 import {documentationPages} from "./documentation/pages";
-import ExtensionsScreen from "./screen/ExtensionsScreen";
+import InstalledExtensionsScreen from "./screen/InstalledExtensionsScreen";
+import DataIntegrationsScreen from "./screen/DataIntegrationsScreen";
+import AuthenticationScreen from "./screen/AuthenticationScreen";
 import PrometheusScreen from "./screen/PrometheusScreen";
 
 class App extends React.Component {
@@ -78,7 +80,9 @@ class App extends React.Component {
                                     {documentationPages.map(page =>
                                         <Route key={page.id} path={page.path}
                                                element={<Documentation page={page.id}/>}/>)}
-                                    <Route path="/extensions" Component={ExtensionsScreen}/>
+                                    <Route path="/extensions" Component={InstalledExtensionsScreen}/>
+                                    <Route path="/data-integrations" Component={DataIntegrationsScreen}/>
+                                    <Route path="/authentication" Component={AuthenticationScreen}/>
 
                                     {/* Everything else needs a session. Wrapped rather than
                                         checked inside each screen, so a page cannot stay on

@@ -12,7 +12,7 @@
 */
 
 #include "ExtensionHost.h"
-#include "server/Settings/DataIntegrationStore.h"
+#include "server/Settings/ConfigurationStore.h"
 #include "server/Subscription/RetainedMessages.h"
 
 #include <sptk5/RegularExpression.h>
@@ -918,7 +918,8 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     // unknown intermediate layouts.
     if (loaded->m_table->struct_size != sizeof(xmq_extension) &&
         loaded->m_table->struct_size != offsetof(xmq_extension, presets) &&
-        loaded->m_table->struct_size != offsetof(xmq_extension, authenticate_identity))
+        loaded->m_table->struct_size != offsetof(xmq_extension, authenticate_identity) &&
+        loaded->m_table->struct_size != offsetof(xmq_extension, page))
     {
         return fail(format("describes itself with {} bytes where this broker knows {} - rebuild "
                               "it against this broker's xmq_extension.h.",
@@ -1817,6 +1818,24 @@ bool ExtensionHost::quiesce(Loaded& loaded, const Logger& logger)
 vector<ExtensionHost::Description> ExtensionHost::describe() const
 {
     vector<Description> described;
+    const auto          allConfigured = configured(m_configurationPath);
+    const auto          enabledOf = [&allConfigured](const string& name, const string& extensionInstance,
+                                                    bool fromDatabase)
+    {
+        const auto base = ranges::find_if(allConfigured, [&](const auto& candidate)
+        {
+            return candidate.m_name == name && candidate.m_extensionInstance.empty();
+        });
+        const auto self = ranges::find_if(allConfigured, [&](const auto& candidate)
+        {
+            return candidate.m_name == name && candidate.m_extensionInstance == extensionInstance;
+        });
+        // A database-backed row carries only the configuration's own flag; the extension's flag
+        // lives in the file entry that loaded it.
+        const bool extensionFlag = base != allConfigured.end() ? base->m_enabled : !fromDatabase;
+        const bool configurationFlag = self != allConfigured.end() ? self->m_enabled : false;
+        return pair {extensionFlag, configurationFlag};
+    };
 
     const std::scoped_lock lock(m_loadedLock);
     for (const auto& loaded: m_loaded)
@@ -1829,6 +1848,12 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_library = loaded->m_library;
         one.m_source = loaded->m_source;
         one.m_running = loaded->m_started;
+        {
+            const auto [extensionFlag, configurationFlag] =
+                enabledOf(loaded->m_name, loaded->m_extensionInstance, loaded->m_fromDatabase);
+            one.m_extensionEnabled = extensionFlag;
+            one.m_configurationEnabled = configurationFlag;
+        }
         one.m_required = loaded->m_required;
         one.m_eventsDelivered = loaded->m_eventsDelivered.load(std::memory_order_relaxed);
         one.m_admitted = loaded->m_admitted.load(std::memory_order_relaxed);
@@ -1847,6 +1872,10 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
 
         if (loaded->m_table != nullptr)
         {
+            if (loaded->m_table->struct_size >= offsetof(xmq_extension, page) + sizeof(loaded->m_table->page))
+            {
+                one.m_page = loaded->m_table->page == nullptr ? "" : loaded->m_table->page;
+            }
             one.m_version = loaded->m_table->version == nullptr ? "" : loaded->m_table->version;
             one.m_capabilities = loaded->m_table->capabilities;
 
@@ -1902,6 +1931,12 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_library = configured.m_library;
         one.m_source = configured.m_source;
         one.m_running = false;
+        {
+            const auto [extensionFlag, configurationFlag] =
+                enabledOf(configured.m_name, configured.m_extensionInstance, configured.m_fromDatabase);
+            one.m_extensionEnabled = extensionFlag;
+            one.m_configurationEnabled = configurationFlag;
+        }
         one.m_required = configured.m_required;
 
         auto remaining = configured.m_settings;
@@ -2388,7 +2423,7 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         }
     }
 
-    // A data integration keeps its settings in xmq_data_integration, not in a fragment. The values
+    // A data integration keeps its settings in xmq_extension_instance, not in a fragment. The values
     // have passed the same validation as file-backed settings before reaching here.
     const auto dbLoaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
     {
@@ -2662,7 +2697,7 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
             return refusedWrite(m_logger, identity,
                                 "a data integration named '" + displayName + "' already exists on this node");
         }
-        DataIntegrationStore::Row row;
+        ConfigurationStore::Row row;
         row.m_extension = name;
         row.m_extensionInstance = extensionInstance;
         row.m_name = displayName;
@@ -2776,6 +2811,70 @@ ExtensionHost::Report ExtensionHost::addInstance(const string& name, const strin
         filesystem::remove(fragment, errorCode);
         const std::scoped_lock lock(m_loadedLock);
         std::erase_if(m_configuredOnly, [&](const auto& candidate) { return candidate.identity() == identity; });
+    }
+    return report;
+}
+
+ExtensionHost::Report ExtensionHost::enableExtension(const string& name)
+{
+    auto report = writeEnabled(name, true);
+    if (report.failed())
+    {
+        return report;
+    }
+    bool found = false;
+    for (const auto& configured: configured(m_configurationPath))
+    {
+        if (configured.m_name != name || !configured.m_enabled)
+        {
+            continue;
+        }
+        found = true;
+        bool running = false;
+        {
+            const std::scoped_lock lock(m_loadedLock);
+            const auto loaded = ranges::find_if(m_loaded, [&](const auto& candidate)
+            {
+                return candidate->identity() == configured.identity();
+            });
+            running = loaded != m_loaded.end() && (*loaded)->m_started;
+        }
+        if (!running)
+        {
+            report += enable(configured);
+        }
+    }
+    if (!found)
+    {
+        report += Report::problem(name + ": no enabled configuration of this extension was found.");
+    }
+    return report;
+}
+
+ExtensionHost::Report ExtensionHost::disableExtension(const string& name)
+{
+    // Persist the broker-wide switch before stopping anything: a restart must not bring a
+    // configuration back just because the user had enabled it before.
+    auto report = writeEnabled(name, false);
+    if (report.failed())
+    {
+        return report;
+    }
+
+    vector<string> running;
+    {
+        const std::scoped_lock lock(m_loadedLock);
+        for (const auto& loaded: m_loaded)
+        {
+            if (loaded->m_name == name && loaded->m_started)
+            {
+                running.push_back(loaded->identity());
+            }
+        }
+    }
+    for (const auto& identity: running)
+    {
+        report += disable(identity);
     }
     return report;
 }

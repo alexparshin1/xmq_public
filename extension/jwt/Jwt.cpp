@@ -939,4 +939,4 @@ const xmq_setting jwtSettings[]{
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(JwtAuthenticator, "jwt", "0.1", XMQ_CAP_AUTHENTICATOR,
                                "JSON Web Token authentication (HS256, RS256, ES256) with claims mapped to XMQ groups",
-                               jwtSettings)
+                               jwtSettings, "authentication")

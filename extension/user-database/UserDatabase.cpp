@@ -1235,4 +1235,4 @@ const xmq_setting userDatabaseSettings[] {
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(UserDatabase, "user-database", "1.0", XMQ_CAP_AUTHENTICATOR,
                                "Authenticates MQTT clients against the broker's SQL user database",
-                               userDatabaseSettings)
+                               userDatabaseSettings, "authentication")

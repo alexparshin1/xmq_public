@@ -220,4 +220,4 @@ const xmq_setting eventLogSettings[] {
 
 XMQ_DEFINE_EXTENSION_DESCRIBED(EventLog, "event-log", "1.1", XMQ_CAP_OBSERVER,
                                "Writes every broker event to a file, one line each",
-                               eventLogSettings)
+                               eventLogSettings, nullptr)

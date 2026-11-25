@@ -11,7 +11,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 */
 
-#include "DataIntegrationStore.h"
+#include "ConfigurationStore.h"
 
 #include <sptk5/Exception.h>
 #include <sptk5/xdoc/Document.h>
@@ -25,33 +25,33 @@ namespace xmq {
 
 namespace {
 
-constexpr const char* tableName = "xmq_data_integration";
+constexpr const char* tableName = "xmq_extension_instance";
 constexpr const char* columns = "node_id, extension, extension_instance, name, enabled, settings_json";
 
-DataIntegrationStore::Row readRow(Query& query)
+ConfigurationStore::Row readRow(Query& query)
 {
-    DataIntegrationStore::Row row;
+    ConfigurationStore::Row row;
     row.m_extension = query["extension"].asString();
     row.m_extensionInstance = query["extension_instance"].asString();
     row.m_name = query["name"].asString();
     row.m_enabled = query["enabled"].asInt64() != 0;
-    row.m_settings = DataIntegrationStore::decodeSettings(query["settings_json"].asString());
+    row.m_settings = ConfigurationStore::decodeSettings(query["settings_json"].asString());
     return row;
 }
 
 } // namespace
 
-DataIntegrationStore::DataIntegrationStore(shared_ptr<DatabaseConnectionPool> database, string nodeId)
+ConfigurationStore::ConfigurationStore(shared_ptr<DatabaseConnectionPool> database, string nodeId)
     : m_database(std::move(database))
     , m_nodeId(std::move(nodeId))
 {
     if (!m_database)
     {
-        throw Exception("DataIntegrationStore needs a database");
+        throw Exception("ConfigurationStore needs a database");
     }
 }
 
-bool DataIntegrationStore::tableExists() const
+bool ConfigurationStore::tableExists() const
 {
     try
     {
@@ -67,7 +67,7 @@ bool DataIntegrationStore::tableExists() const
     }
 }
 
-void DataIntegrationStore::createSchema() const
+void ConfigurationStore::createSchema() const
 {
     if (tableExists())
     {
@@ -88,14 +88,14 @@ void DataIntegrationStore::createSchema() const
         "  name varchar(200) NOT NULL,"
         "  enabled int NOT NULL DEFAULT 1,"
         "  settings_json TEXT NOT NULL,"
-        "  CONSTRAINT pk_xmq_data_integration PRIMARY KEY (node_id, extension, extension_instance),"
-        "  CONSTRAINT uq_xmq_data_integration_name UNIQUE (node_id, name),"
-        "  CONSTRAINT fk_xmq_data_integration_node FOREIGN KEY (node_id)"
+        "  CONSTRAINT pk_xmq_extension_instance PRIMARY KEY (node_id, extension, extension_instance),"
+        "  CONSTRAINT uq_xmq_extension_instance_name UNIQUE (node_id, name),"
+        "  CONSTRAINT fk_xmq_extension_instance_node FOREIGN KEY (node_id)"
         "    REFERENCES xmq_node(node_id) ON DELETE CASCADE)" + suffix);
     statement.exec();
 }
 
-vector<DataIntegrationStore::Row> DataIntegrationStore::list() const
+vector<ConfigurationStore::Row> ConfigurationStore::list() const
 {
     vector<Row> rows;
     if (!tableExists())
@@ -117,7 +117,7 @@ vector<DataIntegrationStore::Row> DataIntegrationStore::list() const
     return rows;
 }
 
-optional<DataIntegrationStore::Row> DataIntegrationStore::find(const string_view extension,
+optional<ConfigurationStore::Row> ConfigurationStore::find(const string_view extension,
                                                                const string_view extensionInstance) const
 {
     if (!tableExists())
@@ -142,7 +142,7 @@ optional<DataIntegrationStore::Row> DataIntegrationStore::find(const string_view
     return row;
 }
 
-bool DataIntegrationStore::nameTaken(const string_view name, const string_view exceptExtensionInstance) const
+bool ConfigurationStore::nameTaken(const string_view name, const string_view exceptExtensionInstance) const
 {
     if (!tableExists())
     {
@@ -161,7 +161,7 @@ bool DataIntegrationStore::nameTaken(const string_view name, const string_view e
     return count > 0;
 }
 
-void DataIntegrationStore::insert(const Row& row) const
+void ConfigurationStore::insert(const Row& row) const
 {
     createSchema();
 
@@ -196,7 +196,7 @@ void DataIntegrationStore::insert(const Row& row) const
     statement.exec();
 }
 
-void DataIntegrationStore::update(const Row& row) const
+void ConfigurationStore::update(const Row& row) const
 {
     const AutoDatabaseConnection connection(*m_database);
     Query                        statement(connection.connection(),
@@ -212,7 +212,7 @@ void DataIntegrationStore::update(const Row& row) const
     statement.exec();
 }
 
-void DataIntegrationStore::remove(const string_view extension, const string_view extensionInstance) const
+void ConfigurationStore::remove(const string_view extension, const string_view extensionInstance) const
 {
     const AutoDatabaseConnection connection(*m_database);
     Query                        statement(connection.connection(),
@@ -224,7 +224,7 @@ void DataIntegrationStore::remove(const string_view extension, const string_view
     statement.exec();
 }
 
-void DataIntegrationStore::setName(const string_view extension, const string_view extensionInstance,
+void ConfigurationStore::setName(const string_view extension, const string_view extensionInstance,
                                    const string_view name) const
 {
     auto row = find(extension, extensionInstance);
@@ -236,7 +236,7 @@ void DataIntegrationStore::setName(const string_view extension, const string_vie
     update(*row);
 }
 
-void DataIntegrationStore::setEnabled(const string_view extension, const string_view extensionInstance,
+void ConfigurationStore::setEnabled(const string_view extension, const string_view extensionInstance,
                                       const bool enabled) const
 {
     const AutoDatabaseConnection connection(*m_database);
@@ -250,7 +250,7 @@ void DataIntegrationStore::setEnabled(const string_view extension, const string_
     statement.exec();
 }
 
-string DataIntegrationStore::encodeSettings(const map<string, string>& settings)
+string ConfigurationStore::encodeSettings(const map<string, string>& settings)
 {
     xdoc::Document document;
     document.load(String("{}"));
@@ -263,7 +263,7 @@ string DataIntegrationStore::encodeSettings(const map<string, string>& settings)
     return written.c_str();
 }
 
-map<string, string> DataIntegrationStore::decodeSettings(const string& json)
+map<string, string> ConfigurationStore::decodeSettings(const string& json)
 {
     map<string, string> settings;
     if (json.empty())

@@ -117,7 +117,9 @@ function buildGroups(connected) {
                 "/logging": "Logging",
                 "/prometheus": "Prometheus",
                 "/service": "Service",
-                "/extensions": "Extensions"
+                "/extensions": "Installed Extensions",
+                "/data-integrations": "Data Integrations",
+                "/authentication": "Authentication"
             }
         },
         {

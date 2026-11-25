@@ -157,4 +157,4 @@ private:
 
 } // namespace
 
-XMQ_DEFINE_EXTENSION(AllowList, "allow-list", "1.0", XMQ_CAP_AUTHENTICATOR)
+XMQ_DEFINE_EXTENSION(AllowList, "allow-list", "1.0", XMQ_CAP_AUTHENTICATOR, "authentication")

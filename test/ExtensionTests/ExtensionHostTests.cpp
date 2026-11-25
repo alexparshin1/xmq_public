@@ -24,7 +24,7 @@
  */
 
 #include "server/Extensions/ExtensionHost.h"
-#include "server/Settings/DataIntegrationStore.h"
+#include "server/Settings/ConfigurationStore.h"
 #include "common/DirectoryNames.h"
 #include <sptk5/threads/JoiningThread.h>
 
@@ -1583,7 +1583,7 @@ TEST_F(XMQ_ExtensionHostTests, aStoredDataIntegrationCanBeRenamedAndRemoved)
     }
 
     auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(databaseFile), 2);
-    auto store = make_shared<DataIntegrationStore>(pool, "44444444-4444-4444-8444-444444444444");
+    auto store = make_shared<ConfigurationStore>(pool, "44444444-4444-4444-8444-444444444444");
     {
         const AutoDatabaseConnection connection(*pool);
         Query                        node(connection.connection(),
@@ -1634,6 +1634,82 @@ TEST_F(XMQ_ExtensionHostTests, aStoredDataIntegrationCanBeRenamedAndRemoved)
     EXPECT_FALSE(store->find("event-log", "event-log-1").has_value());
     EXPECT_FALSE(filesystem::exists(queueFile)) << "the queue file belongs to this settings set alone";
     EXPECT_FALSE(filesystem::exists(queueFile.string() + ".owner"));
+
+    host.stop();
+    error_code errorCode;
+    filesystem::remove_all(directory, errorCode);
+}
+
+TEST_F(XMQ_ExtensionHostTests, extensionAndConfigurationFlagsAreIndependent)
+{
+    const auto directory = uniqueTemporary("conf-two-flags");
+    filesystem::create_directories(directory);
+    const auto brokerConfiguration = directory / "xmq_server.conf";
+    const auto extensionsFile = ExtensionHost::configurationPathFor(brokerConfiguration);
+    const auto databaseFile = directory / "integrations.db";
+    {
+        ofstream file(extensionsFile);
+        file << "{\"extensions\":[{\"name\":\"event-log\",\"enabled\":true,\"library\":\""
+             << testExtensionLibrary().generic_string() << "\","
+             << "\"settings\":{\"file\":\"" << m_eventFile.generic_string() << "\"}}]}";
+    }
+    auto pool = make_shared<DatabaseConnectionPool>(DirectoryNames::sqliteUri(databaseFile), 2);
+    {
+        const AutoDatabaseConnection connection(*pool);
+        Query node(connection.connection(),
+            "CREATE TABLE xmq_node (node_id varchar(36) PRIMARY KEY, name varchar(80) NOT NULL)");
+        node.exec();
+        Query insert(connection.connection(),
+            "INSERT INTO xmq_node (node_id, name) VALUES (:id, :name)");
+        insert.param("id") = "66666666-6666-4666-8666-666666666666";
+        insert.param("name") = "node-six";
+        insert.exec();
+    }
+    auto store = make_shared<ConfigurationStore>(pool, "66666666-6666-4666-8666-666666666666");
+    store->createSchema();
+
+    ExtensionHost host(m_logEngine, "test");
+    host.dataIntegrationStore(store);
+    host.start(ExtensionHost::readConfiguration(brokerConfiguration, m_logEngine), brokerConfiguration);
+    const auto added = host.addInstance("event-log", "event-log-1", "Audit log");
+    ASSERT_FALSE(added.failed()) << added.m_problems.join("; ");
+
+    const auto findInstance = [&host]()
+    {
+        for (const auto& one: host.describe())
+            if (one.m_extensionInstance == "event-log-1") return optional<ExtensionHost::Description>(one);
+        return optional<ExtensionHost::Description>{};
+    };
+    auto entry = findInstance();
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_TRUE(entry->m_extensionEnabled);
+    EXPECT_TRUE(entry->m_configurationEnabled);
+    EXPECT_TRUE(entry->m_running);
+
+    const auto disabled = host.disableExtension("event-log");
+    EXPECT_FALSE(disabled.failed()) << disabled.m_problems.join("; ");
+    entry = findInstance();
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_FALSE(entry->m_extensionEnabled);
+    EXPECT_TRUE(entry->m_configurationEnabled) << "the user's choice must survive an extension-wide switch";
+    EXPECT_FALSE(entry->m_running);
+
+    const auto enabled = host.enableExtension("event-log");
+    EXPECT_FALSE(enabled.failed()) << enabled.m_problems.join("; ");
+    entry = findInstance();
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_TRUE(entry->m_extensionEnabled);
+    EXPECT_TRUE(entry->m_configurationEnabled);
+    EXPECT_TRUE(entry->m_running);
+
+    const auto configurationOff = host.writeEnabled("event-log/event-log-1", false);
+    EXPECT_FALSE(configurationOff.failed()) << configurationOff.m_problems.join("; ");
+    host.reloadSettings(host.configured(brokerConfiguration));
+    entry = findInstance();
+    ASSERT_TRUE(entry.has_value());
+    EXPECT_TRUE(entry->m_extensionEnabled);
+    EXPECT_FALSE(entry->m_configurationEnabled);
+    EXPECT_FALSE(entry->m_running);
 
     host.stop();
     error_code errorCode;

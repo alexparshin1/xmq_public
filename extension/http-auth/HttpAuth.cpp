@@ -302,4 +302,4 @@ const xmq_setting httpAuthSettings[]{
     {.name="cache_max_entries", .label="Cache entries", .description="Bounded LRU decisions; no plaintext credentials stored in cache", .type=XMQ_SETTING_INTEGER, .default_value="4096", .choices=nullptr, .required=0},
 };
 XMQ_DEFINE_EXTENSION_DESCRIBED(HttpAuthenticator, "http-auth", "0.1", XMQ_CAP_AUTHENTICATOR,
-                               "HTTP authentication with native XMQ group permissions", httpAuthSettings)
+                               "HTTP authentication with native XMQ group permissions", httpAuthSettings, "authentication")

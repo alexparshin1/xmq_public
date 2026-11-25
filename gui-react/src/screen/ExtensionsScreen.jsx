@@ -160,6 +160,18 @@ export default class ExtensionsScreen extends React.Component {
             });
     }
 
+    toggleExtension = (extension) => {
+        this.setState({busy: true});
+        ControlAPI.asyncMakeAPICall("ExtensionControl", {
+            action: extension.extension_enabled ? "disable_extension" : "enable_extension",
+            name: extension.name
+        }).then(data => {
+            this.setState({busy: false});
+            if (!ExtensionsScreen.succeeded(data)) return;
+            this.refresh(data.message);
+        });
+    }
+
     renameIntegration = (extension) => {
         const current = extension.display_name || "";
         const name = window.prompt("Rename data integration:", current);
@@ -381,7 +393,7 @@ export default class ExtensionsScreen extends React.Component {
         this.setState({ruleTest: {sql, logs}});
     };
 
-    apply = () => {
+    apply = (afterSet) => {
         const extension = this.selected();
         if (!extension) {
             return;
@@ -430,7 +442,14 @@ export default class ExtensionsScreen extends React.Component {
                         this.restore(data);
                         return;
                     }
-                    this.refresh(data.message);
+                    if (typeof afterSet === "function")
+                    {
+                        afterSet().then(() => this.refresh(data.message));
+                    }
+                    else
+                    {
+                        this.refresh(data.message);
+                    }
                 });
         });
     }

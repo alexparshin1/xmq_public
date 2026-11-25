@@ -553,6 +553,26 @@ ExtensionHost::Report ServerController::removeExtensionInstance(const string& na
     return m_xmqServer->removeExtensionInstance(name, instance);
 }
 
+ExtensionHost::Report ServerController::switchExtensionEnabled(const string& name, const bool on)
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        throw Exception("The MQTT server is not running, so there are no extensions to switch");
+    }
+    return m_xmqServer->switchExtensionEnabled(name, on);
+}
+
+ExtensionHost::Report ServerController::setConfigurationEnabled(const string& identity, const bool on)
+{
+    const scoped_lock lock(m_mutex);
+    if (!m_xmqServer)
+    {
+        throw Exception("The MQTT server is not running, so there are no configurations to switch");
+    }
+    return m_xmqServer->setConfigurationEnabled(identity, on);
+}
+
 ExtensionHost::Report ServerController::setExtensionSettings(const string& name, const map<string, string>& settings)
 {
     const scoped_lock lock(m_mutex);

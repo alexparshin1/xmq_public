@@ -75,4 +75,4 @@ private:
 
 } // namespace
 
-XMQ_DEFINE_EXTENSION(TapRecorder, "tap-recorder", "1.0", XMQ_CAP_MESSAGE_TAP)
+XMQ_DEFINE_EXTENSION(TapRecorder, "tap-recorder", "1.0", XMQ_CAP_MESSAGE_TAP, nullptr)

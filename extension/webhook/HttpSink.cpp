@@ -121,4 +121,4 @@ public:
 
 XMQ_DEFINE_EXTENSION_IMPL(HttpSink, "http_sink", "1.2", XMQ_CAP_SINK,
                           "Posts JSON from an export rule to an HTTP(S) endpoint.",
-                          sinkSettings, sizeof(sinkSettings) / sizeof(sinkSettings[0]), nullptr, 0)
+                          sinkSettings, sizeof(sinkSettings) / sizeof(sinkSettings[0]), nullptr, 0, nullptr)

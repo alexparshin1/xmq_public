@@ -1176,14 +1176,14 @@ constexpr auto sourceSettings = []
 #if defined(XMQ_MESSAGES_WEBHOOK)
 XMQ_DEFINE_EXTENSION_IMPL(Webhook, "message_export", "1.2", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_SOURCE,
                           "Exports MQTT messages using a configurable delivery sink.",
-                          sourceSettings.items, sourceSettings.count, nullptr, 0)
+                          sourceSettings.items, sourceSettings.count, nullptr, 0, "data-integrations")
 #elif defined(XMQ_LOG_WEBHOOK)
 XMQ_DEFINE_EXTENSION_IMPL(Webhook, "log_export", "1.2", XMQ_CAP_LOG_TAP | XMQ_CAP_SOURCE,
                           "Exports broker log records using a configurable delivery sink.",
-                          sourceSettings.items, sourceSettings.count, nullptr, 0)
+                          sourceSettings.items, sourceSettings.count, nullptr, 0, "data-integrations")
 #else
 XMQ_DEFINE_EXTENSION_DESCRIBED(Webhook, "webhook", "1.2", XMQ_CAP_MESSAGE_TAP | XMQ_CAP_LOG_TAP,
                                "Deprecated. Will be disabled in version 1.3. "
                                "Use message_export and log_export instead.",
-                               settings)
+                               settings, "data-integrations")
 #endif

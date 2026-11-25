@@ -95,6 +95,16 @@ public:
         return ExtensionHost::Report::note(name + "/" + instance + ": removed");
     }
 
+    ExtensionHost::Report switchExtensionEnabled(const std::string& name, bool on) override
+    {
+        return ExtensionHost::Report::note(name + (on ? ": enabled" : ": disabled"));
+    }
+
+    ExtensionHost::Report setConfigurationEnabled(const std::string& identity, bool on) override
+    {
+        return ExtensionHost::Report::note(identity + (on ? ": configuration enabled" : ": configuration disabled"));
+    }
+
     ExtensionHost::Report setExtensionSettings(const std::string& name,
                                                const std::map<std::string, std::string>&) override
     {

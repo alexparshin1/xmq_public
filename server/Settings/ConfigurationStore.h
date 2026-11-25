@@ -18,7 +18,7 @@ namespace xmq {
  * unique within that node. The extension and the instance identify a row technically; the name is
  * what the operator sees and edits.
  */
-class DataIntegrationStore
+class ConfigurationStore
 {
 public:
     struct Row
@@ -30,7 +30,7 @@ public:
         std::map<std::string, std::string> m_settings;
     };
 
-    DataIntegrationStore(std::shared_ptr<sptk::DatabaseConnectionPool> database, std::string nodeId);
+    ConfigurationStore(std::shared_ptr<sptk::DatabaseConnectionPool> database, std::string nodeId);
 
     /// Creates the table when it is not there yet. Called at every configuration load, like the
     /// other stores' createSchema(), so a schema added by an upgrade appears without a migration.
