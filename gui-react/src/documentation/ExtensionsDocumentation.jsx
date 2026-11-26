@@ -66,7 +66,7 @@ export default function ExtensionsDocumentation() {
             </table>
 
             <p>
-                See the <b>Extensions</b> menu for the accounts database
+                See the <b>Extension Docs</b> menu for the accounts database
                 (<Link to="/xmq_doc_user_database">User Database Authentication</Link>), the
                 <Link to="/xmq_doc_ldap">LDAP Authentication</Link> directory authenticator,
                 <Link to="/xmq_doc_jwt">JWT Authentication</Link>,
@@ -101,9 +101,9 @@ export default function ExtensionsDocumentation() {
             <p>
                 The <b>name</b> must match the name the library reports, or the broker refuses to load
                 it: a configuration that names one extension while the broker runs another is worse
-                than a configuration that fails. The file an entry came from is shown on the
-                <b>Installed Extensions</b> page; the settings are edited on the page the extension
-                declares for them, once the broker is running.
+                than a configuration that fails. Settings are edited on the page the extension
+                declares for them, once the broker is running; the file an entry came from is
+                reported by the control interface as its <code>source</code>.
             </p>
 
             <p>
@@ -120,7 +120,7 @@ export default function ExtensionsDocumentation() {
                 An entry may instead name a <b>group</b>, such as <code>"Data Integrations"</code>.
                 That is the name of a menu section, and it takes precedence over the library's page:
                 extensions that name the same group share one page, so an installation can arrange
-                its menu without rebuilding a library. The Configuration menu follows these names as
+                its menu without rebuilding a library. The Extensions menu follows these names as
                 the broker reports them; a group with no page of its own is reached at
                 <code>/configurations/&lt;group&gt;</code>. Without a group, the library's declared
                 page is used exactly as before.
@@ -143,13 +143,15 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
-                The <b>Installed Extensions</b> page lists every extension beside the configured ones, including those
-                no entry mentions. An unmentioned library appears <b>stopped</b>, with the version and
-                description it reports about itself, and is switched on with <b>Enable</b>; that writes
-                a fragment of its own, <code>xmq_extensions.d/90-&lt;name&gt;.conf</code>, which from then
-                on is where its entry lives. Nothing is started by merely being installed. The accounts
-                database is the exception: it is never offered as an optional switch, because a broker
-                either configures it or does not run with accounts at all.
+                The <b>Installed Extensions</b> page lists the extensions that can be switched here,
+                including libraries no entry mentions. An unmentioned library reads <b>disabled</b>,
+                with the version and description it reports about itself; <b>Enable</b> writes a
+                fragment of its own, <code>xmq_extensions.d/90-&lt;name&gt;.conf</code>, and loads it.
+                Enabling is not starting: a configuration starts when the settings it requires are
+                present. Sinks are not listed, because they are chosen inside an export's
+                configuration. The accounts database is the exception: it is never offered as an
+                optional switch, because a broker either configures it or does not run with accounts
+                at all.
             </p>
 
             <p>

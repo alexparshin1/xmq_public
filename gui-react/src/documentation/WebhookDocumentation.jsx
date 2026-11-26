@@ -17,8 +17,8 @@ export default function WebhookDocumentation() {
                 even when both use the same sink type. An extension can also be configured several
                 times: each <b>settings set</b> has its own instance name, filters, sink and delivery
                 queue, so one <code>message_export</code> can write <code>orders/#</code> to one
-                database and <code>audit/#</code> to another. Use <b>Add Data Integration</b> on the Extensions
-                screen to make another set.</p>
+                database and <code>audit/#</code> to another. Use <b>Add Data Integration</b> on the
+                <b>Data Integrations</b> screen to make another set.</p>
             <p>Kafka integration works in both directions: <a href="#webhook-kafka"><code>kafka_sink</code></a>
                 {" "}sends exports to Kafka, and <a href="#webhook-limits"><code>kafka_source</code></a>
                 {" "}imports Kafka records into MQTT. Both are available on Linux builds with librdkafka.</p>
@@ -26,11 +26,13 @@ export default function WebhookDocumentation() {
             <h4 id="webhook-enable">Set up an export</h4>
             <ol>
                 <li>Select a settings set of <code>message_export</code> or <code>log_export</code> on the
-                    {" "}<b>Extensions</b> screen, or press <b>Add Data Integration</b> to create one, then choose a filter mode.</li>
+                    {" "}<b>Data Integrations</b> screen, or press <b>Add Data Integration</b> to create one, then choose a filter mode.</li>
                 <li>Under <b>Delivery</b>, choose <code>http_sink</code> for HTTP,
                     <code> db_sink</code> for a database, or <code>kafka_sink</code> for Kafka.
                     Configure the selected sink.</li>
-                <li>Click <b>Apply</b> to save the settings. If the extension is not running, click <b>Enable</b>.</li>
+                <li>Click <b>Ok</b> to save the settings. If the configuration is enabled but not
+                    started, fill the required settings; <b>Enable</b> on Installed Extensions only
+                    loads the extension.</li>
             </ol>
 
             <h4 id="webhook-sources">Sources and filters</h4>
@@ -193,9 +195,9 @@ export default function WebhookDocumentation() {
 
             <h4 id="webhook-limits">Import from Kafka: kafka_source</h4>
             <p>On Linux builds with librdkafka, configure <code>kafka_source</code> as a separate
-                extension on the <b>Extensions</b> screen, not as a delivery sink. Enter the Kafka
-                brokers, an existing Kafka topic, a consumer group and a local MQTT destination topic.
-                Click <b>Apply</b>, then <b>Enable</b>. To verify the import, subscribe to
+                extension on the <b>Data Integrations</b> screen, not as a delivery sink. Enter the
+                Kafka brokers, an existing Kafka topic, a consumer group and a local MQTT destination
+                topic. Click <b>Ok</b>, then <b>Enable</b> to load it. To verify the import, subscribe to
                 the MQTT destination topic before enabling the extension and write a record
                 to the configured Kafka topic.</p>
             <p><b>Kafka transport</b> defaults to <code>SSL</code>. The Kafka broker presents the

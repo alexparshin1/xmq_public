@@ -262,7 +262,7 @@ cn=Server Monitoring,dc=example,dc=org => Server Monitoring`}</pre>
                 account-state check with its attribute and mask, and clears an inherited search
                 filter that would otherwise override the profile. The address, search base, search
                 account, CA, group mappings, transport, prefix, timeouts and cache are left alone,
-                because those are the site's. Nothing is saved until <b>Apply</b>, so the filled
+                because those are the site's. Nothing is saved until <b>Ok</b>, so the filled
                 values stay visible before they take effect, and the form says which fields it filled
                 and which already had those values.
             </p>
