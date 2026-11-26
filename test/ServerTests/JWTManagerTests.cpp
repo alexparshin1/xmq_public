@@ -14,6 +14,7 @@
 
 #include "server/JWTManager.h"
 #include <chrono>
+#include <filesystem>
 #include <gtest/gtest.h>
 
 using namespace std;
@@ -50,6 +51,28 @@ TEST(JWTManagerTests, ValidateValidToken)
     EXPECT_NE(token.find('.'), std::string::npos);
 
     EXPECT_TRUE(jwtManager.validateToken(token));
+}
+
+TEST(JWTManagerTests, TokenSurvivesANewManagerWithTheSameStateFile)
+{
+    const auto stateFile = filesystem::temp_directory_path() / "xmq_jwt_manager_persistence.state";
+    filesystem::remove(stateFile);
+
+    String token;
+    {
+        JWTManager manager {12h, stateFile};
+        token = generateTestToken(manager, "persisted-user");
+        EXPECT_TRUE(manager.validateToken(token));
+    }
+    {
+        // A broker restart is a new manager over the same state file. The browser still holds the
+        // token from before it, and a refresh must not be answered with "Not authenticated".
+        JWTManager manager {12h, stateFile};
+        EXPECT_TRUE(manager.validateToken(token));
+        EXPECT_EQ(extractClientId(manager, token), "persisted-user");
+    }
+
+    filesystem::remove(stateFile);
 }
 
 TEST(JWTManagerTests, ValidateInvalidToken)

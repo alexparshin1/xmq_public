@@ -56,6 +56,28 @@ export default class DialogWindow extends React.Component {
         }
     }
 
+    componentDidMount() {
+        document.addEventListener("keydown", this.onDialogKey);
+    }
+
+    componentWillUnmount() {
+        document.removeEventListener("keydown", this.onDialogKey);
+    }
+
+    /// The same keys as the other modals. The nested Add Group / Add User box handles its own
+    /// Enter and Escape, so one keystroke must not close both dialogs.
+    onDialogKey = event => {
+        if (event.target.closest && event.target.closest(".subjectPickerDialog")) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            this.onSubmit("Cancel", this.state.values);
+        }
+        else if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
+            event.preventDefault();
+            this.onSubmit("Ok", this.state.values);
+        }
+    }
+
     state = {
         values: [],
         fields: [],
@@ -221,6 +243,7 @@ export default class DialogWindow extends React.Component {
                             {pickerError
                                 ? <div className="subjectPickerError">{pickerError}</div>
                                 : null}
+                            <hr className="modalDivider"/>
                             <div className="modalFooter">
                                 <button type="button" className="modalOkButton"
                                         disabled={!draft} onClick={addPicked}>Ok</button>
@@ -330,6 +353,7 @@ export default class DialogWindow extends React.Component {
                 {this.state.error
                     ? <div className="dialogError">{this.state.error}</div>
                     : null}
+                <hr className="modalDivider"/>
                 <div className="modalFooter">
                     <button className='modalOkButton'
                             onClick={() => this.onSubmit("Ok", this.state.values)}>Ok

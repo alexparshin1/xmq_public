@@ -147,7 +147,7 @@
 
 .permissionsPolicyDialog .modalFooter {
     display: flex;
-    justify-content: flex-start;
+    justify-content: flex-end;
     padding: 8px;
     margin-top: auto;
 }

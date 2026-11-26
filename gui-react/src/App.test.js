@@ -13,10 +13,37 @@ test.each(documentationPages)("Documentation $label is available without signing
     render(<MemoryRouter initialEntries={[page.path]}><App/></MemoryRouter>);
     expect(screen.getByRole("heading", {level: 1, name: page.title})).toBeInTheDocument();
     const group = page.menu || "Documentation";
-    const menu = screen.getByRole("button", {name: group}).parentElement;
+    // The extension documentation moved into its own group when the configuration pages took
+    // the Extensions name; page.menu still names the set of pages, not the menu heading.
+    const heading = group === "Extensions" ? "Extension Docs" : group;
+    const menu = screen.getByRole("button", {name: heading}).parentElement;
     for (const entry of documentationPagesIn(group)) {
         expect(within(menu).getByRole("link", {name: entry.label})).toHaveAttribute("href", entry.path);
     }
+});
+
+test("the Permissions page opens with its rules and tabs", async () => {
+    ControlAPI.token = "a session";
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation((service, request) => {
+        if (service === "ServerControl") {
+            return Promise.resolve({running: true});
+        }
+        if (service === "ExtensionControl" && request.action === "list") {
+            return Promise.resolve({result: {success: true}, list: []});
+        }
+        if (service === "UserGroupControl" || service === "UserControl") {
+            return Promise.resolve({result: {success: true}, list: []});
+        }
+        if (service === "PermissionsControl" && request.action === "list") {
+            return Promise.resolve({result: {success: true}, rules: [], default_deny: false});
+        }
+        return Promise.resolve({result: {success: true}});
+    });
+
+    render(<MemoryRouter initialEntries={["/permissions"]}><App/></MemoryRouter>);
+    expect(await screen.findByRole("tab", {name: "Rules"})).toBeInTheDocument();
+    expect(screen.getByText(/Each row is one user/)).toBeInTheDocument();
+    jest.restoreAllMocks();
 });
 
 test("the documentation menu opens the shared Cluster page", () => {

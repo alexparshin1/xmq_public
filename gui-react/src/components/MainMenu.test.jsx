@@ -20,8 +20,15 @@ function showMenu(path = "/") {
 const path = () => screen.getByTestId("path").textContent;
 const groupHeader = (title) => screen.getByRole("button", {name: title});
 
+beforeEach(() => {
+    // The menu asks the broker for its extension groups on connect. Tests that are about the menu's
+    // own behaviour answer that call with "nothing reported", so the familiar sections remain.
+    jest.spyOn(ControlAPI, "asyncMakeAPICall").mockImplementation(() => Promise.resolve(null));
+});
+
 afterEach(() => {
     ControlAPI.token = "";
+    jest.restoreAllMocks();
 });
 
 test("only the group holding the current page is open", () => {
@@ -60,8 +67,8 @@ test("user management and cluster pages are grouped under their own headers", ()
     expect(groupHeader("User Management")).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("link", {name: "Users"})).toBeInTheDocument();
     expect(screen.getByRole("link", {name: "Groups"})).toBeInTheDocument();
-    expect(screen.getByRole("link", {name: "Permissions"})).toBeInTheDocument();
     expect(screen.getByRole("link", {name: "Imports"})).toHaveAttribute("href", "/import");
+    expect(screen.getByRole("link", {name: "Permissions"})).toHaveAttribute("href", "/permissions");
 
     fireEvent.click(groupHeader("Cluster"));
     expect(screen.getByRole("link", {name: "Bridges"})).toBeInTheDocument();
@@ -74,6 +81,46 @@ test("a URL opened directly expands the group that holds the page", () => {
     expect(groupHeader("Configuration")).toHaveAttribute("aria-expanded", "true");
     const item = screen.getByRole("link", {name: "Persistence"}).parentElement;
     expect(item).toHaveClass("AccordionItemSelected");
+});
+
+test("extension groups reported by the broker become menu sections", async () => {
+    ControlAPI.asyncMakeAPICall.mockImplementation((service, request) => {
+        if (service === "ExtensionControl" && request.action === "list") {
+            return Promise.resolve({result: {success: true}, list: [
+                {name: "acl", group: "Access Control", page: "permissions"},
+                {name: "webhook", group: "Exports", page: "data-integrations"},
+                {name: "topic-guard", group: "Permissions", page: "permissions"}
+            ]});
+        }
+        return Promise.resolve(null);
+    });
+
+    showMenu("/settings");
+    fireEvent.click(groupHeader("Extensions"));
+    expect(await screen.findByRole("link", {name: "Exports"}))
+        .toHaveAttribute("href", "/configurations/exports");
+    expect(screen.getByRole("link", {name: "Access Control"}))
+        .toHaveAttribute("href", "/configurations/access-control");
+    // Permissions belongs to User Management, so even a group with that name does not put a
+    // second link here.
+    expect(screen.queryByRole("link", {name: "Permissions", exact: true})).not.toBeInTheDocument();
+});
+
+test("Permissions stays in the menu when no extension reports its group", async () => {
+    ControlAPI.asyncMakeAPICall.mockImplementation((service, request) => {
+        if (service === "ExtensionControl" && request.action === "list") {
+            return Promise.resolve({result: {success: true}, list: [
+                {name: "webhook", group: "Data Integrations", page: "data-integrations"},
+                {name: "ldap", group: "Authentication", page: "authentication"}
+            ]});
+        }
+        return Promise.resolve(null);
+    });
+
+    showMenu("/settings");
+    fireEvent.click(groupHeader("User Management"));
+    expect(await screen.findByRole("link", {name: "Permissions"}))
+        .toHaveAttribute("href", "/permissions");
 });
 
 test("signed out, the menu offers signing in, the documentation, and nothing else", () => {

@@ -2,7 +2,7 @@ import React from 'react';
 import './App.css';
 import './Primary.css'
 import './screen/LoginScreen.jsx'
-import {Route, Routes} from 'react-router-dom';
+import {Route, Routes, useParams} from 'react-router-dom';
 import HomeScreen from "./screen/Home";
 import DashboardScreen from "./screen/DashboardScreen";
 import SessionsScreen from "./screen/SessionsScreen";
@@ -31,6 +31,19 @@ import InstalledExtensionsScreen from "./screen/InstalledExtensionsScreen";
 import DataIntegrationsScreen from "./screen/DataIntegrationsScreen";
 import AuthenticationScreen from "./screen/AuthenticationScreen";
 import PrometheusScreen from "./screen/PrometheusScreen";
+import ConfigurationsScreen from "./screen/ConfigurationsScreen";
+import {humanName} from "./extensionGroups";
+
+/**
+ * A menu section named in an extension's config, with no screen of its own in the code.
+ *
+ * The route carries the key, not the operator's label: a label can contain spaces and changes in
+ * the config without leaving every saved link behind. The label is for display only.
+ */
+function ConfigurationsByGroup() {
+    const {group} = useParams();
+    return <ConfigurationsScreen page={group} title={humanName(group)}/>;
+}
 
 class App extends React.Component {
 
@@ -83,6 +96,7 @@ class App extends React.Component {
                                     <Route path="/extensions" Component={InstalledExtensionsScreen}/>
                                     <Route path="/data-integrations" Component={DataIntegrationsScreen}/>
                                     <Route path="/authentication" Component={AuthenticationScreen}/>
+                                    <Route path="/configurations/:group" element={<RequireAuth><ConfigurationsByGroup/></RequireAuth>}/>
 
                                     {/* Everything else needs a session. Wrapped rather than
                                         checked inside each screen, so a page cannot stay on

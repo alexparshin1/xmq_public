@@ -424,7 +424,16 @@ typedef enum xmq_setting_type
  */
 typedef struct xmq_setting
 {
-    const char*      name;          /**< The key in xmq_extensions.conf. */
+    /**
+     * @brief The key in xmq_extensions.conf.
+     *
+     * A name ending in `.*` is a family, not a field: it declares every configured key with that
+     * prefix, carrying this label and description to each of them. The interface never shows the
+     * family itself as a field. That is how an extension whose keys are named by their subject -
+     * `group.<name>`, `publish.<name>` and the like - can declare them without listing every
+     * group an installation may invent.
+     */
+    const char*      name;
     const char*      label;         /**< For a person; NULL means use the name. */
     const char*      description;   /**< One line, shown beside the field. */
     uint32_t         type;          /**< An xmq_setting_type, fixed width like xmq_event::type. */

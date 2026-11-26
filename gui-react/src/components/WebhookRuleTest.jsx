@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 import ControlAPI from "../ControlAPI";
 import "./DialogWindow.css";
 
@@ -11,6 +11,19 @@ export default function WebhookRuleTest({sql, logs, onClose}) {
     const [result, setResult] = useState(null);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
+
+    // The form already runs the test on Enter; Escape closes the window from anywhere in it.
+    useEffect(() => {
+        const onKeyDown = event => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                onClose();
+            }
+        };
+        document.addEventListener("keydown", onKeyDown);
+        return () => document.removeEventListener("keydown", onKeyDown);
+    }, [onClose]);
+
     const edit = (name, value) => {
         setValues(previous => ({...previous, [name]: value}));
         setResult(null);
@@ -79,6 +92,7 @@ export default function WebhookRuleTest({sql, logs, onClose}) {
                     </table>}
                 </div>}
             </div>
+            <hr className="modalDivider"/>
             <div className="modalFooter">
                 <button className="modalOkButton" disabled={busy} type="submit">Run test</button>
                 <button className="modalCancelButton" type="button" onClick={onClose}>Close</button>

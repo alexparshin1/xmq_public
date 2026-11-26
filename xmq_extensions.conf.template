@@ -24,6 +24,11 @@
     "files need no change. Two entries with one name and one extension_instance are still a",
     "mistake: the first is kept and the second is refused.",
     "",
+    "'group' names the menu section this entry's configurations appear under, for example",
+    "\"Data Integrations\". Several libraries may name the same group and share one page; an",
+    "installation can arrange its own menus without changing any library. Leave it out to keep",
+    "the page the library itself declares.",
+    "",
     "There are two places the broker reads: this file, and xmq_extensions.d beside it. Every",
     "*.conf in that directory is read after this file, in name order - hence the convention of a",
     "numeric prefix, 10-, 50-, since the order extensions are asked in is part of what they mean.",
@@ -58,6 +63,7 @@
     {
       "_comment": "Authenticates against the broker's own SQL user database - the tables the Users screen edits - so an account added there can connect a second later, on any node sharing the database. Declares XMQ_CAP_AUTHENTICATOR. Set 'required' to true where this is the only way clients are authenticated: without it a library that fails to load leaves the broker admitting nobody and saying nothing about why. Where that database is comes from the broker, not from here: the interface writes to the broker's address, and a second copy of it in this block could be pointed elsewhere - every account added in the interface would then be saved, listed, and admit nobody. Set it with 'database_uri' in the broker's own authentication section. 'unknown_user' is 'deny' by default, because this extension is the account database and a name it does not have is a name that does not exist; set it to 'abstain' to stack this with a directory that may know the client instead.",
       "name": "user-database",
+      "group": "Authentication",
       "library": "/usr/local/lib/xmq-extensions/libxmq_user_database.so",
       "enabled": false,
       "required": false,
@@ -68,6 +74,7 @@
     {
       "_comment": "Admits the listed client ids and abstains on everyone else, leaving them to the broker's own accounts. Declares XMQ_CAP_AUTHENTICATOR, so it is never handed an event. 'lookup_ms' stands in for the directory round trip a real one makes.",
       "name": "allow-list",
+      "group": "Authentication",
       "library": "/usr/local/lib/xmq-extensions/libxmq_allow_list.so",
       "enabled": false,
       "settings": {
@@ -78,6 +85,7 @@
     {
       "_comment": "Lets a group use the topics under its own name: 'ops-alice' and 'ops-bob' are both group 'ops', and both may use site/ops/... and nothing else. Declares XMQ_CAP_AUTHORIZER. Permissions belong to the group, never to the client - that is what lets the broker cache each answer per group and topic and keep the extension off the message path.",
       "name": "topic-guard",
+      "group": "Permissions",
       "library": "/usr/local/lib/xmq-extensions/libxmq_topic_guard.so",
       "enabled": false,
       "settings": {

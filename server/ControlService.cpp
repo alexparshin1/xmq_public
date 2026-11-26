@@ -199,8 +199,17 @@ bool ControlService::isUnconfiguredAdministrator(const String& username, const S
            !getSettings()->administratorPasswordSet();
 }
 
+void ControlService::prepareJwtState()
+{
+    if (const auto settings = getSettings(); settings && !settings->configurationPath().empty())
+    {
+        m_jwtManager.stateFile(settings->configurationPath().parent_path() / "xmq_jwt.state");
+    }
+}
+
 void ControlService::authenticate(HttpAuthentication* authentication, CUser& /*user*/)
 {
+    prepareJwtState();
     if (authentication && authentication->type() == HttpAuthentication::Type::BEARER)
     {
         constexpr auto jwtOffset = 7;
@@ -292,6 +301,7 @@ void ControlService::Login(const CLogin& input, CLoginResponse& output, HttpAuth
 {
     try
     {
+        prepareJwtState();
         const auto username = input.m_username.asString();
         const auto password = input.m_password.asString();
 
@@ -492,6 +502,7 @@ void describeInto(const ExtensionHost::Description& from, CExtension& into)
     into.m_name = from.m_name;
     into.m_extension_instance = from.m_extensionInstance;
     into.m_page = from.m_page;
+    into.m_group = from.m_group;
     into.m_extension_enabled = from.m_extensionEnabled;
     into.m_configuration_enabled = from.m_configurationEnabled;
     into.m_display_name = from.m_displayName;

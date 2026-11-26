@@ -158,6 +158,10 @@ private:
 
     void authenticate(sptk::HttpAuthentication* authentication, CUser& user);
 
+    /// Points the token manager at the state file beside the broker configuration, so a token
+    /// issued before a restart is still accepted after it.
+    void prepareJwtState();
+
     /**
      * @brief Whether these credentials are the administrator of a server nobody has set up yet.
      *

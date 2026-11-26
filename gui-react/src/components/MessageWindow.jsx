@@ -28,9 +28,13 @@ export class MessageWindow extends React.Component {
      * worse answer than the one it replaces.
      */
     onKeyDown = event => {
+        const buttons = this.props.buttons;
         if (event.key === "Escape") {
-            const buttons = this.props.buttons;
+            // The last button is the one that changes nothing.
             this.props.onClose(buttons[buttons.length - 1].answer);
+        }
+        else if (event.key === "Enter") {
+            this.props.onClose(buttons[0].answer);
         }
     };
 
@@ -50,6 +54,7 @@ export class MessageWindow extends React.Component {
                     <div className="messageWindowText">{this.props.message}</div>
                 </div>
 
+                <hr className="modalDivider"/>
                 <div className="modalFooter messageWindowFooter">
                     {buttons.map((button, at) =>
                         <button key={button.label}
@@ -88,6 +93,9 @@ class ServiceWindow extends React.Component {
         if (event.key === "Escape") {
             this.props.onClose({confirmed: false, clean: this.state.clean});
         }
+        else if (event.key === "Enter") {
+            this.props.onClose({confirmed: true, clean: this.state.clean});
+        }
     };
 
     render() {
@@ -111,6 +119,7 @@ class ServiceWindow extends React.Component {
                     </div>
                 </div>
 
+                <hr className="modalDivider"/>
                 <div className="modalFooter messageWindowFooter">
                     <button className="modalOkButton"
                             autoFocus

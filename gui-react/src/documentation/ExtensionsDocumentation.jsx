@@ -102,16 +102,36 @@ export default function ExtensionsDocumentation() {
                 The <b>name</b> must match the name the library reports, or the broker refuses to load
                 it: a configuration that names one extension while the broker runs another is worse
                 than a configuration that fails. The file an entry came from is shown on the
-                <b>Extensions</b> page, which is also where the settings are edited once the broker is
-                running.
+                <b>Installed Extensions</b> page; the settings are edited on the page the extension
+                declares for them, once the broker is running.
+            </p>
+
+            <p>
+                An extension declares that page as <code>data-integrations</code> or
+                <code>authentication</code>; one with no settings page is managed only on
+                <b>Installed Extensions</b>. The matching page lists every settings set created from
+                such an extension, including one whose extension is switched off. Each row has its
+                own Enable switch, independent of the extension-wide switch: a configuration runs
+                only when both are on, and disabling the extension stops all of its configurations
+                without losing their own choices.
+            </p>
+
+            <p>
+                An entry may instead name a <b>group</b>, such as <code>"Data Integrations"</code>.
+                That is the name of a menu section, and it takes precedence over the library's page:
+                extensions that name the same group share one page, so an installation can arrange
+                its menu without rebuilding a library. The Configuration menu follows these names as
+                the broker reports them; a group with no page of its own is reached at
+                <code>/configurations/&lt;group&gt;</code>. Without a group, the library's declared
+                page is used exactly as before.
             </p>
 
             <p>
                 An entry may carry an <b>extension_instance</b> (ExtensionInstance), which names one <b>settings set</b> of that
                 extension. Several entries can share a name and a library when their instances
                 differ — two exports to two databases, each with its own filter, sink, SQLite queue
-                and dead-letter topic. The <b>Extensions</b> page groups them under one extension and
-                offers <b>Add Data Integration</b> to create another. Data integrations are rows in
+                and dead-letter topic. The <b>Data Integrations</b> page lists them and offers <b>Add</b>
+                to create another. Data integrations are rows in
                 <code>xmq_extension_instance</code> in the shared SQL database, keyed to this node's
                 <code>xmq_node</code> row; the name is unique within the node and can be changed without
                 changing the technical instance — use <b>Rename</b> and <b>Delete</b> on its row.
@@ -123,7 +143,7 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
-                The page lists every extension installed beside the configured ones, including those
+                The <b>Installed Extensions</b> page lists every extension beside the configured ones, including those
                 no entry mentions. An unmentioned library appears <b>stopped</b>, with the version and
                 description it reports about itself, and is switched on with <b>Enable</b>; that writes
                 a fragment of its own, <code>xmq_extensions.d/90-&lt;name&gt;.conf</code>, which from then
@@ -156,6 +176,14 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
+                Keys named by their subject — the group a rule belongs to, for example — are
+                declared as a family: a name ending in <code>.*</code> describes every configured
+                key with that prefix, so the form knows what each one means without the extension
+                listing every group an installation may invent. Only a key that matches no
+                declaration at all is marked as a likely misspelling.
+            </p>
+
+            <p>
                 The settings are stored in the configuration files, not in the accounts database, so
                 they belong to the node. A cluster therefore needs the same extension configuration on
                 every node, and a credential such as a directory service password is repeated there.
@@ -164,7 +192,7 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
-                Saving settings on the Extensions page asks the running extension to apply them
+                Saving settings in a configuration dialog asks the running extension to apply them
                 immediately, without restarting MQTT. An extension that cannot apply a change says so
                 and keeps what it had, rather than running half-configured.
             </p>
@@ -182,10 +210,11 @@ export default function ExtensionsDocumentation() {
             </p>
 
             <p>
-                Keeping authorisation in the broker is deliberate. An extension may say who a client
-                is and which groups it belongs to; what those groups may publish or subscribe to stays
-                in <Link to="/xmq_doc_permissions">Topic Permissions</Link>, so the policy is in one
-                place and can be read on one screen.
+                The policy is kept in one place: <Link to="/xmq_doc_permissions">Topic Permissions</Link>
+                shows what a group may publish and subscribe to, using the broker's own user groups.
+                Its rules live in the shared database, and a Mosquitto ACL or Dynamic Security file
+                is imported onto that same screen — no authorizing extension is needed to write or
+                enforce them.
             </p>
         </section>
     </DocumentationPage>;

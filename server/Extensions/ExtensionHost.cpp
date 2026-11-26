@@ -46,6 +46,100 @@ string fragmentStem(string_view identity)
     return stem;
 }
 
+/// A declaration whose name ends in `.*` describes a family of keys, not one field. No key can be
+/// literally `group.*`, so the suffix is unambiguous; the dot keeps `group` from matching
+/// `grouping`.
+bool isSettingFamily(string_view name)
+{
+    return name.size() > 2 && name.ends_with(".*");
+}
+
+/// The declaration a configured key belongs to, when its name is one of a family's keys.
+const xmq_setting* settingFamilyOf(const xmq_setting* settings, size_t count, string_view name)
+{
+    if (settings == nullptr)
+    {
+        return nullptr;
+    }
+    for (size_t at = 0; at < count; ++at)
+    {
+        const auto* declared = settings[at].name;
+        if (declared == nullptr || !isSettingFamily(declared))
+        {
+            continue;
+        }
+        const auto prefix = string_view(declared).substr(0, strlen(declared) - 1);
+        if (name.size() > prefix.size() && name.starts_with(prefix))
+        {
+            return &settings[at];
+        }
+    }
+    return nullptr;
+}
+
+/// One declared setting as the interface sees it, with the actual key and value filled in. For a
+/// family, the declaration supplies the presentation and the configured key supplies the name.
+ExtensionHost::SettingDescription describedSetting(const xmq_setting& declared, string name,
+                                                   const string* value, bool familyMember = false)
+{
+    ExtensionHost::SettingDescription setting;
+    setting.m_name = std::move(name);
+    setting.m_label = declared.label == nullptr ? setting.m_name : declared.label;
+    if (familyMember)
+    {
+        // A family's label says what the key means, not which subject it belongs to. Without the
+        // key, four "Members of this group" fields are indistinguishable in the form.
+        setting.m_label += " (" + setting.m_name + ")";
+    }
+    setting.m_description = declared.description == nullptr ? "" : declared.description;
+    setting.m_type = static_cast<xmq_setting_type>(declared.type);
+    setting.m_defaultValue = declared.default_value == nullptr ? "" : declared.default_value;
+    setting.m_choices = declared.choices == nullptr ? "" : declared.choices;
+    setting.m_pattern = declared.pattern == nullptr ? "" : declared.pattern;
+    setting.m_required = declared.required != 0;
+    if (value != nullptr)
+    {
+        setting.m_value = *value;
+    }
+    return setting;
+}
+
+/// Required settings the extension declared but one configuration does not hold. A configuration
+/// that needs an endpoint cannot answer anything until it has one, so enabling an extension loads
+/// its configurations but starts none of them; applying the settings starts the configuration.
+vector<string> missingRequiredSettings(const xmq_extension* table, const map<string, string>& settings)
+{
+    vector<string> missing;
+    if (table == nullptr || table->settings == nullptr)
+    {
+        return missing;
+    }
+    for (size_t at = 0; at < table->setting_count; ++at)
+    {
+        const auto& declared = table->settings[at];
+        if (declared.name == nullptr || declared.required == 0)
+        {
+            continue;
+        }
+        const auto held = settings.find(declared.name);
+        if (held == settings.end() || held->second.empty())
+        {
+            missing.push_back(declared.name);
+        }
+    }
+    return missing;
+}
+
+string joinNames(const vector<string>& names)
+{
+    string joined;
+    for (const auto& name: names)
+    {
+        joined += (joined.empty() ? string{} : ", ") + name;
+    }
+    return joined;
+}
+
 bool nodeIsIdentity(const xdoc::Node::SNode& node, string_view identity)
 {
     const auto [name, extensionInstance] = ExtensionHost::splitIdentity(identity);
@@ -883,6 +977,7 @@ unique_ptr<ExtensionHost::Loaded> ExtensionHost::load(const Configured& configur
     };
     loaded->m_name = configured.m_name;
     loaded->m_extensionInstance = configured.m_extensionInstance;
+    loaded->m_group = configured.m_group;
     loaded->m_displayName = configured.m_displayName;
     loaded->m_fromDatabase = configured.m_fromDatabase;
     loaded->m_library = configured.m_library;
@@ -1049,6 +1144,7 @@ void ExtensionHost::readConfigurationFile(const filesystem::path&        path, c
             Configured configured;
             configured.m_name = node->getString("name").trim().c_str();
             configured.m_extensionInstance = node->getString("extension_instance").trim().c_str();
+            configured.m_group = node->getString("group").trim().c_str();
             configured.m_library = node->getString("library").trim().c_str();
 
             // Recorded rather than skipped. It used to be dropped here, which made a switched-off
@@ -1594,6 +1690,17 @@ void ExtensionHost::start(const vector<Configured>& extensions, const filesystem
             continue;
         }
 
+        // A configuration that lacks a required setting is loaded and kept available, but not
+        // started: an authorizer without an endpoint has nothing to answer yet. Applying the
+        // setting later starts it; a restart with the same gap must not look like a broken library.
+        const auto missing = missingRequiredSettings(loaded->m_table, configured.m_settings);
+        if (!missing.empty())
+        {
+            m_logger.info(format("{} {} loaded; no configuration starts until {}.", loaded->label(), loaded->m_table->version == nullptr ? "" : loaded->m_table->version, joinNames(missing)));
+            m_loaded.push_back(std::move(loaded));
+            continue;
+        }
+
         if (loaded->m_table->start != nullptr && loaded->m_table->start(loaded->m_instance) != XMQ_OK)
         {
             m_logger.error(loaded->label() + ": failed to start, unloading it.");
@@ -1843,6 +1950,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         Description one;
         one.m_name = loaded->m_name;
         one.m_extensionInstance = loaded->m_extensionInstance;
+        one.m_group = loaded->m_group;
         one.m_displayName = loaded->m_displayName;
         one.m_fromDatabase = loaded->m_fromDatabase;
         one.m_library = loaded->m_library;
@@ -1889,31 +1997,41 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         {
             for (size_t at = 0; at < loaded->m_table->setting_count; ++at)
             {
-                const auto&        declared = loaded->m_table->settings[at];
-                SettingDescription setting;
-                setting.m_name = declared.name == nullptr ? "" : declared.name;
-                setting.m_label = declared.label == nullptr ? setting.m_name : declared.label;
-                setting.m_description = declared.description == nullptr ? "" : declared.description;
-                setting.m_type = static_cast<xmq_setting_type>(declared.type);
-                setting.m_defaultValue = declared.default_value == nullptr ? "" : declared.default_value;
-                setting.m_choices = declared.choices == nullptr ? "" : declared.choices;
-                setting.m_pattern = declared.pattern == nullptr ? "" : declared.pattern;
-                setting.m_required = declared.required != 0;
-
-                if (const auto held = remaining.find(setting.m_name); held != remaining.end())
+                const auto& declared = loaded->m_table->settings[at];
+                // A family is a pattern for other keys, not a key of its own: showing `group.*` as
+                // a field would ask the operator to fill in a name that means nothing to the broker.
+                if (declared.name == nullptr)
                 {
-                    setting.m_value = held->second;
-                    remaining.erase(held);
+                    continue;
+                }
+                auto setting = describedSetting(declared, declared.name, nullptr);
+                // A family is sent as a template so the interface can offer "add a group" controls.
+                // It has no value of its own and is never written as a key with a star in it.
+                if (!isSettingFamily(declared.name))
+                {
+                    if (const auto held = remaining.find(setting.m_name); held != remaining.end())
+                    {
+                        setting.m_value = held->second;
+                        remaining.erase(held);
+                    }
                 }
                 one.m_settings.push_back(std::move(setting));
             }
         }
         describePresets(*loaded->m_table, one.m_presets);
 
-        // Whatever is left is set but undeclared - usually a misspelled key, which is the commonest
-        // reason a setting quietly does nothing.
+        // A key in a declared family is declared too: the family says what its members mean. Only
+        // what is left after that is a likely misspelling, which is the commonest reason a setting
+        // quietly does nothing.
         for (const auto& [name, value]: remaining)
         {
+            if (const auto* family = settingFamilyOf(loaded->m_table != nullptr ? loaded->m_table->settings : nullptr,
+                                                     loaded->m_table != nullptr ? loaded->m_table->setting_count : 0,
+                                                     name))
+            {
+                one.m_settings.push_back(describedSetting(*family, name, &value, true));
+                continue;
+            }
             one.m_settings.push_back({.m_name = name, .m_label = name, .m_value = value, .m_declared = false});
         }
 
@@ -1926,6 +2044,7 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         Description one;
         one.m_name = configured.m_name;
         one.m_extensionInstance = configured.m_extensionInstance;
+        one.m_group = configured.m_group;
         one.m_displayName = configured.m_displayName;
         one.m_fromDatabase = configured.m_fromDatabase;
         one.m_library = configured.m_library;
@@ -1940,6 +2059,8 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         one.m_required = configured.m_required;
 
         auto remaining = configured.m_settings;
+        const xmq_setting* declaredTable = nullptr;
+        size_t             declaredCount = 0;
         if (auto* handle = openLibrary(configured.m_library))
         {
             const std::unique_ptr<void, decltype(&closeLibrary)> library(handle, &closeLibrary);
@@ -1950,24 +2071,23 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
                 one.m_version = table->version ? table->version : "";
                 one.m_description = table->description ? table->description : "";
                 one.m_capabilities = table->capabilities;
+                declaredTable = table->settings;
+                declaredCount = table->setting_count;
                 for (size_t i = 0; table->settings && i < table->setting_count; ++i)
                 {
                     const auto& field = table->settings[i];
-                    if (!field.name)
-                        continue;
-                    SettingDescription setting;
-                    setting.m_name = field.name;
-                    setting.m_label = field.label ? field.label : field.name;
-                    setting.m_description = field.description ? field.description : "";
-                    setting.m_type = static_cast<xmq_setting_type>(field.type);
-                    setting.m_defaultValue = field.default_value ? field.default_value : "";
-                    setting.m_choices = field.choices ? field.choices : "";
-                    setting.m_pattern = field.pattern ? field.pattern : "";
-                    setting.m_required = field.required != 0;
-                    if (const auto held = remaining.find(field.name); held != remaining.end())
+                    if (field.name == nullptr)
                     {
-                        setting.m_value = held->second;
-                        remaining.erase(held);
+                        continue;
+                    }
+                    auto setting = describedSetting(field, field.name, nullptr);
+                    if (!isSettingFamily(field.name))
+                    {
+                        if (const auto held = remaining.find(field.name); held != remaining.end())
+                        {
+                            setting.m_value = held->second;
+                            remaining.erase(held);
+                        }
                     }
                     one.m_settings.push_back(std::move(setting));
                 }
@@ -1976,6 +2096,11 @@ vector<ExtensionHost::Description> ExtensionHost::describe() const
         }
         for (const auto& [name, value]: remaining)
         {
+            if (const auto* family = settingFamilyOf(declaredTable, declaredCount, name))
+            {
+                one.m_settings.push_back(describedSetting(*family, name, &value, true));
+                continue;
+            }
             // Without a declaration we cannot know whether a value is safe to expose.
             one.m_settings.push_back({.m_name = name, .m_label = name, .m_type = XMQ_SETTING_SECRET,
                                       .m_value = value, .m_declared = false});
@@ -2506,8 +2631,11 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         return refusedWrite(m_logger, name, "could not write " + source.string() + ": " + e.what());
     }
 
-    // Apply does not reload a stopped extension. Reflect the saved values in the
-    // control response rather than returning the settings from its last start attempt.
+    // Apply does not reload a stopped extension. Reflect the saved values in the control response
+    // rather than returning the settings from its last start attempt. If the extension was loaded
+    // but left unstarted for lack of a required setting, and that setting has now arrived, this is
+    // the moment to start it - no separate second Enable is needed.
+    Report report;
     {
         const std::scoped_lock lock(m_loadedLock);
         const auto loaded = ranges::find_if(m_loaded, [&name](const auto& candidate)
@@ -2516,15 +2644,44 @@ ExtensionHost::Report ExtensionHost::writeSettings(const string& name, const map
         });
         if (loaded != m_loaded.end() && !(*loaded)->m_started)
         {
-            const std::scoped_lock settingsLock((*loaded)->m_settingsLock);
-            (*loaded)->m_settings = merged;
+            {
+                const std::scoped_lock settingsLock((*loaded)->m_settingsLock);
+                (*loaded)->m_settings = merged;
+            }
+            const auto missing = missingRequiredSettings((*loaded)->m_table, (*loaded)->m_settings);
+            const auto allConfigured = configured(m_configurationPath);
+            const auto fileEntry = ranges::find_if(allConfigured, [&name](const auto& candidate)
+            {
+                return candidate.m_name == name && candidate.m_extensionInstance.empty();
+            });
+            const bool enabledInFile = fileEntry == allConfigured.end() || fileEntry->m_enabled;
+            if (enabledInFile && missing.empty())
+            {
+                takeLastError(**loaded);
+                if ((*loaded)->m_table->start != nullptr &&
+                    (*loaded)->m_table->start((*loaded)->m_instance) != XMQ_OK)
+                {
+                    const auto reason = takeLastError(**loaded);
+                    (*loaded)->m_table->destroy((*loaded)->m_instance);
+                    (*loaded)->m_instance = nullptr;
+                    report += Report::problem("configuration " + name + ": refused to start.\n\n" + reason + ".");
+                }
+                else
+                {
+                    (*loaded)->m_started = true;
+                    publishActiveUnlocked();
+                    startWorkerThreads();
+                    report += Report::note("configuration " + name + ": started.");
+                }
+            }
         }
     }
 
     const auto written = name + ": settings written to " + source.string() + ".";
     m_logger.info(written);
     // The log keeps the file path for diagnosis; the screen only needs the outcome.
-    return Report::note("Settings applied");
+    report += Report::note("Settings applied");
+    return report;
 }
 
 ExtensionHost::Report ExtensionHost::renameInstance(const string& name, const string& extensionInstance,
@@ -2931,6 +3088,19 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
             }
         }
 
+        // Enabling makes the library available; starting a configuration is a separate step that
+        // needs its own settings. A HTTP authenticator without an endpoint, for example, has
+        // nothing to ask and can only refuse to start - so leave the configuration loaded and say
+        // what is still needed.
+        const auto missing = missingRequiredSettings(found->m_table, configured.m_settings);
+        if (!missing.empty())
+        {
+            const auto names = joinNames(missing);
+            m_logger.info(configured.identity() + ": loaded; no configuration starts until " + names + ".");
+            return Report::note(configured.identity() + ": loaded; set " + names +
+                                " before this configuration can start.");
+        }
+
         takeLastError(*found);
         if (found->m_table->start != nullptr && found->m_table->start(found->m_instance) != XMQ_OK)
         {
@@ -2956,8 +3126,8 @@ ExtensionHost::Report ExtensionHost::enable(const Configured& configured)
     // started. Started here rather than in start(), which is for the initial load.
     startWorkerThreads();
 
-    m_logger.info(configured.identity() + ": started.");
-    return Report::note(configured.identity() + ": started.");
+    m_logger.info("configuration " + configured.identity() + ": started.");
+    return Report::note("configuration " + configured.identity() + ": started.");
 }
 
 ExtensionHost::Report ExtensionHost::disable(const string& name)

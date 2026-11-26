@@ -12,16 +12,79 @@
 */
 #include "JWTManager.h"
 #include <sptk5/JWT.h>
-#include <sptk5/xdoc/Document.h>
+#include <fstream>
 
 using namespace std;
 using namespace sptk;
 using namespace chrono;
 using namespace xmq;
 
-JWTManager::JWTManager(const seconds tokenExpirationTime)
-    : m_tokenExpirationTime(tokenExpirationTime)
+JWTManager::JWTManager(const seconds tokenExpirationTime, filesystem::path stateFile)
+    : m_stateFile(std::move(stateFile)), m_tokenExpirationTime(tokenExpirationTime)
 {
+    loadState();
+    if (m_key.empty())
+    {
+        m_key = "ProTIS " + DateTime::Now().isoDateTimeString(DateTime::PrintAccuracy::SECONDS, true);
+        saveStateUnlocked();
+    }
+}
+
+void JWTManager::stateFile(filesystem::path path)
+{
+    SmartLock lock(m_mutex);
+    if (path == m_stateFile)
+    {
+        return;
+    }
+    m_stateFile = std::move(path);
+    loadState();
+    if (m_key.empty())
+    {
+        m_key = "ProTIS " + DateTime::Now().isoDateTimeString(DateTime::PrintAccuracy::SECONDS, true);
+    }
+    saveStateUnlocked();
+}
+
+void JWTManager::loadState()
+{
+    if (m_stateFile.empty())
+    {
+        return;
+    }
+    ifstream input(m_stateFile);
+    string  line;
+    while (getline(input, line))
+    {
+        if (line.starts_with("key\t"))
+        {
+            m_key = line.substr(4);
+        }
+        else if (line.starts_with("token\t"))
+        {
+            m_issuedJwtMd5.insert(line.substr(6));
+        }
+    }
+}
+
+void JWTManager::saveStateUnlocked()
+{
+    if (m_stateFile.empty())
+    {
+        return;
+    }
+    const auto temporary = m_stateFile.string() + ".tmp";
+    {
+        ofstream output(temporary, ios::trunc);
+        output << "key\t" << m_key << '\n';
+        for (const auto& token: m_issuedJwtMd5)
+        {
+            output << "token\t" << token << '\n';
+        }
+    }
+    filesystem::rename(temporary, m_stateFile);
+    // The file holds the signing key: only the broker's account may read it.
+    filesystem::permissions(m_stateFile, filesystem::perms::owner_read | filesystem::perms::owner_write);
 }
 
 JWTManager::~JWTManager()
@@ -65,12 +128,16 @@ String JWTManager::generateToken(const CUser& user)
     SmartLock lock(m_mutex);
 
     m_issuedJwtMd5.insert(jwtMd5);
+    saveStateUnlocked();
 
-    const auto event = m_timer->fireAt(expire.timePoint(), [this, jwtMd5]
-                                       {
-                                           SmartLock lock2(m_mutex);
-                                           m_issuedJwtMd5.erase(jwtMd5);
-                                       });
+    m_timer->fireAt(expire.timePoint(), [this, jwtMd5]
+                    {
+                        SmartLock lock2(m_mutex);
+                        if (m_issuedJwtMd5.erase(jwtMd5) != 0)
+                        {
+                            saveStateUnlocked();
+                        }
+                    });
 
     return jwtString;
 }
@@ -78,7 +145,10 @@ String JWTManager::generateToken(const CUser& user)
 void JWTManager::releaseToken(const String& token)
 {
     SmartLock lock(m_mutex);
-    m_issuedJwtMd5.erase(md5(token));
+    if (m_issuedJwtMd5.erase(md5(token)) != 0)
+    {
+        saveStateUnlocked();
+    }
 }
 
 std::shared_ptr<JWT> JWTManager::decodeToken(const String& token) const

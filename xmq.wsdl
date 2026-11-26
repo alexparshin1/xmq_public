@@ -700,8 +700,12 @@
                     <xsd:element name="extension_instance" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <!-- The name the operator gave this settings set. -->
                     <xsd:element name="display_name" type="xsd:string" maxOccurs="1" minOccurs="0"/>
-                    <!-- Which settings page this extension's configurations belong to. -->
+                    <!-- Which settings page this extension's configurations belong to, as declared
+                         by the library. -->
                     <xsd:element name="page" type="xsd:string" maxOccurs="1" minOccurs="0"/>
+                    <!-- The operator-named menu section from the extension's config entry. It takes
+                         precedence over page; absent, page still decides as before. -->
+                    <xsd:element name="group" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="version" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="description" type="xsd:string" maxOccurs="1" minOccurs="0"/>
                     <xsd:element name="library" type="xsd:string" maxOccurs="1" minOccurs="0"/>

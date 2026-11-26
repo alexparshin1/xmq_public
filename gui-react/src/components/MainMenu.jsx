@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {useLocation, useNavigate} from "react-router-dom";
 import ControlAPI from "../ControlAPI";
+import {groupLabel, groupOf, groupPath} from "../extensionGroups";
 import AccordionGroup from "./AccordionGroup";
 import {documentationPagesIn} from "../documentation/pages";
 
@@ -37,7 +38,37 @@ export default function MainMenu() {
         return unsubscribe;
     }, []);
 
-    const groups = useMemo(() => buildGroups(connected), [connected]);
+    /**
+     * Menu sections named by the extension configuration, not by this file. Asked of the broker
+     * rather than read from a config file in the browser: the browser cannot see the broker's
+     * files, and an extension that is installed but not enabled still has a section. While the
+     * answer is in flight, and when the broker cannot answer at all, the familiar sections stay
+     * in place - a menu that emptied out whenever the server was stopped would be unusable.
+     */
+    const [sections, setSections] = useState([]);
+    useEffect(() => {
+        if (!connected) {
+            setSections([]);
+            return undefined;
+        }
+        let live = true;
+        ControlAPI.asyncMakeAPICall("ExtensionControl", {action: "list"}).then(data => {
+            if (!live || !data || ControlAPI.apiError(data) || !Array.isArray(data.list)) {
+                return;
+            }
+            const found = new Map();
+            for (const extension of data.list) {
+                const key = groupOf(extension);
+                if (key && !found.has(key)) {
+                    found.set(key, groupLabel(extension));
+                }
+            }
+            setSections([...found].map(([key, label]) => ({key, label})));
+        });
+        return () => { live = false; };
+    }, [connected]);
+
+    const groups = useMemo(() => buildGroups(connected, sections), [connected, sections]);
 
     const location = useLocation();
     const navigate = useNavigate();
@@ -87,15 +118,54 @@ export default function MainMenu() {
 
 /**
  * @brief The menu groups for the current connection state, in display order.
+ *
+ * `sections` are the extension groups the broker reported. The pages that existed before groups
+ * came from configuration are always present; a reported group with the same key does not replace
+ * its label, and a new one is simply added.
  */
-function buildGroups(connected) {
+const KNOWN_SECTIONS = [
+    {key: "data-integrations", label: "Data Integrations"},
+    {key: "authentication", label: "Authentication"}
+];
+
+function buildGroups(connected, sections) {
     const loginGroup = {
         title: "System",
         // Signed out there is one thing to do; signed in, the same group signs out.
         items: {"/login": "Login"}
     };
     if (!connected) {
-        return [loginGroup, documentationGroup(), extensionsGroup()];
+        return [loginGroup, documentationGroup(), extensionDocsGroup()];
+    }
+
+    const configurationItems = {
+        // First, and named for what it is: it is where a new installation starts, and the
+        // one entry here that replaces the configuration rather than editing part of it.
+        "/setup": "Initial Setup",
+        "/settings": "Settings",
+        "/listeners": "Listeners",
+        "/sslkeys": "SSL Keys",
+        "/persistence": "Persistence",
+        "/serverlimits": "Server Limits",
+        "/logging": "Logging",
+        "/prometheus": "Prometheus",
+        "/service": "Service"
+    };
+
+    // Every page that edits an extension has its own group. The sections the broker reports are
+    // added here, including ones this interface has never hard-coded, so a new settings family
+    // needs no new route or menu entry in the code.
+    const extensionItems = {"/extensions": "Installed Extensions"};
+    // The known pages are always there. Permissions is a broker page under User Management, not an
+    // extension group, so an extension that names it must not put a second link here.
+    const allSections = [...KNOWN_SECTIONS];
+    for (const section of sections) {
+        if (section.key === "permissions") continue;
+        if (!allSections.some(known => known.key === section.key)) allSections.push(section);
+    }
+    for (const section of allSections) {
+        const path = groupPath(section.key);
+        if (!(path in extensionItems)) extensionItems[path] = section.label;
     }
 
     // Its own group: the dashboard is where the server is watched and operated, which is a
@@ -103,25 +173,8 @@ function buildGroups(connected) {
     return [
         {title: "System", items: {"/": "Logout"}},
         {title: "Operation", items: {"/dashboard": "Dashboard", "/sessions": "Sessions"}},
-        {
-            title: "Configuration",
-            items: {
-                // First, and named for what it is: it is where a new installation starts, and the
-                // one entry here that replaces the configuration rather than editing part of it.
-                "/setup": "Initial Setup",
-                "/settings": "Settings",
-                "/listeners": "Listeners",
-                "/sslkeys": "SSL Keys",
-                "/persistence": "Persistence",
-                "/serverlimits": "Server Limits",
-                "/logging": "Logging",
-                "/prometheus": "Prometheus",
-                "/service": "Service",
-                "/extensions": "Installed Extensions",
-                "/data-integrations": "Data Integrations",
-                "/authentication": "Authentication"
-            }
-        },
+        {title: "Configuration", items: configurationItems},
+        {title: "Extensions", items: extensionItems},
         {
             title: "User Management",
             items: {
@@ -139,7 +192,7 @@ function buildGroups(connected) {
             }
         },
         documentationGroup(),
-        extensionsGroup()
+        extensionDocsGroup()
     ];
 }
 
@@ -151,16 +204,15 @@ function documentationGroup() {
 }
 
 /**
- * @brief One page per shipped extension, beside the manual.
+ * @brief One documentation page per shipped extension.
  *
- * Its own group because the extension pages are read as a set - what each one does to a CONNECT or
- * to accepted traffic - rather than in the order of an installation. Signed out they are as
- * reachable as the manual: the decision to use a directory or an HTTP service is made before there
- * is anything to sign in to.
+ * Named Extension Docs so it cannot be confused with the Extensions group above, where the pages
+ * that *edit* extensions live. Signed out, these pages are as reachable as the manual: the choice
+ * of a directory or an HTTP service is made before there is anything to sign in to.
  */
-function extensionsGroup() {
+function extensionDocsGroup() {
     return {
-        title: "Extensions",
+        title: "Extension Docs",
         items: Object.fromEntries(documentationPagesIn("Extensions").map(page => [page.path, page.label]))
     };
 }

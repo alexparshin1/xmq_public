@@ -210,6 +210,25 @@ test("Rules and Test Access are tabs, and the test panel is not below the table"
     expect(container.textContent).not.toContain("Each row is one user");
 });
 
+test("the Add Rule dialog has a divider, Ok/Cancel, and modal keys", () => {
+    const page = instance();
+    page.savePolicy = jest.fn();
+    page.closePolicyEditor = jest.fn();
+    page.addPolicy();
+
+    const {container} = render(<div>{page.renderPolicyEditor()}</div>);
+    expect(container.textContent).toContain("Add Rule");
+    expect(container.querySelector("hr.modalDivider")).not.toBeNull();
+    expect(container.querySelector(".modalFooter").textContent).toBe("OkCancel");
+    expect(container.querySelector(".modalFooter button:first-child").textContent).toBe("Ok");
+
+    const key = value => ({key: value, preventDefault: jest.fn(), target: {tagName: "DIV"}});
+    page.onPolicyKey(key("Escape"));
+    expect(page.closePolicyEditor).toHaveBeenCalledTimes(1);
+    page.onPolicyKey(key("Enter"));
+    expect(page.savePolicy).toHaveBeenCalledTimes(1);
+});
+
 test.each([
     "s", "s/#", "s/+/temp", "#", "+", "$SYS/#", "a/b/c"
 ])("A topic filter the server accepts is accepted here: %s", filter => {

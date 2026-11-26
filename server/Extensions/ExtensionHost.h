@@ -167,6 +167,14 @@ public:
         std::string                        m_extensionInstance;
         /// The name the operator sees. The technical ExtensionInstance never changes when this is edited.
         std::string                        m_displayName;
+        /**
+         * @brief The menu section this entry's configurations belong to, as the operator named it.
+         *
+         * From the configuration file rather than the ABI: an installation decides where its
+         * extension pages appear, without asking the library's author to choose for it. Empty
+         * means the extension's ABI `page` still decides, so older files need no change.
+         */
+        std::string                        m_group;
         /// True when this settings set came from xmq_extension_instance rather than a config file.
         bool                               m_fromDatabase {false};
         std::filesystem::path              m_library;  ///< Path to the shared library.
@@ -414,6 +422,7 @@ public:
         std::string                     m_displayName;
         bool                            m_fromDatabase {false};
         std::string                     m_page;
+        std::string                     m_group; ///< Operator-named menu section, from the config.
         std::string                     m_version;
         std::string                     m_description;
         std::filesystem::path           m_library;
@@ -814,6 +823,7 @@ private:
         /// Which ExtensionInstance this loaded extension was made from. Not the extension's own
         /// instance pointer below - that one is called m_instance for historical reasons.
         std::string                        m_extensionInstance;
+        std::string                        m_group; ///< Where this instance's configurations are shown.
         std::filesystem::path              m_library;
         void*                              m_handle {nullptr}; ///< dlopen handle.
         const xmq_extension*               m_table {nullptr};

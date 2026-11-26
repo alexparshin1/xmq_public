@@ -37,7 +37,7 @@
 }
 
 .messageWindowFooter {
-    justify-content: center;
+    justify-content: flex-end;
     padding-bottom: 12px;
 }
 

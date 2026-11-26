@@ -76,6 +76,7 @@ export default class HelpButton extends React.Component
                         {this.renderHelpFact("Suggested", help.suggested)}
                     </div>
                 </div>
+                <hr className="modalDivider"/>
                 <div className="modalFooter">
                     <button type="button" className="modalOkButton" autoFocus
                             onClick={() => this.setState({showHelp: false})}>

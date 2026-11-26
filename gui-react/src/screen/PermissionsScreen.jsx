@@ -112,6 +112,25 @@ export default class PermissionsScreen extends React.Component {
     componentDidMount() {
         this.readSubjects();
         this.readRules();
+        document.addEventListener("keydown", this.onPolicyKey);
+    }
+
+    componentWillUnmount() {
+        document.removeEventListener("keydown", this.onPolicyKey);
+    }
+
+    /// The rule dialog follows the modal convention: Escape cancels, Enter saves. Enter keeps its
+    /// normal meaning in a text box that can hold more than one line.
+    onPolicyKey = event => {
+        if (!this.state.policyEditor) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            this.closePolicyEditor();
+        }
+        else if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
+            event.preventDefault();
+            if (!this.state.policyBusy) this.savePolicy();
+        }
     }
 
     /**
@@ -515,7 +534,7 @@ export default class PermissionsScreen extends React.Component {
         }
         return <div className="modalBackground">
             <div className="permissionsPolicyDialog">
-                <div className="title">{editor.original ? "Edit Policy" : "Add Policy"}</div>
+                <div className="title">{editor.original ? "Edit Rule" : "Add Rule"}</div>
                 <div className="permissionsPolicyBody">
                     <div className="permissionsPolicySubject">
                         <label className="inputScreenLabel">Applies to:</label>
@@ -582,6 +601,7 @@ export default class PermissionsScreen extends React.Component {
                         ? <div className="subjectPickerError">{editor.error}</div>
                         : null}
                 </div>
+                <hr className="modalDivider"/>
                 <div className="modalFooter">
                     <button className="modalOkButton" disabled={this.state.policyBusy}
                             onClick={this.savePolicy}>Ok</button>
@@ -657,7 +677,7 @@ export default class PermissionsScreen extends React.Component {
 
             {/* Two parts, one screen: what the rules are, and what a rule would answer. Tabs
                 rather than one long page because the policy list fills the screen, and the test
-                panel below it was found only by scrolling to the bottom. */}
+                panel below it would be found only by scrolling to the bottom. */}
             <div className="permissionsTabs" role="tablist">
                 <button type="button" role="tab" aria-selected={tab === "rules"}
                         className={"permissionsTab" + (tab === "rules" ? " permissionsTabActive" : "")}

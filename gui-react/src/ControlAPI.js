@@ -1,8 +1,53 @@
 import {errorWindow, informationWindow} from "./components/MessageWindow";
 
+/**
+ * The session survives a page reload. A browser refresh throws away every JS variable, so a token
+ * held only in a static field made the interface sign out on each Ctrl+F5 - and the API calls a
+ * page makes immediately afterwards were then answered with "Not authenticated".
+ *
+ * Session storage rather than local storage: the next reload of this tab finds the token, but
+ * closing the tab ends the session. A bearer token in web storage is readable by any script on
+ * the page, so the shorter lifetime is worth more than the convenience of surviving a restart.
+ */
+const SESSION_KEY = "xmq.control.session";
+
+function storedSession() {
+    try {
+        if (typeof window === "undefined" || !window.sessionStorage) {
+            return {};
+        }
+        return JSON.parse(window.sessionStorage.getItem(SESSION_KEY) || "{}") || {};
+    }
+    catch (error) {
+        return {};
+    }
+}
+
+function saveSession(token, setupRequired) {
+    try {
+        if (typeof window !== "undefined" && window.sessionStorage) {
+            window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({token, setupRequired}));
+        }
+    }
+    catch (error) {
+        // Storage can be disabled or full. Signing in still works for as long as the page lives.
+    }
+}
+
+function forgetSession() {
+    try {
+        if (typeof window !== "undefined" && window.sessionStorage) {
+            window.sessionStorage.removeItem(SESSION_KEY);
+        }
+    }
+    catch (error) {
+        // Nothing to do: the in-memory token is cleared either way.
+    }
+}
+
 export default class ControlAPI {
 
-    static token = "";
+    static token = storedSession().token || "";
 
     /**
      * Where the control API lives.
@@ -119,7 +164,7 @@ export default class ControlAPI {
      * The server admits the administrator without one while that lasts, and answers on the
      * loopback address alone, so setting a password is the one thing worth doing next.
      */
-    static setupRequired = false;
+    static setupRequired = storedSession().setupRequired === true;
 
     /**
      * Version of the server this interface is talking to.
@@ -231,6 +276,12 @@ export default class ControlAPI {
      * @return {?string} the reason, or null if the call succeeded.
      */
     static apiError(result) {
+        // A session that ended is handled once, in asyncMakeAPICall: it signs out, and the route
+        // guard moves the browser to the login page. Reporting it here as a form error as well
+        // would put a "Not authenticated" dialog over a page that is already going away.
+        if (ControlAPI.isSessionExpired(result)) {
+            return null;
+        }
         if (result.error_description) {
             return result.error_description;
         }
@@ -258,6 +309,7 @@ export default class ControlAPI {
                 }
                 ControlAPI.token = result.token;
                 ControlAPI.setupRequired = result.setup_required === true;
+                saveSession(ControlAPI.token, ControlAPI.setupRequired);
                 ControlAPI.onConnectedChanged(true);
                 return true;
             });
@@ -265,6 +317,8 @@ export default class ControlAPI {
 
     static logout() {
         ControlAPI.token = "";
+        ControlAPI.setupRequired = false;
+        forgetSession();
         ControlAPI.onConnectedChanged(false);
     }
 

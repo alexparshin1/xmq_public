@@ -39,6 +39,24 @@ export default class ExtensionsScreen extends React.Component {
 
     componentDidMount() {
         this.refresh();
+        document.addEventListener("keydown", this.onAddKey);
+    }
+
+    componentWillUnmount() {
+        document.removeEventListener("keydown", this.onAddKey);
+    }
+
+    /// The Add dialog has the same keys as every other modal: Escape cancels, Enter accepts.
+    onAddKey = event => {
+        if (!this.state.showAdd) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            this.setState({showAdd: false});
+        }
+        else if (event.key === "Enter" && event.target.tagName !== "TEXTAREA" && !this.state.busy) {
+            event.preventDefault();
+            this.submitAdd();
+        }
     }
 
     /**
@@ -134,14 +152,25 @@ export default class ExtensionsScreen extends React.Component {
         return type ? (type.description || "No description supplied by this extension.") : "";
     }
 
+    /// What the Add and Delete dialogs call the thing being created. Data integrations are the
+    /// usual case; the same machinery also creates configurations on other pages, which name
+    /// themselves through these hooks rather than inheriting the wrong words.
+    objectLabel() { return "data integration"; }
+
+    addDialogTitle() { return "Add Data Integration"; }
+
+    deleteQuestion(label) {
+        return "Delete the data integration '" + label + "' and its persistent queue? This cannot be undone.";
+    }
+
     submitAdd = () => {
         const name = this.state.addName.trim();
         if (!name) {
-            this.setState({addError: "Enter a name for the data integration."});
+            this.setState({addError: "Enter a name for the " + this.objectLabel() + "."});
             return;
         }
         if (this.state.extensions.some(one => (one.display_name || "").toLowerCase() === name.toLowerCase())) {
-            this.setState({addError: "A data integration with this name already exists."});
+            this.setState({addError: "A " + this.objectLabel() + " with this name already exists."});
             return;
         }
         const type = this.state.addType;
@@ -174,7 +203,7 @@ export default class ExtensionsScreen extends React.Component {
 
     renameIntegration = (extension) => {
         const current = extension.display_name || "";
-        const name = window.prompt("Rename data integration:", current);
+        const name = window.prompt("Rename " + this.objectLabel() + ":", current);
         if (!name || !name.trim() || name.trim() === current) return;
         this.setState({busy: true});
         ControlAPI.asyncMakeAPICall("ExtensionControl",
@@ -189,7 +218,7 @@ export default class ExtensionsScreen extends React.Component {
 
     deleteIntegration = (extension) => {
         const label = extension.display_name || extension.extension_instance;
-        if (!window.confirm("Delete the data integration '" + label + "' and its persistent queue? This cannot be undone.")) return;
+        if (!window.confirm(this.deleteQuestion(label))) return;
         this.setState({busy: true});
         ControlAPI.asyncMakeAPICall("ExtensionControl",
             {action: "remove_instance", name: extension.name, extension_instance: extension.extension_instance})
@@ -203,8 +232,8 @@ export default class ExtensionsScreen extends React.Component {
     renderAddDialog() {
         if (!this.state.showAdd) return null;
         return <div className="modalBackground">
-            <div className="modalContainer dataIntegrationDialog" role="dialog" aria-label="Add Data Integration">
-                <div className="title">Add Data Integration</div>
+            <div className="modalContainer dataIntegrationDialog" role="dialog" aria-label={this.addDialogTitle()}>
+                <div className="title">{this.addDialogTitle()}</div>
                 <div className="body">
                     <label htmlFor="dataIntegrationType">Type:</label>
                     <select id="dataIntegrationType" value={this.state.addType}
@@ -231,9 +260,10 @@ export default class ExtensionsScreen extends React.Component {
                         {this.state.addError}
                     </p> : null}
                 </div>
+                <hr className="modalDivider"/>
                 <div className="footer">
-                    <button className="modalCancelButton" onClick={() => this.setState({showAdd: false})}>Cancel</button>
                     <button className="modalOkButton" disabled={this.state.busy} onClick={this.submitAdd}>Add</button>
+                    <button className="modalCancelButton" onClick={() => this.setState({showAdd: false})}>Cancel</button>
                 </div>
             </div>
         </div>;
@@ -410,10 +440,17 @@ export default class ExtensionsScreen extends React.Component {
         // Every setting is sent, not only the changed ones: the server replaces the block wholesale
         // so that a key removed here is removed there, and sending a partial list would make
         // removal impossible.
-        const settings = (extension.settings || []).map(setting => ({
+        const declared = (extension.settings || []).filter(setting => !setting.name.endsWith(".*"));
+        // Keys added from a family declaration (a new `group.operators`, say) live only in `edited`
+        // until now; they are real settings and must go with the rest. The family templates
+        // themselves are not keys and must never be written to the configuration.
+        const added = Object.keys(this.state.edited)
+            .filter(name => !declared.some(setting => setting.name === name))
+            .map(name => ({name, value: this.state.edited[name]}));
+        const settings = [...declared.map(setting => ({
             name: setting.name,
             value: this.valueOf(setting)
-        }));
+        })), ...added];
 
         // SQL is not a pattern the extension can declare. The broker checks the draft before it
         // writes settings; this screen only supplies the reason for a refusal.
