@@ -239,6 +239,12 @@ bool RunControl::canFile() const
     return complete;
 }
 
+void RunControl::setOverrides(const string& broker, const string& version)
+{
+    m_overrideBroker = broker;
+    m_overrideVersion = version;
+}
+
 void RunControl::start()
 {
     if (!canStart())
@@ -279,11 +285,29 @@ void RunControl::start()
     // terminal and started from another.
     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
 
-    array<char*, 4> arguments {const_cast<char*>(m_spec.file.c_str()), const_cast<char*>("--out"),
-                               m_state.monitorDir.data(), nullptr};
-    pid_t           pid = 0;
-    const auto      spawned = posix_spawnp(&pid, m_spec.file.c_str(), &actions, &attributes,
-                                           arguments.data(), environ);
+    // The run file's own flags come first; these extras come last so stand_run.sh sees them last
+    // and they win without the file ever being changed.
+    vector<string> values {m_spec.file.string(), "--out", m_state.monitorDir, "--existing-broker"};
+    if (!m_overrideBroker.empty())
+    {
+        values.push_back("--broker");
+        values.push_back(m_overrideBroker);
+    }
+    if (!m_overrideVersion.empty())
+    {
+        values.push_back("--version");
+        values.push_back(m_overrideVersion);
+    }
+    vector<char*> arguments;
+    for (auto& value: values)
+    {
+        arguments.push_back(value.data());
+    }
+    arguments.push_back(nullptr);
+
+    pid_t      pid = 0;
+    const auto spawned = posix_spawnp(&pid, m_spec.file.c_str(), &actions, &attributes,
+                                      arguments.data(), environ);
     posix_spawnattr_destroy(&attributes);
     posix_spawn_file_actions_destroy(&actions);
 

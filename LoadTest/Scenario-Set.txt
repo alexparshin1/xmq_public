@@ -11,7 +11,7 @@
 Fan-Out-5-1000-5-250K-5min.json
 Fan-In-50K-500-50K-50K.json
 Point-To-Point-50K-50K-50K-100K.json
-Point-To-Point-60K-persistent.json
+#Point-To-Point-60K-persistent.json
 # Last because the connection run leaves the broker at peak RSS.
 500K-Connections-5000-rate.json
 

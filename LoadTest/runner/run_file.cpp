@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <sstream>
@@ -168,11 +169,38 @@ vector<string> availableScenarioSets()
     return sets;
 }
 
+vector<string> availableResultVersions()
+{
+    // Each broker has its own directory under results/Bench; offer "Broker/version" pairs.
+    vector<string> versions;
+    error_code     error;
+    const auto     root = loadTestDirectory() / "results" / "Bench";
+    for (const auto& broker: fs::directory_iterator(root, error))
+    {
+        error_code brokerError;
+        if (!broker.is_directory(brokerError))
+        {
+            continue;
+        }
+        for (filesystem::directory_iterator it(broker.path(), brokerError), end;
+             !brokerError && it != end; it.increment(brokerError))
+        {
+            error_code versionError;
+            if (it->is_directory(versionError))
+            {
+                versions.push_back(broker.path().filename().string() + "/" + it->path().filename().string());
+            }
+        }
+    }
+    sort(versions.begin(), versions.end(), greater<string>{});
+    return versions;
+}
+
 string suggestedVersion()
 {
     vector<string> versions;
     error_code     error;
-    const auto     directory = loadTestDirectory() / "results" / "Bench";
+    const auto     directory = loadTestDirectory() / "results" / "Bench" / "XMQ";
     for (const auto& entry: fs::directory_iterator(directory, error))
     {
         const auto name = entry.path().filename().string();
@@ -253,15 +281,28 @@ fs::path resolveRunPath(const fs::path& path)
 
 fs::path runDirectory()
 {
+#ifdef _WIN32
+    const char* programData = getenv("PROGRAMDATA");
+    const fs::path shared = programData && *programData
+                                ? fs::path(programData) / "xmq" / "xmq_runner"
+                                : fs::path("C:/ProgramData/xmq/xmq_runner");
+#else
     const fs::path shared {"/var/lib/xmq/xmq_runner"};
+#endif
     error_code error;
-    const auto status = fs::status(shared, error);
-    return status.type() == fs::file_type::not_found ? loadTestDirectory() / "runs" : shared;
+    fs::create_directories(shared, error);
+    if (!error)
+    {
+        return shared;
+    }
+    return loadTestDirectory() / "runs";
 }
 
 fs::path defaultRunFile(const RunSpec& spec)
 {
-    return runDirectory() / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + ".run.sh");
+    const auto broker = spec.broker.empty() ? string("XMQ") : spec.broker;
+    return runDirectory() /
+           (stamp() + "-" + broker + (spec.version.empty() ? "unknown" : spec.version) + ".run.sh");
 }
 
 string toScript(const RunSpec& spec)
@@ -274,19 +315,21 @@ string toScript(const RunSpec& spec)
 
     ostringstream text;
     text << "#!/bin/bash\n"
-         << "# XMQ stand run file, written by `stand_runner --edit`. It is a script, not a config\n"
+         << "# XMQ stand run file, written by `xmq_runner --edit`. It is a script, not a config\n"
          << "# format: everything below is the invocation stand_run.sh would get from a person, one\n"
          << "# flag per line, so editing a line is the whole edit and running this file is the whole\n"
          << "# run. stand_run.sh still decides what a set is, where the record goes and what its\n"
          << "# version line says.\n"
          << "#\n"
          << "#   ./" << spec.file.filename().string() << "                 run it in a window (or under screen)\n"
-         << "#   stand_runner --run <this file>   watch it, and start or stop it\n"
+         << "#   xmq_runner --run <this file>   watch it, and start or stop it\n"
          << "#   from another window; the broker " << spec.server << " comes from the file.\n"
          << "#\n"
          << "# No `set -e`: stand_run.sh reports its own failures with a message worth reading, and the\n"
          << "# exit status of this file is its exit status.\n"
          << "exec " << quote(script.string()) << " \\\n"
+         << "    --existing-broker \\\n"
+         << "    --broker " << quote(spec.broker.empty() ? "XMQ" : spec.broker) << " \\\n"
          << "    --version " << quote(spec.version) << " \\\n"
           << "    --set " << quote(setPath.string()) << " \\\n"
           << "    --server " << quote(spec.server) << " \\\n"
@@ -366,6 +409,10 @@ bool fromScript(const fs::path& file, RunSpec& spec)
         if (argument == "--version")
         {
             spec.version = valueAfter(at);
+        }
+        else if (argument == "--broker")
+        {
+            spec.broker = valueAfter(at);
         }
         else if (argument == "--set")
         {

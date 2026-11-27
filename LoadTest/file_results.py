@@ -2,10 +2,11 @@
 """
 Files a scenario-set record into the results tree, one file per test:
 
-    LoadTest/results/{AWS,Bench}/{version}/<test>.txt
+    LoadTest/results/{AWS,Bench}/{broker}/{version}/<test>.txt
 
-{version} is the XMQ version as it is ("0.9.19"), and "<Broker>-<version>" for any other broker
-("FlashMQ-1.27.1"). Each file holds the record's header - broker, version, host, client, date and
+The broker and the version come from the record's Server: and Version: lines, so FlashMQ 1.27.1
+is filed under Bench/FlashMQ/1.27.1/ and XMQ 1.2.0 under Bench/XMQ/1.2.0/. Each file holds the
+record's header - broker, version, host, client, date and
 notes - followed by that test's own table, so it can be read and compared on its own.
 
 The tree is what a release is checked against: release.sh refuses a version that has no results
@@ -115,9 +116,10 @@ def main():
     if not tests:
         sys.exit(f"{args.record}: no test tables")
 
-    # "XMQ (anything)" is still XMQ; any other broker carries its name into the directory.
+    # XMQ (anything) is still XMQ. Every broker has its own directory under the environment,
+    # and each version has one directory inside it: Bench/FlashMQ/1.27.1/.
     broker = broker.split("(")[0].strip().replace(" ", "-")
-    directory = RESULTS / args.env / (version if broker == "XMQ" else f"{broker}-{version}")
+    directory = RESULTS / args.env / broker / version
 
     # Current records are rewritten after each scenario. An interrupted set may contain only
     # successful tables; the completion marker is what distinguishes it from a complete set.

@@ -1,4 +1,4 @@
-# stand_runner: the campaign watchtower and the form that writes a run. No dependencies beyond
+# xmq_runner: the campaign watchtower and the form that writes a run. No dependencies beyond
 # the C++20 standard library and POSIX, deliberately - it has to build on the load generator
 # without installing anything.
 CXX      ?= g++
@@ -10,17 +10,17 @@ sources = stand_runner.cpp run_file.cpp run_form.cpp run_control.cpp tui.cpp
 # real path, and /proc/self/exe resolves the link back to the checkout.
 PREFIX ?= $(HOME)/.local
 
-all: stand_runner
+all: xmq_runner
 
-stand_runner: $(sources) frame.h run_file.h run_form.h run_control.h tui.h theme.h
+xmq_runner: $(sources) frame.h run_file.h run_form.h run_control.h tui.h theme.h
 	$(CXX) $(CXXFLAGS) -o $@ $(sources)
 
-install: stand_runner
+install: xmq_runner
 	install -d $(PREFIX)/bin
-	ln -sf $(abspath stand_runner) $(PREFIX)/bin/stand_runner
-	@echo "installed: $(PREFIX)/bin/stand_runner -> $(abspath stand_runner)"
+	ln -sf $(abspath xmq_runner) $(PREFIX)/bin/xmq_runner
+	@echo "installed: $(PREFIX)/bin/xmq_runner -> $(abspath xmq_runner)"
 
 clean:
-	rm -f stand_runner
+	rm -f xmq_runner
 
 .PHONY: all clean install

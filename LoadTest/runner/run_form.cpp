@@ -92,7 +92,8 @@ private:
             sets.push_back("Scenario-Set-Bench.txt");
         }
 
-        m_fields.push_back({"XMQ version", "XMQ version under test; it names the bench profile to restart", Kind::Text, &m_spec.version, nullptr, {}});
+        m_fields.push_back({"Broker name", "Broker under test, e.g. XMQ or FlashMQ", Kind::Text, &m_spec.broker, nullptr, {}});
+        m_fields.push_back({"Version", "Version of the running broker; used in the record", Kind::Text, &m_spec.version, nullptr, {}});
         m_fields.push_back({"Test set", "Scenario set to run, from the *.txt files next to stand_run.sh", Kind::Choice, &m_spec.setFile, nullptr, sets});
         m_fields.push_back({"Broker", "Broker host under test", Kind::Text, &m_spec.server, nullptr, {}});
         m_fields.push_back({"Broker username", "Account used by the broker subscriber and load test", Kind::Text, &m_spec.brokerUser, nullptr, {}});
@@ -104,7 +105,6 @@ private:
         m_fields.push_back({"Runner", "Per-scenario logs; empty means results/raw/<stamp>-xmq<version>-bench", Kind::Text, &m_spec.out, nullptr, {}, "(stand_run.sh default)"});
         m_fields.push_back({"Run file", "Where to write this run file", Kind::Text, &m_runFilePath, nullptr, {}});
         m_fields.push_back({"File results", "File the record with file_results.py when the set succeeds", Kind::Toggle, nullptr, &m_spec.fileResults, yesNo});
-        m_fields.push_back({"Keep brokers", "Refuse to start if another broker owns the port, instead of stopping it", Kind::Toggle, nullptr, &m_spec.keepOtherBrokers, yesNo});
         m_fields.push_back({"Skip preflight", "Do not run preflight.sh on either host", Kind::Toggle, nullptr, &m_spec.skipPreflight, yesNo});
         m_fields.push_back({"Note", "Free-text line for the record", Kind::Text, &m_spec.note, nullptr, {}});
 
@@ -217,8 +217,8 @@ private:
             put(row, left + innerWidth + 1, theme::frame, "│");
         }
 
-        const auto title = m_spec.file.empty() ? string {"stand_runner --edit"}
-                                               : "stand_runner --edit  " + displayPath(m_spec.file);
+        const auto title = m_spec.file.empty() ? string {"xmq_runner --edit"}
+                                               : "xmq_runner --edit  " + displayPath(m_spec.file);
         const auto titleText = " " + clip(title, innerWidth - 10) + " ";
         put(top, left + 4 + max(0, (innerWidth - 6 - static_cast<int>(titleText.size())) / 2), theme::frameActive, titleText);
         put(top, left + 1, theme::frameActive, "[■]");
@@ -557,7 +557,7 @@ FormAction editRunFile(RunSpec& spec, const bool reportToShell, const bool creat
 {
     if (!tui::Terminal::available())
     {
-        fprintf(stderr, "stand_runner --edit: needs a terminal; use --view for scripted output\n");
+        fprintf(stderr, "xmq_runner --edit: needs a terminal; use --view for scripted output\n");
         return FormAction::Cancelled;
     }
 
@@ -580,7 +580,7 @@ FormAction editRunFile(RunSpec& spec, const bool reportToShell, const bool creat
     {
         printf("saved: %s\n\n", spec.file.c_str());
         printf("run it:    %s\n", spec.file.c_str());
-        printf("watch it:  stand_runner --run %s\n", spec.file.c_str());
+        printf("watch it:  xmq_runner --run %s\n", spec.file.c_str());
     }
     return action;
 }

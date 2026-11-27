@@ -165,19 +165,19 @@ record should be read afterwards, not watched.
 
 ## Writing a run, then watching it
 
-`stand_runner` is Linux, and that is a decision rather than a gap: it drives bash scripts that
+`xmq_runner` is Linux, and that is a decision rather than a gap: it drives bash scripts that
 restart a broker over ssh, and a second implementation of "what a run is" would be a second answer
 to the question the record depends on. A Windows port is not part of this version; a Windows
 machine reaches the stand through WSL or ssh.
 
 A bench run needs a version, a set, a host and a handful of switches, and getting one of them wrong
-is only visible after forty minutes. `stand_runner --edit` is a form over exactly those settings: it
+is only visible after forty minutes. `xmq_runner --edit` is a form over exactly those settings: it
 writes a run file, and nothing else.
 
 ```bash
 cd LoadTest/runner && make
-./stand_runner --edit                       # write runs/<date>-xmq<version>.run.sh
-./stand_runner --edit ../runs/1.1.2.run.sh  # change one that exists; its values are loaded first
+./xmq_runner --edit                       # write runs/<date>-xmq<version>.run.sh
+./xmq_runner --edit ../runs/1.1.2.run.sh  # change one that exists; its values are loaded first
 ```
 
 Enter edits a value, Enter again keeps it, arrows move, F2 writes the file, Esc leaves without
@@ -196,7 +196,7 @@ While it runs, a second window watches it - and, given the run file, also starts
 files the result, so a set can be run from one window and watched from another:
 
 ```bash
-./stand_runner --view --run ../runs/2026-11-18-1729-xmq1.1.2.run.sh
+./xmq_runner --view --run ../runs/2026-11-18-1729-xmq1.1.2.run.sh
 ```
 
 The screen takes `<run-dir>` and the broker from the file's own `--out` and `--server`, so nothing
@@ -215,13 +215,13 @@ to the run already going instead of starting another.
 
 ## Watching a set while it runs
 
-`stand_runner --view` reads what the run itself writes into its output directory and shows it live.
+`xmq_runner --view` reads what the run itself writes into its output directory and shows it live.
 It is a watcher: it starts nothing, and it is not on the run's path.
 
 ```bash
 cd LoadTest/runner && make
-./stand_runner --view ../results/Bench/1.1.2           # full screen, q to quit
-./stand_runner --view ../results/Bench/1.1.2 --once    # one status, for a script or a log
+./xmq_runner --view ../results/Bench/1.1.2           # full screen, q to quit
+./xmq_runner --view ../results/Bench/1.1.2 --once    # one status, for a script or a log
 ```
 
 The table shows one test at a time - a full set is five scenarios of several minutes each, and all

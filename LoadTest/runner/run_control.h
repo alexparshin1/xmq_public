@@ -53,6 +53,9 @@ public:
     /// first process.
     void start();
 
+    /// Override the broker and version for this start only, without changing the run file.
+    void setOverrides(const std::string& broker, const std::string& version);
+
     /// SIGTERM to the run's process group; a stop that is ignored becomes a SIGKILL after a few
     /// seconds, so a hung run cannot hold the stand.
     void stop();
@@ -83,6 +86,8 @@ private:
     std::chrono::steady_clock::time_point m_startedAt;
     std::chrono::steady_clock::time_point m_stopDeadline;
     std::string m_processStart;
+    std::string m_overrideBroker;
+    std::string m_overrideVersion;
     bool      m_stopping {false};
     bool      m_ownedChild {false};
 };
