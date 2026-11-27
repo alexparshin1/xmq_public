@@ -14,6 +14,23 @@ Requires SPTK 5.6.22.
 
 ### Added
 
+- **Named data integrations.** `message_export` and `log_export` can be configured
+  several times in one broker: each **settings set** has its own `extension_instance`
+  label, filters, destination, delivery queue and `delivery_queue_path`. Sets are stored
+  in the shared configuration database, so renaming one never changes its durable queue
+  identity. The Extensions screen lists the named integrations and offers an **Add Data
+  Integration** dialog; two sets subscribed to the same topic each receive a copy.
+
+- **Database, HTTP and Kafka export destinations.** A data integration selects
+  `db_sink`, `http_sink` or, on Linux builds with librdkafka, `kafka_sink`. Persistent
+  delivery gives each set its own SQLite queue, retries with capped backoff, and an
+  optional dead-letter topic. The standalone `kafka_source` extension publishes Kafka
+  records into MQTT; its TLS check verifies the broker certificate and hostname.
+
+- **JSON Schema validation for incoming publishes.** `xmq_publish_schemas.json` beside
+  the broker configuration maps topic filters to Draft 2020-12 schema files. Matching
+  publications are validated before delivery and invalid ones are rejected.
+
 - **Optional SQL rules for webhook MQTT messages.** `sql_rule` selects an MQTT topic
   filter, a typed predicate and JSON output fields. The webhook evaluates and renders
   the rule in its worker, without a database or changes to log delivery.
@@ -21,6 +38,22 @@ Requires SPTK 5.6.22.
 - **MQTT bridge topic mapping.** Optional `local_prefix` and `remote_prefix` settings
   map topic namespaces in both directions. Existing bridges keep their topic names
   unchanged by default. Bridge-to-bridge forwarding remains disabled.
+
+### Changed
+
+- **Extension settings and permissions in the web interface.** Extension configuration
+  is split into three pages with two independent switches: one loads an extension, the
+  other persists its settings. **Installed Extensions** shows what is actually loaded,
+  topic permissions stay in **User Management**, and the redundant ACL editor is gone.
+  Required extensions cannot be disabled.
+
+- **The old `webhook` extension is deprecated.** It still works in 1.2.x and will be
+  disabled in 1.3; migrate its sources to `message_export` and `log_export`.
+
+### Fixed
+
+- Authentication cache entries are now invalidated together with the user database
+  they came from, and LDAP logins no longer stall on WinLDAP timeouts.
 
 ## 1.1.2 — 2026-11-20
 
