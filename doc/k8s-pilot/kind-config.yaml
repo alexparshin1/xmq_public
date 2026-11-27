@@ -1,0 +1,21 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: xmq-model
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30083
+        hostPort: 11883
+        protocol: TCP
+      - containerPort: 30883
+        hostPort: 18884
+        protocol: TCP
+      - containerPort: 30184
+        hostPort: 19184
+        protocol: TCP
+      - containerPort: 30185
+        hostPort: 18885
+        protocol: TCP
+  - role: worker
+  - role: worker
+  - role: worker
