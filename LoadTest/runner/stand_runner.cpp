@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <set>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -590,19 +591,26 @@ struct Report
     bool             preflight {false};
     bool             foreign {false}; ///< Logs written by a run this screen did not start.
     size_t           current {0};
+    size_t           plannedTests {0};
     long             elapsedSec {0};
     long             etaSec {0};
 };
 
-long plannedDuration(const filesystem::path& setFile)
+struct ScenarioPlan
 {
+    size_t count {0};
+    long   durationSec {0};
+};
+
+ScenarioPlan readScenarioPlan(const filesystem::path& setFile)
+{
+    ScenarioPlan plan;
     if (setFile.empty())
     {
-        return 0;
+        return plan;
     }
     ifstream input(setFile);
     string line;
-    long total = 0;
     const regex durationPattern {R"("duration_sec"\s*:\s*(\d+))"};
     while (getline(input, line))
     {
@@ -611,23 +619,28 @@ long plannedDuration(const filesystem::path& setFile)
         {
             line.erase(comment);
         }
-        const auto first = line.find_first_not_of(" \t\r");
-        if (first == string::npos)
+        // Like run_scenario_set.sh, take the first field of each non-comment line.
+        istringstream fields(line);
+        string scenario;
+        if (!(fields >> scenario))
         {
             continue;
         }
-        line = line.substr(first);
-        const auto last = line.find_last_not_of(" \t\r");
-        line.erase(last + 1);
-        const auto scenarioFile = stand::loadTestDirectory() / line;
-        const auto content = readLog(scenarioFile);
+        ++plan.count;
+        auto scenarioFile = setFile.parent_path() / scenario;
+        error_code error;
+        if (!filesystem::is_regular_file(scenarioFile, error))
+        {
+            scenarioFile = stand::loadTestDirectory() / scenario;
+        }
         smatch match;
+        const auto content = readLog(scenarioFile);
         if (regex_search(content, match, durationPattern))
         {
-            total += stol(match[1].str());
+            plan.durationSec += stol(match[1].str());
         }
     }
-    return total;
+    return plan;
 }
 
 /// A fresh run is one whose log was written after this screen opened (or after the operator pressed
@@ -730,7 +743,9 @@ Report buildReport(const filesystem::path& dir,
         {
             knownDuration += scenario.durationSec;
         }
-        report.etaSec += max(0L, plannedDuration(scenarioSet) - knownDuration);
+        const auto plan = readScenarioPlan(scenarioSet);
+        report.plannedTests = plan.count;
+        report.etaSec += max(0L, plan.durationSec - knownDuration);
     }
     return report;
 }
@@ -961,7 +976,235 @@ void drawDialogButtons(tui::Frame& frame, const int row, const int left, const i
                        theme::buttonHot, label);
     };
     button(buttons, primarySelected, primary);
-    button(buttons + 12, !primarySelected, " ~C~ancel  ");
+    button(buttons + 12, !primarySelected, " Cancel ");
+}
+
+struct TestResult
+{
+    bool   valid {false};
+    long   averageUs {0};   ///< Whole-run mean latency from the Average row.
+    long   medianUs {0};    ///< xmq_scn's median of interval latencies.
+    long   p99Us {0};
+    size_t samples {0};
+    long   minUs {0};
+    long   maxUs {0};
+    vector<long> values;    ///< Interval latencies, in order.
+};
+
+TestResult readTestResult(const filesystem::path& path)
+{
+    TestResult result;
+    ifstream input(path);
+    if (!input)
+    {
+        return result;
+    }
+    string line;
+    bool inValues = false;
+    while (getline(input, line))
+    {
+        string rest = line;
+        const auto first = rest.find_first_not_of(" \t\r");
+        if (first == string::npos)
+        {
+            continue;
+        }
+        rest.erase(0, first);
+        while (!rest.empty() && (rest.back() == '\r' || rest.back() == ' '))
+        {
+            rest.pop_back();
+        }
+        if (rest.find("\xE2\x94\x80") != string::npos)
+        {
+            inValues = !inValues;
+            continue;
+        }
+        istringstream fields(rest);
+        string key;
+        fields >> key;
+        if (key == "Average")
+        {
+            string count;
+            fields >> count >> key; // key now holds the latency, e.g. 185us.
+            if (key.size() > 2 && key.back() == 's' && key[key.size() - 2] == 'u')
+            {
+                result.averageUs = stol(key.substr(0, key.size() - 2));
+                result.valid = true;
+            }
+        }
+        else if (key == "Median")
+        {
+            fields >> key;
+            if (key.size() > 2 && key.back() == 's')
+            {
+                result.medianUs = stol(key.substr(0, key.size() - 2));
+            }
+        }
+        else if (key == "p99")
+        {
+            fields >> key;
+            if (key.size() > 2)
+            {
+                result.p99Us = stol(key.substr(0, key.size() - 2));
+            }
+        }
+        else if (inValues && key.find_first_of("0123456789") == 0 && key.size() > 2 &&
+                 key.back() == 'm' && key[key.size() - 2] == 's')
+        {
+            string count, latency;
+            fields >> count >> latency;
+            if (latency.size() > 2 && latency.back() == 's' && latency[latency.size() - 2] == 'u')
+            {
+                result.values.push_back(stol(latency.substr(0, latency.size() - 2)));
+            }
+        }
+        else if (key == "interval" && rest.find("median ") != string::npos)
+        {
+            const auto at = rest.find("range ");
+            if (at != string::npos)
+            {
+                const auto dash = rest.find('-', at);
+                if (dash != string::npos)
+                {
+                    result.minUs = stol(rest.substr(at + 6, dash - at - 6));
+                    auto maxText = rest.substr(dash + 1);
+                    const auto unit = maxText.find("us");
+                    if (unit != string::npos)
+                    {
+                        result.maxUs = stol(maxText.substr(0, unit));
+                    }
+                }
+            }
+            const auto over = rest.find(" over ");
+            if (over != string::npos)
+            {
+                result.samples = static_cast<size_t>(stoul(rest.substr(over + 6)));
+            }
+        }
+    }
+    return result;
+}
+
+struct ComparisonRow
+{
+    string name;
+    TestResult first;
+    TestResult second;
+};
+
+vector<ComparisonRow> compareVersions(const string& first, const string& second, string& problem)
+{
+    vector<ComparisonRow> rows;
+    const auto root = stand::loadTestDirectory() / "results" / "Bench";
+    set<string> firstTests, secondTests;
+    const auto collect = [&root](const string& version, set<string>& tests)
+    {
+        error_code error;
+        for (filesystem::directory_iterator it(root / version, error), end; !error && it != end; it.increment(error))
+        {
+            if (it->path().extension() == ".txt" && it->is_regular_file(error))
+            {
+                tests.insert(it->path().stem().string());
+            }
+        }
+    };
+    collect(first, firstTests);
+    collect(second, secondTests);
+    vector<string> common;
+    set_intersection(firstTests.begin(), firstTests.end(), secondTests.begin(), secondTests.end(),
+                     back_inserter(common));
+    for (const auto& name: common)
+    {
+        auto row = ComparisonRow {name, readTestResult(root / first / (name + ".txt")),
+                                  readTestResult(root / second / (name + ".txt"))};
+        if (row.first.valid && row.second.valid)
+        {
+            rows.push_back(std::move(row));
+        }
+    }
+    if (rows.empty())
+    {
+        problem = "No completed tests in both " + first + " and " + second;
+    }
+    return rows;
+}
+
+string percentDifference(long first, long second)
+{
+    if (first == 0)
+    {
+        return "n/a";
+    }
+    ostringstream text;
+    text << fixed << setprecision(1) << (static_cast<double>(second - first) * 100 / first) << '%';
+    return text.str();
+}
+
+void drawComparison(tui::Frame& frame, const vector<ComparisonRow>& rows, const string& first,
+                    const string& second, size_t chosen, int width, int height)
+{
+    frame.resize(width, height);
+    frame.clear(theme::desktop);
+    frame.put(1, 1, theme::status, string(static_cast<size_t>(width), ' '));
+    frame.put(1, 2, theme::statusKey, "compare " + first + " -> " + second);
+    if (width < 8 || height < 8)
+    {
+        frame.flush();
+        return;
+    }
+    const auto left = 1;
+    const auto inner = max(40, width - 1);
+    const auto bottom = height - 1;
+    string border;
+    for (int i = 0; i < width - 2; ++i)
+    {
+        border += "═";
+    }
+    frame.put(2, left, theme::frame, "╔" + border + "╗");
+    for (int row = 3; row < bottom; ++row)
+    {
+        frame.put(row, left, theme::frame, "║");
+        frame.put(row, width, theme::frame, "║");
+    }
+    frame.put(bottom, left, theme::frame, "╚" + border + "╝");
+    frame.put(2, 3, theme::frameActive, clipTo(" Comparison ", inner - 2));
+
+    const auto widths = [width]()
+    {
+        const int name = max(18, min(width - 54, 64));
+        return std::array<int, 6> {name, 9, 9, 9, 9, 10};
+    }();
+    const auto drawColumns = [&](const int row, const array<string, 6>& cells, const char* color)
+    {
+        int column = 3;
+        for (int i = 0; i < 6; ++i)
+        {
+            frame.put(row, column, color, padded(cells[i], widths[i]));
+            column += widths[i] + 1;
+        }
+    };
+    drawColumns(4, {"Test", first, second, "D avg", "D med", "D p99"}, theme::header);
+    const auto room = static_cast<size_t>(max(0, bottom - 7));
+    const auto rowsPerPage = room == 0 ? size_t {1} : room;
+    const auto firstRow = min(chosen / rowsPerPage * rowsPerPage,
+                              rows.size() > room ? rows.size() - room : size_t {0});
+    for (size_t i = 0; i < room && firstRow + i < rows.size(); ++i)
+    {
+        const auto& row = rows[firstRow + i];
+        const auto color = firstRow + i == chosen ? theme::selected : theme::fileList;
+        drawColumns(5 + static_cast<int>(i),
+                    {row.name, to_string(row.first.averageUs) + "us", to_string(row.second.averageUs) + "us",
+                     percentDifference(row.first.averageUs, row.second.averageUs),
+                     percentDifference(row.first.medianUs, row.second.medianUs),
+                     percentDifference(row.first.p99Us, row.second.p99Us)}, color);
+    }
+    if (rows.empty())
+    {
+        frame.put(6, 3, theme::warningDesktop, clipTo("No comparable tests", inner - 4));
+    }
+    frame.put(height, 1, theme::status, string(static_cast<size_t>(width), ' '));
+    tui::putMarked(frame, height, 2, theme::status, theme::statusKey, "~↑/↓~ move   ~F10~ Back");
+    frame.flush();
 }
 
 void drawAlert(tui::Frame& frame, const int width, const int height, const string& message,
@@ -1370,7 +1613,8 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
         }
         else
         {
-            text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << report.scenarios.size() << "  "
+            const auto total = report.plannedTests != 0 ? report.plannedTests : report.scenarios.size();
+            text << " test " << (report.scenarios.empty() ? 0 : shown + 1) << '/' << total << "  "
                  << scenario.name << "   ";
             if (stale)
             {
@@ -1505,8 +1749,10 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
 }
 
 
-int monitorRun(filesystem::path dir, const string& runFile, bool once, string* browserError = nullptr);
+int monitorRun(filesystem::path dir, const string& runFile, bool once, bool runNow = false,
+               string* browserError = nullptr);
 int browseRuns();
+int showComparison(const string& first, const string& second);
 
 } // namespace
 
@@ -1521,6 +1767,9 @@ int main(int argc, char** argv)
     string            runFile;
     bool              view = false;
     bool              once = false;
+    bool              runNow = false;
+    bool              compare = false;
+    string            compareFirst, compareSecond;
     bool              edit = false;
     string            editTarget;
     for (int i = 1; i < argc; ++i)
@@ -1543,14 +1792,26 @@ int main(int argc, char** argv)
                 dir = argv[++i];
             }
         }
-        else if (arg == "--run")
+        else if (arg == "--run" || arg == "--run-now")
         {
+            runNow = arg == "--run-now";
             if (i + 1 >= argc || argv[i + 1][0] == '-')
             {
-                fprintf(stderr, "stand_runner: --run requires a run file\n");
+                fprintf(stderr, "stand_runner: %s requires a run file\n", arg.c_str());
                 return 2;
             }
             runFile = argv[++i];
+        }
+        else if (arg == "--compare")
+        {
+            compare = true;
+            if (i + 2 >= argc || argv[i + 1][0] == '-' || argv[i + 2][0] == '-')
+            {
+                fprintf(stderr, "stand_runner: --compare needs two versions\n");
+                return 2;
+            }
+            compareFirst = argv[++i];
+            compareSecond = argv[++i];
         }
         else if (arg == "--once")
         {
@@ -1562,6 +1823,8 @@ int main(int argc, char** argv)
                    "  stand_runner                                         choose a run file\n"
                    "  stand_runner --edit [run-file]                        fill in a run and write it\n"
                    "  stand_runner --run <run-file> [--once]               watch, start, stop and file\n"
+                   "  stand_runner --run-now <run-file> [--once]           start immediately, then watch\n"
+                   "  stand_runner --compare <version1> <version2>         compare filed results\n"
                    "  stand_runner --view <run-dir> [--once]               watch only\n"
                    "\n"
                    "  No arguments:          Up/Down selects a file; F3 creates, F4 edits, F5 opens\n"
@@ -1577,7 +1840,9 @@ int main(int argc, char** argv)
                    "                         and --server the file already names.\n"
                    "                         Keys: s start, x stop, f file the result, q quit; each\n"
                    "                         action asks for a y first.\n"
-                   "  --once                 Print one plain-text status and exit, for a script or a log.\n"
+                   "  --run-now <run-file>   Same, but starts the run on opening; no second F5.\n"
+                   "  --compare V1 V2        Compare completed tests in results/Bench/V1 and V2.\n"
+                    "  --once                 Print one plain-text status and exit, for a script or a log.\n"
                    );
             return 0;
         }
@@ -1587,7 +1852,7 @@ int main(int argc, char** argv)
             // two could disagree. Whoever typed it deserves the sentence that replaces it.
             fprintf(stderr,
                     "stand_runner: --broker is gone - the broker comes from the run file.\n"
-                    "               Use: stand_runner --run <run-file>\n");
+                    "               Use: stand_runner --run[-now] <run-file>\n");
             return 2;
         }
         else
@@ -1597,9 +1862,9 @@ int main(int argc, char** argv)
         }
     }
 
-    if ((edit && (view || !runFile.empty() || once)) || (!dir.empty() && !runFile.empty()))
+    if ((edit && (view || !runFile.empty() || once || runNow)) || (!dir.empty() && !runFile.empty()))
     {
-        fprintf(stderr, "stand_runner: choose one of --edit, --run <run-file>, or --view <run-dir>\n");
+        fprintf(stderr, "stand_runner: choose one of --edit, --run[-now] <run-file>, or --view <run-dir>\n");
         return 2;
     }
 
@@ -1629,18 +1894,24 @@ int main(int argc, char** argv)
         return stand::editRunFile(spec) == stand::FormAction::Saved ? 0 : 1;
     }
 
+    if (compare)
+    {
+        return showComparison(compareFirst, compareSecond);
+    }
+
     if (dir.empty() && runFile.empty())
     {
-        fprintf(stderr, "stand_runner: use --run <run-file>, --view <run-dir>, or --edit\n");
+        fprintf(stderr, "stand_runner: use --run[-now] <run-file>, --view <run-dir>, or --edit\n");
         return 2;
     }
 
-    return monitorRun(dir, runFile, once);
+    return monitorRun(dir, runFile, once, runNow);
 }
 
 namespace {
 
-int monitorRun(filesystem::path dir, const string& runFile, const bool once, string* browserError)
+int monitorRun(filesystem::path dir, const string& runFile, const bool once, const bool runNow,
+               string* browserError)
 {
     const auto fail = [browserError](const string& message)
     {
@@ -1690,7 +1961,7 @@ int monitorRun(filesystem::path dir, const string& runFile, const bool once, str
             // The usual reason: the directory a run writes into does not exist until the run
             // starts, and the way to start one from here is --run, not a path that is not there.
             return fail(dir.string() + " is not an accessible run directory."
-                        "\n               To start and watch a run: stand_runner --run <run-file>");
+                        "\n               To start and watch a run: stand_runner --run-now <run-file>");
         }
     }
 
@@ -1705,6 +1976,10 @@ int monitorRun(filesystem::path dir, const string& runFile, const bool once, str
     if (runSpec)
     {
         control.emplace(*runSpec);
+        if (runNow && control->canStart())
+        {
+            control->start();
+        }
     }
 
     if (once)
@@ -2009,6 +2284,49 @@ string modifiedDate(const filesystem::file_time_type modified)
     return date;
 }
 
+int showComparison(const string& first, const string& second)
+{
+    string problem;
+    const auto rows = compareVersions(first, second, problem);
+    if (!tui::Terminal::available())
+    {
+        printf("Comparison: %s -> %s\n", first.c_str(), second.c_str());
+        for (const auto& row: rows)
+        {
+            printf("  %s  %lus  %lus  %s\n", row.name.c_str(), row.first.averageUs,
+                   row.second.averageUs, percentDifference(row.first.averageUs, row.second.averageUs).c_str());
+        }
+        if (!problem.empty())
+        {
+            printf("  %s\n", problem.c_str());
+        }
+        return 0;
+    }
+
+    tui::Terminal terminal;
+    tui::Frame frame;
+    size_t chosen = 0;
+    while (tui::Terminal::terminateFlag() == 0)
+    {
+        drawComparison(frame, rows, first, second, chosen, terminal.width(), terminal.height());
+        const auto key = terminal.readKey(200).key;
+        if (key == tui::Key::F10 || key == tui::Key::Escape)
+        {
+            break;
+        }
+        if (key == tui::Key::Up && chosen > 0)
+        {
+            --chosen;
+        }
+        else if (key == tui::Key::Down && chosen + 1 < rows.size())
+        {
+            ++chosen;
+        }
+    }
+    printf("\033[2J\033[H");
+    return 0;
+}
+
 int browseRuns()
 {
     if (!tui::Terminal::available())
@@ -2048,6 +2366,10 @@ int browseRuns()
         bool yesSelected = false;
         string newName;
         filesystem::path newPath;
+        vector<string> compareList;
+        size_t compareChoice = 0;
+        bool compareButtons = false;
+        string compareFirst;
         {
             // The editor and monitor own their own terminals. Release this one before entering either.
             tui::Terminal terminal;
@@ -2124,8 +2446,8 @@ int browseRuns()
                 tui::putMarked(frame, height, 2, theme::status, theme::statusKey, "~F3~ New");
                 tui::putMarked(frame, height, 11,
                                entries.empty() ? theme::statusDim : theme::status,
-                               entries.empty() ? theme::statusDim : theme::statusKey, "~F4~ Edit   ~F5~ Run   ~F8~ Delete");
-                tui::putMarked(frame, height, 42, theme::status, theme::statusKey, "~F10~ Quit");
+                               entries.empty() ? theme::statusDim : theme::statusKey,
+                               "~F4~ Edit   ~F5~ Run   ~F6~ Compare   ~F8~ Delete          ~F10~ Quit");
                 if (prompt == tui::Key::F3)
                 {
                     const bool framed = width >= 30 && height >= 9;
@@ -2163,6 +2485,33 @@ int browseRuns()
                                   padded(yesSelected ? "[Edit]   Cancel" : " Edit   [Cancel]", contentWidth));
                     }
                 }
+                else if (prompt == tui::Key::F6)
+                {
+                    const auto boxWidth = min(64, width - 3);
+                    const auto shownVersions = min<size_t>(2, compareList.size());
+                    const auto boxHeight = min(height - 2, 10 + static_cast<int>(shownVersions));
+                    const auto left = (width - boxWidth) / 2 + 1;
+                    const auto top = max(1, (height - boxHeight) / 2 + 1);
+                    drawDialogFrame(frame, left, top, boxWidth, boxHeight, " Compare to version ");
+                    frame.put(top + 2, left + 3, theme::dialog, padded("Compare to version:", boxWidth - 6));
+                    frame.put(top + 3, left + 3, theme::dialog, padded("Run file: " + compareFirst, boxWidth - 6));
+                    const auto rows = static_cast<size_t>(max(0, boxHeight - 9));
+                    const auto rowsPerPage = rows == 0 ? size_t {1} : rows;
+                    const auto firstRow = compareChoice / rowsPerPage * rowsPerPage;
+                    for (size_t i = 0; i < rows && firstRow + i < compareList.size(); ++i)
+                    {
+                        const auto color = !compareButtons && firstRow + i == compareChoice
+                                               ? theme::selected : theme::fileList;
+                        frame.put(top + 4 + static_cast<int>(i), left + 2, color,
+                                  padded(compareList[firstRow + i], boxWidth - 2));
+                    }
+                    drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, !compareButtons, "  Ok  ");
+                    if (!message.empty())
+                    {
+                        frame.put(top + boxHeight - 5, left + 3, theme::warning,
+                                  padded(message, boxWidth - 6));
+                    }
+                }
                 else if (prompt == tui::Key::F8)
                 {
                     drawAlert(frame, width, height,
@@ -2180,6 +2529,28 @@ int browseRuns()
                 {
                     prompt = tui::Key::None;
                     message.clear();
+                    continue;
+                }
+                if (prompt == tui::Key::F6)
+                {
+                    if (key == tui::Key::Up && !compareButtons && compareChoice > 0)
+                    {
+                        --compareChoice;
+                    }
+                    else if (key == tui::Key::Down && !compareButtons && compareChoice + 1 < compareList.size())
+                    {
+                        ++compareChoice;
+                    }
+                    else if (key == tui::Key::Tab || key == tui::Key::Left || key == tui::Key::Right)
+                    {
+                        compareButtons = !compareButtons;
+                        yesSelected = !compareButtons;
+                    }
+                    else if (key == tui::Key::Enter)
+                    {
+                        action = tui::Key::F6;
+                        break;
+                    }
                     continue;
                 }
                 if (prompt != tui::Key::None &&
@@ -2258,6 +2629,34 @@ int browseRuns()
                     message.clear();
                     continue;
                 }
+                if (key == tui::Key::F6)
+                {
+                    stand::RunSpec spec;
+                    if (!stand::fromScript(entries[index].path, spec) || spec.version.empty())
+                    {
+                        message = "Selected run file has no version to compare";
+                        continue;
+                    }
+                    compareFirst = spec.version;
+                    compareList.clear();
+                    for (const auto& version: stand::availableResultVersions())
+                    {
+                        if (version != compareFirst)
+                        {
+                            compareList.push_back(version);
+                        }
+                    }
+                    if (compareList.empty())
+                    {
+                        message = "No other result versions to compare with " + compareFirst;
+                        continue;
+                    }
+                    prompt = key;
+                    compareChoice = 0;
+                    compareButtons = false;
+                    message.clear();
+                    continue;
+                }
                 if (entries.empty())
                 {
                     continue;
@@ -2272,6 +2671,7 @@ int browseRuns()
                     case tui::Key::End: index = entries.size() - 1; break;
                     case tui::Key::F4:
                     case tui::Key::F5: action = key; break;
+                    case tui::Key::F6: break;
                     case tui::Key::F8: prompt = key; yesSelected = false; break;
                     default: break;
                 }
@@ -2290,7 +2690,11 @@ int browseRuns()
             selectedPath = entries[index].path;
         }
         message.clear();
-        if (action == tui::Key::F3)
+        if (action == tui::Key::F6)
+        {
+            showComparison(compareList[compareChoice], compareFirst);
+        }
+        else if (action == tui::Key::F3)
         {
             stand::RunSpec spec;
             spec.file = newPath;
@@ -2324,7 +2728,7 @@ int browseRuns()
         }
         else
         {
-            monitorRun({}, selectedPath.string(), false, &message);
+            monitorRun({}, selectedPath.string(), false, action == tui::Key::F5, &message);
         }
     }
     return 0;

@@ -45,6 +45,9 @@ std::filesystem::path runDirectory();
 /// Scenario set files that exist next to stand_run.sh, sorted, for the form's chooser.
 std::vector<std::string> availableScenarioSets();
 
+/// Published result directories in results/Bench, newest first, for the comparison chooser.
+std::vector<std::string> availableResultVersions();
+
 /// Newest XMQ version that has published bench results, as the form's starting value.
 std::string suggestedVersion();
 

@@ -1,38 +1,38 @@
 Server:   XMQ
 Version:  1.2.0
-Host:     thinker11; XMQ 1.2.0; bench profile bench-1.1.2; MQTT1883
+Host:     thinker11:1883; existing broker, 1.2.0
 Client:   thinker10, 51 bound source addresses, xmq_scn 1.2.0
 Date:     2026-11-27
-Started:  2026-11-27 09:05:54 AEDT
-Total execution time: 00:40:13
+Started:  2026-11-27 21:01:18 AEDT
+Total execution time: 00:39:57
 Campaign status: passed
 
-Broker restarted before each scenario.
+Existing broker; no restart between scenarios and no SSH CPU/RSS sampling.
+
+NOT restarted between scenarios: each ran against the state the one before it left.
 
 Scenario: Point-To-Point-60K-persistent
-Interval        Count    Latency       Rate/s        RSS
-────────────────────────────────────────────────────────
-0ms           3600133      186us        60002    1172 Mb
-60000ms       3600145      188us        60002    1172 Mb
-120000ms      3600142      185us        60002    1172 Mb
-180000ms      3600147      190us        60002    1172 Mb
-240000ms      3600145      184us        60002    1172 Mb
-300000ms      3600143      181us        60002    1172 Mb
-360000ms      3600144      184us        60002    1172 Mb
-420000ms      3600146      183us        60002    1172 Mb
-480000ms      3600143      186us        60002    1172 Mb
-540000ms      3600144      186us        60002    1172 Mb
-────────────────────────────────────────────────────────
-Average      36001432      185us        60002    1172 Mb
-Median                     186us                 1172 Mb
+Interval        Count    Latency       Rate/s
+─────────────────────────────────────────────
+0ms           3600133      192us        60002
+60000ms       3600146      187us        60002
+120000ms      3600145      191us        60002
+180000ms      3600143      181us        60002
+240000ms      3600144      195us        60002
+300000ms      3600143      185us        60002
+360000ms      3600146      186us        60002
+420000ms      3600146      194us        60002
+480000ms      3600144      189us        60002
+540000ms      3600140      188us        60002
+─────────────────────────────────────────────
+Average      36001430      189us        60002
+Median                     189us
 Percentiles
 p50    180us
-p90    218us
-p95    234us
-p99    280us
-p99.9  1040us
-max    17920us
-  interval median 186us over 10 samples (as xmq_scn reports it), range 181-190us
-  server CPU   mean 270%, peak 387%
-  server RSS   1172 Mb peak
+p90    220us
+p95    236us
+p99    288us
+p99.9  2240us
+max    21760us
+  interval median 189us over 10 samples (as xmq_scn reports it), range 181-195us
   client NIC enp86s0: no dropped packets during the run

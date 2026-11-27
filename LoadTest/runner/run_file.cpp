@@ -168,6 +168,27 @@ vector<string> availableScenarioSets()
     return sets;
 }
 
+vector<string> availableResultVersions()
+{
+    vector<string> versions;
+    error_code     error;
+    for (const auto& entry: fs::directory_iterator(loadTestDirectory() / "results" / "Bench", error))
+    {
+        if (entry.is_directory(error))
+        {
+            versions.push_back(entry.path().filename().string());
+        }
+    }
+    // Put numeric XMQ versions first, newest first; named broker directories follow.
+    const auto named = [](const string& version) { return version.find_first_not_of("0123456789.") != string::npos; };
+    sort(versions.begin(), versions.end(), [&named](const string& a, const string& b)
+    {
+        if (named(a) != named(b)) return named(a) < named(b);
+        return a > b;
+    });
+    return versions;
+}
+
 string suggestedVersion()
 {
     vector<string> versions;
@@ -287,6 +308,7 @@ string toScript(const RunSpec& spec)
          << "# No `set -e`: stand_run.sh reports its own failures with a message worth reading, and the\n"
          << "# exit status of this file is its exit status.\n"
          << "exec " << quote(script.string()) << " \\\n"
+         << "    --existing-broker \\\n"
          << "    --version " << quote(spec.version) << " \\\n"
           << "    --set " << quote(setPath.string()) << " \\\n"
           << "    --server " << quote(spec.server) << " \\\n"

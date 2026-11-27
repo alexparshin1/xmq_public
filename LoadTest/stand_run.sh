@@ -44,6 +44,7 @@ dry_run=0
 skip_preflight=0
 skip_readiness=0
 stop_other_brokers=1
+existing_broker=1
 declare -a notes=()
 
 usage() {
@@ -59,6 +60,8 @@ Usage: $(basename "$0") --version V [options]
                          pass it whenever the profile is not named after the version.
 
 Options:
+  --existing-broker      Test the running MQTT endpoint without SSH, setup, or broker restarts (default).
+  --managed-profile      Opt in to the legacy home-stand procedure that restarts the broker.
   --set FILE             Scenario set to run (default: Scenario-Set-Bench.txt next to this script).
   --server HOST          Server host (default: thinker11).
   --nic IFACE            Client NIC to watch for drops (default: enp86s0).
@@ -116,6 +119,8 @@ while [[ $# -gt 0 ]]; do
         --skip-readiness) skip_readiness=1; shift ;;
         --stop-other-brokers) stop_other_brokers=1; shift ;;
         --keep-other-brokers) stop_other_brokers=0; shift ;;
+        --existing-broker) existing_broker=1; shift ;;
+        --managed-profile) existing_broker=0; shift ;;
         --dry-run)     dry_run=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             echo "stand_run: unknown option $1" >&2; usage >&2; exit 2 ;;
@@ -129,12 +134,16 @@ done
 bench_dir_note=""
 [[ -n "$bench_dir" ]] || { bench_dir="bench-$version"; bench_dir_note=" (from --version)"; }
 [[ -r "$set_file" ]]  || die "cannot read set file: $set_file"
+if (( existing_broker )) && [[ -n "$setup_cmd" ]]; then
+    die "--setup-cmd is not supported when testing an existing broker"
+fi
 
 [[ "$(hostname -s)" == "thinker10" ]] ||
     echo "stand_run: WARNING: this is $(hostname -s), not thinker10; the client notes will say so" >&2
 
 # The bench profile is the only thing that decides what the server runs, so it is checked before
 # anything is started rather than discovered at the first restart, twenty minutes in.
+if (( ! existing_broker )); then
 remote_restart="~/$(basename "$bench_dir")/restart.sh"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$server" "test -x $remote_restart"; then
     die "no executable $remote_restart on $server$bench_dir_note: build the profile there first (cmake . && make -j8 install, then the per-version bench directory)"
@@ -168,6 +177,7 @@ if [[ "$profile_would_authenticate" == "no" ]]; then
     echo "stand_run: connections are off. The broker would listen and refuse every client." >&2
     die "add the node's extension config to ~/$bench_dir (see STAND-RUNBOOK.md, 'The bench profile')"
 fi
+fi
 
 # A recorded figure needs the broker's CPU and memory next to it, and a run measured while
 # another client was publishing measures neither. run_scenario_set.sh refuses the second of
@@ -179,6 +189,7 @@ pgrep -x xmq_scn >/dev/null && die "xmq_scn is already running - another load te
 # whether that happens deliberately and is written into the record, or happens by accident on the
 # first restart. A broker that keeps 1883 - the systemd unit, or one left in ~/.local/bin - makes
 # the set measure it while the record names the version in the bench directory.
+if (( ! existing_broker )); then
 systemd_active=0
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$server" 'systemctl is-active --quiet xmq_server' >/dev/null 2>&1 \
     && systemd_active=1
@@ -223,6 +234,7 @@ if [[ -n "$others" ]] || (( systemd_active )); then
         fi
     fi
 fi
+fi
 
 bound_addresses=$(ip -o addr show dev "$nic" 2>/dev/null | grep -c "inet $subnet\." || true)
 if (( bound_addresses < count )); then
@@ -230,7 +242,7 @@ if (( bound_addresses < count )); then
     echo "stand_run:          run ./make_ip_addresses.sh --iface $nic --subnet $subnet --first $first_octet --count $count" >&2
 fi
 
-if (( ! skip_readiness )); then
+if (( ! existing_broker && ! skip_readiness )); then
     # Unlike preflight, these refuse the run: an enabled persistence or a Debug client changes the
     # numbers by tens of percent and looks exactly like a broker regression.
     "$SCRIPT_DIR/stand_readiness.sh" --server "$server" --set "$set_file" || exit 1
@@ -242,11 +254,12 @@ if (( ! skip_preflight )); then
     # on the client and cleared NOTRACK rules on the server - print as NOTE, and a NOTE is
     # never a reason to reconfigure a host or to refuse to start.
     echo "== preflight =="
-    for target in "" "-H $server -r server"; do
-        # shellcheck disable=SC2086
-        output=$("$SCRIPT_DIR/preflight.sh" $target 2>&1)
+    output=$("$SCRIPT_DIR/preflight.sh" 2>&1)
+    echo "$output" | grep -E "FAIL|NOTE|warn|===" || true
+    if (( ! existing_broker )); then
+        output=$("$SCRIPT_DIR/preflight.sh" -H "$server" -r server 2>&1)
         echo "$output" | grep -E "FAIL|NOTE|warn|===" || true
-    done
+    fi
     echo "  (NOTE = known state on this stand, run proceeds; only FAIL needs attention)"
 fi
 
@@ -256,23 +269,30 @@ fi
 mkdir -p "$out_dir" || die "cannot create $out_dir"
 
 record="$out_dir/record.txt"
-[[ -n "$server_note" ]] || server_note="$server; XMQ $version; bench profile $bench_dir; MQTT1883"
+if (( existing_broker )); then
+    [[ -n "$server_note" ]] || server_note="$server:1883; existing broker, $version"
+    notes+=("Existing broker; no restart between scenarios and no SSH CPU/RSS sampling.")
+else
+    [[ -n "$server_note" ]] || server_note="$server; XMQ $version; bench profile $bench_dir; MQTT1883"
+fi
 if [[ -z "$client_note" ]]; then
     client_note="$(hostname -s), $bound_addresses bound source addresses, xmq_scn $version"
 fi
 
-restart_cmd="ssh -o BatchMode=yes $server $remote_restart"
-
 cmd=("$SCRIPT_DIR/run_scenario_set.sh" "$set_file"
-     --restart-cmd "$restart_cmd"
-     --wait-for "$server:1883"
-     --stats-host "$server"
+      --wait-for "$server:1883"
      --nic "$nic"
      --out "$out_dir"
      --record "$record"
      --version "$version"
      --server-note "$server_note"
-     --client-note "$client_note")
+      --client-note "$client_note")
+if (( existing_broker )); then
+    cmd+=(--allow-no-stats)
+else
+    restart_cmd="ssh -o BatchMode=yes $server $remote_restart"
+    cmd+=(--restart-cmd "$restart_cmd" --stats-host "$server")
+fi
 [[ -n "$setup_cmd" ]] && cmd+=(--setup-cmd "$setup_cmd")
 for note in "${notes[@]+"${notes[@]}"}"; do cmd+=(--note "$note"); done
 cmd+=(-- --skip-ip-setup --subnet "$subnet" --first "$first_octet" --count "$count"
@@ -280,15 +300,19 @@ cmd+=(-- --skip-ip-setup --subnet "$subnet" --first "$first_octet" --count "$cou
 
 echo "== run =="
 echo "  version    : $version"
-echo "  profile    : $bench_dir on $server"
+if (( existing_broker )); then
+    echo "  broker     : $server:1883 (already running)"
+else
+    echo "  profile    : $bench_dir on $server"
+    echo "  restart    : $restart_cmd"
+fi
 echo "  set        : $set_file"
 echo "  logs       : $out_dir"
 echo "  record     : $record"
-echo "  restart    : $restart_cmd"
 
 if (( dry_run )); then
     echo "== dry run, not starting =="
-    printf '  %q ' "${cmd[@]}"
+    printf '  %q ' "${cmd[@]:0:${#cmd[@]}-1}" '<redacted>'
     echo
     exit 0
 fi

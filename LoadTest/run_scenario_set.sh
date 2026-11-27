@@ -22,6 +22,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set_file=""
 restart_cmd=""
+allow_no_stats=0
 stats_host=""
 stats_process="xmq_server"
 output_mode="runner"
@@ -110,6 +111,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --setup-cmd)   setup_cmd="$2"; shift 2 ;;
     --restart-cmd) restart_cmd="$2"; shift 2 ;;
+    --allow-no-stats) allow_no_stats=1; shift ;;
     --stats-host) stats_host="$2"; shift 2 ;;
     --stats-process) stats_process="$2"; shift 2 ;;
     --wait-for)    wait_host="${2%%:*}"; [[ "$2" == *:* ]] && wait_port="${2##*:}"; shift 2 ;;
@@ -134,7 +136,7 @@ passthrough=("$@")
 [[ -n "$record" && -z "$version" ]] && {
   echo "--record needs --version: a recorded figure without the version that produced it" \
        "cannot be reproduced later." >&2; exit 1; }
-[[ -n "$record" && -z "$stats_host" ]] && {
+[[ -n "$record" && -z "$stats_host" && "$allow_no_stats" == 0 ]] && {
   echo "--record needs --stats-host: every recorded test shows the broker's CPU and memory, and" \
        "a record without them is one the site would show with dashes." >&2; exit 1; }
 [[ -r "$set_file" ]] || { echo "Cannot read set file: $set_file" >&2; exit 1; }
@@ -489,21 +491,21 @@ for scenario in "${scenarios[@]}"; do
       failed=1
       continue
     fi
-    if [[ -n "$wait_host" ]]; then
+  fi
+  if [[ -n "$wait_host" ]]; then
       up=0
       for _ in $(seq 1 60); do
-        if timeout 2 bash -c ": >/dev/tcp/$wait_host/$wait_port" 2>/dev/null; then up=1; break; fi
+        if timeout 2 bash -c ': >"/dev/tcp/$1/$2"' bash "$wait_host" "$wait_port" 2>/dev/null; then up=1; break; fi
         sleep 1
       done
       if [[ "$up" -eq 0 ]]; then
         echo "    $wait_host:$wait_port never accepted, skipping $name" >&2
-        summary+=("$name|broker did not come back")
+        summary+=("$name|broker TCP endpoint unavailable")
         scenario_times+=("$name|$(($(date +%s) - scenario_started_epoch))")
         write_record
         failed=1
         continue
       fi
-    fi
   fi
 
   echo "=== $(date +%H:%M:%S) $name: running"

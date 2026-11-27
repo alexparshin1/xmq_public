@@ -35,6 +35,7 @@ enum class Key
     F3,
     F4,
     F5,
+    F6,
     F8,
     F10,
     Character, ///< A printable character; see KeyPress::text.
