@@ -42,6 +42,7 @@ setup_cmd=""
 file_results=0
 dry_run=0
 skip_preflight=0
+skip_readiness=0
 stop_other_brokers=1
 declare -a notes=()
 
@@ -74,6 +75,8 @@ Options:
   --note TEXT            Free-text line for the record; repeatable.
   --file                 File the record with file_results.py --env Bench when the set succeeds.
   --skip-preflight       Do not run preflight.sh on either host.
+  --skip-readiness       Do not run stand_readiness.sh (persistence off, Release builds). Use only
+                         for an intentionally different configuration, never for a published set.
   --keep-other-brokers   Refuse to start if any broker on the server is not this bench profile.
                          By default such a broker - the systemd unit, or one left in
                          ~/.local/bin - is stopped first: the profile's restart.sh kills
@@ -110,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --note)        notes+=("$2"); shift 2 ;;
         --file)        file_results=1; shift ;;
         --skip-preflight) skip_preflight=1; shift ;;
+        --skip-readiness) skip_readiness=1; shift ;;
         --stop-other-brokers) stop_other_brokers=1; shift ;;
         --keep-other-brokers) stop_other_brokers=0; shift ;;
         --dry-run)     dry_run=1; shift ;;
@@ -224,6 +228,12 @@ bound_addresses=$(ip -o addr show dev "$nic" 2>/dev/null | grep -c "inet $subnet
 if (( bound_addresses < count )); then
     echo "stand_run: WARNING: $bound_addresses address(es) in $subnet.x on $nic, need $count" >&2
     echo "stand_run:          run ./make_ip_addresses.sh --iface $nic --subnet $subnet --first $first_octet --count $count" >&2
+fi
+
+if (( ! skip_readiness )); then
+    # Unlike preflight, these refuse the run: an enabled persistence or a Debug client changes the
+    # numbers by tens of percent and looks exactly like a broker regression.
+    "$SCRIPT_DIR/stand_readiness.sh" --server "$server" --set "$set_file" || exit 1
 fi
 
 if (( ! skip_preflight )); then

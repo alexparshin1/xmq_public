@@ -36,6 +36,8 @@ inline constexpr const char* dialogDim = "\033[37;40m";   // a value that is not
 
 // What the keyboard is on: Turbo Vision's "selected" style.
 inline constexpr const char* selected = "\033[30;46m";    // black on cyan
+inline constexpr const char* fileList = "\033[30;47m";    // black on light grey
+inline constexpr const char* fileListSelected = "\033[97;100m"; // white on dark grey
 
 // A shortcut letter, and a button: black on green for the one that is default.
 inline constexpr const char* shortcut = "\033[1;33;44m";  // yellow on blue

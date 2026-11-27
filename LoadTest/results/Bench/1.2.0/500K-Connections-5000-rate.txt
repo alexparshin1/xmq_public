@@ -1,0 +1,39 @@
+Server:   XMQ
+Version:  1.2.0
+Host:     thinker11; XMQ 1.2.0; bench profile bench-1.1.2; MQTT1883
+Client:   thinker10, 51 bound source addresses, xmq_scn 1.2.0
+Date:     2026-11-27
+Started:  2026-11-27 09:05:54 AEDT
+Total execution time: 00:40:13
+Campaign status: passed
+
+Broker restarted before each scenario.
+
+Scenario: 500K-Connections-5000-rate
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms             49998      491us         4999     169 Mb
+10000ms         49999      407us         4999     324 Mb
+20000ms         50001      394us         5000     478 Mb
+30000ms         49999      399us         4999     624 Mb
+40000ms         50000      395us         5000     771 Mb
+50000ms         50000      434us         5000     917 Mb
+60000ms         50000      427us         5000    1063 Mb
+70000ms         50000      405us         5000    1209 Mb
+80000ms         50000      398us         5000    1355 Mb
+90000ms         50000      403us         5000    1500 Mb
+100000ms            3      419us            0    1523 Mb
+────────────────────────────────────────────────────────
+Average        500000      415us         4545     903 Mb
+Median                     405us                  917 Mb
+Percentiles
+p50    400us
+p90    496us
+p95    520us
+p99    648us
+p99.9  8064us
+max    24064us
+  interval median 405us over 11 samples (as xmq_scn reports it), range 394-491us
+  server CPU   mean 63%, peak 192%
+  server RSS   1523 Mb peak
+  client NIC enp86s0: no dropped packets during the run

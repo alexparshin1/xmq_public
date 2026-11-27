@@ -251,9 +251,17 @@ fs::path resolveRunPath(const fs::path& path)
     return loadTestDirectory() / path;
 }
 
+fs::path runDirectory()
+{
+    const fs::path shared {"/var/lib/xmq/xmq_runner"};
+    error_code error;
+    const auto status = fs::status(shared, error);
+    return status.type() == fs::file_type::not_found ? loadTestDirectory() / "runs" : shared;
+}
+
 fs::path defaultRunFile(const RunSpec& spec)
 {
-    return loadTestDirectory() / "runs" / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + ".run.sh");
+    return runDirectory() / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + ".run.sh");
 }
 
 string toScript(const RunSpec& spec)
@@ -273,7 +281,7 @@ string toScript(const RunSpec& spec)
          << "# version line says.\n"
          << "#\n"
          << "#   ./" << spec.file.filename().string() << "                 run it in a window (or under screen)\n"
-         << "#   stand_runner --view --run <this file>   watch it, and start or stop it\n"
+         << "#   stand_runner --run <this file>   watch it, and start or stop it\n"
          << "#   from another window; the broker " << spec.server << " comes from the file.\n"
          << "#\n"
          << "# No `set -e`: stand_run.sh reports its own failures with a message worth reading, and the\n"

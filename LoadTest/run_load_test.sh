@@ -152,8 +152,12 @@ else
   # address, about 28,000 ports - and every run past that many connections fails with "Server not
   # available", which reads like the broker's fault. Two whole bench sets were lost that way.
   missing=0
+  # Read once into a string: grep -q in a pipeline exits at the first match, ip then dies of
+  # SIGPIPE, and with pipefail the pipeline reports failure for an address that IS there. That
+  # false miss has taken down several sets. A here-string has no writer left to kill.
+  addresses=$(ip -4 -o addr show)
   for ((n = first; n < first + count; ++n)); do
-    ip -4 -o addr show | grep -q " ${subnet}.${n}/" || missing=$((missing + 1))
+    grep -qF " ${subnet}.${n}/" <<< "$addresses" || missing=$((missing + 1))
   done
   if [[ "$missing" -gt 0 ]]; then
     echo "$missing of the $count source addresses ${subnet}.${first}-$((first + count - 1)) are not configured;" \

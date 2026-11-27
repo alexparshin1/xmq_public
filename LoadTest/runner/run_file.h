@@ -39,6 +39,9 @@ struct RunSpec
 /// The directory holding stand_run.sh and the scenario sets: constructed once by the caller.
 std::filesystem::path loadTestDirectory();
 
+/// Shared run library, falling back to the checkout until the shared directory is provisioned.
+std::filesystem::path runDirectory();
+
 /// Scenario set files that exist next to stand_run.sh, sorted, for the form's chooser.
 std::vector<std::string> availableScenarioSets();
 
@@ -56,7 +59,7 @@ std::string displayPath(const std::filesystem::path& path);
 /// directory, which is where run files live, not to whatever directory the program was started in.
 std::filesystem::path resolveRunPath(const std::filesystem::path& path);
 
-/// runs/<stamp>-xmq<version>.run.sh under the LoadTest directory.
+/// <stamp>-xmq<version>.run.sh under runDirectory().
 std::filesystem::path defaultRunFile(const RunSpec& spec);
 
 /// The whole script, ready to write and to run.

@@ -41,8 +41,8 @@ struct Field
 class Form final
 {
 public:
-    explicit Form(RunSpec& spec)
-        : m_spec(spec)
+    explicit Form(RunSpec& spec, const bool createOnly)
+        : m_spec(spec), m_createOnly(createOnly)
     {
         build();
     }
@@ -60,6 +60,10 @@ public:
             if (m_terminal.takeResized())
             {
                 continue;
+            }
+            if (press.key == tui::Key::F10)
+            {
+                return FormAction::Cancelled;
             }
             handle(press);
         }
@@ -292,14 +296,14 @@ private:
                 " ! " + text + blank(static_cast<size_t>(max(0, innerWidth - 6 - tui::Terminal::displayWidth(text)))));
         }
 
-        // No buttons inside the frame: F2 and Esc are named on the status bar, which is where a
+        // No buttons inside the frame: the keys are named on the status bar, which is where a
         // Turbo Vision screen put the keys it offered. A second copy inside the dialog was one
         // place too many to keep in step.
 
         // The status bar, grey with red keys, always owns the final terminal row.
         fill(height, 1, width, theme::status);
         tui::putMarked(m_frame, height, 2, theme::status, theme::statusKey,
-                       "~↑↓~ move   ~Enter~ edit   ~F2~ save   ~Esc~ leave without saving");
+                       "~↑↓~ move   ~Enter~ edit   ~F2~ save   ~F10~ leave without saving");
 
         m_frame.flush();
 
@@ -513,12 +517,17 @@ private:
             fs::create_directories(m_spec.file.parent_path(), error);
         }
         const auto text = toScript(m_spec);
-        ofstream   output(m_spec.file, ios::binary | ios::trunc);
-        output.write(text.data(), static_cast<streamsize>(text.size()));
-        output.close();
+        auto* output = fopen(m_spec.file.c_str(), m_createOnly ? "wbx" : "wb");
         if (!output)
         {
             m_problems.push_back("cannot write " + m_spec.file.string() + ": " + string(strerror(errno)));
+            return;
+        }
+        const bool written = fwrite(text.data(), 1, text.size(), output) == text.size();
+        const bool closed = fclose(output) == 0;
+        if (!written || !closed)
+        {
+            m_problems.push_back("cannot finish writing " + m_spec.file.string());
             return;
         }
         chmod(m_spec.file.c_str(), 0755);
@@ -530,6 +539,7 @@ private:
     tui::Terminal  m_terminal;
     tui::Frame     m_frame;
     RunSpec&       m_spec;
+    bool           m_createOnly;
     vector<Field>  m_fields;
     string         m_runFilePath;
     size_t         m_current {0};
@@ -543,7 +553,7 @@ private:
 
 } // namespace
 
-FormAction editRunFile(RunSpec& spec)
+FormAction editRunFile(RunSpec& spec, const bool reportToShell, const bool createOnly)
 {
     if (!tui::Terminal::available())
     {
@@ -553,8 +563,13 @@ FormAction editRunFile(RunSpec& spec)
 
     FormAction action = FormAction::Cancelled;
     {
-        Form form(spec);
+        Form form(spec, createOnly);
         action = form.run();
+    }
+
+    if (!reportToShell)
+    {
+        return action;
     }
 
     // The alternate screen is gone by now and the terminal is back to whatever was behind it: the
@@ -565,7 +580,7 @@ FormAction editRunFile(RunSpec& spec)
     {
         printf("saved: %s\n\n", spec.file.c_str());
         printf("run it:    %s\n", spec.file.c_str());
-        printf("watch it:  stand_runner --view --run %s\n", spec.file.c_str());
+        printf("watch it:  stand_runner --run %s\n", spec.file.c_str());
     }
     return action;
 }

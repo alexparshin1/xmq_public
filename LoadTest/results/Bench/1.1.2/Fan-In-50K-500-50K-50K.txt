@@ -1,0 +1,42 @@
+Server:   XMQ
+Version:  1.1.2
+Host:     thinker11; XMQ 1.1.2; bench profile bench-1.1.2-ab; MQTT1883
+Client:   thinker10, 51 bound source addresses, Release xmq_scn 1.2.0
+Date:     2026-11-27
+Started:  2026-11-27 11:25:55 AEDT
+Total execution time: 00:40:13
+Campaign status: passed
+
+Broker: XMQ 1.1.2 source with SPTK 5.6.22, Release build; full bench configuration; measured same day as 1.2.0 for a like-for-like baseline.
+other brokers on thinker11 were stopped before the run
+
+Broker restarted before each scenario.
+
+Scenario: Fan-In-50K-500-50K-50K
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           2999992      179us        49999     231 Mb
+60000ms       3000000      180us        50000     231 Mb
+120000ms      3000000      187us        50000     232 Mb
+180000ms      3000000      180us        50000     232 Mb
+240000ms      2999999      183us        49999     232 Mb
+300000ms      3000001      180us        50000     232 Mb
+360000ms      3000000      182us        50000     232 Mb
+420000ms      2997015      468us        49950     232 Mb
+480000ms      3000433     1373us        50007     232 Mb
+540000ms      3000005      289us        50000     232 Mb
+600000ms            3      186us            0     232 Mb
+────────────────────────────────────────────────────────
+Average      29997448      340us        45450     232 Mb
+Median                     183us                  232 Mb
+Percentiles
+p50    178us
+p90    268us
+p95    928us
+p99    3968us
+p99.9  13440us
+max    89088us
+  interval median 183us over 11 samples (as xmq_scn reports it), range 179-1373us
+  server CPU   mean 242%, peak 288%
+  server RSS   232 Mb peak
+  client NIC enp86s0: no dropped packets during the run

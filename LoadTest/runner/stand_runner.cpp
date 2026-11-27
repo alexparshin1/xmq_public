@@ -14,7 +14,7 @@
  *
  *   stand_runner --edit [run-file]                      fill in a run and write it
  *   stand_runner --view <run-dir>                       live, full screen
- *   stand_runner --view --run <run-file>                watch, start, stop and file
+ *   stand_runner --run <run-file>                        watch, start, stop and file
  *   stand_runner --view <run-dir> --once                one plain-text status, for a script or a log
  */
 #include <algorithm>
@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -854,6 +855,10 @@ void printOperator(const stand::RunControl* control, const Pending& pending)
     {
         printf("       %s\n", state.lastAction.c_str());
     }
+    if (!state.failure.empty())
+    {
+        printf("       %s\n       log: %s\n", state.failure.c_str(), state.log.c_str());
+    }
 
     if (pending.kind != Pending::Kind::None)
     {
@@ -913,17 +918,63 @@ string padded(const string& text, const int columns)
     return clipped + string(static_cast<size_t>(max(0, columns - static_cast<int>(clipped.size()))), ' ');
 }
 
+void drawDialogFrame(tui::Frame& frame, const int left, const int top,
+                     const int boxWidth, const int boxHeight, const string& title)
+{
+    const int right = left + boxWidth;
+    const int shadowBottom = top + boxHeight;
+    for (int row = top + 1; row < shadowBottom; ++row)
+    {
+        frame.overlay(row, right, 1, theme::windowShadow, "▌");
+    }
+    frame.overlay(shadowBottom, left + 2, boxWidth - 2, theme::windowShadow, "▀");
+    frame.overlay(shadowBottom, right, 1, theme::windowShadow, "▘");
+    string topBorder {"╔"};
+    string bottomBorder {"╚"};
+    for (int i = 0; i < boxWidth - 2; ++i)
+    {
+        topBorder += "═";
+        bottomBorder += "═";
+    }
+    frame.put(top, left, theme::dialogFrame, topBorder + "╗");
+    frame.put(top + boxHeight - 1, left, theme::dialogFrame, bottomBorder + "╝");
+    for (int row = top + 1; row < top + boxHeight - 1; ++row)
+    {
+        frame.put(row, left, theme::dialogFrame, "║");
+        frame.put(row, left + boxWidth - 1, theme::dialogFrame, "║");
+        frame.put(row, left + 1, theme::dialog, string(static_cast<size_t>(boxWidth - 2), ' '));
+    }
+    frame.put(top, left + 2, theme::dialogFrame, "[ ]");
+    frame.put(top, left + 3, theme::dialogAccent, "■");
+    frame.put(top, left + (boxWidth - static_cast<int>(title.size())) / 2, theme::dialogFrame, title);
+}
+
+void drawDialogButtons(tui::Frame& frame, const int row, const int left, const int boxWidth,
+                       const bool primarySelected, const string& primary)
+{
+    const int buttons = left + (boxWidth - 21) / 2;
+    const auto button = [&](int col, bool active, const string& label)
+    {
+        frame.put(row + 1, col + 1, theme::buttonShadowBelow, "▀▀▀▀▀▀▀▀▀");
+        frame.put(row, col + 9, theme::dialog, "▄");
+        tui::putMarked(frame, row, col, active ? theme::buttonActive : theme::button,
+                       theme::buttonHot, label);
+    };
+    button(buttons, primarySelected, primary);
+    button(buttons + 12, !primarySelected, " ~C~ancel  ");
+}
+
 void drawAlert(tui::Frame& frame, const int width, const int height, const string& message,
                const bool yesSelected)
 {
     if (width < 28 || height < 9)
     {
         frame.put(max(1, height / 2), 1, theme::dialog, clipTo(message, width));
-        frame.put(max(1, height / 2 + 1), 1, theme::dialog, clipTo("Y: Yes   N/Esc: Cancel", width));
+        frame.put(max(1, height / 2 + 1), 1, theme::dialog,
+                  clipTo(yesSelected ? "[Yes]   Cancel" : " Yes   [Cancel]", width));
         return;
     }
     const int boxWidth = min(58, width - 3);
-    const int inner = boxWidth - 2;
     const int textWidth = boxWidth - 6;
     vector<string> lines;
     auto rest = message;
@@ -946,52 +997,15 @@ void drawAlert(tui::Frame& frame, const int width, const int height, const strin
     {
         lines.back() = clipTo(lines.back(), textWidth - 1) + "…";
     }
-    const int boxHeight = static_cast<int>(lines.size()) + 7;
+    const int boxHeight = static_cast<int>(lines.size()) + 6;
     const int left = (width - boxWidth) / 2 + 1;
     const int top = (height - boxHeight) / 2 + 1;
-    const int right = left + boxWidth;
-    const int shadowBottom = top + boxHeight;
-    for (int row = top + 1; row < shadowBottom; ++row)
-    {
-        frame.overlay(row, right, 1, theme::windowShadow, "▌");
-    }
-    frame.overlay(shadowBottom, left + 2, boxWidth - 2, theme::windowShadow, "▀");
-    frame.overlay(shadowBottom, right, 1, theme::windowShadow, "▘");
-    string topBorder {"╔"};
-    string bottomBorder {"╚"};
-    for (int i = 0; i < inner; ++i)
-    {
-        topBorder += "═";
-        bottomBorder += "═";
-    }
-    topBorder += "╗";
-    bottomBorder += "╝";
-    frame.put(top, left, theme::dialogFrame, topBorder);
-    frame.put(top + boxHeight - 1, left, theme::dialogFrame, bottomBorder);
-    for (int row = top + 1; row < top + boxHeight - 1; ++row)
-    {
-        frame.put(row, left, theme::dialogFrame, "║");
-        frame.put(row, left + boxWidth - 1, theme::dialogFrame, "║");
-        frame.put(row, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
-    }
-    frame.put(top, left + 2, theme::dialogFrame, "[ ]");
-    frame.put(top, left + 3, theme::dialogAccent, "■");
-    frame.put(top, left + (boxWidth - 9) / 2, theme::dialogFrame, " Confirm ");
+    drawDialogFrame(frame, left, top, boxWidth, boxHeight, " Confirm ");
     for (size_t i = 0; i < lines.size(); ++i)
     {
         frame.put(top + 2 + static_cast<int>(i), left + 3, theme::dialog, lines[i]);
     }
-    const int buttonRow = top + boxHeight - 4;
-    const int buttons = left + (boxWidth - 21) / 2;
-    const auto button = [&](int col, bool active, const string& label)
-    {
-        frame.put(buttonRow + 1, col + 1, theme::buttonShadowBelow, "▀▀▀▀▀▀▀▀▀");
-        frame.put(buttonRow, col + 9, theme::dialog, "▄");
-        tui::putMarked(frame, buttonRow, col, active ? theme::buttonActive : theme::button,
-                       theme::buttonHot, label);
-    };
-    button(buttons, yesSelected, "   ~Y~es   ");
-    button(buttons + 12, !yesSelected, " ~C~ancel  ");
+    drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, yesSelected, "   ~Y~es   ");
 }
 
 /// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
@@ -1058,7 +1072,12 @@ vector<ScreenLine> infoLines(const Report& report, const stand::RunControl* cont
             lines.push_back({"run: nothing to start", theme::desktop});
             break;
     }
-    if (!state.lastAction.empty() && !state.lastAction.starts_with("started, logging to "))
+    if (!state.failure.empty())
+    {
+        lines.push_back({state.failure, theme::warningDesktop});
+        lines.push_back({"log: " + state.log, theme::desktop});
+    }
+    else if (!state.lastAction.empty() && !state.lastAction.starts_with("started, logging to "))
     {
         lines.push_back({state.lastAction, theme::desktop});
     }
@@ -1201,16 +1220,14 @@ string testSummary(const Scenario& scenario)
 
 /// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
 /// shadow, the run's own lines above the table and the keys on a status line at the bottom.
-void drawScreen(const Report& report, const filesystem::path& dir, const stand::RunControl* control,
-                const Pending& pending, const int width, const int height,
+void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem::path& dir,
+                const stand::RunControl* control, const Pending& pending, const int width, const int height,
                 const size_t chosen, const long scrollBack)
 {
     // A run whose first log has not appeared yet has no scenario to show, but the screen still has
     // a table in it.
     static const Scenario emptyScenario;
 
-    // One frame buffer for the life of the process: it is what remembers the last screen sent.
-    static tui::Frame frameStorage;
     frameStorage.resize(width, height);
     frameStorage.clear(theme::desktop);
 
@@ -1263,6 +1280,33 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
                        now - latestWrite > chrono::minutes(2);
 
     auto info = infoLines(report, control, stale);
+    if (control && !control->state().failure.empty())
+    {
+        const int columns = max(1, width - 5);
+        vector<ScreenLine> wrapped;
+        for (const auto& line: info)
+        {
+            if (line.text != control->state().failure && !line.text.starts_with("log: "))
+            {
+                wrapped.push_back(line);
+                continue;
+            }
+            auto rest = line.text;
+            for (int part = 0; !rest.empty() && part < 3; ++part)
+            {
+                auto text = clipTo(rest, columns);
+                if (part == 2 && text.size() < rest.size() && columns > 1)
+                {
+                    text = clipTo(text, columns - 1) + "…";
+                    wrapped.push_back({text, line.color});
+                    break;
+                }
+                wrapped.push_back({text, line.color});
+                rest.erase(0, text.size());
+            }
+        }
+        info = std::move(wrapped);
+    }
     if (stale)
     {
         const auto age = chrono::duration_cast<chrono::seconds>(now - latestWrite).count();
@@ -1461,13 +1505,21 @@ void drawScreen(const Report& report, const filesystem::path& dir, const stand::
 }
 
 
+int monitorRun(filesystem::path dir, const string& runFile, bool once, string* browserError = nullptr);
+int browseRuns();
+
 } // namespace
 
 int main(int argc, char** argv)
 {
+    if (argc == 1)
+    {
+        return browseRuns();
+    }
+
     filesystem::path dir;
-    string            brokerTarget;
     string            runFile;
+    bool              view = false;
     bool              once = false;
     bool              edit = false;
     string            editTarget;
@@ -1485,14 +1537,19 @@ int main(int argc, char** argv)
         }
         else if (arg == "--view")
         {
-            // The directory is optional when --run names a file that already says where its logs go.
+            view = true; // A bare --view is accepted with --run for older commands.
             if (i + 1 < argc && argv[i + 1][0] != '-')
             {
                 dir = argv[++i];
             }
         }
-        else if (arg == "--run" && i + 1 < argc)
+        else if (arg == "--run")
         {
+            if (i + 1 >= argc || argv[i + 1][0] == '-')
+            {
+                fprintf(stderr, "stand_runner: --run requires a run file\n");
+                return 2;
+            }
             runFile = argv[++i];
         }
         else if (arg == "--once")
@@ -1502,10 +1559,13 @@ int main(int argc, char** argv)
         else if (arg == "--help" || arg == "-h")
         {
             printf("Usage:\n"
+                   "  stand_runner                                         choose a run file\n"
                    "  stand_runner --edit [run-file]                        fill in a run and write it\n"
-                   "  stand_runner --view <run-dir> [--once] [--run <run-file>]\n"
-                   "                                                       watch, and start or stop\n"
+                   "  stand_runner --run <run-file> [--once]               watch, start, stop and file\n"
+                   "  stand_runner --view <run-dir> [--once]               watch only\n"
                    "\n"
+                   "  No arguments:          Up/Down selects a file; F3 creates, F4 edits, F5 opens\n"
+                   "                         the monitor, F8 deletes, and F10 exits.\n"
                    "  --edit [run-file]      A form over the settings a bench run needs. F2 writes the\n"
                    "                         file; it is a shell script that execs stand_run.sh, so it\n"
                    "                         runs as it stands and can be edited by hand afterwards.\n"
@@ -1513,7 +1573,7 @@ int main(int argc, char** argv)
                    "  --view <run-dir>       Watch a run's own output: the INTERVAL lines xmq_scn writes\n"
                    "                         under --output runner, plus each scenario's .block.\n"
                    "  --run <run-file>       The run this screen may start, stop and file. It also\n"
-                   "                         supplies <run-dir> and the broker to watch, from the --out\n"
+                   "                         supplies the output directory and broker, from the --out\n"
                    "                         and --server the file already names.\n"
                    "                         Keys: s start, x stop, f file the result, q quit; each\n"
                    "                         action asks for a y first.\n"
@@ -1527,7 +1587,7 @@ int main(int argc, char** argv)
             // two could disagree. Whoever typed it deserves the sentence that replaces it.
             fprintf(stderr,
                     "stand_runner: --broker is gone - the broker comes from the run file.\n"
-                    "               Use: stand_runner --view --run <run-file>\n");
+                    "               Use: stand_runner --run <run-file>\n");
             return 2;
         }
         else
@@ -1535,6 +1595,12 @@ int main(int argc, char** argv)
             fprintf(stderr, "stand_runner: unknown argument %s\n", arg.c_str());
             return 2;
         }
+    }
+
+    if ((edit && (view || !runFile.empty() || once)) || (!dir.empty() && !runFile.empty()))
+    {
+        fprintf(stderr, "stand_runner: choose one of --edit, --run <run-file>, or --view <run-dir>\n");
+        return 2;
     }
 
     if (edit)
@@ -1565,9 +1631,29 @@ int main(int argc, char** argv)
 
     if (dir.empty() && runFile.empty())
     {
-        fprintf(stderr, "stand_runner: --view <run-dir> is required (or --edit to write a run)\n");
+        fprintf(stderr, "stand_runner: use --run <run-file>, --view <run-dir>, or --edit\n");
         return 2;
     }
+
+    return monitorRun(dir, runFile, once);
+}
+
+namespace {
+
+int monitorRun(filesystem::path dir, const string& runFile, const bool once, string* browserError)
+{
+    const auto fail = [browserError](const string& message)
+    {
+        if (browserError)
+        {
+            *browserError = message;
+        }
+        else
+        {
+            fprintf(stderr, "stand_runner: %s\n", message.c_str());
+        }
+        return 2;
+    };
 
     // A run file carries its own output directory and broker, so watching what it will do needs no
     // second set of arguments: the same file that starts the run says where to look.
@@ -1577,49 +1663,42 @@ int main(int argc, char** argv)
         stand::RunSpec spec;
         if (!stand::fromScript(runFile, spec))
         {
-            fprintf(stderr, "stand_runner: cannot read %s\n", runFile.c_str());
-            return 2;
+            return fail("cannot read " + runFile);
         }
         if (spec.out.empty())
         {
-            fprintf(stderr, "stand_runner: %s names no --out, so there is no run directory to watch\n", runFile.c_str());
-            return 2;
+            return fail(runFile + " names no --out, so there is no run directory to watch");
         }
-        if (dir.empty())
-        {
-            dir = spec.out;
-        }
-        // The broker is what the run file says it is: a second way to name it could only disagree
-        // with the file the run is executed from.
-        brokerTarget = spec.server;
+        dir = spec.out;
         runSpec = spec;
     }
 
-    if (!filesystem::is_directory(dir))
+    error_code dirError;
+    if (!filesystem::is_directory(dir, dirError))
     {
         // Before a run there is nothing there yet, and that is exactly the moment one is started.
         if (runSpec)
         {
-            error_code error;
-            filesystem::create_directories(dir, error);
+            filesystem::create_directories(dir, dirError);
+            if (dirError)
+            {
+                return fail("cannot create " + dir.string() + ": " + dirError.message());
+            }
         }
-        if (!filesystem::is_directory(dir))
+        if (!filesystem::is_directory(dir, dirError))
         {
             // The usual reason: the directory a run writes into does not exist until the run
             // starts, and the way to start one from here is --run, not a path that is not there.
-            fprintf(stderr,
-                    "stand_runner: %s does not exist yet - a run creates it when it starts.\n"
-                    "               To start and watch a run: stand_runner --view --run <run-file>\n",
-                    dir.c_str());
-            return 2;
+            return fail(dir.string() + " is not an accessible run directory."
+                        "\n               To start and watch a run: stand_runner --run <run-file>");
         }
     }
 
     BrokerWatch watch;
-    if (!brokerTarget.empty())
+    if (runSpec && !runSpec->server.empty())
     {
         watch.setCredentials(runSpec->brokerUser, runSpec->brokerPassword);
-        watch.start(brokerTarget);
+        watch.start(runSpec->server);
     }
 
     optional<stand::RunControl> control;
@@ -1662,6 +1741,7 @@ int main(int argc, char** argv)
     // Raw keys and a restored terminal, the same machinery the form uses: without it every action
     // key would need Enter after it, which is not what a key means on a screen like this.
     tui::Terminal terminal;
+    tui::Frame    frame;
     const bool    interactive = tui::Terminal::available();
 
     sampleHostLoad();
@@ -1707,7 +1787,7 @@ int main(int argc, char** argv)
         {
             // Redraw before reading, then act on the key: the screen shows the state the key was
             // pressed on rather than the one before the last tick.
-            drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
+            drawScreen(frame, report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
                        chosen, scrollBack);
 
             const auto press = terminal.readKey(1000);
@@ -1887,10 +1967,367 @@ int main(int argc, char** argv)
             continue;
         }
 
-        drawScreen(report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
+        drawScreen(frame, report, dir, control ? &*control : nullptr, pending, terminal.width(), terminal.height(),
                    chosen, scrollBack);
         this_thread::sleep_for(chrono::seconds(1));
     }
     printf("\033[2J\033[H");
     return 0;
 }
+
+struct RunEntry
+{
+    filesystem::path path;
+    filesystem::file_time_type modified;
+};
+
+string screenText(string text)
+{
+    for (auto& ch: text)
+    {
+        if (static_cast<unsigned char>(ch) < 32 || ch == 127)
+        {
+            ch = '?';
+        }
+    }
+    return text;
+}
+
+string modifiedDate(const filesystem::file_time_type modified)
+{
+    if (modified == filesystem::file_time_type::min())
+    {
+        return {};
+    }
+    const auto time = chrono::system_clock::to_time_t(chrono::file_clock::to_sys(modified));
+    tm local {};
+    char date[17] {};
+    if (localtime_r(&time, &local))
+    {
+        strftime(date, sizeof(date), "%Y-%m-%d %H:%M", &local);
+    }
+    return date;
+}
+
+int browseRuns()
+{
+    if (!tui::Terminal::available())
+    {
+        fprintf(stderr, "stand_runner: the run list needs a terminal; use --help for other modes\n");
+        return 2;
+    }
+
+    filesystem::path selectedPath;
+    string message;
+    while (tui::Terminal::terminateFlag() == 0)
+    {
+        const auto dir = stand::runDirectory();
+        vector<RunEntry> entries;
+        error_code scanError;
+        for (filesystem::directory_iterator it(dir, scanError), end; !scanError && it != end; it.increment(scanError))
+        {
+            error_code error;
+            if (it->path().filename().string().ends_with(".run.sh") && it->is_regular_file(error))
+            {
+                const auto modified = it->last_write_time(error);
+                entries.push_back({it->path(), error ? filesystem::file_time_type::min() : modified});
+            }
+        }
+        sort(entries.begin(), entries.end(), [](const RunEntry& a, const RunEntry& b)
+        {
+            return a.modified == b.modified ? a.path < b.path : a.modified > b.modified;
+        });
+        const auto selected = find_if(entries.begin(), entries.end(), [&](const RunEntry& entry)
+        {
+            return entry.path == selectedPath;
+        });
+        size_t index = selected == entries.end() ? 0 : static_cast<size_t>(selected - entries.begin());
+        size_t first = 0;
+        tui::Key action = tui::Key::None;
+        tui::Key prompt = tui::Key::None;
+        bool yesSelected = false;
+        string newName;
+        filesystem::path newPath;
+        {
+            // The editor and monitor own their own terminals. Release this one before entering either.
+            tui::Terminal terminal;
+            tui::Frame frame;
+            while (tui::Terminal::terminateFlag() == 0)
+            {
+                const auto width = terminal.width();
+                const auto height = terminal.height();
+                const auto rows = static_cast<size_t>(max(0, height - 7));
+                if (rows > 0)
+                {
+                    if (index < first)
+                    {
+                        first = index;
+                    }
+                    else if (index - first >= rows)
+                    {
+                        first = index - rows + 1;
+                    }
+                }
+
+                frame.resize(width, height);
+                frame.clear(theme::desktop);
+                frame.put(1, 1, theme::status, string(width, ' '));
+                frame.put(1, 2, theme::statusKey, "stand_runner");
+                if (width >= 8 && height >= 8)
+                {
+                    string line;
+                    for (int col = 0; col < width - 2; ++col)
+                    {
+                        line += "═";
+                    }
+                    frame.put(2, 1, theme::frame, "╔" + line + "╗");
+                    frame.put(2, 3, theme::frameActive, clipTo(" Run files ", width - 3));
+                    for (int row = 3; row < height - 1; ++row)
+                    {
+                        frame.put(row, 1, theme::frame, "║");
+                        frame.put(row, width, theme::frame, "║");
+                    }
+                    frame.put(height - 1, 1, theme::frame, "╚" + line + "╝");
+                    frame.put(3, 3, theme::desktop, clipTo(screenText(dir.string()), width - 3));
+                    frame.put(4, 2, theme::header, string(width - 2, ' '));
+                    frame.put(4, 3, theme::header, clipTo("Run file", width - 3));
+                    const bool showDate = width >= 44;
+                    if (showDate)
+                    {
+                        frame.put(4, width - 17, theme::header, "Modified");
+                    }
+                    for (size_t i = 0; i < rows; ++i)
+                    {
+                        const auto row = 5 + static_cast<int>(i);
+                        const bool hasEntry = first + i < entries.size();
+                        const auto color = hasEntry && first + i == index ? theme::fileListSelected : theme::fileList;
+                        frame.put(row, 2, color, string(width - 2, ' '));
+                        if (!hasEntry)
+                        {
+                            continue;
+                        }
+                        const auto& entry = entries[first + i];
+                        frame.put(row, 3, color, clipTo(screenText(entry.path.filename().string()),
+                                                       width - (showDate ? 21 : 3)));
+                        if (showDate)
+                        {
+                            frame.put(row, width - 17, color, modifiedDate(entry.modified));
+                        }
+                    }
+                    const auto status = !message.empty() ? message :
+                                        scanError ? "Cannot read run directory: " + scanError.message() :
+                                        entries.empty() ? "No .run.sh files" :
+                                        to_string(index + 1) + " / " + to_string(entries.size());
+                    frame.put(height - 2, 3, theme::desktop, clipTo(screenText(status), width - 3));
+                }
+                frame.put(height, 1, theme::status, string(width, ' '));
+                tui::putMarked(frame, height, 2, theme::status, theme::statusKey, "~F3~ New");
+                tui::putMarked(frame, height, 11,
+                               entries.empty() ? theme::statusDim : theme::status,
+                               entries.empty() ? theme::statusDim : theme::statusKey, "~F4~ Edit   ~F5~ Run   ~F8~ Delete");
+                tui::putMarked(frame, height, 42, theme::status, theme::statusKey, "~F10~ Quit");
+                if (prompt == tui::Key::F3)
+                {
+                    const bool framed = width >= 30 && height >= 9;
+                    const auto boxWidth = framed ? min(58, width - 3) : width;
+                    const auto boxHeight = message.empty() ? 8 : 9;
+                    const auto left = (width - boxWidth) / 2 + 1;
+                    const auto top = max(1, (height - boxHeight) / 2 + 1);
+                    const auto contentLeft = framed ? left + 3 : left;
+                    const auto contentTop = framed ? top + 2 : top;
+                    const auto contentWidth = framed ? boxWidth - 6 : boxWidth;
+                    if (framed)
+                    {
+                        drawDialogFrame(frame, left, top, boxWidth, boxHeight, " New run file ");
+                    }
+                    frame.put(contentTop, contentLeft, theme::dialog, padded("File name (.run.sh)", contentWidth));
+                    auto visible = newName;
+                    const auto room = max(0, contentWidth - 2);
+                    while (tui::Terminal::displayWidth(visible) > room)
+                    {
+                        visible.erase(0, clipTo(visible, 1).size());
+                    }
+                    frame.put(contentTop + 1, contentLeft, theme::input, string(contentWidth, ' '));
+                    frame.put(contentTop + 1, contentLeft + 1, theme::input, visible);
+                    if (!message.empty())
+                    {
+                        frame.put(contentTop + 2, contentLeft, theme::warning, padded(message, contentWidth));
+                    }
+                    if (framed)
+                    {
+                        drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, yesSelected, "   Edit  ");
+                    }
+                    else
+                    {
+                        frame.put(contentTop + (message.empty() ? 2 : 3), contentLeft, theme::dialog,
+                                  padded(yesSelected ? "[Edit]   Cancel" : " Edit   [Cancel]", contentWidth));
+                    }
+                }
+                else if (prompt == tui::Key::F8)
+                {
+                    drawAlert(frame, width, height,
+                              "Delete " + screenText(entries[index].path.filename().string()) + "?", yesSelected);
+                }
+                frame.flush();
+
+                const auto press = terminal.readKey(200);
+                const auto key = press.key;
+                if (tui::Terminal::terminateFlag() != 0)
+                {
+                    break;
+                }
+                if (prompt != tui::Key::None && (key == tui::Key::Escape || key == tui::Key::F10))
+                {
+                    prompt = tui::Key::None;
+                    message.clear();
+                    continue;
+                }
+                if (prompt != tui::Key::None &&
+                    (key == tui::Key::Left || key == tui::Key::Right || key == tui::Key::Tab))
+                {
+                    yesSelected = !yesSelected;
+                    continue;
+                }
+                if (prompt == tui::Key::F3)
+                {
+                    if (key == tui::Key::Character && newName.size() + press.text.size() <= 255)
+                    {
+                        newName += press.text;
+                        message.clear();
+                    }
+                    else if (key == tui::Key::Backspace && !newName.empty())
+                    {
+                        newName.resize(newName.size() - tui::Terminal::lastCodePointBytes(newName));
+                        message.clear();
+                    }
+                    else if (key == tui::Key::Enter)
+                    {
+                        if (!yesSelected)
+                        {
+                            prompt = tui::Key::None;
+                            message.clear();
+                            continue;
+                        }
+                        if (newName.find_first_not_of(' ') == string::npos || newName == "." || newName == ".." ||
+                            newName.find_first_of("/\\") != string::npos || newName == ".run.sh")
+                        {
+                            message = "Enter a file name, not a path.";
+                            continue;
+                        }
+                        newPath = dir / (newName.ends_with(".run.sh") ? newName : newName + ".run.sh");
+                        error_code error;
+                        const auto status = filesystem::symlink_status(newPath, error);
+                        if (filesystem::exists(status))
+                        {
+                            message = "A file with that name already exists.";
+                            continue;
+                        }
+                        if (error && error != errc::no_such_file_or_directory)
+                        {
+                            message = "Cannot check name: " + error.message();
+                            continue;
+                        }
+                        action = tui::Key::F3;
+                        break;
+                    }
+                    continue;
+                }
+                if (prompt == tui::Key::F8)
+                {
+                    if (press.text == "y" || press.text == "Y" || (key == tui::Key::Enter && yesSelected))
+                    {
+                        action = tui::Key::F8;
+                        break;
+                    }
+                    else if (key == tui::Key::Enter || press.text == "n" || press.text == "N" ||
+                             press.text == "c" || press.text == "C")
+                    {
+                        prompt = tui::Key::None;
+                    }
+                    continue;
+                }
+                if (key == tui::Key::F10)
+                {
+                    return 0;
+                }
+                if (key == tui::Key::F3)
+                {
+                    prompt = key;
+                    yesSelected = true;
+                    newName.clear();
+                    message.clear();
+                    continue;
+                }
+                if (entries.empty())
+                {
+                    continue;
+                }
+                switch (key)
+                {
+                    case tui::Key::Up: if (index > 0) --index; break;
+                    case tui::Key::Down: index = min(index + 1, entries.size() - 1); break;
+                    case tui::Key::PageUp: index -= min(index, rows); break;
+                    case tui::Key::PageDown: index = min(index + rows, entries.size() - 1); break;
+                    case tui::Key::Home: index = 0; break;
+                    case tui::Key::End: index = entries.size() - 1; break;
+                    case tui::Key::F4:
+                    case tui::Key::F5: action = key; break;
+                    case tui::Key::F8: prompt = key; yesSelected = false; break;
+                    default: break;
+                }
+                if (action != tui::Key::None)
+                {
+                    break;
+                }
+            }
+        }
+        if (tui::Terminal::terminateFlag() != 0)
+        {
+            break;
+        }
+        if (!entries.empty())
+        {
+            selectedPath = entries[index].path;
+        }
+        message.clear();
+        if (action == tui::Key::F3)
+        {
+            stand::RunSpec spec;
+            spec.file = newPath;
+            if (stand::editRunFile(spec, false, true) == stand::FormAction::Saved)
+            {
+                selectedPath = spec.file;
+            }
+        }
+        else if (action == tui::Key::F8)
+        {
+            if (unlink(selectedPath.c_str()) != 0)
+            {
+                message = "Cannot delete " + selectedPath.filename().string() + ": " + strerror(errno);
+            }
+            else if (entries.size() > 1)
+            {
+                selectedPath = entries[index + 1 < entries.size() ? index + 1 : index - 1].path;
+            }
+        }
+        else if (action == tui::Key::F4)
+        {
+            stand::RunSpec spec;
+            if (!stand::fromScript(selectedPath, spec))
+            {
+                message = "Cannot read " + selectedPath.filename().string();
+            }
+            else if (stand::editRunFile(spec, false) == stand::FormAction::Saved)
+            {
+                selectedPath = spec.file;
+            }
+        }
+        else
+        {
+            monitorRun({}, selectedPath.string(), false, &message);
+        }
+    }
+    return 0;
+}
+
+} // namespace

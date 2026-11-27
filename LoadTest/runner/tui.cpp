@@ -297,6 +297,9 @@ KeyPress Terminal::readKey(const int timeoutMs)
         case 'R':
             press.key = Key::F3;
             return press;
+        case 'S':
+            press.key = Key::F4;
+            return press;
         default:
             break;
     }
@@ -337,6 +340,10 @@ KeyPress Terminal::readKey(const int timeoutMs)
     else if (number == "6")
     {
         press.key = Key::PageDown;
+    }
+    else if (number == "14")
+    {
+        press.key = Key::F4;
     }
     else if (number == "15")
     {

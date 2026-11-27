@@ -1,0 +1,42 @@
+Server:   XMQ
+Version:  1.1.2
+Host:     thinker11; XMQ 1.1.2; bench profile bench-1.1.2-ab; MQTT1883
+Client:   thinker10, 51 bound source addresses, Release xmq_scn 1.2.0
+Date:     2026-11-27
+Started:  2026-11-27 11:25:55 AEDT
+Total execution time: 00:40:13
+Campaign status: passed
+
+Broker: XMQ 1.1.2 source with SPTK 5.6.22, Release build; full bench configuration; measured same day as 1.2.0 for a like-for-like baseline.
+other brokers on thinker11 were stopped before the run
+
+Broker restarted before each scenario.
+
+Scenario: Fan-Out-5-1000-5-250K-5min
+Interval        Count    Latency       Rate/s        RSS
+────────────────────────────────────────────────────────
+0ms           7499000     1796us       249966      57 Mb
+30000ms       7500000     1773us       250000      57 Mb
+60000ms       7500000     1794us       250000      57 Mb
+90000ms       7500000     1759us       250000      57 Mb
+120000ms      7500000     1770us       250000      57 Mb
+150000ms      7500000     1773us       250000      57 Mb
+180000ms      7500000     1801us       250000      57 Mb
+210000ms      7500000     1754us       250000      57 Mb
+240000ms      7500000     1772us       250000      57 Mb
+270000ms      7500000     1869us       250000      57 Mb
+300000ms            4      995us            0      57 Mb
+────────────────────────────────────────────────────────
+Average      74999004     1786us       227269      57 Mb
+Median                    1773us                   57 Mb
+Percentiles
+p50    1760us
+p90    2528us
+p95    2624us
+p99    3008us
+p99.9  5696us
+max    65536us
+  interval median 1773us over 11 samples (as xmq_scn reports it), range 995-1869us
+  server CPU   mean 262%, peak 270%
+  server RSS   57 Mb peak
+  WARNING: client NIC enp86s0 dropped 2 received and 0 sent packet(s) during this run - part of this latency is the client's own

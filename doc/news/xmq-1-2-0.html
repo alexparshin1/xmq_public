@@ -1,0 +1,41 @@
+<!--
+  Title: XMQ 1.2.0: named data integrations and more control over MQTT messages
+  Date:  2026-11-27
+-->
+
+<p>
+    XMQ 1.2.0 reworks extension configuration in the web interface and gives the webhook
+    a way to evaluate messages with SQL rules. It also maps topic namespaces on MQTT
+    bridges. <a href='/downloads'>Download XMQ 1.2.0</a>.
+</p>
+
+<ul>
+    <li>
+        <b>Data integrations.</b> One extension can now be configured several times, each with its
+        own settings set - for example, two message exports writing to two databases with
+        different topic filters. The Extensions screen lists the named data integrations and
+        opens a dialog to add another. Settings are stored in the shared configuration database,
+        so renaming an integration never changes its durable queue identity.
+    </li>
+    <li>
+        <b>Clearer extension settings and permissions.</b> Extension configuration is split into
+        three pages, with independent switches for loading an extension and for persisting its
+        settings. Installed Extensions shows what is actually loaded, and topic permissions are
+        managed in User Management. The old, redundant ACL editor is gone.
+    </li>
+    <li>
+        <b>SQL rules for webhook messages.</b> A <code>sql_rule</code> selects an MQTT topic filter,
+        a typed predicate and JSON output fields. The webhook evaluates and renders the rule in
+        its worker, without adding a database lookup to message delivery or changing log delivery.
+    </li>
+    <li>
+        <b>Bridge topic mapping.</b> Optional <code>local_prefix</code> and
+        <code>remote_prefix</code> settings map topic namespaces in both directions. Existing
+        bridges keep their topic names unchanged; bridge-to-bridge forwarding remains disabled.
+    </li>
+</ul>
+
+<p>
+    XMQ 1.2.0 requires SPTK 5.6.22. See the <a href='/changelog'>changelog</a> for the full list
+    of changes.
+</p>

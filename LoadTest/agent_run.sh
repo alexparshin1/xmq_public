@@ -28,6 +28,8 @@ Own options:
   --wait                 Run in the foreground instead of detaching. Only for a person watching;
                          an agent that does this holds a tool call open for the whole set.
   --log FILE             Log file for the run (default: results/raw/agent-<date-time>.log).
+  --skip-readiness       Skip stand_readiness.sh (persistence off, Release builds). Use only for
+                         an intentionally different configuration, never for a published set.
   -h, --help             This.
 
 Everything else - --version, --bench-dir, --set, --file, --dry-run - is passed to stand_run.sh.
@@ -41,12 +43,14 @@ EOF
 
 log=""
 wait_mode=0
+skip_readiness=0
 declare -a forward=()
 
 while (( $# )); do
     case "$1" in
         --wait)     wait_mode=1; shift ;;
         --log)      log="$2"; shift 2 ;;
+        --skip-readiness) skip_readiness=1; shift ;;
         -h|--help)  usage; exit 0 ;;
         *)          forward+=("$1"); shift ;;
     esac
@@ -76,6 +80,10 @@ for ((i = 0; i < ${#forward[@]}; i++)); do
         --version=*) version="${forward[i]#--version=}" ;;
     esac
 done
+
+# stand_run.sh runs the readiness checks itself; only forward the override, so every entry path
+# (direct stand_run.sh, agent_run.sh, regression.sh) checks exactly once.
+(( skip_readiness )) && forward+=(--skip-readiness)
 
 stamp=$(date +%Y-%m-%d-%H%M)
 [[ -n "$log" ]] || log="$SCRIPT_DIR/results/raw/agent-$stamp-xmq${version:-unknown}.log"

@@ -24,6 +24,6 @@ enum class FormAction
  * @param spec Settings to start from, including the file to write.
  * @return whether the file was saved. On Saved, spec.file holds the path actually written.
  */
-FormAction editRunFile(RunSpec& spec);
+FormAction editRunFile(RunSpec& spec, bool reportToShell = true, bool createOnly = false);
 
 } // namespace stand

@@ -26,6 +26,46 @@ namespace {
 
 constexpr auto killAfter = chrono::seconds(5);
 
+string failureDiagnostic(const string& path)
+{
+    ifstream input(path, ios::binary | ios::ate);
+    const auto end = input.tellg();
+    if (end <= 0)
+    {
+        return {};
+    }
+    constexpr streamoff limit = 16 * 1024;
+    const bool truncated = end > limit;
+    input.seekg(truncated ? end - limit : streampos(0));
+    string line, last, diagnostic;
+    if (truncated)
+    {
+        getline(input, line); // Skip a potentially partial line.
+    }
+    while (getline(input, line))
+    {
+        const auto first = line.find_first_not_of(" \t\r");
+        if (first == string::npos)
+        {
+            continue;
+        }
+        line = line.substr(first, line.find_last_not_of(" \t\r") - first + 1);
+        for (auto& ch: line)
+        {
+            if (static_cast<unsigned char>(ch) < 32 || ch == 127)
+            {
+                ch = ' ';
+            }
+        }
+        if (line.starts_with("stand_run: ") && !line.starts_with("stand_run: WARNING:"))
+        {
+            diagnostic = line;
+        }
+        last = line;
+    }
+    return diagnostic.empty() ? last : diagnostic;
+}
+
 string quote(const string& value)
 {
     string quoted {"'"};
@@ -206,6 +246,7 @@ void RunControl::start()
         return;
     }
 
+    m_state.failure.clear();
     string problem;
     if (!ensureDirectory(m_spec.out, problem))
     {
@@ -248,7 +289,7 @@ void RunControl::start()
 
     if (spawned != 0)
     {
-        m_state.lastAction = string("cannot start: ") + strerror(spawned);
+        m_state.lastAction = "cannot execute " + m_spec.file.string() + ": " + strerror(spawned);
         return;
     }
 
@@ -334,8 +375,24 @@ void RunControl::poll()
     {
         m_state.phase = RunPhase::Exited;
         m_state.exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-        m_state.lastAction = m_state.exitCode == 0 ? "run finished; f files the result"
-                                                   : "run failed with status " + to_string(m_state.exitCode);
+        if (m_state.exitCode == 0)
+        {
+            m_state.lastAction = "run finished; f files the result";
+        }
+        else if (m_stopping && WIFSIGNALED(status))
+        {
+            m_state.lastAction = "stopped";
+        }
+        else
+        {
+            m_state.lastAction = WIFSIGNALED(status) ? "run terminated by signal " + to_string(WTERMSIG(status))
+                                                     : "run failed with status " + to_string(m_state.exitCode);
+            m_state.failure = failureDiagnostic(m_state.log);
+            if (m_state.failure.empty())
+            {
+                m_state.failure = "The run produced no readable diagnostic.";
+            }
+        }
         return;
     }
 

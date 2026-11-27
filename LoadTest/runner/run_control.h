@@ -32,6 +32,7 @@ struct RunState
     std::string record;      ///< The input to filing.
     std::string monitorDir;  ///< Persistent per-attempt output under the configured --out.
     std::string lastAction;  ///< What the screen should say about the last start, stop or filing.
+    std::string failure;     ///< Diagnostic taken from this attempt's console log.
 };
 
 class RunControl final
