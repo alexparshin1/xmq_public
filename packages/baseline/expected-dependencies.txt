@@ -5,3 +5,8 @@
 libspdb5.so.5.6.23
 libsputil5.so.5.6.23
 libspwsdl5.so.5.6.23
+
+# 1.2.1: xmq_runner ships Python helpers; RPM dependency scanning declares the interpreter and
+# the config virtual provide in addition to the file path.
+/usr/bin/python3
+config

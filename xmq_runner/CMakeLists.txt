@@ -6,6 +6,11 @@ TARGET_COMPILE_DEFINITIONS(xmq_runner PRIVATE
     XMQ_RUNNER_STATE_DIRECTORY="${XMQ_RUNNER_STATE_DIRECTORY}")
 
 INSTALL(TARGETS xmq_runner RUNTIME DESTINATION bin COMPONENT runner)
+IF (UNIX AND NOT APPLE)
+    # Same DT_RPATH as the broker utilities: the runner links the bundled SPTK libraries from
+    # <prefix>/lib and must not pick another copy through LD_LIBRARY_PATH.
+    SET_TARGET_PROPERTIES(xmq_runner PROPERTIES INSTALL_RPATH "${XMQ_INSTALL_RPATH}")
+ENDIF ()
 
 SET(loadTest "${PROJECT_SOURCE_DIR}/LoadTest")
 FILE(GLOB runnerScenarios CONFIGURE_DEPENDS "${loadTest}/*.json" "${loadTest}/Scenario-Set*.txt")

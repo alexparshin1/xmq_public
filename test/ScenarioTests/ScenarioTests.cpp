@@ -587,15 +587,27 @@ TEST_F(XMQ_ScenarioTests, PublishFailureKeepsPartialMeasuredIntervalsAndStillThr
     engine.connectClients(latencies, engine.name());
     const auto publisher = server()->getClientSession("partial-publisher-0");
     ASSERT_NE(nullptr, publisher);
+    // Samples are attributed to the receive worker that delivered them, not to latencies[0].
+    // The test must observe all the latency objects, or it waits for a sample on an arbitrary
+    // worker and reports the failure as a missing measurement.
+    const auto sampleCount = [&]
+    {
+        size_t total = 0;
+        for (const auto& latency: latencies)
+        {
+            total += latency.count();
+        }
+        return total;
+    };
     atomic_bool hadSample {false};
     // A plain thread, not a jthread: FreeBSD's libc++ has no jthread/stop_token. This one is
     // joined explicitly below, so there is no cleanup for jthread to add.
     thread disruptor([&]
     {
         const auto deadline = chrono::steady_clock::now() + 2s;
-        while (latencies[0].count() == 0 && chrono::steady_clock::now() < deadline)
+        while (sampleCount() == 0 && chrono::steady_clock::now() < deadline)
             this_thread::sleep_for(5ms);
-        hadSample = latencies[0].count() > 0;
+        hadSample = sampleCount() > 0;
         publisher->closeSession();
     });
     testing::internal::CaptureStdout();
