@@ -42,6 +42,7 @@ std::filesystem::path loadTestDirectory();
 
 /// Shared run library, falling back to the checkout until the shared directory is provisioned.
 std::filesystem::path runDirectory();
+std::filesystem::path resultsDirectory();
 
 /// Scenario set files that exist next to stand_run.sh, sorted, for the form's chooser.
 std::vector<std::string> availableScenarioSets();

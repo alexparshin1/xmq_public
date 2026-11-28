@@ -18,9 +18,19 @@ using namespace std;
 using namespace sptk;
 using namespace xmq;
 
-SessionThread::SessionThread()
+namespace {
+thread_local size_t currentReceiveWorker = 0;
+}
+
+SessionThread::SessionThread(const size_t workerIndex)
+    : m_workerIndex(workerIndex)
 {
     initializeSynchronized();
+}
+
+size_t SessionThread::receiveWorkerIndex() noexcept
+{
+    return currentReceiveWorker;
 }
 
 void SessionThread::initializeSynchronized()
@@ -66,6 +76,7 @@ SessionThread::~SessionThread()
 
 void SessionThread::receiveThreadFunction()
 {
+    currentReceiveWorker = m_workerIndex;
     Buffer sendBuffer;
     while (!terminated())
     {

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <unordered_map>
 
 namespace xmq {
@@ -30,10 +31,10 @@ namespace xmq {
 class RoundTripLatency
 {
 public:
-    using Clock = std::chrono::high_resolution_clock;
-    /// Latency buckets, log-spaced: sixty-four per power of two, so an approximate percentile is
-    /// within about 1.6% of the value. Kept per interval and merged for the run's percentiles;
-    /// the sums and counts alone cannot answer a percentile question.
+    using Clock = std::chrono::steady_clock;
+    /// Latency buckets, log-spaced: one hundred twenty-eight per power of two, so an approximate
+    /// percentile is within about 0.8% of the value. Kept per interval and merged for the run's
+    /// percentiles; the sums and counts alone cannot answer a percentile question.
     ///
     /// Sparse is the shape for what is written once an interval and read a handful of times at
     /// the end. The two histograms written on every delivery use HistogramCounts below instead:
@@ -49,7 +50,7 @@ public:
     /// Bucket indices a dense histogram can hold, with HistogramCounts covering two to the
     /// thirty-second power of microseconds and change. A delivery past this counts in the last
     /// bucket, so a stalled message still shows as "at least its top edge".
-    static constexpr uint32_t HistogramBucketLimit = 2048;
+    static constexpr uint32_t HistogramBucketLimit = 4096;
 
     /// The same bucket space, sparse: one key per bucket index a range ever saw.
     using Histogram = std::map<uint32_t, uint64_t>;
@@ -89,7 +90,12 @@ public:
     RoundTripLatency() = default;
     RoundTripLatency(const RoundTripLatency& other);
 
-    void start(std::chrono::microseconds groupInterval);
+    void start(std::chrono::microseconds groupInterval, Clock::time_point startTime = Clock::now());
+    void recordDelivery(std::optional<Clock::time_point> sentAt);
+
+    /// Optional diagnostic, configured before measurement; read the counters only after stop().
+    void slowBucketsEnabled(bool enabled) { m_slowBucketsEnabled = enabled; }
+    const auto& slowBuckets() const { return m_slowBuckets; }
 
     void stop();
 
@@ -105,9 +111,6 @@ public:
     void sent(uint32_t sequence);
 
     void storeCurrentInterval();
-
-    /// Time-keyed sample accumulation used when no interval observer is installed.
-    void addDirect(std::chrono::microseconds now, std::chrono::microseconds latency);
 
     void received();
 
@@ -132,8 +135,9 @@ public:
     /**
      * @brief A percentile of the individual message latencies, or 0 when there are none.
      *
-     * Approximate: the histogram has sixty-four buckets per power of two, so the answer is the
-     * upper edge of the bucket the rank falls in, within about 1.6% of the true value.
+     * Approximate: the histogram has one hundred twenty-eight buckets per power of two, so the
+     * answer is the upper edge of the bucket the rank falls in, within about 0.8% of the true
+     * value.
      */
     [[nodiscard]] std::chrono::microseconds percentile(double percent) const;
 
@@ -214,6 +218,7 @@ public:
     }
 
 private:
+    void addDirect(Clock::time_point now, std::chrono::microseconds latency);
     mutable std::mutex                                 m_mutex;
     sptk::SynchronizedQueue<std::chrono::microseconds> m_started;
     std::chrono::microseconds                          m_summaryLatency {0};
@@ -224,6 +229,8 @@ private:
     size_t                                             m_unmatchedReceived {0};
     std::chrono::microseconds                          m_groupIntervalDuration {0};
     bool                                               m_directIntervals {false}; ///< No observer: key samples by time, don't close windows in the receive path.
+    bool                                               m_slowBucketsEnabled {false};
+    std::vector<uint64_t>                              m_slowBuckets;
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;
     Clock::time_point                                  m_nextIntervalTime;

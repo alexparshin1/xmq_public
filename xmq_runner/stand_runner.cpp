@@ -46,6 +46,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "dialog.h"
 #include "frame.h"
 #include "run_control.h"
 #include "theme.h"
@@ -55,6 +56,9 @@
 
 using namespace std;
 
+using tui::clipTo;
+using tui::padded;
+
 namespace {
 
 struct Interval
@@ -62,6 +66,7 @@ struct Interval
     long   timeMs {0};
     long   count {0};
     double avgUs {0};
+    optional<double> p50Us;
     double p95Us {0};
     double p99Us {0};
     long   rate {0};
@@ -187,6 +192,7 @@ void parseScenario(Scenario& scenario)
         interval.timeMs = static_cast<long>(field(line, "time_ms").value_or(0));
         interval.count = static_cast<long>(field(line, "count").value_or(0));
         interval.avgUs = field(line, "avg_us").value_or(0);
+        interval.p50Us = field(line, "p50_us");
         interval.p95Us = field(line, "p95_us").value_or(0);
         interval.p99Us = field(line, "p99_us").value_or(0);
         interval.rate = static_cast<long>(field(line, "rate").value_or(0));
@@ -846,7 +852,12 @@ string promptFor(const Pending& pending, const stand::RunControl& control)
         case Pending::Kind::Stop:
             return "Stop the running test set? Partial results will not be filed.";
         case Pending::Kind::File:
-            return "File results to Bench/" + spec.version + "? Existing version data will be replaced.";
+        {
+            const auto target = control.filingTarget();
+            return (target.empty() ? "File results using the broker and version in the record?"
+                                   : "File results to " + target + "?") +
+                   string(" Existing version data will be replaced.");
+        }
         case Pending::Kind::Exit:
             return "Stop the running set and quit? Partial results will not be filed.";
         case Pending::Kind::None:
@@ -919,78 +930,6 @@ struct ScreenLine
     string      text;
     const char* color {theme::dialog};
 };
-
-string clipTo(const string& text, const int columns)
-{
-    if (columns <= 0)
-    {
-        return {};
-    }
-    int    used = 0;
-    size_t at = 0;
-    while (at < text.size() && used < columns)
-    {
-        at += 1;
-        while (at < text.size() && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80)
-        {
-            ++at;
-        }
-        ++used;
-    }
-    return text.substr(0, at);
-}
-
-string padded(const string& text, const int columns)
-{
-    const auto clipped = clipTo(text, columns);
-    return clipped + string(static_cast<size_t>(max(0, columns - static_cast<int>(clipped.size()))), ' ');
-}
-
-void drawDialogFrame(tui::Frame& frame, const int left, const int top,
-                     const int boxWidth, const int boxHeight, const string& title)
-{
-    const int right = left + boxWidth;
-    const int shadowBottom = top + boxHeight;
-    for (int row = top + 1; row < shadowBottom; ++row)
-    {
-        frame.overlay(row, right, 1, theme::windowShadow, "▌");
-    }
-    frame.overlay(shadowBottom, left + 2, boxWidth - 2, theme::windowShadow, "▀");
-    frame.overlay(shadowBottom, right, 1, theme::windowShadow, "▘");
-    string topBorder {"╔"};
-    string bottomBorder {"╚"};
-    for (int i = 0; i < boxWidth - 2; ++i)
-    {
-        topBorder += "═";
-        bottomBorder += "═";
-    }
-    frame.put(top, left, theme::dialogFrame, topBorder + "╗");
-    frame.put(top + boxHeight - 1, left, theme::dialogFrame, bottomBorder + "╝");
-    for (int row = top + 1; row < top + boxHeight - 1; ++row)
-    {
-        frame.put(row, left, theme::dialogFrame, "║");
-        frame.put(row, left + boxWidth - 1, theme::dialogFrame, "║");
-        frame.put(row, left + 1, theme::dialog, string(static_cast<size_t>(boxWidth - 2), ' '));
-    }
-    frame.put(top, left + 2, theme::dialogFrame, "[ ]");
-    frame.put(top, left + 3, theme::dialogAccent, "■");
-    frame.put(top, left + (boxWidth - static_cast<int>(title.size())) / 2, theme::dialogFrame, title);
-}
-
-void drawDialogButtons(tui::Frame& frame, const int row, const int left, const int boxWidth,
-                       const bool primarySelected, const string& primary)
-{
-    const int buttons = left + (boxWidth - 21) / 2;
-    const auto button = [&](int col, bool active, const string& label)
-    {
-        frame.put(row + 1, col + 1, theme::buttonShadowBelow, "▀▀▀▀▀▀▀▀▀");
-        frame.put(row, col + 9, theme::dialog, "▄");
-        tui::putMarked(frame, row, col, active ? theme::buttonActive : theme::button,
-                       theme::buttonHot, label);
-    };
-    button(buttons, primarySelected, primary);
-    button(buttons + 12, !primarySelected, " Cancel ");
-}
 
 struct TestResult
 {
@@ -1111,12 +1050,21 @@ string resultPath(const string& version)
     return version.find('/') == string::npos ? "XMQ/" + version : version;
 }
 
+string screenText(string text);
+
+string resultLabel(const string& version)
+{
+    auto label = resultPath(version);
+    label[label.find('/')] = ' ';
+    return screenText(label);
+}
+
 vector<ComparisonRow> compareVersions(string first, string second, string& problem)
 {
     vector<ComparisonRow> rows;
     first = resultPath(first);
     second = resultPath(second);
-    const auto root = stand::loadTestDirectory() / "results" / "Bench";
+    const auto root = stand::resultsDirectory() / "Bench";
     set<string> firstTests, secondTests;
     const auto collect = [&root](const string& version, set<string>& tests)
     {
@@ -1145,7 +1093,7 @@ vector<ComparisonRow> compareVersions(string first, string second, string& probl
     }
     if (rows.empty())
     {
-        problem = "No completed tests in both " + first + " and " + second;
+        problem = "No completed tests in both " + resultLabel(first) + " and " + resultLabel(second);
     }
     return rows;
 }
@@ -1167,14 +1115,16 @@ void drawComparison(tui::Frame& frame, const vector<ComparisonRow>& rows, const 
     frame.resize(width, height);
     frame.clear(theme::desktop);
     frame.put(1, 1, theme::status, string(static_cast<size_t>(width), ' '));
-    frame.put(1, 2, theme::statusKey, "compare " + first + " -> " + second);
+    const auto firstLabel = resultLabel(first);
+    const auto secondLabel = resultLabel(second);
+    frame.put(1, 2, theme::statusKey, "compare " + firstLabel + " -> " + secondLabel);
     if (width < 8 || height < 8)
     {
         frame.flush();
         return;
     }
     const auto left = 1;
-    const auto inner = max(40, width - 1);
+    const auto inner = width - 2;
     const auto bottom = height - 1;
     string border;
     for (int i = 0; i < width - 2; ++i)
@@ -1190,21 +1140,35 @@ void drawComparison(tui::Frame& frame, const vector<ComparisonRow>& rows, const 
     frame.put(bottom, left, theme::frame, "╚" + border + "╝");
     frame.put(2, 3, theme::frameActive, clipTo(" Comparison ", inner - 2));
 
-    const auto widths = [width]()
+    const auto widths = [&]()
     {
-        const int name = max(18, min(width - 54, 64));
-        return std::array<int, 6> {name, 9, 9, 9, 9, 10};
+        array<int, 6> result {4, 7, 7, 7, 7, 7};
+        int spare = max(0, width - 47); // Three frame/margin cells and five column gaps.
+        const array desired {tui::columnsOf(firstLabel), tui::columnsOf(secondLabel)};
+        while (spare && (result[1] < desired[0] || result[2] < desired[1]))
+        {
+            for (int i = 0; i < 2 && spare; ++i)
+            {
+                if (result[i + 1] < desired[i])
+                {
+                    ++result[i + 1];
+                    --spare;
+                }
+            }
+        }
+        result[0] += min(spare, 60);
+        return result;
     }();
     const auto drawColumns = [&](const int row, const array<string, 6>& cells, const char* color)
     {
         int column = 3;
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 6 && column < width; ++i)
         {
-            frame.put(row, column, color, padded(cells[i], widths[i]));
+            frame.put(row, column, color, padded(cells[i], min(widths[i], width - column)));
             column += widths[i] + 1;
         }
     };
-    drawColumns(4, {"Test", first, second, "D avg", "D med", "D p99"}, theme::header);
+    drawColumns(4, {"Test", firstLabel, secondLabel, "D avg", "D med", "D p99"}, theme::header);
     const auto room = static_cast<size_t>(max(0, bottom - 7));
     const auto rowsPerPage = room == 0 ? size_t {1} : room;
     const auto firstRow = min(chosen / rowsPerPage * rowsPerPage,
@@ -1262,14 +1226,12 @@ void drawAlert(tui::Frame& frame, const int width, const int height, const strin
         lines.back() = clipTo(lines.back(), textWidth - 1) + "…";
     }
     const int boxHeight = static_cast<int>(lines.size()) + 6;
-    const int left = (width - boxWidth) / 2 + 1;
-    const int top = (height - boxHeight) / 2 + 1;
-    drawDialogFrame(frame, left, top, boxWidth, boxHeight, " Confirm ");
+    tui::Dialog dialog(frame, width, height, boxWidth, boxHeight, " Confirm ", {"~Y~es", "Cancel"});
     for (size_t i = 0; i < lines.size(); ++i)
     {
-        frame.put(top + 2 + static_cast<int>(i), left + 3, theme::dialog, lines[i]);
+        dialog.line(static_cast<int>(i), lines[i]);
     }
-    drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, yesSelected, "   ~Y~es   ");
+    dialog.drawButtons(yesSelected ? 0 : 1);
 }
 
 /// The client, broker and run lines, as the screen shows them. Separate from the drawing so that
@@ -1418,29 +1380,34 @@ size_t shownScenario(const Report& report, const size_t chosen)
 
 /// One reported interval, as a table row. The elapsed column is where the window ended, which is
 /// what "how far into the scenario" means to somebody watching it.
-string intervalRow(const Scenario& scenario, const Interval& interval)
+string intervalColumns(const array<string, 9>& cells)
 {
-    ostringstream text;
-    text << ' ' << left2(to_string((interval.timeMs + scenario.windowMs) / 1000) + "s/" +
-                            to_string(scenario.durationSec) + "s",
-                        14) << ' '
-         << right2(to_string(interval.count), 11) << ' '
-         << right2(to_string(interval.rate), 9) << ' '
-         << right2(to_string(static_cast<long>(interval.avgUs)) + "us", 9) << ' '
-         << right2(to_string(static_cast<long>(interval.p95Us)) + "us", 9) << ' '
-         << right2(to_string(static_cast<long>(interval.p99Us)) + "us", 9) << ' '
-         << right2(to_string(interval.cpuPct) + "%", 7) << ' '
-         << right2(to_string(interval.rssMb) + "Mb", 8);
-    return text.str();
+    constexpr array<size_t, 9> widths {11, 9, 7, 7, 7, 7, 7, 5, 6};
+    auto text = " " + left2(cells.front(), widths.front());
+    for (size_t i = 1; i < cells.size(); ++i)
+    {
+        text += " " + right2(cells[i], widths[i]);
+    }
+    return text;
 }
 
-string testSummary(const Scenario& scenario)
+string intervalRow(const Scenario& scenario, const Interval& interval)
+{
+    const auto latency = [](double us) { return to_string(static_cast<long>(us)) + "us"; };
+    return intervalColumns({
+        to_string((interval.timeMs + scenario.windowMs) / 1000) + "s/" + to_string(scenario.durationSec) + "s",
+        to_string(interval.count), to_string(interval.rate), latency(interval.avgUs),
+        interval.p50Us ? latency(*interval.p50Us) : "-", latency(interval.p95Us), latency(interval.p99Us),
+        to_string(interval.cpuPct) + "%", to_string(interval.rssMb) + "Mb"});
+}
+
+string testSummary(const Scenario& scenario, const int width)
 {
     if (scenario.intervals.empty())
     {
         return " Summary: waiting for measured intervals";
     }
-    vector<double> averages, p95s, p99s;
+    vector<double> averages, p50s, p95s, p99s;
     long totalCount = 0;
     long totalRate = 0;
     long totalCpu = 0;
@@ -1448,6 +1415,10 @@ string testSummary(const Scenario& scenario)
     for (const auto& interval: scenario.intervals)
     {
         averages.push_back(interval.avgUs);
+        if (interval.p50Us)
+        {
+            p50s.push_back(*interval.p50Us);
+        }
         p95s.push_back(interval.p95Us);
         p99s.push_back(interval.p99Us);
         totalCount += interval.count;
@@ -1470,16 +1441,27 @@ string testSummary(const Scenario& scenario)
         }
         return total / values.size();
     };
-    ostringstream text;
-    text << " Avg " << static_cast<long>(average(averages)) << "us"
-         << "   Median " << static_cast<long>(median(averages)) << "us"
-         << "   p95 " << static_cast<long>(median(p95s)) << "us"
-         << "   p99 " << static_cast<long>(median(p99s)) << "us"
-         << "   count " << totalCount
-         << "   rate " << totalRate / static_cast<long>(scenario.intervals.size()) << "/s"
-         << "   CPU " << totalCpu / static_cast<long>(scenario.intervals.size()) << "%"
-         << "   peak RSS " << peakRss << "Mb";
-    return text.str();
+    const auto windows = static_cast<long>(scenario.intervals.size());
+    const array fields {
+        "Avg " + to_string(static_cast<long>(average(averages))) + "us",
+        p50s.empty() ? string("Median -") : "Median " + to_string(static_cast<long>(median(p50s))) + "us",
+        "p95 " + to_string(static_cast<long>(median(p95s))) + "us",
+        "p99 " + to_string(static_cast<long>(median(p99s))) + "us",
+        "count " + to_string(totalCount),
+        "rate " + to_string(totalRate / windows) + "/s",
+        "CPU " + to_string(totalCpu / windows) + "%",
+        "peak RSS " + to_string(peakRss) + "Mb"
+    };
+    string text;
+    for (const auto& field: fields)
+    {
+        if (tui::columnsOf(text) + 1 + tui::columnsOf(field) > width)
+        {
+            break;
+        }
+        text += " " + field;
+    }
+    return text;
 }
 
 /// A Turbo Vision window on the blue desktop: double frame with its title in the top line, a
@@ -1615,13 +1597,16 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
     {
         put(row, left + 1, theme::desktop, string(static_cast<size_t>(inner), ' '));
     }
-    put(headerRow, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
-    put(bottom - 1, left + 1, theme::dialog, string(static_cast<size_t>(inner), ' '));
-    // Keep one desktop cell on either side of the body, before the scrollbar on the right.
-    const auto bodyWidth = inner - 3;
+    const auto tableLeft = left + 1;
+    const auto scrollbarColumn = left + inner;
+    const auto bodyWidth = scrollbarColumn - tableLeft;
+    const auto putTable = [&](int row, const char* color, const string& text)
+    {
+        put(row, tableLeft, color, padded(text, bodyWidth));
+    };
     for (int row = tableTop; row < bottom - 1; ++row)
     {
-        put(row, left + 2, theme::dialog, string(static_cast<size_t>(bodyWidth), ' '));
+        putTable(row, theme::dialog, {});
     }
 
     int row = top + 2;
@@ -1674,11 +1659,8 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
     }
 
     {
-        ostringstream text;
-        text << ' ' << left2("elapsed", 14) << ' ' << right2("count", 11) << ' ' << right2("rate/s", 9) << ' '
-             << right2("avg", 9) << ' ' << right2("p95", 9) << ' ' << right2("p99", 9) << ' '
-             << right2("cpu", 7) << ' ' << right2("rss", 8);
-        put(headerRow, left + 2, theme::header, padded(text.str(), inner - 2));
+        const auto headings = intervalColumns({"elapsed", "count", "rate/s", "avg", "median", "p95", "p99", "cpu", "rss"});
+        putTable(headerRow, theme::header, headings);
     }
 
     // The intervals of that test, newest at the bottom. The default view is the newest ones; Up
@@ -1693,24 +1675,23 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
     row = tableTop;
     if (first > 0 && row < bottom - 1)
     {
-        put(row++, left + 2, theme::dialog, padded(" ... " + to_string(first) + " earlier interval(s), PageUp", bodyWidth));
+        putTable(row++, theme::dialog, " ... " + to_string(first) + " earlier interval(s), PageUp");
     }
     if (rowsCount == 0 && row < bottom - 1)
     {
         ostringstream text;
         text << ' ' << left2(phaseRow(scenario), 26);
-        put(row++, left + 2, theme::dialog, padded(text.str(), bodyWidth));
+        putTable(row++, theme::dialog, text.str());
     }
     for (long index = first; index < last && row < bottom - 1; ++index)
     {
-        put(row++, left + 2, theme::dialog, padded(intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]), bodyWidth));
+        putTable(row++, theme::dialog, intervalRow(scenario, scenario.intervals[static_cast<size_t>(index)]));
     }
     if (offset > 0 && row < bottom - 1)
     {
-        put(row, left + 2, theme::dialog,
-            padded(" ... " + to_string(offset) + " newer interval(s), PageDown", bodyWidth));
+        putTable(row, theme::dialog, " ... " + to_string(offset) + " newer interval(s), PageDown");
     }
-    put(bottom - 1, left + 2, theme::header, padded(testSummary(scenario), inner - 2));
+    putTable(bottom - 1, theme::header, testSummary(scenario, bodyWidth));
 
     // The scrollbar down the right edge of the table, as every Turbo Vision window had one: arrows
     // at the ends, a track, and a thumb whose length is how much of the test is on screen and whose
@@ -1728,12 +1709,12 @@ void drawScreen(tui::Frame& frameStorage, const Report& report, const filesystem
         const auto maxOffset = max<int64_t>(0, total - visible);
         const auto position = maxOffset > 0 ? (maxOffset - min<int64_t>(offset, maxOffset)) * (trackRows - thumbSize) / maxOffset : 0;
 
-        put(trackTop, left + inner, theme::scroll, "▲");
-        put(trackBottom, left + inner, theme::scroll, "▼");
+        put(trackTop, scrollbarColumn, theme::scroll, "▲");
+        put(trackBottom, scrollbarColumn, theme::scroll, "▼");
         for (int index = 0; index < trackRows; ++index)
         {
             const bool inThumb = index >= position && index < position + thumbSize;
-            put(trackTop + 1 + index, left + inner, theme::scroll, inThumb ? "█" : "░");
+            put(trackTop + 1 + index, scrollbarColumn, theme::scroll, inThumb ? "█" : "░");
         }
     }
 
@@ -2342,10 +2323,10 @@ int showComparison(const string& first, const string& second)
     const auto rows = compareVersions(first, second, problem);
     if (!tui::Terminal::available())
     {
-        printf("Comparison: %s -> %s\n", first.c_str(), second.c_str());
+        printf("Comparison: %s -> %s\n", resultLabel(first).c_str(), resultLabel(second).c_str());
         for (const auto& row: rows)
         {
-            printf("  %s  %lus  %lus  %s\n", row.name.c_str(), row.first.averageUs,
+            printf("  %s  %ldus  %ldus  %s\n", row.name.c_str(), row.first.averageUs,
                    row.second.averageUs, percentDifference(row.first.averageUs, row.second.averageUs).c_str());
         }
         if (!problem.empty())
@@ -2511,94 +2492,101 @@ int browseRuns()
                     const bool framed = width >= 30 && height >= 9;
                     const auto boxWidth = framed ? min(58, width - 3) : width;
                     const auto boxHeight = message.empty() ? 8 : 9;
-                    const auto left = (width - boxWidth) / 2 + 1;
-                    const auto top = max(1, (height - boxHeight) / 2 + 1);
-                    const auto contentLeft = framed ? left + 3 : left;
-                    const auto contentTop = framed ? top + 2 : top;
-                    const auto contentWidth = framed ? boxWidth - 6 : boxWidth;
+                    optional<tui::Dialog> dialog;
                     if (framed)
                     {
-                        drawDialogFrame(frame, left, top, boxWidth, boxHeight, " New run file ");
+                        dialog.emplace(frame, width, height, boxWidth, boxHeight, " New run file ",
+                                       vector<string> {"~E~dit", "Cancel"});
                     }
-                    frame.put(contentTop, contentLeft, theme::dialog, padded("File name (.run.sh)", contentWidth));
-                    auto visible = newName;
-                    const auto room = max(0, contentWidth - 2);
-                    while (tui::Terminal::displayWidth(visible) > room)
-                    {
-                        visible.erase(0, clipTo(visible, 1).size());
-                    }
-                    frame.put(contentTop + 1, contentLeft, theme::input, string(contentWidth, ' '));
-                    frame.put(contentTop + 1, contentLeft + 1, theme::input, visible);
-                    if (!message.empty())
-                    {
-                        frame.put(contentTop + 2, contentLeft, theme::warning, padded(message, contentWidth));
-                    }
+                    const auto contentLeft = framed ? dialog->contentLeft() : 1;
+                    const auto contentTop = framed ? dialog->contentTop()
+                                                   : max(1, (height - boxHeight) / 2 + 1);
+                    const auto contentWidth = framed ? dialog->contentWidth() : boxWidth;
                     if (framed)
                     {
-                        drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, yesSelected, "   Edit  ");
+                        dialog->line(0, "File name (.run.sh)");
+                        dialog->input(1, newName, false);
+                        if (!message.empty())
+                        {
+                            dialog->line(2, message, theme::warning);
+                        }
+                        dialog->drawButtons(yesSelected ? 0 : 1);
                     }
                     else
                     {
+                        frame.put(contentTop, contentLeft, theme::dialog,
+                                  padded("File name (.run.sh)", contentWidth));
+                        auto visible = newName;
+                        const auto room = max(0, contentWidth - 2);
+                        while (tui::Terminal::displayWidth(visible) > room)
+                        {
+                            visible.erase(0, clipTo(visible, 1).size());
+                        }
+                        frame.put(contentTop + 1, contentLeft, theme::input, string(contentWidth, ' '));
+                        frame.put(contentTop + 1, contentLeft + 1, theme::input, visible);
+                        if (!message.empty())
+                        {
+                            frame.put(contentTop + 2, contentLeft, theme::warning, padded(message, contentWidth));
+                        }
                         frame.put(contentTop + (message.empty() ? 2 : 3), contentLeft, theme::dialog,
                                   padded(yesSelected ? "[Edit]   Cancel" : " Edit   [Cancel]", contentWidth));
                     }
                 }
                 else if (prompt == tui::Key::F5)
                 {
-                    const auto boxWidth = min(60, width - 3);
-                    const auto boxHeight = 10;
-                    const auto left = (width - boxWidth) / 2 + 1;
-                    const auto top = max(1, (height - boxHeight) / 2 + 1);
-                    drawDialogFrame(frame, left, top, boxWidth, boxHeight, " Run on broker ");
-                    const auto contentLeft = left + 3;
-                    const auto contentWidth = boxWidth - 6;
-                    const auto field = [&](const int row, const string& label, const string& value,
-                                           const bool active)
-                    {
-                        frame.put(top + row, contentLeft, theme::dialog, padded(label, contentWidth));
-                        auto visible = value;
-                        const auto room = max(0, contentWidth - 2);
-                        while (tui::Terminal::displayWidth(visible) > room)
-                        {
-                            visible.erase(0, clipTo(visible, 1).size());
-                        }
-                        const auto color = active ? theme::selected : theme::input;
-                        frame.put(top + row + 1, contentLeft, color, string(contentWidth, ' '));
-                        frame.put(top + row + 1, contentLeft + 1, color, visible);
-                    };
-                    field(2, "Broker name:", brokerName, brokerFocus == 0);
-                    field(4, "Broker version:", brokerVersion, brokerFocus == 1);
+                    tui::Dialog dialog(frame, width, height, min(60, width - 3), 10, " Run on broker ",
+                                       {"Ok", "Cancel"});
+                    dialog.field(0, "Broker name:", brokerName, brokerFocus == 0);
+                    dialog.field(2, "Broker version:", brokerVersion, brokerFocus == 1);
                     if (!message.empty())
                     {
-                        frame.put(top + 6, contentLeft, theme::warning, padded(message, contentWidth));
+                        dialog.line(4, message, theme::warning);
                     }
-                    drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, !brokerCancel, "    Ok  ");
+                    dialog.drawButtons(brokerCancel ? 1 : 0);
                 }
                 else if (prompt == tui::Key::F6)
                 {
-                    const auto boxWidth = min(64, width - 3);
+                    int desiredWidth = max(64, 16 + tui::columnsOf(resultLabel(compareFirst)));
+                    for (const auto& version: compareList)
+                    {
+                        desiredWidth = max(desiredWidth, 6 + tui::columnsOf(resultLabel(version)));
+                    }
+                    const auto boxWidth = min(desiredWidth, width - 3);
                     const auto shownVersions = min<size_t>(2, compareList.size());
-                    const auto boxHeight = min(height - 2, 10 + static_cast<int>(shownVersions));
-                    const auto left = (width - boxWidth) / 2 + 1;
-                    const auto top = max(1, (height - boxHeight) / 2 + 1);
-                    drawDialogFrame(frame, left, top, boxWidth, boxHeight, " Compare to version ");
-                    frame.put(top + 2, left + 3, theme::dialog, padded("Compare to version:", boxWidth - 6));
-                    frame.put(top + 3, left + 3, theme::dialog, padded("Run file: " + compareFirst, boxWidth - 6));
-                    const auto rows = static_cast<size_t>(max(0, boxHeight - 9));
-                    const auto rowsPerPage = rows == 0 ? size_t {1} : rows;
-                    const auto firstRow = compareChoice / rowsPerPage * rowsPerPage;
+                    tui::Dialog dialog(frame, width, height, boxWidth,
+                                       min(height - 2, 10 + static_cast<int>(shownVersions)),
+                                       " Compare to version ", {"Ok", "Cancel"});
+                    dialog.line(0, "Compare to version:");
+                    dialog.line(1, "Run file: " + resultLabel(compareFirst));
+                    const auto rows = static_cast<size_t>(max(0, dialog.height() - 9));
+                    const auto rowsPerPage = max(size_t{1}, rows);
+                    const auto maxFirst = compareList.size() > rows ? compareList.size() - rows : 0;
+                    const auto firstRow = min(compareChoice / rowsPerPage * rowsPerPage, maxFirst);
+                    const bool scrollable = rows > 0 && maxFirst > 0;
+                    const auto listWidth = dialog.width() - 2 - static_cast<int>(scrollable);
                     for (size_t i = 0; i < rows && firstRow + i < compareList.size(); ++i)
                     {
                         const auto color = !compareButtons && firstRow + i == compareChoice
                                                ? theme::selected : theme::fileList;
-                        frame.put(top + 4 + static_cast<int>(i), left + 2, color,
-                                  padded(compareList[firstRow + i], boxWidth - 2));
+                        frame.put(dialog.top() + 4 + static_cast<int>(i), dialog.left() + 1, color,
+                                  padded(resultLabel(compareList[firstRow + i]), listWidth));
                     }
-                    drawDialogButtons(frame, top + boxHeight - 3, left, boxWidth, !compareButtons, "  Ok  ");
+                    if (scrollable)
+                    {
+                        const auto thumbSize = max(size_t{1}, rows * rows / compareList.size());
+                        const auto thumbStart = firstRow * (rows - thumbSize) / maxFirst;
+                        const auto column = dialog.left() + dialog.width() - 2;
+                        for (size_t i = 0; i < rows; ++i)
+                        {
+                            const bool inThumb = i >= thumbStart && i < thumbStart + thumbSize;
+                            frame.put(dialog.top() + 4 + static_cast<int>(i), column,
+                                      theme::scroll, inThumb ? "█" : "░");
+                        }
+                    }
+                    dialog.drawButtons(compareButtons ? 1 : 0);
                     if (!message.empty())
                     {
-                        frame.put(top + boxHeight - 5, left + 3, theme::warning,
-                                  padded(message, boxWidth - 6));
+                        dialog.line(dialog.height() - 7, message, theme::warning);
                     }
                 }
                 else if (prompt == tui::Key::F8)
@@ -2805,7 +2793,7 @@ int browseRuns()
                     }
                     if (compareList.empty())
                     {
-                        message = "No other result versions to compare with " + compareFirst;
+                        message = "No other result versions to compare with " + resultLabel(compareFirst);
                         continue;
                     }
                     prompt = key;

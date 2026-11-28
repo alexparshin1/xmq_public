@@ -324,6 +324,18 @@ SET(XMQ_SERVICE_USER "xmq")
 # configuration in /etc, which is not under the prefix, so there this stays absolute and nothing
 # changes.
 XMQ_INSTALL_DESTINATION("${XMQ_CONF_DIRECTORY}" XMQ_CONF_INSTALL_DESTINATION)
+GET_FILENAME_COMPONENT(XMQ_RUNNER_CONF_PARENT "${XMQ_CONF_DIRECTORY}" DIRECTORY)
+IF (NOT DEFINED XMQ_RUNNER_CONF_DIRECTORY)
+    SET(XMQ_RUNNER_CONF_DIRECTORY "${XMQ_RUNNER_CONF_PARENT}/xmq_runner")
+ENDIF ()
+XMQ_INSTALL_DESTINATION("${XMQ_RUNNER_CONF_DIRECTORY}" XMQ_RUNNER_CONF_INSTALL_DESTINATION)
+IF (NOT DEFINED XMQ_RUNNER_STATE_DIRECTORY)
+    IF (XMQ_PREFIX_IN_HOME)
+        SET(XMQ_RUNNER_STATE_DIRECTORY "${CMAKE_INSTALL_PREFIX}/var/lib/xmq/xmq_runner")
+    ELSE ()
+        SET(XMQ_RUNNER_STATE_DIRECTORY "/var/lib/xmq/xmq_runner")
+    ENDIF ()
+ENDIF ()
 
 MESSAGE("Configuration:      " ${XMQ_CONF_DIRECTORY})
 MESSAGE("Logs:               " ${XMQ_LOGS_DIRECTORY})
@@ -780,6 +792,9 @@ INSTALL(FILES cmake/XmqExtension.cmake DESTINATION share/xmq/cmake)
 ADD_SUBDIRECTORY(Keys)
 
 ADD_SUBDIRECTORY(LoadTest)
+IF (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    ADD_SUBDIRECTORY(xmq_runner)
+ENDIF ()
 
 # The React sources are staged into the binary directory by the gui-react build itself,
 # so that a source edit is picked up by a plain build, without reconfiguring.

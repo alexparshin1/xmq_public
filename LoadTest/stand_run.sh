@@ -37,6 +37,7 @@ count="29"
 user="user"
 password="Secret#123"
 out_dir=""
+results_dir="$SCRIPT_DIR/results"
 server_note=""
 client_note=""
 setup_cmd=""
@@ -78,6 +79,7 @@ Options:
   --client-note TEXT     Record's Client: line. Default: this host, the bound-address count, xmq_scn.
   --setup-cmd CMD        Passed to run_scenario_set.sh --setup-cmd, with \$XMQ_SCENARIO set.
   --note TEXT            Free-text line for the record; repeatable.
+  --results-dir DIR      Results root for default raw logs and filed Bench results.
   --file                 File the record with file_results.py --env Bench when the set succeeds.
   --skip-preflight       Do not run preflight.sh on either host.
   --skip-readiness       Do not run stand_readiness.sh (persistence off, Release builds). Use only
@@ -113,6 +115,7 @@ while [[ $# -gt 0 ]]; do
         --user)        user="$2"; shift 2 ;;
         --password)    password="$2"; shift 2 ;;
         --out)         out_dir="$2"; shift 2 ;;
+        --results-dir) results_dir="$2"; shift 2 ;;
         --server-note) server_note="$2"; shift 2 ;;
         --client-note) client_note="$2"; shift 2 ;;
         --setup-cmd)   setup_cmd="$2"; shift 2 ;;
@@ -269,7 +272,7 @@ if (( ! skip_preflight )); then
 fi
 
 if [[ -z "$out_dir" ]]; then
-    out_dir="$SCRIPT_DIR/results/raw/$(date +%Y-%m-%d-%H%M)-${broker//[^[:alnum:].-]/-}$version-bench"
+    out_dir="$results_dir/raw/$(date +%Y-%m-%d-%H%M)-${broker//[^[:alnum:].-]/-}$version-bench"
 fi
 mkdir -p "$out_dir" || die "cannot create $out_dir"
 
@@ -341,5 +344,5 @@ sed -n '/^Summary/,$p' "$record" | head -20
 echo "  record: $record"
 
 if (( file_results )); then
-    "$SCRIPT_DIR/file_results.py" --env Bench "$record" || die "file_results.py refused the record"
+    "$SCRIPT_DIR/file_results.py" --env Bench --results-dir "$results_dir" "$record" || die "file_results.py refused the record"
 fi

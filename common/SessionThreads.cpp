@@ -22,7 +22,7 @@ SessionThreads::SessionThreads(const size_t threadCount)
     for (size_t i = 0; i < threadCount; ++i)
     {
         lock_guard lock(m_mutex);
-        auto       thread = make_shared<SessionThread>();
+        auto       thread = make_shared<SessionThread>(i);
         m_threads.push_back(thread);
     }
 }

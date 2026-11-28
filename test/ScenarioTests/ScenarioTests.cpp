@@ -21,6 +21,32 @@ using namespace filesystem;
 XMQ_ScenarioTests::ScenarioMap XMQ_ScenarioTests::m_basicTestScenarios;
 XMQ_ScenarioTests::ScenarioMap XMQ_ScenarioTests::m_encryptedTestScenarios;
 
+TEST(PublishPairingTests, fanoutSharesTimestampAndRejectsDuplicateDeliveries)
+{
+    PublishPairing pairing;
+    pairing.sent(1, 65);
+    const auto first = pairing.received(1, 64);
+    ASSERT_TRUE(first);
+    EXPECT_FALSE(pairing.received(1, 64));
+    for (size_t subscriber = 0; subscriber < 64; ++subscriber)
+    {
+        EXPECT_EQ(first, pairing.received(1, subscriber));
+    }
+    EXPECT_FALSE(pairing.received(1, 0));
+}
+
+TEST(PublishPairingTests, singleDeliveryChecksDestinationAndCancellation)
+{
+    PublishPairing pairing;
+    pairing.sent(1, 1, 5);
+    pairing.sent(2, 1);
+    pairing.cancel(2);
+    EXPECT_FALSE(pairing.received(1, 4));
+    EXPECT_TRUE(pairing.received(1, 5));
+    EXPECT_FALSE(pairing.received(1, 5));
+    EXPECT_FALSE(pairing.received(2, 5));
+}
+
 TEST(RoundTripLatencyTests, percentilesComeFromTheSamplesNotTheIntervalMeans)
 {
     RoundTripLatency latency;
@@ -30,8 +56,8 @@ TEST(RoundTripLatencyTests, percentilesComeFromTheSamplesNotTheIntervalMeans)
         latency.add(std::chrono::microseconds(microseconds));
     }
 
-    // Buckets are an eighth of a power of two, so the answer is the bucket's upper edge: the
-    // point is that it follows the samples, not that it is exact to the microsecond.
+    // Buckets are a small fraction of a power of two, so the answer is the bucket's upper edge:
+    // the point is that it follows the samples, not that it is exact to the microsecond.
     const auto p50 = latency.percentile(50).count();
     const auto p99 = latency.percentile(99).count();
     EXPECT_GE(p50, 5000);
@@ -45,6 +71,22 @@ TEST(RoundTripLatencyTests, percentilesOfNoSamplesAreZero)
     RoundTripLatency latency;
     latency.start(1s);
     EXPECT_EQ(latency.percentile(99).count(), 0);
+}
+
+TEST(RoundTripLatencyTests, directDeliveryKeepsTheLastWindowWithoutCountingTwice)
+{
+    RoundTripLatency latency;
+    const auto start = RoundTripLatency::Clock::now();
+    latency.start(1h, start);
+    latency.recordDelivery(start);
+    latency.recordDelivery({});
+    latency.stop();
+
+    EXPECT_EQ(latency.closedThrough(), 0us);
+    const auto* window = latency.closedInterval(0us);
+    ASSERT_NE(window, nullptr);
+    EXPECT_EQ(window->m_count, 1u);
+    EXPECT_EQ(latency.unmatchedReceived(), 1u);
 }
 
 TEST(RoundTripLatencyTests, closedWindowsRemainStableAndEmptyWindowsAdvanceTheWatermark)
@@ -375,8 +417,15 @@ TEST_F(XMQ_ScenarioTests, BasicFanOutScenario)
 
         vector<RoundTripLatency> clientPublishLatencies;
         scenario->connectClients(clientPublishLatencies, scenario->name());
+        EXPECT_EQ(clientPublishLatencies.size(), client::Session::receiveWorkerCount());
         scenario->publish(clientPublishLatencies, scenario->name());
         scenario->disconnectClients();
+        size_t deliveries = 0;
+        for (const auto& shard: clientPublishLatencies)
+        {
+            deliveries += shard.count();
+        }
+        EXPECT_EQ(deliveries, 1000u);
     }
     catch (const Exception& e)
     {

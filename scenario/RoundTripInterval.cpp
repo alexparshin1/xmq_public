@@ -52,7 +52,9 @@ std::string repeated(std::string_view unit, const size_t count)
     return result;
 }
 
-constexpr auto bucketsPerPower = uint32_t(64);
+constexpr auto bucketsPerPower = uint32_t(128);
+static_assert(RoundTripLatency::HistogramBucketLimit % bucketsPerPower == 0,
+              "the bucket limit must be a whole number of powers of two");
 
 uint32_t histogramBucket(const int64_t microseconds)
 {
@@ -153,15 +155,16 @@ RoundTripLatency::RoundTripLatency(const RoundTripLatency& other)
     m_unmatchedReceived = other.m_unmatchedReceived;
 }
 
-void RoundTripLatency::start(const microseconds groupInterval)
+void RoundTripLatency::start(const microseconds groupInterval, const Clock::time_point startTime)
 {
     m_groupIntervalDuration = groupInterval;
     // The observer needs a window closed from the receive path at each boundary. A plain publish
     // phase has none: its samples can go straight into their time-keyed bucket, which keeps window
     // bookkeeping off the delivery callbacks that the latency measurement is timing.
     m_directIntervals = !m_intervalObserver;
+    m_slowBuckets.clear();
 
-    m_startTime = Clock::now();
+    m_startTime = startTime;
     m_nextIntervalTime = m_startTime + m_groupIntervalDuration;
 
     m_summaryLatency = microseconds(0);
@@ -179,10 +182,28 @@ void RoundTripLatency::start(const microseconds groupInterval)
 void RoundTripLatency::stop()
 {
     const std::scoped_lock lock(m_mutex);
-    if (!m_directIntervals)
+    // add() (the test and diagnostic path) still uses the current accumulator; received() in
+    // direct mode does not, so there is nothing to store for a measured run.
+    if (!m_directIntervals || !m_histogram.m_touched.empty())
     {
         storeCurrentInterval();
     }
+    else if (!m_intervals.empty())
+    {
+        m_closedThrough.store(m_intervals.rbegin()->first.count(), std::memory_order_relaxed);
+    }
+}
+
+void RoundTripLatency::recordDelivery(const optional<Clock::time_point> sentAt)
+{
+    const scoped_lock lock(m_mutex);
+    if (!sentAt)
+    {
+        ++m_unmatchedReceived;
+        return;
+    }
+    const auto now = Clock::now();
+    addDirect(now, duration_cast<microseconds>(now - *sentAt));
 }
 
 void RoundTripLatency::sent()
@@ -241,7 +262,7 @@ void RoundTripLatency::storeCurrentInterval()
     m_closedThrough.store(interval.count(), std::memory_order_relaxed);
 }
 
-void RoundTripLatency::addDirect(const microseconds now, const microseconds latency)
+void RoundTripLatency::addDirect(const Clock::time_point now, const microseconds latency)
 {
     const auto width = m_groupIntervalDuration.count();
     if (width <= 0)
@@ -249,6 +270,15 @@ void RoundTripLatency::addDirect(const microseconds now, const microseconds late
         return;
     }
     const auto elapsed = duration_cast<microseconds>(now - m_startTime).count();
+    if (m_slowBucketsEnabled && latency > 3ms && elapsed >= 0)
+    {
+        const auto index = static_cast<size_t>(elapsed / 100'000);
+        if (index >= m_slowBuckets.size())
+        {
+            m_slowBuckets.resize(index + 1);
+        }
+        ++m_slowBuckets[index];
+    }
     const auto key = microseconds(elapsed / width * width);
 
     auto& bucket = m_intervals[key];

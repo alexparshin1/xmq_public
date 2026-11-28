@@ -22,6 +22,7 @@ public:
     explicit SessionThreads(size_t threadCount);
     ~SessionThreads();
     SSessionThread getNextThread();
+    size_t size() const noexcept { return m_threads.size(); }
 
 private:
     mutable std::mutex          m_mutex;

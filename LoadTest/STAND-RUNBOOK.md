@@ -175,10 +175,20 @@ is only visible after forty minutes. `xmq_runner --edit` is a form over exactly 
 writes a run file, and nothing else.
 
 ```bash
-cd LoadTest/runner && make
-./xmq_runner --edit                       # write runs/<date>-xmq<version>.run.sh
-./xmq_runner --edit ../runs/1.1.2.run.sh  # change one that exists; its values are loaded first
+cmake .                                  # from the repository root
+cmake --build . --target xmq_runner
+cmake --install . --component runner
+xmq_runner --edit                        # create a run file
+xmq_runner --edit xmq-1.1.2.run.sh
 ```
+
+The default home install puts the binary in `~/.local/bin` and its scenario sets,
+JSON scenarios and helper scripts in `~/.local/etc/xmq_runner`.
+Run files live in `~/.local/var/lib/xmq/xmq_runner/` for the default home install, or
+`/var/lib/xmq/xmq_runner/` for a system install. Raw logs and filed benchmarks
+live in its `results/raw/` and `results/Bench/` subdirectories. On a system install,
+the administrator must make the state directory writable by the account running benchmarks.
+Existing results and run files are not migrated automatically.
 
 Enter edits a value, Enter again keeps it, arrows move, F2 writes the file, Esc leaves without
 writing. A value that cannot work - a version that is empty, a set that is not there - is refused
@@ -219,9 +229,8 @@ to the run already going instead of starting another.
 It is a watcher: it starts nothing, and it is not on the run's path.
 
 ```bash
-cd LoadTest/runner && make
-./xmq_runner --view ../results/Bench/1.1.2           # full screen, q to quit
-./xmq_runner --view ../results/Bench/1.1.2 --once    # one status, for a script or a log
+xmq_runner --view <run-dir>           # full screen
+xmq_runner --view <run-dir> --once    # one status, for a script or a log
 ```
 
 The table shows one test at a time - a full set is five scenarios of several minutes each, and all

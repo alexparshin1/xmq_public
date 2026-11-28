@@ -129,18 +129,23 @@ vector<string> splitWords(const string& line)
 
 fs::path loadTestDirectory()
 {
-    // The binary lives in LoadTest/runner; the script it describes lives one directory up. An
-    // absolute path here is what lets a run file name stand_run.sh from any working directory.
+    // Resolve relative to the executable first: this supports both a checkout and an install
+    // staged under a different prefix. System configuration can also be an absolute path.
     error_code error;
     const auto self = fs::read_symlink("/proc/self/exe", error);
     if (!error && !self.empty())
     {
         const auto directory = self.parent_path();
+        const auto installed = directory.parent_path() / XMQ_RUNNER_CONF_INSTALL_DESTINATION;
+        if (fs::is_regular_file(installed / "stand_run.sh", error))
+        {
+            return installed;
+        }
         for (auto candidate = directory; !candidate.empty(); candidate = candidate.parent_path())
         {
-            if (fs::exists(candidate / "stand_run.sh", error))
+            if (fs::is_regular_file(candidate / "LoadTest" / "stand_run.sh", error))
             {
-                return candidate;
+                return candidate / "LoadTest";
             }
             if (candidate == candidate.parent_path())
             {
@@ -148,8 +153,7 @@ fs::path loadTestDirectory()
             }
         }
     }
-    // A copy run from somewhere else: the caller's current directory, one level up from runner/.
-    return fs::current_path();
+    return XMQ_RUNNER_CONF_DIRECTORY;
 }
 
 vector<string> availableScenarioSets()
@@ -174,7 +178,7 @@ vector<string> availableResultVersions()
     // Each broker has its own directory under results/Bench; offer "Broker/version" pairs.
     vector<string> versions;
     error_code     error;
-    const auto     root = loadTestDirectory() / "results" / "Bench";
+    const auto     root = resultsDirectory() / "Bench";
     for (const auto& broker: fs::directory_iterator(root, error))
     {
         error_code brokerError;
@@ -200,7 +204,7 @@ string suggestedVersion()
 {
     vector<string> versions;
     error_code     error;
-    const auto     directory = loadTestDirectory() / "results" / "Bench" / "XMQ";
+    const auto     directory = resultsDirectory() / "Bench" / "XMQ";
     for (const auto& entry: fs::directory_iterator(directory, error))
     {
         const auto name = entry.path().filename().string();
@@ -242,7 +246,7 @@ string suggestedVersion()
 
 string defaultOutDirectory(const RunSpec& spec)
 {
-    return (loadTestDirectory() / "results" / "raw" / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + "-bench")).string();
+    return (resultsDirectory() / "raw" / (stamp() + "-xmq" + (spec.version.empty() ? "unknown" : spec.version) + "-bench")).string();
 }
 
 string displayPath(const fs::path& path)
@@ -276,26 +280,20 @@ fs::path resolveRunPath(const fs::path& path)
     {
         return path;
     }
-    return loadTestDirectory() / path;
+    return runDirectory() / path;
 }
 
 fs::path runDirectory()
 {
-#ifdef _WIN32
-    const char* programData = getenv("PROGRAMDATA");
-    const fs::path shared = programData && *programData
-                                ? fs::path(programData) / "xmq" / "xmq_runner"
-                                : fs::path("C:/ProgramData/xmq/xmq_runner");
-#else
-    const fs::path shared {"/var/lib/xmq/xmq_runner"};
-#endif
+    const fs::path shared {XMQ_RUNNER_STATE_DIRECTORY};
     error_code error;
     fs::create_directories(shared, error);
-    if (!error)
-    {
-        return shared;
-    }
-    return loadTestDirectory() / "runs";
+    return shared;
+}
+
+fs::path resultsDirectory()
+{
+    return runDirectory() / "results";
 }
 
 fs::path defaultRunFile(const RunSpec& spec)
@@ -329,6 +327,7 @@ string toScript(const RunSpec& spec)
          << "# exit status of this file is its exit status.\n"
          << "exec " << quote(script.string()) << " \\\n"
          << "    --existing-broker \\\n"
+         << "    --results-dir " << quote(resultsDirectory().string()) << " \\\n"
          << "    --broker " << quote(spec.broker.empty() ? "XMQ" : spec.broker) << " \\\n"
          << "    --version " << quote(spec.version) << " \\\n"
           << "    --set " << quote(setPath.string()) << " \\\n"

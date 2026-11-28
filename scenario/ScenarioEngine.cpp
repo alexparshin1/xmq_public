@@ -600,10 +600,11 @@ vector<client::SMqttClient> ScenarioEngine::connectClientGroup(const Host&      
                 }
             }
 #endif
-            COUT(format("INTERVAL time_ms={} count={} avg_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
+            COUT(format("INTERVAL time_ms={} count={} avg_us={} p50_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
                         duration_cast<milliseconds>(intervalStart).count(),
                         count,
                         average.count(),
+                        RoundTripLatency::intervalPercentile(histogram, 50).count(),
                         RoundTripLatency::intervalPercentile(histogram, 95).count(),
                         RoundTripLatency::intervalPercentile(histogram, 99).count(),
                         rate,
@@ -768,16 +769,9 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
     const auto subscribedCount = make_shared<atomic_size_t>(0);
     const auto allSubscribed = make_shared<Semaphore>();
 
-    // Fan-In uses a shared subscription: each message is delivered to exactly one subscriber,
-    // and its send is recorded once in clientPublishLatency[0], so every subscriber must pop
-    // from that same shared queue.
-    const auto scenarioType = typeFromString(m_scenario.m_type);
-
     auto nextSubscription = steady_clock::now();
     for (size_t clientIndex = 0; clientIndex < subscriberCount; clientIndex++)
     {
-        const auto latencyIndex = scenarioType == Type::FanIn ? 0 : clientIndex;
-
         auto subscriber = m_subscribers[clientIndex];
         if (!answered(subscriber))
         {
@@ -787,7 +781,8 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
             }
             continue;
         }
-        subscriber->onMessage([this, totalMessageCount, &clientPublishLatency, latencyIndex](const auto& message)
+        subscriber->onMessage([this, totalMessageCount, &clientPublishLatency, clientIndex,
+                               pairing = m_publishPairing](const auto& message)
         {
             if (m_scenarioCompleted.load() || m_warmingUp.load())
             {
@@ -798,7 +793,8 @@ void ScenarioEngine::subscribeClients(size_t subscriberCount, const size_t total
                 const auto sequence = messageSequence(*message);
                 if (sequence && (*sequence & warmupSequenceBit) == 0)
                 {
-                    clientPublishLatency[latencyIndex].received(*sequence);
+                    clientPublishLatency[SessionThread::receiveWorkerIndex()].recordDelivery(
+                        pairing->received(*sequence, clientIndex));
                 }
                 // ClientReceive was already snapped in Session::receiveMessages(),
                 // right before this callback ran; only present when the publisher
@@ -1161,7 +1157,9 @@ void ScenarioEngine::connectClients(vector<RoundTripLatency>& clientPublishLaten
                                                        m_connectProperties, subscriberProtocolVersion, "connect"),
                                        subscriberKeys);
 
-    clientPublishLatencies.resize(subscriberCount);
+    m_publishPairing = make_shared<PublishPairing>();
+    m_scenarioCompleted = true;
+    clientPublishLatencies.resize(client::Session::receiveWorkerCount());
 
     subscribeClients(subscriberCount, totalMessageCount, clientPublishLatencies);
 }
@@ -1357,10 +1355,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         groupInterval = microseconds(durationSeconds * 100000);
     }
 
-    // Fan-In records all deliveries in object 0; the other objects do not close windows live.
-    const auto liveLatencyCount = testType == Type::FanIn
-                                      ? min<size_t>(1, clientPublishLatencies.size())
-                                      : clientPublishLatencies.size();
+    const auto liveLatencyCount = clientPublishLatencies.size();
 
     // This process's own CPU and memory, not the broker's: xmq_scn runs on the load generator and
     // cannot read the broker's /proc without asking that host, which is the polling this mode
@@ -1396,16 +1391,16 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     const auto   durationLimit = durationSeconds > 0 ? seconds(durationSeconds) : microseconds(0);
     const auto emitClosedWindows = [&](const bool final)
     {
-        // Live rows need every active receiver's watermark. At shutdown no more samples
-        // are accepted, so include the last, possibly partial, window from any receiver.
-        auto through = final ? -1us : microseconds::max();
-        for (size_t index = 0; index < liveLatencyCount; ++index)
+        // All workers share the same monotonic epoch. Taking each shard lock in
+        // closedInterval() waits for any writer that timestamped a sample before the boundary.
+        const auto elapsed = duration_cast<microseconds>(steady_clock::now() - publishStartTime);
+        auto through = groupInterval * (elapsed / groupInterval - 1);
+        if (final)
         {
-            const auto closed = clientPublishLatencies[index].closedThrough();
-            through = final ? max(through, closed) : min(through, closed);
-            if (!final && through < nextWindow)
+            through = -1us;
+            for (const auto& latency: clientPublishLatencies)
             {
-                return;
+                through = max(through, latency.closedThrough());
             }
         }
 
@@ -1455,10 +1450,11 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             const auto average = window.m_summaryLatency / static_cast<int64_t>(window.m_count);
             const auto rate = windowSeconds > 0 ? static_cast<size_t>(window.m_count / windowSeconds) : 0;
             const auto [cpuPercent, residentKb] = processUsage();
-            COUT(format("INTERVAL time_ms={} count={} avg_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
+            COUT(format("INTERVAL time_ms={} count={} avg_us={} p50_us={} p95_us={} p99_us={} rate={} cpu_pct={} rss_mb={}",
                         duration_cast<milliseconds>(nextWindow).count(),
                         window.m_count,
                         average.count(),
+                        RoundTripLatency::intervalPercentile(window.m_histogram, 50).count(),
                         RoundTripLatency::intervalPercentile(window.m_histogram, 95).count(),
                         RoundTripLatency::intervalPercentile(window.m_histogram, 99).count(),
                         rate,
@@ -1492,6 +1488,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
         ~LiveReporter() { stopAndJoin(); }
     } reporter;
 
+    const auto* slowBucketsOption = std::getenv("XMQ_SCN_SLOW_BUCKETS");
+    const bool slowBucketsEnabled = slowBucketsOption && string_view(slowBucketsOption) == "1";
     bool       measurementStarted = false;
     const auto beginMeasurement = [&]
     {
@@ -1505,7 +1503,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                                  : 0;
         for (auto& clientPublishLatency: clientPublishLatencies)
         {
-            clientPublishLatency.start(groupInterval);
+            clientPublishLatency.slowBucketsEnabled(slowBucketsEnabled);
+            clientPublishLatency.start(groupInterval, publishStartTime);
         }
 
         // The first reported window covers the first window only, not the ramp before it.
@@ -1624,16 +1623,13 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
                     case FanIn:
                         // Shared subscription: each message is delivered to exactly one subscriber,
                         // so record the send once in the shared latency object.
-                        clientPublishLatencies[0].sent(sequence);
+                        m_publishPairing->sent(sequence, 1);
                         break;
                     case FanOut:
-                        for (auto& clientPublishLatency: clientPublishLatencies)
-                        {
-                            clientPublishLatency.sent(sequence);
-                        }
+                        m_publishPairing->sent(sequence, m_subscribers.size());
                         break;
                     case PointToPoint:
-                        clientPublishLatencies[publisherIndex].sent(sequence);
+                        m_publishPairing->sent(sequence, 1, publisherIndex);
                         break;
                     default:
                         throw Exception("Unknown test type");
@@ -1673,10 +1669,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             {
                 if (!m_warmingUp.load())
                 {
-                    for (auto& clientPublishLatency: clientPublishLatencies)
-                    {
-                        clientPublishLatency.cancel(sequence);
-                    }
+                    m_publishPairing->cancel(sequence);
                 }
                 // The connection can go between the check above and the send: a node taken away under the
                 // load is exactly that race. The client is reconnecting, so the message is lost, not the
@@ -1732,6 +1725,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     }
 
     stopwatch.stop();
+    const auto measurementStoppedAt = steady_clock::now();
     m_scenarioCompleted = true;
     for (const auto& subscriber: m_subscribers)
     {
@@ -1752,6 +1746,31 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     auto summaryPublishLatency = RoundTripLatency::combine(clientPublishLatencies);
 
     summaryPublishLatency.print(scenarioTitle + (publishFailure ? " [PARTIAL]" : ""));
+
+    if (slowBucketsEnabled && measurementStarted)
+    {
+        vector<uint64_t> totals;
+        for (const auto& latency: clientPublishLatencies)
+        {
+            const auto& buckets = latency.slowBuckets();
+            totals.resize(max(totals.size(), buckets.size()));
+            for (size_t index = 0; index < buckets.size(); ++index)
+            {
+                totals[index] += buckets[index];
+            }
+        }
+        const auto measuredMs = ceil<milliseconds>(measurementStoppedAt - publishStartTime).count();
+        const auto limitMs = durationSeconds > 0
+                                 ? min(measuredMs, static_cast<decltype(measuredMs)>(durationSeconds * 1000))
+                                 : measuredMs;
+        COUT(format("SLOW-BUCKETS threshold_us=3000 width_ms=100 report_interval_ms={}",
+                    duration_cast<milliseconds>(groupInterval).count()));
+        for (size_t index = 0; index * 100 < static_cast<size_t>(limitMs); ++index)
+        {
+            COUT(format("SLOW-BUCKET time_ms={} count={}", index * 100,
+                        index < totals.size() ? totals[index] : 0));
+        }
+    }
 
     if (m_paceMaker)
     {

@@ -101,6 +101,7 @@ def field(header, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--env", required=True, choices=["AWS", "Bench"], help="Where the set ran.")
+    parser.add_argument("--results-dir", type=pathlib.Path, default=RESULTS, help="Results root.")
     parser.add_argument("--broker", help="Broker name, when the record's Server: line is wrong - "
                                          "records of other brokers were once written as XMQ.")
     parser.add_argument("record", type=pathlib.Path, help="Record written by run_scenario_set.sh --record.")
@@ -119,7 +120,7 @@ def main():
     # XMQ (anything) is still XMQ. Every broker has its own directory under the environment,
     # and each version has one directory inside it: Bench/FlashMQ/1.27.1/.
     broker = broker.split("(")[0].strip().replace(" ", "-")
-    directory = RESULTS / args.env / broker / version
+    directory = args.results_dir / args.env / broker / version
 
     # Current records are rewritten after each scenario. An interrupted set may contain only
     # successful tables; the completion marker is what distinguishes it from a complete set.
@@ -146,7 +147,7 @@ def main():
                  f"{args.record.parent}")
     if directory.is_dir() and any(directory.iterdir()):
         shutil.rmtree(directory)
-        print(f"replaced {directory.relative_to(RESULTS.parent)}")
+        print(f"replaced {directory.relative_to(args.results_dir.parent)}")
     directory.mkdir(parents=True, exist_ok=True)
 
     targets = [(directory / f"{name}.txt", table) for name, table in tests.items()]
@@ -158,7 +159,7 @@ def main():
         staged = target.with_name(target.name + ".tmp")
         staged.write_text("\n".join(header) + "\n\n" + "\n".join(table) + "\n")
         staged.replace(target)
-        print(target.relative_to(RESULTS.parent))
+        print(target.relative_to(args.results_dir.parent))
 
 
 if __name__ == "__main__":

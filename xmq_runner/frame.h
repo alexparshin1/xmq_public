@@ -11,6 +11,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -173,6 +174,34 @@ inline int columnsOf(const std::string& text)
         ++columns;
     }
     return columns;
+}
+
+/// The first `columns` columns of a UTF-8 string, cut on a code point boundary.
+inline std::string clipTo(const std::string& text, const int columns)
+{
+    if (columns <= 0)
+    {
+        return {};
+    }
+    int    used = 0;
+    size_t at = 0;
+    while (at < text.size() && used < columns)
+    {
+        at += 1;
+        while (at < text.size() && (static_cast<unsigned char>(text[at]) & 0xC0) == 0x80)
+        {
+            ++at;
+        }
+        ++used;
+    }
+    return text.substr(0, at);
+}
+
+/// The text, clipped or blank-padded to exactly `columns` columns.
+inline std::string padded(const std::string& text, const int columns)
+{
+    const auto clipped = clipTo(text, columns);
+    return clipped + std::string(static_cast<size_t>(std::max(0, columns - columnsOf(clipped))), ' ');
 }
 
 /// Draws text in which the segments between '~' are the shortcut, in `hot`: the way a Turbo Vision

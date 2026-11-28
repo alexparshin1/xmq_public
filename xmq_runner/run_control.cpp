@@ -287,7 +287,8 @@ void RunControl::start()
 
     // The run file's own flags come first; these extras come last so stand_run.sh sees them last
     // and they win without the file ever being changed.
-    vector<string> values {m_spec.file.string(), "--out", m_state.monitorDir, "--existing-broker"};
+    vector<string> values {m_spec.file.string(), "--out", m_state.monitorDir, "--existing-broker",
+                           "--results-dir", resultsDirectory().string()};
     if (!m_overrideBroker.empty())
     {
         values.push_back("--broker");
@@ -348,6 +349,40 @@ void RunControl::stop()
     m_state.lastAction = "stopping (SIGTERM)";
 }
 
+string RunControl::filingTarget() const
+{
+    // The record, not the run file, contains the broker and version used for this run.
+    ifstream record(m_state.record);
+    string line, broker, version;
+    const auto value = [](const string& text)
+    {
+        const auto first = text.find_first_not_of(" \t\r");
+        return first == string::npos ? string{} : text.substr(first, text.find_last_not_of(" \t\r") - first + 1);
+    };
+    while (getline(record, line) && !line.starts_with("Summary -"))
+    {
+        if (broker.empty() && line.starts_with("Server:"))
+        {
+            broker = value(line.substr(7));
+        }
+        if (version.empty() && line.starts_with("Version:"))
+        {
+            version = value(line.substr(8));
+        }
+        if (!broker.empty() && !version.empty())
+        {
+            break;
+        }
+    }
+    // Match the directory naming in file_results.py.
+    broker = value(broker.substr(0, broker.find('(')));
+    for (auto& ch: broker)
+    {
+        if (ch == ' ') ch = '-';
+    }
+    return broker.empty() || version.empty() ? string{} : "Bench/" + broker + "/" + version;
+}
+
 void RunControl::file()
 {
     if (!canFile())
@@ -356,7 +391,8 @@ void RunControl::file()
     }
 
     const auto script = loadTestDirectory() / "file_results.py";
-    const auto command = quote(script.string()) + " --env Bench " + quote(m_state.record) + " 2>&1";
+    const auto command = quote(script.string()) + " --env Bench --results-dir " +
+                         quote(resultsDirectory().string()) + " " + quote(m_state.record) + " 2>&1";
 
     vector<string> output;
     if (FILE* pipe = popen(command.c_str(), "r"); pipe != nullptr)

@@ -47,6 +47,7 @@ public:
     bool canStart() const;
     bool canStop() const;
     bool canFile() const;
+    std::string filingTarget() const;
 
     /// Executes the run file detached, in its own session, with a fresh output directory. The
     /// session matters: a stop has to reach xmq_scn and the shell that started it, not just the
@@ -60,7 +61,7 @@ public:
     /// seconds, so a hung run cannot hold the stand.
     void stop();
 
-    /// Runs file_results.py --env Bench on the record. It replaces results/Bench/<version>/ whole,
+    /// Runs file_results.py --env Bench on the record. It replaces results/Bench/<broker>/<version>/ whole,
     /// which is why the screen asks before calling this.
     void file();
 

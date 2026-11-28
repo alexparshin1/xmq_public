@@ -12,11 +12,13 @@
 */
 
 #pragma once
+
 #include "ConnectProgress.h"
 
 #include <set>
 
 #include "ProgressBar.h"
+#include "PublishPairing.h"
 #include "RoundTripInterval.h"
 #include "client/MqttClient.h"
 #include "common/PaceMaker.h"
@@ -223,6 +225,7 @@ private:
         return !m_unanswered.contains(client.get());
     }
     LatencyTraceTotal                m_latencyTraceTotal;
+    std::shared_ptr<PublishPairing>  m_publishPairing;
     std::atomic_bool                 m_scenarioCompleted;
     std::atomic_bool                 m_warmingUp {false};
     std::atomic<int64_t>             m_measurementEndNs {0};

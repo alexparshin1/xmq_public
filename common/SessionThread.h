@@ -42,7 +42,9 @@ public:
         }
     };
 
-    SessionThread();
+    explicit SessionThread(size_t workerIndex = 0);
+    /// The calling receive worker's index within its own pool.
+    static size_t receiveWorkerIndex() noexcept;
     ~SessionThread();
     void queueReceiveMessages(WBaseClientSession session);
     void sendMessage(const SBaseClientSession& session, SMessageDispatch& message);
@@ -54,6 +56,7 @@ protected:
     void sendThreadFunction();
 
 private:
+    const size_t                                m_workerIndex;
     mutable std::mutex                          m_mutex;
     // The destructor waits on these before returning; it has to, because the queues below are
     // destroyed first and these threads are still reading them. See ~SessionThread().

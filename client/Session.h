@@ -93,6 +93,9 @@ public:
         Disconnecting = 3
     };
 
+    /// Number of receive workers in the default client pool.
+    static size_t receiveWorkerCount() noexcept { return m_allClientThreads.size(); }
+
     /**
      * @brief Size the shared socket-event pool for about this many sessions.
      *
