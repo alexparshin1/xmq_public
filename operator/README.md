@@ -1,5 +1,8 @@
 # XMQ Kubernetes operator (MVP)
 
+The step-by-step guide for creating an `XMQCluster` in kind, with verification after every step,
+is `doc/OperatorPilot-1.2.1.md`.
+
 This directory contains the first half of the operator discussed in
 `doc/KubernetesPilot-1.2.1.md`. It automates the steps that the runbook performs by hand:
 CRD, workloads, certificates and initial setup. Redis and PostgreSQL stay **external** — the
