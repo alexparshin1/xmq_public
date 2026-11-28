@@ -1,0 +1,13 @@
+apiVersion: xmq.sptk.net/v1
+kind: XMQCluster
+metadata:
+  name: xmq
+  namespace: xmq
+spec:
+  replicas: 3
+  version: 1.2.1
+  redisURI: redis://redis.xmq.svc.cluster.local:6379/0
+  databaseURI: postgresql://xmq:xmqsecret@postgres.xmq.svc.cluster.local:5432/xmq
+  caSecret: xmq-ca
+  tlsSecretPrefix: xmq-tls
+  credentialsSecret: xmq-credentials

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xmq-operator-controller-manager
+  namespace: xmq-operator-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {control-plane: controller-manager}
+  template:
+    metadata:
+      labels: {control-plane: controller-manager}
+    spec:
+      serviceAccountName: xmq-operator-controller-manager
+      containers:
+        - name: manager
+          image: xmq-operator:1.2.1
+          imagePullPolicy: IfNotPresent
+          args: [--health-probe-bind-address=:8081]
+          ports:
+            - {name: metrics, containerPort: 8080}
+            - {name: probes, containerPort: 8081}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8081}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8081}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
