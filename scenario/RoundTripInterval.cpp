@@ -156,6 +156,10 @@ RoundTripLatency::RoundTripLatency(const RoundTripLatency& other)
 void RoundTripLatency::start(const microseconds groupInterval)
 {
     m_groupIntervalDuration = groupInterval;
+    // The observer needs a window closed from the receive path at each boundary. A plain publish
+    // phase has none: its samples can go straight into their time-keyed bucket, which keeps window
+    // bookkeeping off the delivery callbacks that the latency measurement is timing.
+    m_directIntervals = !m_intervalObserver;
 
     m_startTime = Clock::now();
     m_nextIntervalTime = m_startTime + m_groupIntervalDuration;
@@ -175,7 +179,10 @@ void RoundTripLatency::start(const microseconds groupInterval)
 void RoundTripLatency::stop()
 {
     const std::scoped_lock lock(m_mutex);
-    storeCurrentInterval();
+    if (!m_directIntervals)
+    {
+        storeCurrentInterval();
+    }
 }
 
 void RoundTripLatency::sent()
@@ -234,6 +241,38 @@ void RoundTripLatency::storeCurrentInterval()
     m_closedThrough.store(interval.count(), std::memory_order_relaxed);
 }
 
+void RoundTripLatency::addDirect(const microseconds now, const microseconds latency)
+{
+    const auto width = m_groupIntervalDuration.count();
+    if (width <= 0)
+    {
+        return;
+    }
+    const auto elapsed = duration_cast<microseconds>(now - m_startTime).count();
+    const auto key = microseconds(elapsed / width * width);
+
+    auto& bucket = m_intervals[key];
+    ++bucket.m_count;
+    bucket.m_summaryLatency += latency;
+    ++bucket.m_histogram[histogramBucketClamped(latency.count())];
+
+    histogramAdd(m_totalHistogram, latency);
+    m_summaryLatency += latency;
+    ++m_count;
+
+    // A later sample proves this window is closed; the reporter can emit it without waiting for
+    // another delivery to trigger a lazy close on this receive thread.
+    const auto closed = key - m_groupIntervalDuration;
+    if (closed >= microseconds(0))
+    {
+        const auto latest = m_closedThrough.load(std::memory_order_relaxed);
+        if (closed.count() > latest)
+        {
+            m_closedThrough.store(closed.count(), std::memory_order_relaxed);
+        }
+    }
+}
+
 const RoundTripLatency::Interval* RoundTripLatency::closedInterval(const microseconds intervalStart) const
 {
     const scoped_lock lock(m_mutex);
@@ -260,6 +299,11 @@ void RoundTripLatency::received()
         const auto now = Clock::now();
 
         const auto latency = duration_cast<microseconds>(now.time_since_epoch()) - started;
+        if (m_directIntervals)
+        {
+            addDirect(now, latency);
+            return;
+        }
         while (m_groupIntervalDuration.count() > 0 && now > m_nextIntervalTime)
         {
             storeCurrentInterval();
@@ -287,6 +331,11 @@ void RoundTripLatency::received(const uint32_t sequence)
     const auto latency = duration_cast<microseconds>(now.time_since_epoch()) - started->second;
     m_startedBySequence.erase(started);
 
+    if (m_directIntervals)
+    {
+        addDirect(now, latency);
+        return;
+    }
     while (m_groupIntervalDuration.count() > 0 && now > m_nextIntervalTime)
     {
         storeCurrentInterval();

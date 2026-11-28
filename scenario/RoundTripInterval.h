@@ -106,6 +106,9 @@ public:
 
     void storeCurrentInterval();
 
+    /// Time-keyed sample accumulation used when no interval observer is installed.
+    void addDirect(std::chrono::microseconds now, std::chrono::microseconds latency);
+
     void received();
 
     /**
@@ -220,6 +223,7 @@ private:
     std::unordered_map<uint32_t, std::chrono::microseconds> m_startedBySequence;
     size_t                                             m_unmatchedReceived {0};
     std::chrono::microseconds                          m_groupIntervalDuration {0};
+    bool                                               m_directIntervals {false}; ///< No observer: key samples by time, don't close windows in the receive path.
     std::map<std::chrono::microseconds, Interval>      m_intervals;
     Clock::time_point                                  m_startTime;
     Clock::time_point                                  m_nextIntervalTime;

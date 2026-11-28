@@ -1392,6 +1392,8 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
     };
 
     microseconds nextWindow {0};
+    size_t       emittedCount {0};
+    const auto   durationLimit = durationSeconds > 0 ? seconds(durationSeconds) : microseconds(0);
     const auto emitClosedWindows = [&](const bool final)
     {
         // Live rows need every active receiver's watermark. At shutdown no more samples
@@ -1407,9 +1409,29 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             }
         }
 
+        // Messages that arrive during the delivery grace are real, but they are outside the
+        // measured window: a 300-second run must not report an interval at 330 seconds. Both
+        // bounds are the same ones the publish loop stops on - sent count when set, else time.
+        if (publishMessageCount > 0 && emittedCount >= static_cast<size_t>(publishMessageCount))
+        {
+            return;
+        }
+        if (durationLimit > microseconds(0) && nextWindow >= durationLimit)
+        {
+            return;
+        }
+
         const auto windowSeconds = duration<double>(groupInterval).count();
         for (; nextWindow <= through; nextWindow += groupInterval)
         {
+            if (publishMessageCount > 0 && emittedCount >= static_cast<size_t>(publishMessageCount))
+            {
+                break;
+            }
+            if (durationLimit > microseconds(0) && nextWindow >= durationLimit)
+            {
+                break;
+            }
             RoundTripLatency::Interval window;
             for (size_t index = 0; index < liveLatencyCount; ++index)
             {
@@ -1429,6 +1451,7 @@ void ScenarioEngine::publish(vector<RoundTripLatency>& clientPublishLatencies, c
             {
                 continue;
             }
+            emittedCount += window.m_count;
             const auto average = window.m_summaryLatency / static_cast<int64_t>(window.m_count);
             const auto rate = windowSeconds > 0 ? static_cast<size_t>(window.m_count / windowSeconds) : 0;
             const auto [cpuPercent, residentKb] = processUsage();
